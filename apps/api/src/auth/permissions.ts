@@ -1,0 +1,53 @@
+import { createAccessControl } from 'better-auth/plugins/access';
+import { defaultStatements } from 'better-auth/plugins/organization/access';
+
+const statement = {
+  ...defaultStatements,
+  client: ['create', 'read', 'update', 'delete'],
+  domain: ['create', 'read', 'update', 'delete'],
+  report: ['create', 'read', 'update', 'delete'],
+  billing: ['read', 'update'],
+} as const;
+
+export const accessControl = createAccessControl(statement);
+
+export const owner = accessControl.newRole({
+  organization: statement.organization,
+  member: statement.member,
+  invitation: statement.invitation,
+  client: statement.client,
+  domain: statement.domain,
+  report: statement.report,
+  billing: statement.billing,
+});
+
+export const admin = accessControl.newRole({
+  organization: ['update'],
+  member: statement.member,
+  invitation: statement.invitation,
+  client: statement.client,
+  domain: statement.domain,
+  report: statement.report,
+  billing: ['read'],
+});
+
+export const analyst = accessControl.newRole({
+  client: ['read'],
+  domain: ['read', 'update'],
+  report: ['create', 'read', 'update'],
+  billing: ['read'],
+});
+
+export const viewer = accessControl.newRole({
+  client: ['read'],
+  domain: ['read'],
+  report: ['read'],
+  billing: ['read'],
+});
+
+export const organizationRoles = {
+  owner,
+  admin,
+  analyst,
+  viewer,
+};

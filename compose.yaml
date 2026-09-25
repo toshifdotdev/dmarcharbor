@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: dmarcharbor
+      POSTGRES_PASSWORD: dmarcharbor
+      POSTGRES_DB: dmarcharbor
+    ports:
+      - "5432:5432"
+    volumes:
+      - dmarcharbor-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dmarcharbor -d dmarcharbor"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  dmarcharbor-postgres:
