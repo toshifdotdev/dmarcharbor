@@ -5,7 +5,7 @@ const statement = {
   ...defaultStatements,
   client: ['create', 'read', 'update', 'delete'],
   domain: ['create', 'read', 'update', 'delete'],
-  report: ['create', 'read', 'update', 'delete'],
+  report: ['create', 'read', 'update', 'delete', 'ingest'],
   billing: ['read', 'update'],
 } as const;
 

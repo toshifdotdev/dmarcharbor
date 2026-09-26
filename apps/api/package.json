@@ -22,6 +22,7 @@
     "dotenv": "^18.0.3",
     "express": "^5.1.0",
     "express-rate-limit": "^7.5.0",
+    "fast-xml-parser": "5.11.1",
     "resend": "6.30.0",
     "zod": "^3.25.76"
   },

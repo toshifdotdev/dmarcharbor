@@ -136,12 +136,12 @@ model Client {
 }
 
 model Domain {
-  id                String       @id @default(cuid())
+  id                String        @id @default(cuid())
   clientId          String
-  client            Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  client            Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
   name              String
-  status            DomainStatus @default(PENDING)
-  verificationToken String       @unique @default(uuid())
+  status            DomainStatus  @default(PENDING)
+  verificationToken String        @unique @default(uuid())
   verifiedAt        DateTime?
   lastScanAt        DateTime?
   dmarcPolicy       String?
@@ -149,9 +149,10 @@ model Domain {
   dkimSelectors     Json?
   mxRecords         Json?
   score             Int?
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
   scans             Scan[]
+  dmarcReports      DmarcReport[]
 
   @@unique([clientId, name])
   @@index([clientId])
@@ -179,6 +180,67 @@ model Scan {
   @@map("scan")
 }
 
+model DmarcReport {
+  id                    String              @id @default(cuid())
+  domainId              String
+  domain                Domain              @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  reportType            DmarcReportType
+  fingerprint           String              @unique
+  reportId              String?
+  reportingOrganization String?
+  reportingEmail        String?
+  extraContactInfo      String?
+  dateRangeBegin        DateTime?
+  dateRangeEnd          DateTime?
+  policyDomain          String?
+  policyAdkim           String?
+  policyAspf            String?
+  policyP               String?
+  policySp              String?
+  policyFraction        Int?
+  reportError           String?
+  recordCount           Int                 @default(0)
+  receivedAt            DateTime            @default(now())
+  records               DmarcReportRecord[]
+
+  @@index([domainId, receivedAt])
+  @@index([reportType, receivedAt])
+  @@map("dmarc_report")
+}
+
+model DmarcReportRecord {
+  id           String            @id @default(cuid())
+  reportId     String
+  report       DmarcReport       @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  sourceIp     String
+  messageCount Int
+  disposition  String?
+  dkimResult   String?
+  spfResult    String?
+  headerFrom   String?
+  envelopeFrom String?
+  policyReason String?
+  authResults  DmarcAuthResult[]
+
+  @@index([reportId])
+  @@index([sourceIp])
+  @@map("dmarc_report_record")
+}
+
+model DmarcAuthResult {
+  id       String            @id @default(cuid())
+  recordId String
+  record   DmarcReportRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  type     DmarcAuthType
+  domain   String?
+  selector String?
+  scope    String?
+  result   String
+
+  @@index([recordId])
+  @@map("dmarc_auth_result")
+}
+
 enum DomainStatus {
   PENDING
   VERIFIED
@@ -189,4 +251,14 @@ enum ScanRunStatus {
   RUNNING
   COMPLETED
   FAILED
+}
+
+enum DmarcReportType {
+  AGGREGATE
+  FORENSIC
+}
+
+enum DmarcAuthType {
+  DKIM
+  SPF
 }
