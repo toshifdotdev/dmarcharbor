@@ -39,6 +39,7 @@ export const alertEventQuerySchema = z.object({
 
 export const notificationPreferenceSchema = z.object({
   emailAlerts: z.boolean().optional(),
+  timezone: z.string().trim().min(1).max(64).optional(),
   quietHoursStart: z.string().trim().nullable().optional(),
   quietHoursEnd: z.string().trim().nullable().optional(),
   onlyHighRiskAlerts: z.boolean().optional(),

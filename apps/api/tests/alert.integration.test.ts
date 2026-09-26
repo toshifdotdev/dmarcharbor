@@ -5,6 +5,7 @@ import {
   evaluateRule,
   getAlertRule,
   listAlertEvents,
+  runAlertRollups,
 } from '../src/services/alert.service.js';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
@@ -385,6 +386,151 @@ describe('alerting', () => {
     expect(await prisma.alertEvent.count({ where: { ruleId: rule.body.id } })).toBe(2);
   });
 
+  it('rolls exhausted alerts up to owners and admins at most once per interval', async () => {
+    const { agent, organizationId, domainId, userId } = await createWorkspaceDomain('alerts.rollup.test');
+    const ownerId = userId;
+
+    const analyst = await prisma.user.create({
+      data: { id: `rollup-analyst-${Date.now()}`, name: 'Rollup Analyst', emailVerified: true, email: `rollup-analyst-${Date.now()}@example.com` },
+    });
+    await prisma.member.create({
+      data: { id: `rollup-member-${Date.now()}`, organizationId, userId: analyst.id, role: 'analyst', createdAt: new Date() },
+    });
+
+    await agent.post(`/api/workspaces/${organizationId}/domains/${domainId}/reports`).send({
+      xml: aggregateReport('alerts.rollup.test', 'rollup-1', [{ ip: '45.83.12.9', count: 900, dkim: 'fail', spf: 'fail' }]),
+    });
+
+    const rule = await agent.post(`/api/workspaces/${organizationId}/alert-rules`).send({
+      domainId,
+      name: 'Exhausted ladder',
+      metric: 'FAILURE_COUNT',
+      operator: 'GREATER_THAN',
+      threshold: 100,
+      cooldownMinutes: 5,
+      maxReminderLevel: 1,
+      recipientUserIds: [analyst.id],
+    });
+    const ruleId = rule.body.id;
+
+    const first = await evaluateAlertRules();
+    const eventId = first.find((result) => result.ruleId === ruleId)?.eventId as string;
+    expect(first.find((result) => result.ruleId === ruleId)?.outcome).toBe('triggered');
+
+    const early = await runAlertRollups();
+    expect(early.find((result) => result.organizationId === organizationId)?.notified).toBe(false);
+
+    await prisma.alertEvent.update({
+      where: { id: eventId },
+      data: { lastOwnerNotifiedAt: new Date(Date.now() - 25 * 60 * 60 * 1000) },
+    });
+
+    const sent = await runAlertRollups();
+    const outcome = sent.find((result) => result.organizationId === organizationId);
+    expect(outcome?.notified).toBe(true);
+    expect(outcome?.eventCount).toBe(1);
+
+    const ownerDeliveries = await prisma.alertDelivery.findMany({ where: { eventId, kind: 'ROLLUP' } });
+    expect(ownerDeliveries).toHaveLength(1);
+    expect(ownerDeliveries[0].userId).toBe(ownerId);
+    expect(ownerDeliveries[0].status).toBe('SENT');
+    expect(await prisma.alertDelivery.count({ where: { eventId, kind: 'ALERT' } })).toBe(1);
+  });
+
+  it('never sends a rollup to a non-escalation role', async () => {
+    const { agent, organizationId, domainId, userId } = await createWorkspaceDomain('alerts.rollup-role.test');
+    await agent.post(`/api/workspaces/${organizationId}/domains/${domainId}/reports`).send({
+      xml: aggregateReport('alerts.rollup-role.test', 'rollup-role-1', [{ ip: '45.83.12.9', count: 900, dkim: 'fail', spf: 'fail' }]),
+    });
+
+    const rule = await agent.post(`/api/workspaces/${organizationId}/alert-rules`).send({
+      domainId,
+      name: 'Analyst only',
+      metric: 'FAILURE_COUNT',
+      operator: 'GREATER_THAN',
+      threshold: 100,
+      cooldownMinutes: 5,
+      maxReminderLevel: 1,
+      recipientUserIds: [userId],
+    });
+
+    await evaluateAlertRules();
+    await prisma.member.updateMany({ where: { organizationId }, data: { role: 'analyst' } });
+    await prisma.alertEvent.updateMany({
+      where: { ruleId: rule.body.id },
+      data: { lastOwnerNotifiedAt: new Date(Date.now() - 25 * 60 * 60 * 1000) },
+    });
+
+    await runAlertRollups();
+
+    const rollups = await prisma.alertDelivery.findMany({ where: { kind: 'ROLLUP', event: { ruleId: rule.body.id } } });
+    expect(rollups).toHaveLength(0);
+  });
+
+  it('marks long-unacknowledged alerts stale and stops emailing them', async () => {
+    const { agent, organizationId, domainId, userId } = await createWorkspaceDomain('alerts.stale.test');
+    await agent.post(`/api/workspaces/${organizationId}/domains/${domainId}/reports`).send({
+      xml: aggregateReport('alerts.stale.test', 'stale-1', [{ ip: '45.83.12.9', count: 900, dkim: 'fail', spf: 'fail' }]),
+    });
+
+    const rule = await agent.post(`/api/workspaces/${organizationId}/alert-rules`).send({
+      domainId,
+      name: 'Goes stale',
+      metric: 'FAILURE_COUNT',
+      operator: 'GREATER_THAN',
+      threshold: 100,
+      cooldownMinutes: 5,
+      maxReminderLevel: 1,
+      recipientUserIds: [userId],
+    });
+
+    const first = await evaluateAlertRules();
+    const eventId = first.find((result) => result.ruleId === rule.body.id)?.eventId as string;
+
+    await prisma.alertEvent.update({
+      where: { id: eventId },
+      data: { triggeredAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000) },
+    });
+
+    await runAlertRollups();
+
+    const stored = await prisma.alertEvent.findUniqueOrThrow({ where: { id: eventId } });
+    expect(stored.staleAt).not.toBeNull();
+
+    const before = await prisma.alertDelivery.count({ where: { eventId, kind: 'ROLLUP' } });
+    await prisma.alertEvent.update({
+      where: { id: eventId },
+      data: { lastOwnerNotifiedAt: new Date(Date.now() - 25 * 60 * 60 * 1000) },
+    });
+    await runAlertRollups();
+    expect(await prisma.alertDelivery.count({ where: { eventId, kind: 'ROLLUP' } })).toBe(before);
+
+    const listed = await agent.get(`/api/workspaces/${organizationId}/alerts`);
+    expect(listed.status).toBe(200);
+    expect(listed.body[0].status).toBe('STALE');
+  });
+
+  it('stores the timezone and rejects an invalid one', async () => {
+    const { agent, userId } = await createWorkspaceDomain('alerts.timezone.test');
+
+    const saved = await agent.patch(`/api/me/${userId}/notification-preferences`).send({
+      timezone: 'Europe/Berlin',
+      quietHoursStart: '22:00',
+      quietHoursEnd: '07:00',
+    });
+    expect(saved.status).toBe(200);
+    expect(saved.body.timezone).toBe('Europe/Berlin');
+
+    const stored = await prisma.notificationPreference.findUniqueOrThrow({ where: { userId } });
+    expect(stored.timezone).toBe('Europe/Berlin');
+
+    const invalid = await agent.patch(`/api/me/${userId}/notification-preferences`).send({
+      timezone: 'Not/AZone',
+    });
+    expect(invalid.status).toBe(400);
+    expect(invalid.body.error.message).toContain('IANA timezone');
+  });
+
   it('does not trigger when the metric is below the threshold', async () => {
     const { agent, organizationId, domainId, userId } = await createWorkspaceDomain('alerts.quiet.test');
     await agent.post(`/api/workspaces/${organizationId}/domains/${domainId}/reports`).send({
@@ -512,6 +658,7 @@ describe('alerting', () => {
       quietHoursStart: '22:00',
     });
     expect(partial.status).toBe(400);
+    expect(partial.body.error.message).toContain('together');
   });
 
   it('refuses to change another user preferences and blocks rule creation for viewers', async () => {

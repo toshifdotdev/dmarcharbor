@@ -31,6 +31,8 @@ const envSchema = z.object({
   FORENSIC_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(30),
   FORENSIC_PII_RETENTION_DAYS: z.coerce.number().int().min(1).max(30).default(7),
   ALERT_EVALUATION_INTERVAL_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
+  ALERT_ROLLUP_HOURS: z.coerce.number().int().min(1).max(168).default(24),
+  ALERT_STALE_DAYS: z.coerce.number().int().min(1).max(365).default(7),
   ALERT_SCHEDULER_DISABLED: z
     .enum(['true', 'false'])
     .default('false')

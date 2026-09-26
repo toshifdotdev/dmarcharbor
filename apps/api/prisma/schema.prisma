@@ -364,50 +364,55 @@ model AlertRecipient {
 }
 
 model AlertEvent {
-  id               String          @id @default(cuid())
-  ruleId           String
-  rule             AlertRule       @relation(fields: [ruleId], references: [id], onDelete: Cascade)
-  organizationId   String
-  organization     Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  domainId         String
-  domain           Domain          @relation(fields: [domainId], references: [id], onDelete: Cascade)
-  metric           AlertMetric
-  operator         AlertOperator
-  observedValue    Int
-  threshold        Int
-  windowMinutes    Int
-  summary          String
-  context          Json?
-  reminderLevel    Int             @default(1)
-  acknowledgedAt   DateTime?
-  acknowledgedById String?
-  acknowledgedBy   User?           @relation("AcknowledgedAlertEvents", fields: [acknowledgedById], references: [id], onDelete: SetNull)
-  resolvedAt       DateTime?
-  triggeredAt      DateTime        @default(now())
-  deliveries       AlertDelivery[]
+  id                  String          @id @default(cuid())
+  ruleId              String
+  rule                AlertRule       @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  organizationId      String
+  organization        Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  domainId            String
+  domain              Domain          @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  metric              AlertMetric
+  operator            AlertOperator
+  observedValue       Int
+  threshold           Int
+  windowMinutes       Int
+  summary             String
+  context             Json?
+  reminderLevel       Int             @default(1)
+  acknowledgedAt      DateTime?
+  acknowledgedById    String?
+  acknowledgedBy      User?           @relation("AcknowledgedAlertEvents", fields: [acknowledgedById], references: [id], onDelete: SetNull)
+  lastOwnerNotifiedAt DateTime?
+  ownerRollupLevel    Int             @default(0)
+  staleAt             DateTime?
+  resolvedAt          DateTime?
+  triggeredAt         DateTime        @default(now())
+  deliveries          AlertDelivery[]
 
   @@index([ruleId, triggeredAt])
   @@index([ruleId, acknowledgedAt])
+  @@index([staleAt])
   @@index([domainId, triggeredAt])
   @@index([organizationId, triggeredAt])
   @@map("alert_event")
 }
 
 model AlertDelivery {
-  id        String              @id @default(cuid())
-  eventId   String
-  event     AlertEvent          @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  userId    String
-  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  channel   AlertChannel        @default(EMAIL)
-  status    AlertDeliveryStatus @default(PENDING)
-  reminderLevel Int             @default(1)
-  attempts  Int                 @default(0)
-  lastError String?
-  sentAt    DateTime?
-  createdAt DateTime            @default(now())
+  id            String              @id @default(cuid())
+  eventId       String
+  event         AlertEvent          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel       AlertChannel        @default(EMAIL)
+  kind          AlertDeliveryKind   @default(ALERT)
+  status        AlertDeliveryStatus @default(PENDING)
+  reminderLevel Int                 @default(1)
+  attempts      Int                 @default(0)
+  lastError     String?
+  sentAt        DateTime?
+  createdAt     DateTime            @default(now())
 
-  @@unique([eventId, userId, channel, reminderLevel])
+  @@unique([eventId, userId, channel, kind, reminderLevel])
   @@index([userId, status])
   @@map("alert_delivery")
 }
@@ -417,6 +422,7 @@ model NotificationPreference {
   userId             String   @unique
   user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   emailAlerts        Boolean  @default(true)
+  timezone           String   @default("UTC")
   quietHoursStart    String?
   quietHoursEnd      String?
   onlyHighRiskAlerts Boolean  @default(false)
@@ -442,6 +448,11 @@ enum AlertOperator {
 
 enum AlertChannel {
   EMAIL
+}
+
+enum AlertDeliveryKind {
+  ALERT
+  ROLLUP
 }
 
 enum AlertDeliveryStatus {

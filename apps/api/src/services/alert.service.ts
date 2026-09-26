@@ -1,5 +1,6 @@
 import type { AlertDeliveryStatus, AlertMetric, AlertOperator, Prisma } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
+import { env } from '../config/env.js';
 import { sendAuthEmail } from '../email/email.service.js';
 
 const riskByMetric: Record<AlertMetric, 'high' | 'medium'> = {
@@ -67,10 +68,41 @@ function parseHour(value: string | null | undefined): number | null {
   return hours * 60 + minutes;
 }
 
+export function isValidTimeZone(timeZone: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function localMinutes(at: Date, timeZone: string): number {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(at);
+
+    const hour = Number(parts.find((part) => part.type === 'hour')?.value);
+    const minute = Number(parts.find((part) => part.type === 'minute')?.value);
+    if (Number.isFinite(hour) && Number.isFinite(minute)) {
+      return hour * 60 + minute;
+    }
+  } catch {
+    return at.getUTCHours() * 60 + at.getUTCMinutes();
+  }
+
+  return at.getUTCHours() * 60 + at.getUTCMinutes();
+}
+
 export function isWithinQuietHours(
   quietHoursStart: string | null,
   quietHoursEnd: string | null,
   at: Date,
+  timeZone = 'UTC',
 ): boolean {
   const start = parseHour(quietHoursStart);
   const end = parseHour(quietHoursEnd);
@@ -78,7 +110,7 @@ export function isWithinQuietHours(
     return false;
   }
 
-  const minutes = at.getUTCHours() * 60 + at.getUTCMinutes();
+  const minutes = localMinutes(at, isValidTimeZone(timeZone) ? timeZone : 'UTC');
   return start < end ? minutes >= start && minutes < end : minutes >= start || minutes < end;
 }
 
@@ -398,47 +430,90 @@ async function deliverEvent(
       id: true,
       email: true,
       notificationPreference: {
-        select: { emailAlerts: true, quietHoursStart: true, quietHoursEnd: true, onlyHighRiskAlerts: true },
+        select: {
+          emailAlerts: true,
+          quietHoursStart: true,
+          quietHoursEnd: true,
+          onlyHighRiskAlerts: true,
+          timezone: true,
+        },
       },
     },
   });
 
   for (const user of users) {
-    const preference = user.notificationPreference;
-    let status: AlertDeliveryStatus = 'PENDING';
-
-    if (preference && !preference.emailAlerts) {
-      status = 'SKIPPED_DISABLED';
-    } else if (preference?.onlyHighRiskAlerts && risk !== 'high') {
-      status = 'SKIPPED_DISABLED';
-    } else if (preference && isWithinQuietHours(preference.quietHoursStart, preference.quietHoursEnd, now)) {
-      status = 'SKIPPED_QUIET_HOURS';
-    }
-
-    const delivery = await prisma.alertDelivery.create({
-      data: { eventId, userId: user.id, channel: 'EMAIL', status, reminderLevel },
+    await deliverToUser(user, {
+      eventId,
+      kind: 'ALERT',
+      subject,
+      body,
+      risk,
+      reminderLevel,
+      now,
     });
+  }
+}
 
-    if (status !== 'PENDING') {
-      continue;
-    }
+async function deliverToUser(
+  user: {
+    id: string;
+    email: string;
+    notificationPreference: {
+      emailAlerts: boolean;
+      quietHoursStart: string | null;
+      quietHoursEnd: string | null;
+      onlyHighRiskAlerts: boolean;
+      timezone: string;
+    } | null;
+  },
+  options: {
+    eventId: string;
+    kind: 'ALERT' | 'ROLLUP';
+    subject: string;
+    body: string;
+    risk: 'high' | 'medium';
+    reminderLevel: number;
+    now: Date;
+  },
+): Promise<void> {
+  const { eventId, kind, subject, body, risk, reminderLevel, now } = options;
+  const preference = user.notificationPreference;
+  let status: AlertDeliveryStatus = 'PENDING';
 
-    try {
-      await sendAuthEmail({ to: user.email, subject, text: body });
-      await prisma.alertDelivery.update({
-        where: { id: delivery.id },
-        data: { status: 'SENT', attempts: 1, sentAt: new Date() },
-      });
-    } catch (error) {
-      await prisma.alertDelivery.update({
-        where: { id: delivery.id },
-        data: {
-          status: 'FAILED',
-          attempts: 1,
-          lastError: error instanceof Error ? error.message : 'Unknown delivery error.',
-        },
-      });
-    }
+  if (preference && !preference.emailAlerts) {
+    status = 'SKIPPED_DISABLED';
+  } else if (preference?.onlyHighRiskAlerts && risk !== 'high') {
+    status = 'SKIPPED_DISABLED';
+  } else if (
+    preference &&
+    isWithinQuietHours(preference.quietHoursStart, preference.quietHoursEnd, now, preference.timezone)
+  ) {
+    status = 'SKIPPED_QUIET_HOURS';
+  }
+
+  const delivery = await prisma.alertDelivery.create({
+    data: { eventId, userId: user.id, channel: 'EMAIL', kind, status, reminderLevel },
+  });
+
+  if (status !== 'PENDING') {
+    return;
+  }
+
+  try {
+    await sendAuthEmail({ to: user.email, subject, text: body });
+    await prisma.alertDelivery.update({
+      where: { id: delivery.id },
+      data: { status: 'SENT', attempts: 1, sentAt: new Date() },
+    });
+  } catch (error) {
+    await prisma.alertDelivery.update({
+      where: { id: delivery.id },
+      data: {
+        status: 'FAILED',
+        attempts: 1,
+        lastError: error instanceof Error ? error.message : 'Unknown delivery error.',
+      },
+    });
   }
 }
 
@@ -631,6 +706,144 @@ async function notifyRecipients(
       reminderLevel,
       now,
     );
+}
+
+export interface RollupResult {
+  organizationId: string;
+  notified: boolean;
+  eventCount: number;
+  markedStale: number;
+}
+
+export async function runAlertRollups(now = new Date()): Promise<RollupResult[]> {
+  const staleThreshold = new Date(now.getTime() - env.ALERT_STALE_DAYS * 24 * 60 * 60 * 1000);
+  const rollupInterval = env.ALERT_ROLLUP_HOURS * 60 * 60 * 1000;
+
+  const stale = await prisma.alertEvent.updateMany({
+    where: {
+      acknowledgedAt: null,
+      resolvedAt: null,
+      staleAt: null,
+      triggeredAt: { lte: staleThreshold },
+    },
+    data: { staleAt: now },
+  });
+
+  const candidates = await prisma.alertEvent.findMany({
+    where: {
+      acknowledgedAt: null,
+      resolvedAt: null,
+      staleAt: null,
+    },
+    include: {
+      rule: { select: { id: true, name: true, maxReminderLevel: true } },
+      domain: { select: { name: true } },
+      organization: { select: { id: true, name: true } },
+    },
+    orderBy: { triggeredAt: 'asc' },
+    take: 5_000,
+  });
+
+  const byOrganization = new Map<string, typeof candidates>();
+  for (const event of candidates) {
+    byOrganization.set(event.organizationId, [...(byOrganization.get(event.organizationId) ?? []), event]);
+  }
+
+  const results: RollupResult[] = [];
+
+  for (const [organizationId, events] of byOrganization) {
+    const exhausted = events.filter((event) => event.reminderLevel >= event.rule.maxReminderLevel);
+    const outstanding = exhausted.length ? exhausted : events;
+
+    if (!outstanding.length) {
+      results.push({ organizationId, notified: false, eventCount: 0, markedStale: stale.count });
+      continue;
+    }
+
+    const lastNotified = outstanding
+      .map((event) => event.lastOwnerNotifiedAt)
+      .filter((value): value is Date => value !== null)
+      .sort((left, right) => right.getTime() - left.getTime())[0];
+
+    const reference = lastNotified ?? outstanding[0].triggeredAt;
+    if (now.getTime() - reference.getTime() < rollupInterval) {
+      results.push({ organizationId, notified: false, eventCount: outstanding.length, markedStale: stale.count });
+      continue;
+    }
+
+    const admins = await prisma.member.findMany({
+      where: { organizationId, role: { in: ['owner', 'admin'] } },
+      select: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            notificationPreference: {
+              select: {
+                emailAlerts: true,
+                quietHoursStart: true,
+                quietHoursEnd: true,
+                onlyHighRiskAlerts: true,
+                timezone: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const lines = outstanding
+      .slice(0, 20)
+      .map(
+        (event) =>
+          `  ${event.domain.name.padEnd(30)} ${event.rule.name.padEnd(28)} ${event.summary}`,
+      );
+
+    const body = [
+      `Workspace: ${outstanding[0].organization.name}`,
+      '',
+      `${outstanding.length} alert${outstanding.length === 1 ? '' : 's'} remain unacknowledged after their reminder sequence finished.`,
+      '',
+      ...lines,
+      outstanding.length > 20 ? `  ...and ${outstanding.length - 20} more` : '',
+      '',
+      'These alerts have already been sent to the people who own each rule.',
+      'Review them in DMARC Harbor and acknowledge, adjust, or disable the rule.',
+    ]
+      .filter((line) => line !== '')
+      .join('\n');
+
+    const subject = `[DMARC Harbor] ${outstanding.length} unacknowledged alert${outstanding.length === 1 ? '' : 's'}`;
+
+    for (const event of outstanding) {
+      const rollupLevel = event.ownerRollupLevel + 1;
+
+      for (const member of admins) {
+        await deliverToUser(member.user, {
+          eventId: event.id,
+          kind: 'ROLLUP',
+          subject,
+          body,
+          risk: 'high',
+          reminderLevel: rollupLevel,
+          now,
+        });
+      }
+
+      await prisma.alertEvent.update({
+        where: { id: event.id },
+        data: { lastOwnerNotifiedAt: now, ownerRollupLevel: rollupLevel },
+      });
+    }
+
+    results.push({ organizationId, notified: true, eventCount: outstanding.length, markedStale: stale.count });
+  }
+
+  if (stale.count > 0) {
+    console.info(`[alerts] marked ${stale.count} alert(s) stale after ${env.ALERT_STALE_DAYS} days unacknowledged`);
+  }
+
+  return results;
 }
 
 export async function acknowledgeAlertEvent(

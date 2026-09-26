@@ -97,7 +97,18 @@ export async function listAlertEventsController(request: Request, response: Resp
     limit: query.success ? query.data.limit : undefined,
   });
 
-  response.json(events);
+  response.json(
+    events.map((event) => ({
+      ...event,
+      status: event.acknowledgedAt
+        ? 'ACKNOWLEDGED'
+        : event.resolvedAt
+          ? 'RESOLVED'
+          : event.staleAt
+            ? 'STALE'
+            : 'OPEN',
+    })),
+  );
 }
 
 export async function acknowledgeAlertEventController(request: Request, response: Response): Promise<void> {
