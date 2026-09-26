@@ -4,6 +4,7 @@ import { z } from 'zod';
 config();
 
 const developmentSecret = 'dmarcharbor-development-only-secret-change-me';
+const developmentForensicSecret = 'dmarcharbor-development-only-forensic-secret-change-me';
 const optionalSecret = z.preprocess(
   (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
   z.string().trim().min(1).optional(),
@@ -24,6 +25,8 @@ const envSchema = z.object({
   MICROSOFT_CLIENT_SECRET: optionalSecret,
   MICROSOFT_TENANT_ID: z.string().trim().min(1).default('common'),
   REPORT_INGEST_SECRET: optionalSecret,
+  FORENSIC_PSEUDONYM_SECRET: z.string().min(32).default(developmentForensicSecret),
+  FORENSIC_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(30),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -55,6 +58,10 @@ if (parsed.data.NODE_ENV === 'production' && parsed.data.EMAIL_PROVIDER !== 'res
 
 if (parsed.data.NODE_ENV === 'production' && !parsed.data.REPORT_INGEST_SECRET) {
   throw new Error('REPORT_INGEST_SECRET must be set in production.');
+}
+
+if (parsed.data.NODE_ENV === 'production' && parsed.data.FORENSIC_PSEUDONYM_SECRET === developmentForensicSecret) {
+  throw new Error('FORENSIC_PSEUDONYM_SECRET must be set in production.');
 }
 
 export const env = {

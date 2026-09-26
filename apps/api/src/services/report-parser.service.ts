@@ -215,7 +215,9 @@ export function parseDmarcReport(xml: string): ParsedDmarcReport {
 
   const policy = asRecord(feedback.policy_published);
   if (!policy) {
-    throw new DmarcReportParseError('This endpoint currently accepts aggregate RUA XML reports only. RUF reports require MIME/ARF handling.');
+    throw new DmarcReportParseError(
+      'This endpoint accepts aggregate RUA XML only. Forensic RUF reports are MIME messages and must be submitted as raw email.',
+    );
   }
 
   let policyDomain: string;

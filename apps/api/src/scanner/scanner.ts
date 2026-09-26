@@ -1,4 +1,5 @@
 import { systemDnsReader } from './dns.js';
+import { readDmarcRecord } from './dmarc-tags.js';
 import { normalizeDomain } from './domain.js';
 import { calculateScore } from '../services/score.service.js';
 import type {
@@ -33,19 +34,7 @@ function joinRecords(records: string[][]): string[] {
 }
 
 function parseTags(record: string): Record<string, string> {
-  return Object.fromEntries(
-    record
-      .split(';')
-      .map((part) => part.trim())
-      .filter(Boolean)
-      .map((part) => {
-        const separator = part.indexOf('=');
-        if (separator < 1) {
-          return [part.toLowerCase(), ''];
-        }
-        return [part.slice(0, separator).trim().toLowerCase(), part.slice(separator + 1).trim()];
-      }),
-  );
+  return readDmarcRecord(record).tags;
 }
 
 function policyFromTags(tags: Record<string, string>): DmarcPolicy {
@@ -76,8 +65,8 @@ export function parseDmarcRecords(records: string[][]): DmarcResult {
       record,
       policy,
       tags,
-      hasAggregateReports: Boolean(tags.rua),
-      hasForensicReports: Boolean(tags.ruf),
+      hasAggregateReports: readDmarcRecord(record).aggregateTargets.length > 0,
+      hasForensicReports: readDmarcRecord(record).forensicTargets.length > 0,
     };
   }
 
@@ -86,8 +75,8 @@ export function parseDmarcRecords(records: string[][]): DmarcResult {
     record,
     policy,
     tags,
-    hasAggregateReports: Boolean(tags.rua),
-    hasForensicReports: Boolean(tags.ruf),
+    hasAggregateReports: readDmarcRecord(record).aggregateTargets.length > 0,
+    hasForensicReports: readDmarcRecord(record).forensicTargets.length > 0,
   };
 }
 

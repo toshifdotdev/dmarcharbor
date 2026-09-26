@@ -97,6 +97,7 @@ export async function runDomainScan(input: RunDomainScanInput): Promise<RunDomai
           lastScanAt: completedAt,
           score: result.score,
           dmarcPolicy: result.dmarc.policy,
+          dmarcRecord: result.dmarc.record ?? null,
           spfRecord: result.spf.record ?? null,
           dkimSelectors: toJson(result.dkim.selectors),
           mxRecords: toJson(result.mx.records),

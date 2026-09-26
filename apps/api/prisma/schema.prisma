@@ -136,23 +136,26 @@ model Client {
 }
 
 model Domain {
-  id                String        @id @default(cuid())
-  clientId          String
-  client            Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  name              String
-  status            DomainStatus  @default(PENDING)
-  verificationToken String        @unique @default(uuid())
-  verifiedAt        DateTime?
-  lastScanAt        DateTime?
-  dmarcPolicy       String?
-  spfRecord         String?
-  dkimSelectors     Json?
-  mxRecords         Json?
-  score             Int?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-  scans             Scan[]
-  dmarcReports      DmarcReport[]
+  id                     String                @id @default(cuid())
+  clientId               String
+  client                 Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name                   String
+  status                 DomainStatus          @default(PENDING)
+  verificationToken      String                @unique @default(uuid())
+  verifiedAt             DateTime?
+  lastScanAt             DateTime?
+  dmarcPolicy            String?
+  dmarcRecord            String?
+  collectForensicReports Boolean               @default(false)
+  spfRecord              String?
+  dkimSelectors          Json?
+  mxRecords              Json?
+  score                  Int?
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+  scans                  Scan[]
+  dmarcReports           DmarcReport[]
+  forensicReports        DmarcForensicReport[]
 
   @@unique([clientId, name])
   @@index([clientId])
@@ -239,6 +242,46 @@ model DmarcAuthResult {
 
   @@index([recordId])
   @@map("dmarc_auth_result")
+}
+
+model DmarcForensicReport {
+  id                         String       @id @default(cuid())
+  domainId                   String
+  domain                     Domain       @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  fingerprint                String       @unique
+  feedbackType               String
+  reportedDomain             String
+  sourceIp                   String
+  sourcePort                 Int?
+  disposition                String?
+  deliveryAction             String?
+  deliveryStatus             String?
+  dkimResult                 String?
+  spfResult                  String?
+  authResults                Json?
+  reportingMta               String?
+  dsnGateway                 String?
+  remoteMta                  String?
+  userAgent                  String?
+  diagnosticCodes            Json?
+  recipientCount             Int          @default(0)
+  recipientPseudonyms        Json?
+  envelopeFromPseudonym      String?
+  messageIdPseudonym         String?
+  subjectPseudonym           String?
+  originalMessageDate        DateTime?
+  arrivedAt                  DateTime?
+  hasOriginalHeaders         Boolean      @default(false)
+  hasOriginalMessageIncluded Boolean      @default(false)
+  redactionVersion           Int
+  retentionExpiresAt         DateTime
+  receivedAt                 DateTime     @default(now())
+
+  @@index([domainId, receivedAt])
+  @@index([retentionExpiresAt])
+  @@index([reportedDomain])
+  @@index([sourceIp])
+  @@map("dmarc_forensic_report")
 }
 
 enum DomainStatus {

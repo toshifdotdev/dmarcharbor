@@ -6,6 +6,7 @@ const statement = {
   client: ['create', 'read', 'update', 'delete'],
   domain: ['create', 'read', 'update', 'delete'],
   report: ['create', 'read', 'update', 'delete', 'ingest'],
+  forensic: ['read', 'ingest', 'purge'],
   billing: ['read', 'update'],
 } as const;
 
@@ -18,6 +19,7 @@ export const owner = accessControl.newRole({
   client: statement.client,
   domain: statement.domain,
   report: statement.report,
+  forensic: statement.forensic,
   billing: statement.billing,
 });
 
@@ -28,6 +30,7 @@ export const admin = accessControl.newRole({
   client: statement.client,
   domain: statement.domain,
   report: statement.report,
+  forensic: statement.forensic,
   billing: ['read'],
 });
 
@@ -35,6 +38,7 @@ export const analyst = accessControl.newRole({
   client: ['read'],
   domain: ['read', 'update'],
   report: ['create', 'read', 'update'],
+  forensic: ['read', 'ingest'],
   billing: ['read'],
 });
 
