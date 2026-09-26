@@ -1,6 +1,6 @@
 import { createApp } from './app.js';
 import { env } from './config/env.js';
-import { pool } from './database/pool.js';
+import { prisma } from './database/prisma.js';
 
 if (env.NODE_ENV !== 'test') {
   const server = createApp().listen(env.PORT, () => {
@@ -9,7 +9,7 @@ if (env.NODE_ENV !== 'test') {
 
   const shutdown = (): void => {
     server.close(() => {
-      void pool.end().finally(() => process.exit(0));
+      void prisma.$disconnect().finally(() => process.exit(0));
     });
   };
 

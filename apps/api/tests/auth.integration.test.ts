@@ -1,19 +1,19 @@
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { pool } from '../src/database/pool.js';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 
 const email = `owner-${Date.now()}@example.com`;
 const password = 'correct-horse-battery-staple';
 
 async function resetDatabase(): Promise<void> {
-  await pool.query('TRUNCATE TABLE "organization", invitation, member, session, account, verification, "user" CASCADE');
+  await prisma.$executeRawUnsafe('TRUNCATE TABLE "organization", invitation, member, session, account, verification, "user" CASCADE');
 }
 
 describe('authentication and workspaces', () => {
   beforeAll(resetDatabase);
   afterAll(async () => {
-    await pool.end();
+    await prisma.$disconnect();
   });
 
   it('reports that the auth handler is available', async () => {
@@ -29,16 +29,41 @@ describe('authentication and workspaces', () => {
     expect(response.status).toBe(401);
   });
 
-  it('creates a user session and an agency workspace', async () => {
+  it('requires email verification before creating a session and then creates an agency workspace', async () => {
     const agent = request.agent(app);
-    const signUp = await agent.post('/api/auth/sign-up/email').send({
-      name: 'Workspace Owner',
-      email,
-      password,
-    });
+    const emailOutput = vi.spyOn(console, 'info').mockImplementation(() => undefined);
 
-    expect(signUp.status).toBe(200);
-    expect(signUp.body.user.email).toBe(email);
+    try {
+      const signUp = await agent.post('/api/auth/sign-up/email').send({
+        name: 'Workspace Owner',
+        email,
+        password,
+      });
+
+      expect(signUp.status).toBe(200);
+      expect(signUp.body.user.email).toBe(email);
+
+      const unverifiedSession = await agent.get('/api/me');
+      expect(unverifiedSession.status).toBe(401);
+
+      const unverifiedSignIn = await agent.post('/api/auth/sign-in/email').send({ email, password });
+      expect(unverifiedSignIn.status).toBe(403);
+
+      const verificationUrl = emailOutput.mock.calls
+        .map(([message]) => String(message))
+        .map((message) => message.match(/https?:\/\/[^\s]+\/api\/auth\/verify-email\?[^\s]+/)?.[0])
+        .find((url): url is string => Boolean(url));
+
+      expect(verificationUrl).toBeTruthy();
+      const parsedVerificationUrl = new URL(verificationUrl as string);
+      const verificationResponse = await agent.get(`${parsedVerificationUrl.pathname}${parsedVerificationUrl.search}`);
+      expect([200, 302]).toContain(verificationResponse.status);
+
+      const storedUser = await prisma.user.findUnique({ where: { email } });
+      expect(storedUser?.emailVerified).toBe(true);
+    } finally {
+      emailOutput.mockRestore();
+    }
 
     const me = await agent.get('/api/me');
     expect(me.status).toBe(200);

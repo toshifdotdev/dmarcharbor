@@ -4,6 +4,7 @@ import express from 'express';
 import { auth } from './auth/auth.config.js';
 import { env } from './config/env.js';
 import { scanRouter } from './routes/scan.routes.js';
+import { clientRouter } from './routes/client.routes.js';
 import { sessionRouter } from './routes/session.routes.js';
 
 export function createApp(): express.Express {
@@ -16,6 +17,7 @@ export function createApp(): express.Express {
     response.json({ status: 'ok', service: 'dmarcharbor-api' });
   });
   app.use('/api', sessionRouter);
+  app.use('/api', clientRouter);
   app.use('/api', scanRouter);
 
   return app;

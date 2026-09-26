@@ -6,5 +6,8 @@ export default defineConfig({
     fileParallelism: false,
     testTimeout: 20_000,
     hookTimeout: 20_000,
+    env: {
+      EMAIL_PROVIDER: 'console',
+    },
   },
 });
