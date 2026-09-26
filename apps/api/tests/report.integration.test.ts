@@ -1,3 +1,5 @@
+import { createHmac } from 'node:crypto';
+import { gzipSync } from 'node:zlib';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
@@ -53,6 +55,47 @@ function aggregateReport(domain: string, reportId: string): string {
     </auth_results>
   </record>
 </feedback>`;
+}
+
+function reportEmail(xml: string, compressed = false): string {
+  const boundary = 'dmarc-report-boundary';
+  const attachment = compressed
+    ? {
+        contentType: 'application/gzip',
+        filename: 'report.xml.gz',
+        encoding: 'base64',
+        content: gzipSync(Buffer.from(xml)).toString('base64'),
+      }
+    : {
+        contentType: 'application/xml',
+        filename: 'report.xml',
+        encoding: '8bit',
+        content: xml,
+      };
+
+  return [
+    'From: noreply-dmarc-support@google.com',
+    'To: dmarc-reports@dmarcharbor.com',
+    'Subject: DMARC aggregate report',
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    '',
+    '--' + boundary,
+    'Content-Type: text/plain; charset=utf-8',
+    '',
+    'A DMARC report is attached.',
+    '--' + boundary,
+    `Content-Type: ${attachment.contentType}; name="${attachment.filename}"`,
+    `Content-Disposition: attachment; filename="${attachment.filename}"`,
+    `Content-Transfer-Encoding: ${attachment.encoding}`,
+    '',
+    attachment.content,
+    '--' + boundary + '--',
+    '',
+  ].join('\r\n');
+}
+
+function sign(rawEmail: string): string {
+  return `sha256=${createHmac('sha256', 'test-report-ingest-secret-please-change').update(rawEmail).digest('hex')}`;
 }
 
 async function resetDatabase(): Promise<void> {
@@ -138,6 +181,34 @@ describe('DMARC report ingestion', () => {
     expect(detail.status).toBe(200);
     expect(detail.body.reportId).toContain('report-');
     expect(detail.body.domain.name).toBe('reports.test');
+  });
+
+  it('accepts a signed inbound RUA email and stores a compressed attachment', async () => {
+    const { agent, organizationId, domainId } = await createVerifiedDomain('mailbox.test');
+    const rawEmail = reportEmail(aggregateReport('mailbox.test', `mailbox-${Date.now()}`), true);
+
+    const response = await request(app)
+      .post('/api/internal/reports/inbound')
+      .set('Content-Type', 'message/rfc822')
+      .set('X-DMARC-Signature', sign(rawEmail))
+      .send(rawEmail);
+
+    expect(response.status).toBe(200);
+    expect(response.body.candidateCount).toBe(1);
+    expect(response.body.results[0].status).toBe('created');
+    expect(response.body.results[0].reportDomain).toBe('mailbox.test');
+
+    const history = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/reports`);
+    expect(history.status).toBe(200);
+    expect(history.body).toHaveLength(1);
+    expect(history.body[0].policyDomain).toBe('mailbox.test');
+
+    const invalidSignature = await request(app)
+      .post('/api/internal/reports/inbound')
+      .set('Content-Type', 'message/rfc822')
+      .set('X-DMARC-Signature', 'sha256=invalid')
+      .send(rawEmail);
+    expect(invalidSignature.status).toBe(401);
   });
 
   it('rejects a report for a different domain', async () => {

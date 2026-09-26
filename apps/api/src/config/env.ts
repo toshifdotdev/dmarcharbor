@@ -23,6 +23,7 @@ const envSchema = z.object({
   MICROSOFT_CLIENT_ID: optionalSecret,
   MICROSOFT_CLIENT_SECRET: optionalSecret,
   MICROSOFT_TENANT_ID: z.string().trim().min(1).default('common'),
+  REPORT_INGEST_SECRET: optionalSecret,
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -50,6 +51,10 @@ if (parsed.data.EMAIL_PROVIDER === 'resend' && !parsed.data.RESEND_API_KEY) {
 
 if (parsed.data.NODE_ENV === 'production' && parsed.data.EMAIL_PROVIDER !== 'resend') {
   throw new Error('Production requires EMAIL_PROVIDER=resend.');
+}
+
+if (parsed.data.NODE_ENV === 'production' && !parsed.data.REPORT_INGEST_SECRET) {
+  throw new Error('REPORT_INGEST_SECRET must be set in production.');
 }
 
 export const env = {

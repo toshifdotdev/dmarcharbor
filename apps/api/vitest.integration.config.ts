@@ -8,6 +8,7 @@ export default defineConfig({
     hookTimeout: 20_000,
     env: {
       EMAIL_PROVIDER: 'console',
+      REPORT_INGEST_SECRET: 'test-report-ingest-secret-please-change',
     },
   },
 });

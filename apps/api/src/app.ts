@@ -6,6 +6,7 @@ import { env } from './config/env.js';
 import { scanRouter } from './routes/scan.routes.js';
 import { clientRouter } from './routes/client.routes.js';
 import { domainScanRouter } from './routes/domain-scan.routes.js';
+import { inboundReportRouter } from './routes/inbound-report.routes.js';
 import { reportRouter } from './routes/report.routes.js';
 import { sessionRouter } from './routes/session.routes.js';
 
@@ -14,6 +15,7 @@ export function createApp(): express.Express {
 
   app.use(cors({ origin: env.CORS_ORIGINS, credentials: true }));
   app.all('/api/auth/*splat', toNodeHandler(auth));
+  app.use('/api', inboundReportRouter);
   app.use('/api', reportRouter);
   app.use(express.json({ limit: '10kb' }));
   app.get('/api/health', (_request, response) => {

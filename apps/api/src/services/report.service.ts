@@ -42,6 +42,11 @@ export type IngestReportOutcome =
   | { status: 'duplicate'; report: PersistedReport }
   | { status: 'created'; report: PersistedReport };
 
+export type MailboxIngestOutcome =
+  | { status: 'domain_not_found'; reportDomain: string }
+  | { status: 'ambiguous_domain'; reportDomain: string }
+  | IngestReportOutcome;
+
 function isUniqueConstraint(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002';
 }
@@ -141,6 +146,38 @@ export async function ingestDmarcReport(input: IngestReportInput): Promise<Inges
 
     throw error;
   }
+}
+
+export async function ingestDmarcReportByPolicyDomain(xml: string): Promise<MailboxIngestOutcome> {
+  const parsed = parseDmarcReport(xml);
+  const domains = await prisma.domain.findMany({
+    where: {
+      name: parsed.policyDomain,
+      status: 'VERIFIED',
+    },
+    select: {
+      id: true,
+      client: {
+        select: {
+          organizationId: true,
+        },
+      },
+    },
+  });
+
+  if (domains.length === 0) {
+    return { status: 'domain_not_found', reportDomain: parsed.policyDomain };
+  }
+
+  if (domains.length > 1) {
+    return { status: 'ambiguous_domain', reportDomain: parsed.policyDomain };
+  }
+
+  return ingestDmarcReport({
+    organizationId: domains[0].client.organizationId,
+    domainId: domains[0].id,
+    xml,
+  });
 }
 
 export async function listDomainReports(organizationId: string, domainId: string): Promise<PersistedReport[]> {
