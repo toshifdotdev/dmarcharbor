@@ -8,17 +8,18 @@ generator client {
 }
 
 model User {
-  id            String       @id
-  name          String
-  email         String
-  emailVerified Boolean      @default(false)
-  image         String?
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-  sessions      Session[]
-  accounts      Account[]
-  members       Member[]
-  invitations   Invitation[]
+  id             String       @id
+  name           String
+  email          String
+  emailVerified  Boolean      @default(false)
+  image          String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  sessions       Session[]
+  accounts       Account[]
+  members        Member[]
+  invitations    Invitation[]
+  requestedScans Scan[]       @relation("RequestedScans")
 
   @@unique([email])
   @@map("user")
@@ -150,6 +151,7 @@ model Domain {
   score             Int?
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
+  scans             Scan[]
 
   @@unique([clientId, name])
   @@index([clientId])
@@ -157,8 +159,34 @@ model Domain {
   @@map("domain")
 }
 
+model Scan {
+  id            String        @id @default(cuid())
+  domainId      String
+  domain        Domain        @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  requestedById String?
+  requestedBy   User?         @relation("RequestedScans", fields: [requestedById], references: [id], onDelete: SetNull)
+  status        ScanRunStatus @default(RUNNING)
+  score         Int?
+  result        Json?
+  error         String?
+  startedAt     DateTime      @default(now())
+  completedAt   DateTime?
+  updatedAt     DateTime      @updatedAt
+
+  @@index([domainId, startedAt])
+  @@index([requestedById])
+  @@index([status])
+  @@map("scan")
+}
+
 enum DomainStatus {
   PENDING
   VERIFIED
+  FAILED
+}
+
+enum ScanRunStatus {
+  RUNNING
+  COMPLETED
   FAILED
 }

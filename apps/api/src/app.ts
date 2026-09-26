@@ -5,6 +5,7 @@ import { auth } from './auth/auth.config.js';
 import { env } from './config/env.js';
 import { scanRouter } from './routes/scan.routes.js';
 import { clientRouter } from './routes/client.routes.js';
+import { domainScanRouter } from './routes/domain-scan.routes.js';
 import { sessionRouter } from './routes/session.routes.js';
 
 export function createApp(): express.Express {
@@ -18,6 +19,7 @@ export function createApp(): express.Express {
   });
   app.use('/api', sessionRouter);
   app.use('/api', clientRouter);
+  app.use('/api', domainScanRouter);
   app.use('/api', scanRouter);
 
   return app;
