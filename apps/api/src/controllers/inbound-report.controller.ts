@@ -11,7 +11,7 @@ export async function inboundReportController(request: Request, response: Respon
     return;
   }
 
-  if (!verifyReportWebhookSignature(rawEmail, signature)) {
+  if (!verifyReportWebhookSignature(rawEmail, signature, request.header('x-dmarc-timestamp'))) {
     response.status(401).json({ error: { message: 'Invalid report webhook signature.' } });
     return;
   }

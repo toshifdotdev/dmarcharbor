@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dmarcharbor-report-ingress",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-26",
+  "workers_dev": true,
+  "vars": {
+    "API_BASE_URL": "https://api.example.com",
+    "REPORT_PATH": "/api/internal/reports/inbound",
+    "MAX_ATTEMPTS": "3"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

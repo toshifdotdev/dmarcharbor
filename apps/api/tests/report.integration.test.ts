@@ -94,8 +94,14 @@ function reportEmail(xml: string, compressed = false): string {
   ].join('\r\n');
 }
 
-function sign(rawEmail: string): string {
-  return `sha256=${createHmac('sha256', 'test-report-ingest-secret-please-change').update(rawEmail).digest('hex')}`;
+function sign(rawEmail: string): { timestamp: string; signature: string } {
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  return {
+    timestamp,
+    signature: `sha256=${createHmac('sha256', 'test-report-ingest-secret-please-change')
+      .update(`${timestamp}.${rawEmail}`)
+      .digest('hex')}`,
+  };
 }
 
 async function resetDatabase(): Promise<void> {
@@ -187,10 +193,12 @@ describe('DMARC report ingestion', () => {
     const { agent, organizationId, domainId } = await createVerifiedDomain('mailbox.test');
     const rawEmail = reportEmail(aggregateReport('mailbox.test', `mailbox-${Date.now()}`), true);
 
+    const signed = sign(rawEmail);
     const response = await request(app)
       .post('/api/internal/reports/inbound')
       .set('Content-Type', 'message/rfc822')
-      .set('X-DMARC-Signature', sign(rawEmail))
+      .set('X-DMARC-Timestamp', signed.timestamp)
+      .set('X-DMARC-Signature', signed.signature)
       .send(rawEmail);
 
     expect(response.status).toBe(200);
@@ -206,6 +214,7 @@ describe('DMARC report ingestion', () => {
     const invalidSignature = await request(app)
       .post('/api/internal/reports/inbound')
       .set('Content-Type', 'message/rfc822')
+      .set('X-DMARC-Timestamp', signed.timestamp)
       .set('X-DMARC-Signature', 'sha256=invalid')
       .send(rawEmail);
     expect(invalidSignature.status).toBe(401);

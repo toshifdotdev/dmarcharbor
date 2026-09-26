@@ -4,7 +4,8 @@
   "type": "module",
   "version": "0.1.0",
   "workspaces": [
-    "apps/*"
+    "apps/*",
+    "workers/*"
   ],
   "scripts": {
     "dev": "concurrently \"npm run dev --workspace @dmarcharbor/api\" \"npm run dev --workspace @dmarcharbor/web\"",
