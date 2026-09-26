@@ -1,0 +1,334 @@
+import { prisma } from '../database/prisma.js';
+import { env } from '../config/env.js';
+import { readDmarcRecord } from '../scanner/dmarc-tags.js';
+import { getDomainInsights, type DomainInsights } from './report-intelligence.service.js';
+
+export type DmarcPolicyChoice = 'none' | 'quarantine' | 'reject';
+export type ReadinessLevel = 'none' | 'quarantine' | 'reject';
+
+export const readinessThresholds = {
+  minimumDaysObserved: 7,
+  minimumMessages: 1_000,
+  quarantinePassRatePercent: 95,
+  rejectPassRatePercent: 99,
+} as const;
+
+export interface DmarcRecordDraft {
+  host: string;
+  type: 'TXT';
+  value: string;
+  policy: DmarcPolicyChoice;
+  aggregateAddress: string;
+  forensicAddress: string | null;
+  notes: string[];
+}
+
+export type StepStatus = 'done' | 'pending' | 'blocked' | 'optional';
+
+export interface OnboardingStep {
+  id: string;
+  title: string;
+  status: StepStatus;
+  detail: string;
+}
+
+export type OnboardingState =
+  | 'ADDED'
+  | 'AWAITING_VERIFICATION'
+  | 'AWAITING_DMARC_RECORD'
+  | 'AWAITING_REPORTS'
+  | 'MONITORING'
+  | 'NEEDS_ATTENTION';
+
+export interface OnboardingState_ {
+  state: OnboardingState;
+  completedSteps: number;
+  totalSteps: number;
+  steps: OnboardingStep[];
+  recommendedPolicy: ReadinessLevel;
+  readiness: PolicyReadiness;
+}
+
+export interface PolicyReadiness {
+  level: ReadinessLevel;
+  ready: boolean;
+  daysObserved: number;
+  messagesObserved: number;
+  passRatePercent: number | null;
+  openAlerts: number;
+  staleAlerts: number;
+  blockers: string[];
+}
+
+function daySpan(from: Date | null, to: Date): number {
+  if (!from) {
+    return 0;
+  }
+  return Math.max(0, Math.floor((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000)));
+}
+
+function passRateFrom(insights: DomainInsights | null): number | null {
+  if (!insights || insights.aggregate.messageCount === 0) {
+    return null;
+  }
+
+  const spf = insights.aggregate.spfPassRate;
+  const dkim = insights.aggregate.dkimPassRate;
+  if (spf === null && dkim === null) {
+    return null;
+  }
+
+  const values = [spf, dkim].filter((value): value is number => value !== null);
+  const average = values.reduce((total, value) => total + value, 0) / values.length;
+  return Math.round((100 - average) * 100) / 100;
+}
+
+export function buildDmarcRecord(
+  domain: string,
+  policy: DmarcPolicyChoice,
+  includeForensics: boolean,
+): DmarcRecordDraft {
+  const parts = [
+    'v=DMARC1',
+    `p=${policy}`,
+    `rua=mailto:${env.REPORT_AGGREGATE_ADDRESS}`,
+  ];
+
+  if (policy !== 'none') {
+    parts.push('pct=100');
+  }
+
+  if (includeForensics) {
+    parts.push(`ruf=mailto:${env.REPORT_FORENSIC_ADDRESS}`);
+  }
+
+  const notes = [
+    `Create a TXT record on ${domain} at the host _dmarc.${domain}.`,
+    'Start with p=none. It only observes and never blocks or quarantines mail.',
+    'Move to p=quarantine then p=reject once readiness checks pass, so legitimate mail is never broken.',
+  ];
+
+  if (includeForensics) {
+    notes.push(
+      'The ruf= tag sends per-message forensic reports that can contain personal data. DMARC Harbor stores recipient addresses only if the domain owner explicitly enables it.',
+    );
+  }
+
+  return {
+    host: `_dmarc.${domain}`,
+    type: 'TXT',
+    value: parts.join('; '),
+    policy,
+    aggregateAddress: env.REPORT_AGGREGATE_ADDRESS,
+    forensicAddress: includeForensics ? env.REPORT_FORENSIC_ADDRESS : null,
+    notes,
+  };
+}
+
+export async function assessPolicyReadiness(
+  organizationId: string,
+  domainId: string,
+  insights?: DomainInsights | null,
+): Promise<PolicyReadiness> {
+  const resolved = insights ?? (await getDomainInsights(organizationId, domainId));
+  if (!resolved) {
+    throw new Error('Domain not found.');
+  }
+
+  const [openAlerts, staleAlerts] = await Promise.all([
+    prisma.alertEvent.count({ where: { domainId, acknowledgedAt: null, resolvedAt: null, staleAt: null } }),
+    prisma.alertEvent.count({ where: { domainId, staleAt: { not: null }, acknowledgedAt: null, resolvedAt: null } }),
+  ]);
+
+  const messagesObserved = resolved.aggregate.messageCount;
+  const passRatePercent = passRateFrom(resolved);
+  const daysObserved = daySpan(
+    resolved.aggregate.messageWindow.begin ? new Date(resolved.aggregate.messageWindow.begin) : null,
+    resolved.aggregate.messageWindow.end ? new Date(resolved.aggregate.messageWindow.end) : new Date(),
+  );
+
+  const evaluate = (level: ReadinessLevel): string[] => {
+    const blockers: string[] = [];
+    const requiredPassRate =
+      level === 'reject' ? readinessThresholds.rejectPassRatePercent : readinessThresholds.quarantinePassRatePercent;
+
+    if (messagesObserved < readinessThresholds.minimumMessages) {
+      blockers.push(
+        `Only ${messagesObserved} messages observed. At least ${readinessThresholds.minimumMessages} are needed before changing policy.`,
+      );
+    }
+
+    if (daysObserved < readinessThresholds.minimumDaysObserved) {
+      blockers.push(
+        `Only ${daysObserved} days of reporting observed. At least ${readinessThresholds.minimumDaysObserved} days are needed.`,
+      );
+    }
+
+    if (passRatePercent === null) {
+      blockers.push('No SPF or DKIM results have been observed yet.');
+    } else {
+      const failureRate = Math.round((100 - passRatePercent) * 100) / 100;
+      if (failureRate > 100 - requiredPassRate) {
+        blockers.push(
+          `Pass rate is ${passRatePercent}%. At least ${requiredPassRate}% is required for p=${level}.`,
+        );
+      }
+    }
+
+    if (openAlerts > 0) {
+      blockers.push(`${openAlerts} alert(s) are still open on this domain.`);
+    }
+
+    if (staleAlerts > 0) {
+      blockers.push(`${staleAlerts} alert(s) have gone stale and need review.`);
+    }
+
+    return blockers;
+  };
+
+  const rejectBlockers = evaluate('reject');
+  const quarantineBlockers = evaluate('quarantine');
+
+  const level: ReadinessLevel = rejectBlockers.length === 0 ? 'reject' : quarantineBlockers.length === 0 ? 'quarantine' : 'none';
+  const blockers = level === 'reject' ? rejectBlockers : level === 'quarantine' ? quarantineBlockers : [...quarantineBlockers];
+
+  return {
+    level,
+    ready: level !== 'none',
+    daysObserved,
+    messagesObserved,
+    passRatePercent,
+    openAlerts,
+    staleAlerts,
+    blockers,
+  };
+}
+
+export interface OnboardingResult extends OnboardingState_ {
+  domain: { id: string; name: string; status: string; score: number | null; dmarcPolicy: string | null };
+  reporting: {
+    aggregateConfigured: boolean;
+    forensicConfigured: boolean;
+    collectionEnabled: boolean;
+    identityRetentionEnabled: boolean;
+  };
+  suggestedRecord: DmarcRecordDraft;
+}
+
+export async function getOnboardingState(organizationId: string, domainId: string): Promise<OnboardingResult | null> {
+  const domain = await prisma.domain.findFirst({
+    where: { id: domainId, client: { organizationId } },
+    select: {
+      id: true,
+      name: true,
+      status: true,
+      score: true,
+      dmarcPolicy: true,
+      dmarcRecord: true,
+      collectForensicReports: true,
+      retainForensicPii: true,
+    },
+  });
+
+  if (!domain) {
+    return null;
+  }
+
+  const insights = await getDomainInsights(organizationId, domainId);
+  const readiness = await assessPolicyReadiness(organizationId, domainId, insights);
+  const tags = readDmarcRecord(domain.dmarcRecord);
+  const verified = domain.status === 'VERIFIED';
+  const dmarcPublished = tags.tags.v?.toLowerCase() === 'dmarc1';
+  const aggregateConfigured = tags.aggregateTargets.length > 0;
+  const forensicConfigured = tags.forensicTargets.length > 0;
+  const reportsReceived = (insights?.aggregate.reportCount ?? 0) > 0;
+  const openAlerts = readiness.openAlerts + readiness.staleAlerts;
+
+  const steps: OnboardingStep[] = [
+    {
+      id: 'domain_verified',
+      title: 'Verify domain ownership',
+      status: verified ? 'done' : 'pending',
+      detail: verified
+        ? 'Ownership is verified through a DNS TXT record.'
+        : 'Publish the ownership TXT record, then run verification.',
+    },
+    {
+      id: 'dmarc_published',
+      title: 'Publish a DMARC record',
+      status: !verified ? 'blocked' : dmarcPublished ? 'done' : 'pending',
+      detail: dmarcPublished
+        ? `A DMARC record is published with p=${domain.dmarcPolicy ?? 'unknown'}.`
+        : 'Publish the generated TXT record at _dmarc with p=none to begin monitoring.',
+    },
+    {
+      id: 'aggregate_reporting',
+      title: 'Receive aggregate reports',
+      status: !verified ? 'blocked' : !dmarcPublished ? 'blocked' : aggregateConfigured ? 'done' : 'pending',
+      detail: aggregateConfigured
+        ? 'The record includes a rua= address, so reports will be delivered.'
+        : 'The record has no rua= tag, so no reports will arrive.',
+    },
+    {
+      id: 'reports_flowing',
+      title: 'Receive first report',
+      status: !verified || !aggregateConfigured ? 'blocked' : reportsReceived ? 'done' : 'pending',
+      detail: reportsReceived
+        ? `${insights?.aggregate.reportCount} aggregate report(s) received.`
+        : 'Reports usually arrive within 24 to 48 hours of publishing the record.',
+    },
+    {
+      id: 'forensic_optional',
+      title: 'Enable forensic reporting',
+      status: !verified || !dmarcPublished ? 'blocked' : forensicConfigured ? 'done' : 'optional',
+      detail: forensicConfigured
+        ? domain.collectForensicReports
+          ? 'Forensic reports are collected with pseudonymous recipients.'
+          : 'The record includes ruf=, but collection is switched off for this domain.'
+        : 'Optional. Adds per-message failure evidence, which can contain personal data.',
+    },
+    {
+      id: 'policy_tightened',
+      title: 'Tighten the policy',
+      status: !verified || !aggregateConfigured ? 'blocked' : readiness.ready ? 'done' : 'pending',
+      detail: readiness.ready
+        ? `Ready to move to p=${readiness.level}.`
+        : readiness.blockers[0] ?? 'Keep p=none until the readiness checks pass.',
+    },
+  ];
+
+  const state: OnboardingState = !verified
+    ? 'AWAITING_VERIFICATION'
+    : !dmarcPublished
+      ? 'AWAITING_DMARC_RECORD'
+      : !aggregateConfigured
+        ? 'AWAITING_DMARC_RECORD'
+        : !reportsReceived
+          ? 'AWAITING_REPORTS'
+          : openAlerts > 0
+            ? 'NEEDS_ATTENTION'
+            : 'MONITORING';
+
+  return {
+    domain: {
+      id: domain.id,
+      name: domain.name,
+      status: domain.status,
+      score: domain.score,
+      dmarcPolicy: domain.dmarcPolicy,
+    },
+    reporting: {
+      aggregateConfigured,
+      forensicConfigured,
+      collectionEnabled: domain.collectForensicReports,
+      identityRetentionEnabled: domain.retainForensicPii,
+    },
+    state,
+    completedSteps: steps.filter((step) => step.status === 'done').length,
+    totalSteps: steps.length,
+    steps,
+    recommendedPolicy: readiness.level,
+    readiness,
+    suggestedRecord: buildDmarcRecord(domain.name, 'none', !forensicConfigured),
+  };
+}

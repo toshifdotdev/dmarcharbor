@@ -33,6 +33,12 @@ const envSchema = z.object({
   ALERT_EVALUATION_INTERVAL_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
   ALERT_ROLLUP_HOURS: z.coerce.number().int().min(1).max(168).default(24),
   ALERT_STALE_DAYS: z.coerce.number().int().min(1).max(365).default(7),
+  REPORT_AGGREGATE_ADDRESS: z
+    .string()
+    .trim()
+    .email()
+    .default('dmarc-reports@reports.dmarcharbor.com'),
+  REPORT_FORENSIC_ADDRESS: z.string().trim().email().default('dmarc-forensics@reports.dmarcharbor.com'),
   ALERT_SCHEDULER_DISABLED: z
     .enum(['true', 'false'])
     .default('false')

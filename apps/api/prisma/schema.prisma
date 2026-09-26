@@ -22,6 +22,9 @@ model User {
   requestedScans          Scan[]                  @relation("RequestedScans")
   enabledForensicPii      Domain[]                @relation("ForensicPiiEnabledBy")
   createdAlertRules       AlertRule[]             @relation("CreatedAlertRules")
+  createdReportShares     ReportShare[]           @relation("CreatedReportShares")
+  createdReportDigests    ReportDigest[]          @relation("CreatedReportDigests")
+  notifications           Notification[]
   alertDeliveries         AlertDelivery[]
   acknowledgedAlertEvents AlertEvent[]            @relation("AcknowledgedAlertEvents")
   notificationPreference  NotificationPreference?
@@ -80,17 +83,20 @@ model Verification {
 }
 
 model Organization {
-  id          String       @id
-  name        String
-  slug        String
-  logo        String?
-  createdAt   DateTime
-  metadata    String?
-  members     Member[]
-  invitations Invitation[]
-  clients     Client[]
-  alertRules  AlertRule[]
-  alertEvents AlertEvent[]
+  id            String         @id
+  name          String
+  slug          String
+  logo          String?
+  createdAt     DateTime
+  metadata      String?
+  members       Member[]
+  invitations   Invitation[]
+  clients       Client[]
+  alertRules    AlertRule[]
+  alertEvents   AlertEvent[]
+  reportShares  ReportShare[]
+  reportDigests ReportDigest[]
+  notifications Notification[]
 
   @@unique([slug])
   @@map("organization")
@@ -128,14 +134,15 @@ model Invitation {
 }
 
 model Client {
-  id             String       @id @default(cuid())
+  id             String        @id @default(cuid())
   organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   name           String
   slug           String
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
   domains        Domain[]
+  reportShares   ReportShare[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -169,6 +176,8 @@ model Domain {
   forensicReports        DmarcForensicReport[]
   alertRules             AlertRule[]
   alertEvents            AlertEvent[]
+  reportShares           ReportShare[]
+  reportDigests          ReportDigest[]
 
   @@unique([clientId, name])
   @@index([clientId])
@@ -388,6 +397,7 @@ model AlertEvent {
   resolvedAt          DateTime?
   triggeredAt         DateTime        @default(now())
   deliveries          AlertDelivery[]
+  notifications       Notification[]
 
   @@index([ruleId, triggeredAt])
   @@index([ruleId, acknowledgedAt])
@@ -415,6 +425,77 @@ model AlertDelivery {
   @@unique([eventId, userId, channel, kind, reminderLevel])
   @@index([userId, status])
   @@map("alert_delivery")
+}
+
+model ReportShare {
+  id               String       @id @default(cuid())
+  token            String       @unique
+  organizationId   String
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId         String
+  client           Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  domainId         String
+  domain           Domain       @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  createdById      String?
+  createdBy        User?        @relation("CreatedReportShares", fields: [createdById], references: [id], onDelete: SetNull)
+  includeForensics Boolean      @default(false)
+  includeSources   Boolean      @default(true)
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  lastViewedAt     DateTime?
+  viewCount        Int          @default(0)
+  createdAt        DateTime     @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([domainId])
+  @@map("report_share")
+}
+
+model Notification {
+  id             String               @id @default(cuid())
+  userId         String
+  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String?
+  organization   Organization?        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  kind           NotificationKind     @default(ALERT)
+  severity       NotificationSeverity @default(WARNING)
+  title          String
+  body           String
+  link           String?
+  alertEventId   String?
+  reminderLevel  Int                  @default(1)
+  alertEvent     AlertEvent?          @relation(fields: [alertEventId], references: [id], onDelete: Cascade)
+  readAt         DateTime?
+  createdAt      DateTime             @default(now())
+
+  @@unique([alertEventId, userId, reminderLevel])
+  @@index([userId, readAt, createdAt])
+  @@index([organizationId, createdAt])
+  @@map("notification")
+}
+
+model ReportDigest {
+  id               String          @id @default(cuid())
+  organizationId   String
+  organization     Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  domainId         String
+  domain           Domain          @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  createdById      String?
+  createdBy        User?           @relation("CreatedReportDigests", fields: [createdById], references: [id], onDelete: SetNull)
+  frequency        DigestFrequency @default(WEEKLY)
+  sendHourUtc      Int             @default(9)
+  weekday          Int             @default(1)
+  dayOfMonth       Int             @default(1)
+  recipientEmails  String[]
+  includeForensics Boolean         @default(false)
+  enabled          Boolean         @default(true)
+  lastSentAt       DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([enabled, lastSentAt])
+  @@index([domainId])
+  @@map("report_digest")
 }
 
 model NotificationPreference {
@@ -453,6 +534,22 @@ enum AlertChannel {
 enum AlertDeliveryKind {
   ALERT
   ROLLUP
+}
+
+enum NotificationKind {
+  ALERT
+  DIGEST
+}
+
+enum NotificationSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum DigestFrequency {
+  WEEKLY
+  MONTHLY
 }
 
 enum AlertDeliveryStatus {

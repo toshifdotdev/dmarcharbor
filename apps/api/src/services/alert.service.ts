@@ -2,6 +2,7 @@ import type { AlertDeliveryStatus, AlertMetric, AlertOperator, Prisma } from '@p
 import { prisma } from '../database/prisma.js';
 import { env } from '../config/env.js';
 import { sendAuthEmail } from '../email/email.service.js';
+import { createAlertNotifications } from './notification.service.js';
 
 const riskByMetric: Record<AlertMetric, 'high' | 'medium'> = {
   FAILURE_COUNT: 'high',
@@ -680,10 +681,21 @@ async function notifyRecipients(
   now: Date,
 ): Promise<void> {
   const risk = riskByMetric[rule.metric];
+  const recipientUserIds = rule.recipients.map((recipient) => recipient.userId);
 
-  await deliverEvent(
+  await createAlertNotifications({
+    alertEventId: eventId,
+    organizationId: rule.organizationId,
+    domainName: rule.domain.name,
+    ruleName: rule.name,
+    summary,
+    recipientUserIds,
+    reminderLevel,
+  });
+
+  return deliverEvent(
     eventId,
-    rule.recipients.map((recipient) => recipient.userId),
+    recipientUserIds,
     rule.organization.name,
     rule.domain.name,
     escalationSubject(rule, reminderLevel),
@@ -702,10 +714,10 @@ async function notifyRecipients(
     ]
       .filter(Boolean)
       .join('\n'),
-      risk,
-      reminderLevel,
-      now,
-    );
+    risk,
+    reminderLevel,
+    now,
+  );
 }
 
 export interface RollupResult {

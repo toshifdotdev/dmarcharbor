@@ -1,6 +1,7 @@
 import { env } from '../config/env.js';
 import { prisma } from '../database/prisma.js';
 import { evaluateAlertRules, runAlertRollups } from '../services/alert.service.js';
+import { runReportDigests } from '../services/report-digest.service.js';
 
 let timer: NodeJS.Timeout | undefined;
 let running = false;
@@ -24,6 +25,12 @@ export async function runAlertEvaluationOnce(): Promise<void> {
     const notified = rollups.filter((result) => result.notified).length;
     if (notified > 0) {
       console.info(`[alerts] sent ${notified} owner rollup(s)`);
+    }
+
+    const digests = await runReportDigests();
+    const digestSent = digests.filter((result) => result.sent).length;
+    if (digestSent > 0) {
+      console.info(`[digests] sent ${digestSent} client digest(s)`);
     }
   } catch (error) {
     const detail = error instanceof Error ? error.message : 'Unknown alert evaluation error.';
