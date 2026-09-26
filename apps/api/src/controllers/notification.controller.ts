@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { prisma } from '../database/prisma.js';
 import { buildPage, parsePagination } from '../utils/pagination.js';
 import { resourceIdSchema } from '../models/client.model.js';
+import { recordAuditEvent } from '../services/audit.service.js';
 import { notificationListQuerySchema, reportDigestCreateSchema, reportDigestUpdateSchema } from '../models/notification.model.js';
 import {
   countUnreadNotifications,
@@ -99,6 +100,21 @@ export async function createReportDigestController(request: Request, response: R
     return;
   }
 
+  await recordAuditEvent({
+    organizationId: response.locals.organizationId,
+    domainId: digest.domainId,
+    actorUserId: response.locals.session?.user?.id,
+    action: 'REPORT_DIGEST_CREATED',
+    targetType: 'report_digest',
+    targetId: digest.id,
+    detail: {
+      frequency: digest.frequency,
+      recipientCount: digest.recipientEmails.length,
+      includeForensics: digest.includeForensics,
+    },
+    requestId: response.locals.requestId,
+  });
+
   response.status(201).json(digest);
 }
 
@@ -131,6 +147,16 @@ export async function updateReportDigestController(request: Request, response: R
     return;
   }
 
+  await recordAuditEvent({
+    organizationId: response.locals.organizationId,
+    actorUserId: response.locals.session?.user?.id,
+    action: 'REPORT_DIGEST_UPDATED',
+    targetType: 'report_digest',
+    targetId: digest.id,
+    detail: { enabled: digest.enabled, frequency: digest.frequency },
+    requestId: response.locals.requestId,
+  });
+
   response.json(digest);
 }
 
@@ -146,6 +172,15 @@ export async function deleteReportDigestController(request: Request, response: R
     response.status(404).json({ error: { message: 'Report digest not found in this workspace.' } });
     return;
   }
+
+  await recordAuditEvent({
+    organizationId: response.locals.organizationId,
+    actorUserId: response.locals.session?.user?.id,
+    action: 'REPORT_DIGEST_DELETED',
+    targetType: 'report_digest',
+    targetId: digestId,
+    requestId: response.locals.requestId,
+  });
 
   response.status(204).send();
 }

@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
 import { resolveLimit } from '../utils/pagination.js';
 import { parseDmarcReport } from './report-parser.service.js';
+import { reportRetentionExpiry } from './privacy.service.js';
 
 const reportInclude = {
   domain: {
@@ -52,6 +53,23 @@ function isUniqueConstraint(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002';
 }
 
+const reportPurgeIntervalMs = 60 * 60 * 1000;
+let lastReportPurgeAt = 0;
+
+export async function purgeExpiredReports(force = false): Promise<number> {
+  const now = Date.now();
+  if (!force && now - lastReportPurgeAt < reportPurgeIntervalMs) {
+    return 0;
+  }
+
+  lastReportPurgeAt = now;
+  const result = await prisma.dmarcReport.deleteMany({
+    where: { retentionExpiresAt: { lte: new Date() } },
+  });
+
+  return result.count;
+}
+
 export async function ingestDmarcReport(input: IngestReportInput): Promise<IngestReportOutcome> {
   const domain = await prisma.domain.findFirst({
     where: {
@@ -89,11 +107,14 @@ export async function ingestDmarcReport(input: IngestReportInput): Promise<Inges
   }
 
   try {
+    await purgeExpiredReports();
+
     const report = await prisma.dmarcReport.create({
       data: {
         domainId: domain.id,
         reportType: 'AGGREGATE',
         fingerprint: parsed.fingerprint,
+        retentionExpiresAt: reportRetentionExpiry(),
         reportId: parsed.reportId,
         reportingOrganization: parsed.reportingOrganization,
         reportingEmail: parsed.reportingEmail,

@@ -5,6 +5,7 @@ import {
   notificationPreferenceSchema,
 } from '../models/alert.model.js';
 import { resourceIdSchema } from '../models/client.model.js';
+import { recordAuditEvent } from '../services/audit.service.js';
 import { buildPage, parsePagination } from '../utils/pagination.js';
 import {
   acknowledgeAlertEvent,
@@ -50,6 +51,17 @@ export async function createAlertRuleController(request: Request, response: Resp
     return;
   }
 
+  await recordAuditEvent({
+    organizationId: response.locals.organizationId,
+    domainId: body.data.domainId,
+    actorUserId: response.locals.session?.user?.id,
+    action: 'ALERT_RULE_CREATED',
+    targetType: 'alert_rule',
+    targetId: rule.id,
+    detail: { metric: rule.metric, operator: rule.operator, threshold: rule.threshold },
+    requestId: response.locals.requestId,
+  });
+
   response.status(201).json(rule);
 }
 
@@ -81,6 +93,16 @@ export async function updateAlertRuleController(request: Request, response: Resp
     return;
   }
 
+  await recordAuditEvent({
+    organizationId: response.locals.organizationId,
+    actorUserId: response.locals.session?.user?.id,
+    action: 'ALERT_RULE_UPDATED',
+    targetType: 'alert_rule',
+    targetId: rule.id,
+    detail: { threshold: rule.threshold, enabled: rule.enabled },
+    requestId: response.locals.requestId,
+  });
+
   response.json(rule);
 }
 
@@ -96,6 +118,15 @@ export async function deleteAlertRuleController(request: Request, response: Resp
     response.status(404).json({ error: { message: 'Alert rule not found in this workspace.' } });
     return;
   }
+
+  await recordAuditEvent({
+    organizationId: response.locals.organizationId,
+    actorUserId: response.locals.session?.user?.id,
+    action: 'ALERT_RULE_DELETED',
+    targetType: 'alert_rule',
+    targetId: ruleId,
+    requestId: response.locals.requestId,
+  });
 
   response.status(204).send();
 }
@@ -151,6 +182,15 @@ export async function acknowledgeAlertEventController(request: Request, response
     response.status(409).json({ error: { message: 'This alert has already been acknowledged or resolved.' } });
     return;
   }
+
+  await recordAuditEvent({
+    organizationId: response.locals.organizationId,
+    actorUserId: response.locals.session?.user?.id,
+    action: 'ALERT_ACKNOWLEDGED',
+    targetType: 'alert_event',
+    targetId: eventId,
+    requestId: response.locals.requestId,
+  });
 
   response.json({ acknowledged: true });
 }

@@ -25,6 +25,7 @@ model User {
   createdReportShares     ReportShare[]           @relation("CreatedReportShares")
   createdReportDigests    ReportDigest[]          @relation("CreatedReportDigests")
   notifications           Notification[]
+  auditEvents             AuditLog[]
   alertDeliveries         AlertDelivery[]
   acknowledgedAlertEvents AlertEvent[]            @relation("AcknowledgedAlertEvents")
   notificationPreference  NotificationPreference?
@@ -97,6 +98,7 @@ model Organization {
   reportShares  ReportShare[]
   reportDigests ReportDigest[]
   notifications Notification[]
+  AuditLog      AuditLog[]
 
   @@unique([slug])
   @@map("organization")
@@ -177,6 +179,7 @@ model Domain {
   alertRules             AlertRule[]
   alertEvents            AlertEvent[]
   reportShares           ReportShare[]
+  auditEvents            AuditLog[]
   reportDigests          ReportDigest[]
 
   @@unique([clientId, name])
@@ -226,10 +229,12 @@ model DmarcReport {
   reportError           String?
   recordCount           Int                 @default(0)
   receivedAt            DateTime            @default(now())
+  retentionExpiresAt    DateTime?
   records               DmarcReportRecord[]
 
   @@index([domainId, receivedAt])
   @@index([reportType, receivedAt])
+  @@index([retentionExpiresAt])
   @@map("dmarc_report")
 }
 
@@ -498,6 +503,29 @@ model ReportDigest {
   @@map("report_digest")
 }
 
+model AuditLog {
+  id             String        @id @default(cuid())
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  domainId       String?
+  domain         Domain?       @relation(fields: [domainId], references: [id], onDelete: SetNull)
+  actorUserId    String?
+  actorUser      User?         @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  action         AuditAction
+  targetType     String
+  targetId       String?
+  outcome        AuditOutcome  @default(SUCCESS)
+  detail         Json?
+  ipAddress      String?
+  requestId      String?
+  createdAt      DateTime      @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([domainId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_log")
+}
+
 model NotificationPreference {
   id                 String   @id @default(cuid())
   userId             String   @unique
@@ -550,6 +578,27 @@ enum NotificationSeverity {
 enum DigestFrequency {
   WEEKLY
   MONTHLY
+}
+
+enum AuditAction {
+  FORENSIC_IDENTITY_ENABLED
+  FORENSIC_IDENTITY_DISABLED
+  FORENSIC_PURGE_SINGLE
+  FORENSIC_PURGE_DOMAIN
+  REPORT_SHARE_CREATED
+  REPORT_SHARE_REVOKED
+  REPORT_DIGEST_CREATED
+  REPORT_DIGEST_UPDATED
+  REPORT_DIGEST_DELETED
+  ALERT_RULE_CREATED
+  ALERT_RULE_UPDATED
+  ALERT_RULE_DELETED
+  ALERT_ACKNOWLEDGED
+}
+
+enum AuditOutcome {
+  SUCCESS
+  DENIED
 }
 
 enum AlertDeliveryStatus {

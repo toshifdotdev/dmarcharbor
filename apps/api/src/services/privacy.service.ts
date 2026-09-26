@@ -99,3 +99,11 @@ export function forensicRetentionExpiry(from: Date = new Date()): Date {
 export function forensicPiiRetentionExpiry(from: Date = new Date()): Date {
   return new Date(from.getTime() + forensicPiiRetentionDays() * 24 * 60 * 60 * 1000);
 }
+
+export function reportRetentionDays(): number {
+  return Math.min(Math.max(env.REPORT_RETENTION_DAYS, 7), 3650);
+}
+
+export function reportRetentionExpiry(from: Date = new Date()): Date {
+  return new Date(from.getTime() + reportRetentionDays() * 24 * 60 * 60 * 1000);
+}

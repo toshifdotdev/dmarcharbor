@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { prisma } from '../database/prisma.js';
+import { recordAuditEvent } from '../services/audit.service.js';
 import { buildPage, parsePagination } from '../utils/pagination.js';
 import { resourceIdSchema } from '../models/client.model.js';
 import { dmarcRecordQuerySchema, reportShareCreateSchema } from '../models/onboarding.model.js';
@@ -97,6 +98,21 @@ export async function createReportShareController(request: Request, response: Re
     return;
   }
 
+  await recordAuditEvent({
+    organizationId: response.locals.organizationId,
+    domainId: body.data.domainId,
+    actorUserId: response.locals.session?.user?.id,
+    action: 'REPORT_SHARE_CREATED',
+    targetType: 'report_share',
+    targetId: share.id,
+    detail: {
+      includeForensics: share.includeForensics,
+      includeSources: share.includeSources,
+      expiresAt: share.expiresAt.toISOString(),
+    },
+    requestId: response.locals.requestId,
+  });
+
   response.status(201).json(share);
 }
 
@@ -126,6 +142,15 @@ export async function revokeReportShareController(request: Request, response: Re
     response.status(404).json({ error: { message: 'Share link not found or already revoked.' } });
     return;
   }
+
+  await recordAuditEvent({
+    organizationId: response.locals.organizationId,
+    actorUserId: response.locals.session?.user?.id,
+    action: 'REPORT_SHARE_REVOKED',
+    targetType: 'report_share',
+    targetId: shareId,
+    requestId: response.locals.requestId,
+  });
 
   response.status(204).send();
 }

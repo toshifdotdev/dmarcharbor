@@ -8,6 +8,7 @@ import {
 } from '../models/forensic.model.js';
 import { buildPage, parsePagination } from '../utils/pagination.js';
 import { getDomain } from '../services/client.service.js';
+import { recordAuditEvent } from '../services/audit.service.js';
 import { ForensicReportParseError } from '../services/forensic-report-parser.service.js';
 import {
   deleteForensicReport,
@@ -152,11 +153,24 @@ export async function deleteForensicReportController(request: Request, response:
     return;
   }
 
-  const deleted = await deleteForensicReport(response.locals.organizationId, forensicId);
-  if (!deleted) {
+  const organizationId = response.locals.organizationId;
+  const existing = await getForensicReport(organizationId, forensicId);
+  if (!existing) {
     response.status(404).json({ error: { message: 'Forensic report not found in this workspace.' } });
     return;
   }
+
+  await deleteForensicReport(organizationId, forensicId);
+  await recordAuditEvent({
+    organizationId,
+    domainId: existing.domainId,
+    actorUserId: response.locals.session?.user?.id,
+    action: 'FORENSIC_PURGE_SINGLE',
+    targetType: 'forensic_report',
+    targetId: forensicId,
+    detail: { reportedDomain: existing.reportedDomain, piiRetained: existing.piiRetained },
+    requestId: response.locals.requestId,
+  });
 
   response.status(204).send();
 }
@@ -168,7 +182,24 @@ export async function purgeForensicsController(request: Request, response: Respo
     return;
   }
 
-  const deleted = await purgeForensicReports(response.locals.organizationId, domainId);
+  const organizationId = response.locals.organizationId;
+  const deleted = await purgeForensicReports(organizationId, domainId);
+  if (deleted === 0 && !(await getDomain(organizationId, domainId))) {
+    response.status(404).json({ error: { message: 'Domain not found in this workspace.' } });
+    return;
+  }
+
+  await recordAuditEvent({
+    organizationId,
+    domainId,
+    actorUserId: response.locals.session?.user?.id,
+    action: 'FORENSIC_PURGE_DOMAIN',
+    targetType: 'domain',
+    targetId: domainId,
+    detail: { deleted },
+    requestId: response.locals.requestId,
+  });
+
   response.json({ deleted });
 }
 
@@ -204,8 +235,9 @@ export async function setForensicIdentityController(request: Request, response: 
     return;
   }
 
+  const organizationId = response.locals.organizationId;
   const outcome = await setForensicIdentityRetention(
-    response.locals.organizationId,
+    organizationId,
     domainId,
     body.data.retainForensicPii,
     { confirmedLegalBasis: body.data.confirmLegalBasis, confirmedNamePurge: body.data.confirmNamePurge },
@@ -237,6 +269,21 @@ export async function setForensicIdentityController(request: Request, response: 
     });
     return;
   }
+
+  await recordAuditEvent({
+    organizationId,
+    domainId,
+    actorUserId: response.locals.session?.user?.id,
+    action: body.data.retainForensicPii ? 'FORENSIC_IDENTITY_ENABLED' : 'FORENSIC_IDENTITY_DISABLED',
+    targetType: 'domain',
+    targetId: domainId,
+    detail: {
+      retainForensicPii: body.data.retainForensicPii,
+      purgedIdentities: outcome.purgedIdentities,
+      identitiesDestroyed: outcome.purgedIdentities,
+    },
+    requestId: response.locals.requestId,
+  });
 
   response.json({
     domain: outcome.domain,
