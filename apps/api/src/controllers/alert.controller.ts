@@ -7,6 +7,7 @@ import {
 } from '../models/alert.model.js';
 import { resourceIdSchema } from '../models/client.model.js';
 import {
+  acknowledgeAlertEvent,
   createAlertRule,
   deleteAlertRule,
   listAlertEvents,
@@ -40,6 +41,7 @@ export async function createAlertRuleController(request: Request, response: Resp
     threshold: body.data.threshold,
     windowMinutes: body.data.windowMinutes ?? 1440,
     cooldownMinutes: body.data.cooldownMinutes ?? 1440,
+    maxReminderLevel: body.data.maxReminderLevel ?? 3,
     recipientUserIds: body.data.recipientUserIds,
   });
 
@@ -96,6 +98,32 @@ export async function listAlertEventsController(request: Request, response: Resp
   });
 
   response.json(events);
+}
+
+export async function acknowledgeAlertEventController(request: Request, response: Response): Promise<void> {
+  const eventId = parseId(request.params.eventId);
+  if (!eventId) {
+    response.status(400).json({ error: { message: 'A valid alert identifier is required.' } });
+    return;
+  }
+
+  const outcome = await acknowledgeAlertEvent(
+    response.locals.organizationId,
+    eventId,
+    response.locals.session?.user?.id,
+  );
+
+  if (outcome === 'not_found') {
+    response.status(404).json({ error: { message: 'Alert not found in this workspace.' } });
+    return;
+  }
+
+  if (outcome === 'already_handled') {
+    response.status(409).json({ error: { message: 'This alert has already been acknowledged or resolved.' } });
+    return;
+  }
+
+  response.json({ acknowledged: true });
 }
 
 export async function getNotificationPreferenceController(request: Request, response: Response): Promise<void> {

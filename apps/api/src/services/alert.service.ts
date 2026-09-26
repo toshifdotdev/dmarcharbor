@@ -92,6 +92,7 @@ export async function createAlertRule(input: {
   threshold: number;
   windowMinutes: number;
   cooldownMinutes: number;
+  maxReminderLevel: number;
   recipientUserIds: string[];
 }): Promise<PersistedRule | null> {
   const domain = await prisma.domain.findFirst({
@@ -119,6 +120,7 @@ export async function createAlertRule(input: {
       threshold: input.threshold,
       windowMinutes: clamp(input.windowMinutes, 5, maxLookbackMinutes),
       cooldownMinutes: clamp(input.cooldownMinutes, 5, maxLookbackMinutes),
+      maxReminderLevel: clamp(input.maxReminderLevel, 1, 5),
       recipients: {
         create: members.map((member) => ({ userId: member.userId })),
       },
@@ -150,6 +152,7 @@ export async function updateAlertRule(
     threshold?: number;
     windowMinutes?: number;
     cooldownMinutes?: number;
+    maxReminderLevel?: number;
     enabled?: boolean;
     recipientUserIds?: string[];
   },
@@ -187,6 +190,8 @@ export async function updateAlertRule(
           changes.windowMinutes === undefined ? undefined : clamp(changes.windowMinutes, 5, maxLookbackMinutes),
         cooldownMinutes:
           changes.cooldownMinutes === undefined ? undefined : clamp(changes.cooldownMinutes, 5, maxLookbackMinutes),
+        maxReminderLevel:
+          changes.maxReminderLevel === undefined ? undefined : clamp(changes.maxReminderLevel, 1, 5),
         enabled: changes.enabled,
       },
       include: ruleInclude,
@@ -369,18 +374,7 @@ export async function evaluateRule(
     return { triggered: false, observed, snapshot };
   }
 
-  if (!evaluate(rule.operator, observed, rule.threshold)) {
-    return { triggered: false, observed, snapshot };
-  }
-
-  if (
-    rule.lastTriggeredAt &&
-    now.getTime() - rule.lastTriggeredAt.getTime() < rule.cooldownMinutes * 60 * 1000
-  ) {
-    return { triggered: false, observed, snapshot };
-  }
-
-  return { triggered: true, observed, snapshot };
+  return { triggered: evaluate(rule.operator, observed, rule.threshold), observed, snapshot };
 }
 
 async function deliverEvent(
@@ -391,6 +385,7 @@ async function deliverEvent(
   subject: string,
   body: string,
   risk: 'high' | 'medium',
+  reminderLevel: number,
   now: Date,
 ): Promise<void> {
   if (recipientUserIds.length === 0) {
@@ -421,7 +416,7 @@ async function deliverEvent(
     }
 
     const delivery = await prisma.alertDelivery.create({
-      data: { eventId, userId: user.id, channel: 'EMAIL', status },
+      data: { eventId, userId: user.id, channel: 'EMAIL', status, reminderLevel },
     });
 
     if (status !== 'PENDING') {
@@ -449,8 +444,30 @@ async function deliverEvent(
 
 export interface RuleEvaluationResult {
   ruleId: string;
-  triggered: boolean;
+  outcome: 'triggered' | 'escalated' | 'unchanged' | 'resolved' | 'no_data';
   observed: number | null;
+  eventId?: string;
+  reminderLevel?: number;
+}
+
+function escalationSubject(rule: { domain: { name: string }; name: string }, reminderLevel: number): string {
+  if (reminderLevel <= 1) {
+    return `[DMARC Harbor] ${rule.domain.name}: ${rule.name}`;
+  }
+  if (reminderLevel === 2) {
+    return `[DMARC Harbor] Unacknowledged: ${rule.domain.name} ${rule.name}`;
+  }
+  return `[DMARC Harbor] URGENT unacknowledged: ${rule.domain.name} ${rule.name}`;
+}
+
+function escalationNote(reminderLevel: number): string {
+  if (reminderLevel <= 1) {
+    return '';
+  }
+  if (reminderLevel === 2) {
+    return 'Nobody has acknowledged this alert yet. If someone is already handling it, acknowledge it to stop further reminders.';
+  }
+  return 'This alert has been unacknowledged across multiple reminders. Escalate to whoever owns this domain.';
 }
 
 export async function evaluateAlertRules(now = new Date()): Promise<RuleEvaluationResult[]> {
@@ -463,58 +480,181 @@ export async function evaluateAlertRules(now = new Date()): Promise<RuleEvaluati
   const results: RuleEvaluationResult[] = [];
 
   for (const rule of rules) {
-    const { triggered, observed, snapshot } = await evaluateRule(rule, now);
-    results.push({ ruleId: rule.id, triggered, observed });
+    const snapshot = await buildDomainSnapshot(rule.domainId, rule.windowMinutes, now);
+    const observed = observedFor(snapshot, rule.metric);
 
-    if (!triggered || observed === null) {
+    if (observed === null) {
+      results.push({ ruleId: rule.id, outcome: 'no_data', observed });
       continue;
     }
 
-    const summary = summarise(rule, snapshot, observed);
-    const risk = riskByMetric[rule.metric];
+    const crossed = evaluate(rule.operator, observed, rule.threshold);
+    const openEvent = await prisma.alertEvent.findFirst({
+      where: { ruleId: rule.id, acknowledgedAt: null, resolvedAt: null },
+      select: { id: true, triggeredAt: true, reminderLevel: true },
+      orderBy: { triggeredAt: 'desc' },
+    });
 
-    const event = await prisma.alertEvent.create({
-      data: {
+    if (!crossed) {
+      if (openEvent) {
+        await prisma.alertEvent.update({
+          where: { id: openEvent.id },
+          data: { resolvedAt: now },
+        });
+        results.push({ ruleId: rule.id, outcome: 'resolved', observed, eventId: openEvent.id });
+      } else {
+        results.push({ ruleId: rule.id, outcome: 'unchanged', observed });
+      }
+      continue;
+    }
+
+    if (!openEvent) {
+      const lastEvent = await prisma.alertEvent.findFirst({
+        where: { ruleId: rule.id },
+        select: { id: true, acknowledgedAt: true },
+        orderBy: { triggeredAt: 'desc' },
+      });
+
+      const acknowledgedFor =
+        lastEvent?.acknowledgedAt === null || lastEvent?.acknowledgedAt === undefined
+          ? null
+          : now.getTime() - lastEvent.acknowledgedAt.getTime();
+
+      if (acknowledgedFor !== null && acknowledgedFor < rule.windowMinutes * 60 * 1000) {
+        results.push({
+          ruleId: rule.id,
+          outcome: 'unchanged',
+          observed,
+          eventId: lastEvent?.id,
+        });
+        continue;
+      }
+
+      const summary = summarise(rule, snapshot, observed);
+      const event = await prisma.alertEvent.create({
+        data: {
+          ruleId: rule.id,
+          organizationId: rule.organizationId,
+          domainId: rule.domainId,
+          metric: rule.metric,
+          operator: rule.operator,
+          observedValue: observed,
+          threshold: rule.threshold,
+          windowMinutes: rule.windowMinutes,
+          summary,
+          context: contextFor(snapshot, rule.metric),
+        },
+        select: { id: true },
+      });
+
+      await prisma.alertRule.update({ where: { id: rule.id }, data: { lastTriggeredAt: now } });
+      await notifyRecipients(rule, event.id, summary, observed, 1, now);
+
+      results.push({
         ruleId: rule.id,
-        organizationId: rule.organizationId,
-        domainId: rule.domainId,
-        metric: rule.metric,
-        operator: rule.operator,
-        observedValue: observed,
-        threshold: rule.threshold,
-        windowMinutes: rule.windowMinutes,
-        summary,
-        context: contextFor(snapshot, rule.metric),
-      },
-      select: { id: true },
+        outcome: 'triggered',
+        observed,
+        eventId: event.id,
+        reminderLevel: 1,
+      });
+      continue;
+    }
+
+    const dueAt =
+      openEvent.triggeredAt.getTime() + rule.cooldownMinutes * 60 * 1000 * openEvent.reminderLevel;
+
+    if (now.getTime() < dueAt || openEvent.reminderLevel >= rule.maxReminderLevel) {
+      results.push({
+        ruleId: rule.id,
+        outcome: 'unchanged',
+        observed,
+        eventId: openEvent.id,
+        reminderLevel: openEvent.reminderLevel,
+      });
+      continue;
+    }
+
+    const reminderLevel = openEvent.reminderLevel + 1;
+    const summary = summarise(rule, snapshot, observed);
+
+    await prisma.alertEvent.update({
+      where: { id: openEvent.id },
+      data: { reminderLevel },
     });
 
-    await prisma.alertRule.update({
-      where: { id: rule.id },
-      data: { lastTriggeredAt: now },
-    });
+    await notifyRecipients(rule, openEvent.id, summary, observed, reminderLevel, now);
 
-    await deliverEvent(
-      event.id,
-      rule.recipients.map((recipient) => recipient.userId),
-      rule.organization.name,
-      rule.domain.name,
-      `[DMARC Harbor] ${rule.domain.name}: ${rule.name}`,
-      [
-        `Workspace: ${rule.organization.name}`,
-        `Domain: ${rule.domain.name}`,
-        `Alert: ${rule.name} (${rule.metric})`,
-        summary,
-        '',
-        `Threshold: ${rule.operator} ${rule.threshold}`,
-        `Window: ${rule.windowMinutes} minutes`,
-        '',
-        'Review this domain in DMARC Harbor.',
-      ].join('\n'),
-      risk,
-      now,
-    );
+    results.push({
+      ruleId: rule.id,
+      outcome: 'escalated',
+      observed,
+      eventId: openEvent.id,
+      reminderLevel,
+    });
   }
 
   return results;
+}
+
+async function notifyRecipients(
+  rule: PersistedRule,
+  eventId: string,
+  summary: string,
+  observed: number,
+  reminderLevel: number,
+  now: Date,
+): Promise<void> {
+  const risk = riskByMetric[rule.metric];
+
+  await deliverEvent(
+    eventId,
+    rule.recipients.map((recipient) => recipient.userId),
+    rule.organization.name,
+    rule.domain.name,
+    escalationSubject(rule, reminderLevel),
+    [
+      `Workspace: ${rule.organization.name}`,
+      `Domain: ${rule.domain.name}`,
+      `Alert: ${rule.name} (${rule.metric})`,
+      summary,
+      '',
+      `Threshold: ${rule.operator} ${rule.threshold}`,
+      `Window: ${rule.windowMinutes} minutes`,
+      reminderLevel > 1 ? `Reminder ${reminderLevel} of ${rule.maxReminderLevel}` : 'This is the first notification.',
+      escalationNote(reminderLevel),
+      '',
+      'Review and acknowledge this alert in DMARC Harbor.',
+    ]
+      .filter(Boolean)
+      .join('\n'),
+      risk,
+      reminderLevel,
+      now,
+    );
+}
+
+export async function acknowledgeAlertEvent(
+  organizationId: string,
+  eventId: string,
+  userId: string | undefined,
+): Promise<'acknowledged' | 'not_found' | 'already_handled'> {
+  const event = await prisma.alertEvent.findFirst({
+    where: { id: eventId, organizationId },
+    select: { id: true, acknowledgedAt: true, resolvedAt: true },
+  });
+
+  if (!event) {
+    return 'not_found';
+  }
+
+  if (event.acknowledgedAt || event.resolvedAt) {
+    return 'already_handled';
+  }
+
+  await prisma.alertEvent.update({
+    where: { id: event.id },
+    data: { acknowledgedAt: new Date(), acknowledgedById: userId ?? null },
+  });
+
+  return 'acknowledged';
 }

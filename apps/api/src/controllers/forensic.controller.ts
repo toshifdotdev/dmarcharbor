@@ -201,7 +201,7 @@ export async function setForensicIdentityController(request: Request, response: 
     response.locals.organizationId,
     domainId,
     body.data.retainForensicPii,
-    body.data.confirmLegalBasis,
+    { confirmedLegalBasis: body.data.confirmLegalBasis, confirmedNamePurge: body.data.confirmNamePurge },
     response.locals.session?.user?.id,
   );
 
@@ -220,5 +220,20 @@ export async function setForensicIdentityController(request: Request, response: 
     return;
   }
 
-  response.json({ domain: outcome.domain, ...forensicRetentionSummary() });
+  if (outcome.status === 'purge_confirmation_required') {
+    response.status(400).json({
+      error: {
+        message:
+          'Turning this off permanently deletes the stored recipient addresses, subject lines and sender addresses for this domain. This cannot be undone. The pseudonymized evidence is kept. Confirm the purge to continue.',
+        requiresNamePurgeConfirmation: true,
+      },
+    });
+    return;
+  }
+
+  response.json({
+    domain: outcome.domain,
+    purgedIdentities: outcome.purgedIdentities,
+    ...forensicRetentionSummary(),
+  });
 }

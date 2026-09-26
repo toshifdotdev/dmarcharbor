@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
 import { readDmarcRecord } from '../scanner/dmarc-tags.js';
 import { normalizeDomain } from '../scanner/domain.js';
@@ -327,8 +327,10 @@ export function presentForensic(forensic: PersistedForensic, includePii: boolean
 export type ForensicPiiOutcome =
   | { status: 'not_found' }
   | { status: 'legal_basis_required' }
+  | { status: 'purge_confirmation_required' }
   | {
       status: 'updated';
+      purgedIdentities: number;
       domain: {
         id: string;
         name: string;
@@ -343,7 +345,7 @@ export async function setForensicIdentityRetention(
   organizationId: string,
   domainId: string,
   retainForensicPii: boolean,
-  confirmedLegalBasis: boolean,
+  options: { confirmedLegalBasis: boolean; confirmedNamePurge: boolean },
   enabledById: string | undefined,
 ): Promise<ForensicPiiOutcome> {
   const domain = await prisma.domain.findFirst({
@@ -364,8 +366,29 @@ export async function setForensicIdentityRetention(
     return { status: 'not_found' };
   }
 
-  if (retainForensicPii && !confirmedLegalBasis) {
+  if (retainForensicPii && !options.confirmedLegalBasis) {
     return { status: 'legal_basis_required' };
+  }
+
+  if (!retainForensicPii && domain.retainForensicPii && !options.confirmedNamePurge) {
+    return { status: 'purge_confirmation_required' };
+  }
+
+  let purgedIdentities = 0;
+
+  if (!retainForensicPii) {
+    const purged = await prisma.dmarcForensicReport.updateMany({
+      where: { domainId: domain.id, piiRetained: true },
+      data: {
+        recipientAddresses: Prisma.DbNull,
+        subjectLine: null,
+        envelopeFrom: null,
+        piiRetained: false,
+        retentionExpiresAt: new Date(),
+      },
+    });
+
+    purgedIdentities = purged.count;
   }
 
   const updated = await prisma.domain.update({
@@ -386,6 +409,7 @@ export async function setForensicIdentityRetention(
 
   return {
     status: 'updated',
+    purgedIdentities,
     domain: { ...updated, rufConfigured: rufConfigured(domain) },
   };
 }

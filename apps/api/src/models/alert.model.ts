@@ -18,6 +18,7 @@ export const alertRuleCreateSchema = z.object({
   threshold: z.number().int().min(0).max(1_000_000),
   windowMinutes: z.number().int().min(5).max(43_200).optional(),
   cooldownMinutes: z.number().int().min(5).max(43_200).optional(),
+  maxReminderLevel: z.number().int().min(1).max(5).optional(),
   recipientUserIds: z.array(z.string().trim().min(1)).min(1).max(50),
 });
 
@@ -26,6 +27,7 @@ export const alertRuleUpdateSchema = z.object({
   threshold: z.number().int().min(0).max(1_000_000).optional(),
   windowMinutes: z.number().int().min(5).max(43_200).optional(),
   cooldownMinutes: z.number().int().min(5).max(43_200).optional(),
+  maxReminderLevel: z.number().int().min(1).max(5).optional(),
   enabled: z.boolean().optional(),
   recipientUserIds: z.array(z.string().trim().min(1)).min(1).max(50).optional(),
 });

@@ -1,5 +1,6 @@
 import express, { Router } from 'express';
 import {
+  acknowledgeAlertEventController,
   createAlertRuleController,
   deleteAlertRuleController,
   getNotificationPreferenceController,
@@ -46,6 +47,12 @@ alertRouter.get(
   requireSession,
   requireOrganizationPermission('report', 'read'),
   listAlertEventsController,
+);
+alertRouter.post(
+  '/workspaces/:organizationId/alerts/:eventId/acknowledge',
+  requireSession,
+  requireOrganizationPermission('report', 'update'),
+  acknowledgeAlertEventController,
 );
 alertRouter.get(
   '/me/:userId/notification-preferences',

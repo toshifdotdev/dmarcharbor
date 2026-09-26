@@ -266,25 +266,56 @@ describe('plan-gated forensic identity retention', () => {
     await prisma.member.updateMany({ where: { organizationId }, data: { role: 'owner', userId } });
   });
 
-  it('stops retaining new named identities once the toggle is switched off', async () => {
-    const { agent, organizationId, domainId } = await createWorkspaceDomain('revoke.test');
+  it('permanently destroys stored names when the toggle is switched off', async () => {
+    const { agent, organizationId, domainId } = await createWorkspaceDomain('destroy.test');
     await agent
       .patch(`/api/workspaces/${organizationId}/domains/${domainId}/forensics/identities`)
       .send({ retainForensicPii: true, confirmLegalBasis: true });
-    await postSignedInbound(forensicEmail({ domain: 'revoke.test', messageId: 'revoke-1@spammer.test' }));
+    await postSignedInbound(forensicEmail({ domain: 'destroy.test', messageId: 'destroy-1@spammer.test' }));
 
-    const disabled = await agent
+    const before = await prisma.dmarcForensicReport.findFirstOrThrow({ where: { domainId } });
+    expect(before.piiRetained).toBe(true);
+    expect(before.subjectLine).toBeTruthy();
+    expect(before.recipientAddresses).not.toBeNull();
+
+    const refused = await agent
       .patch(`/api/workspaces/${organizationId}/domains/${domainId}/forensics/identities`)
       .send({ retainForensicPii: false });
-    expect(disabled.status).toBe(200);
-    expect(disabled.body.domain.retainForensicPii).toBe(false);
-    expect(disabled.body.domain.forensicPiiEnabledAt).toBeNull();
 
-    await postSignedInbound(forensicEmail({ domain: 'revoke.test', messageId: 'revoke-2@spammer.test' }));
+    expect(refused.status).toBe(400);
+    expect(refused.body.error.requiresNamePurgeConfirmation).toBe(true);
+    expect(refused.body.error.message).toContain('permanently deletes');
+    expect(refused.body.error.message).toContain('cannot be undone');
 
-    const rows = await prisma.dmarcForensicReport.findMany({ where: { domainId } });
-    expect(rows).toHaveLength(2);
-    expect(rows.filter((row) => row.piiRetained)).toHaveLength(1);
+    const stillThere = await prisma.dmarcForensicReport.findFirstOrThrow({ where: { id: before.id } });
+    expect(stillThere.piiRetained).toBe(true);
+
+    const confirmed = await agent
+      .patch(`/api/workspaces/${organizationId}/domains/${domainId}/forensics/identities`)
+      .send({ retainForensicPii: false, confirmNamePurge: true });
+
+    expect(confirmed.status).toBe(200);
+    expect(confirmed.body.domain.retainForensicPii).toBe(false);
+    expect(confirmed.body.purgedIdentities).toBe(1);
+
+    const after = await prisma.dmarcForensicReport.findFirstOrThrow({ where: { id: before.id } });
+    expect(after.piiRetained).toBe(false);
+    expect(after.recipientAddresses).toBeNull();
+    expect(after.subjectLine).toBeNull();
+    expect(after.envelopeFrom).toBeNull();
+    expect(after.retentionExpiresAt.getTime()).toBeLessThanOrEqual(Date.now());
+
+    expect(after.sourceIp).toBe('192.0.2.10');
+    expect(after.disposition).toBe('reject');
+    expect(after.dkimResult).toBe('fail');
+    expect(after.spfResult).toBe('fail');
+    expect(after.reportedDomain).toBe('destroy.test');
+    expect(after.recipientPseudonyms).not.toBeNull();
+
+    const serialized = JSON.stringify(after);
+    expect(serialized).not.toContain('alice@example.com');
+    expect(serialized).not.toContain('Wire transfer details');
+    expect(serialized).not.toContain('attacker@spammer.test');
   });
 
   it('denies the identity toggle to roles without the identify permission', async () => {

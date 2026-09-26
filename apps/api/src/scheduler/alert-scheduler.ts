@@ -13,8 +13,12 @@ export async function runAlertEvaluationOnce(): Promise<void> {
   running = true;
   try {
     const results = await evaluateAlertRules();
-    const triggered = results.filter((result) => result.triggered).length;
-    console.info(`[alerts] evaluated ${results.length} rules, ${triggered} triggered`);
+    const triggered = results.filter((result) => result.outcome === 'triggered').length;
+    const escalated = results.filter((result) => result.outcome === 'escalated').length;
+    const resolved = results.filter((result) => result.outcome === 'resolved').length;
+    console.info(
+      `[alerts] evaluated ${results.length} rules, ${triggered} triggered, ${escalated} escalated, ${resolved} resolved`,
+    );
   } catch (error) {
     const detail = error instanceof Error ? error.message : 'Unknown alert evaluation error.';
     console.error(`[alerts] evaluation failed: ${detail}`);

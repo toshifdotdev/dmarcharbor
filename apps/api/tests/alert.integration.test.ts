@@ -213,7 +213,7 @@ describe('alerting', () => {
     const results = await evaluateAlertRules();
     const mine = results.filter((result) => result.ruleId === rule.body.id);
     expect(mine).toHaveLength(1);
-    expect(mine[0].triggered).toBe(true);
+    expect(mine[0].outcome).toBe('triggered');
     expect(mine[0].observed).toBe(500);
 
     const events = await listAlertEvents(organizationId, { domainId });
@@ -229,32 +229,160 @@ describe('alerting', () => {
     expect(delivery.attempts).toBe(1);
   });
 
-  it('honours the cooldown so the same rule does not repeat', async () => {
-    const { agent, organizationId, domainId, userId } = await createWorkspaceDomain('alerts.cooldown.test');
+  it('keeps one open event and escalates it instead of firing a new alert', async () => {
+    const { agent, organizationId, domainId, userId } = await createWorkspaceDomain('alerts.escalation.test');
     await agent.post(`/api/workspaces/${organizationId}/domains/${domainId}/reports`).send({
-      xml: aggregateReport('alerts.cooldown.test', 'cooldown-1', [{ ip: '45.83.12.9', count: 500, dkim: 'fail', spf: 'fail' }]),
+      xml: aggregateReport('alerts.escalation.test', 'esc-1', [{ ip: '45.83.12.9', count: 500, dkim: 'fail', spf: 'fail' }]),
     });
 
     const rule = await agent.post(`/api/workspaces/${organizationId}/alert-rules`).send({
       domainId,
-      name: 'Cooldown guard',
+      name: 'Escalation ladder',
       metric: 'FAILURE_COUNT',
       operator: 'GREATER_THAN',
-      threshold: 10,
+      threshold: 100,
       windowMinutes: 1440,
-      cooldownMinutes: 1440,
+      cooldownMinutes: 5,
+      maxReminderLevel: 3,
+      recipientUserIds: [userId],
+    });
+    expect(rule.status).toBe(201);
+
+    const first = await evaluateAlertRules();
+    const firstResult = first.find((result) => result.ruleId === rule.body.id);
+    expect(firstResult?.outcome).toBe('triggered');
+    expect(firstResult?.reminderLevel).toBe(1);
+    const eventId = firstResult?.eventId as string;
+
+    const tooSoon = await evaluateAlertRules(new Date(Date.now() + 60 * 1000));
+    expect(tooSoon.find((result) => result.ruleId === rule.body.id)?.outcome).toBe('unchanged');
+    expect(await prisma.alertEvent.count({ where: { ruleId: rule.body.id } })).toBe(1);
+
+    const second = await evaluateAlertRules(new Date(Date.now() + 6 * 60 * 1000));
+    const secondResult = second.find((result) => result.ruleId === rule.body.id);
+    expect(secondResult?.outcome).toBe('escalated');
+    expect(secondResult?.eventId).toBe(eventId);
+    expect(secondResult?.reminderLevel).toBe(2);
+
+    const third = await evaluateAlertRules(new Date(Date.now() + 18 * 60 * 1000));
+    expect(third.find((result) => result.ruleId === rule.body.id)?.reminderLevel).toBe(3);
+
+    const capped = await evaluateAlertRules(new Date(Date.now() + 60 * 60 * 1000));
+    expect(capped.find((result) => result.ruleId === rule.body.id)?.outcome).toBe('unchanged');
+    expect(capped.find((result) => result.ruleId === rule.body.id)?.reminderLevel).toBe(3);
+
+    expect(await prisma.alertEvent.count({ where: { ruleId: rule.body.id } })).toBe(1);
+    const deliveries = await prisma.alertDelivery.findMany({ where: { eventId } });
+    expect(deliveries).toHaveLength(3);
+  });
+
+  it('stops reminders once an alert is acknowledged', async () => {
+    const { agent, organizationId, domainId, userId } = await createWorkspaceDomain('alerts.ack.test');
+    await agent.post(`/api/workspaces/${organizationId}/domains/${domainId}/reports`).send({
+      xml: aggregateReport('alerts.ack.test', 'ack-1', [{ ip: '45.83.12.9', count: 700, dkim: 'fail', spf: 'fail' }]),
+    });
+
+    const rule = await agent.post(`/api/workspaces/${organizationId}/alert-rules`).send({
+      domainId,
+      name: 'Acknowledge stops noise',
+      metric: 'FAILURE_COUNT',
+      operator: 'GREATER_THAN',
+      threshold: 100,
+      cooldownMinutes: 5,
+      maxReminderLevel: 3,
       recipientUserIds: [userId],
     });
 
     const first = await evaluateAlertRules();
-    expect(first.find((result) => result.ruleId === rule.body.id)?.triggered).toBe(true);
+    const eventId = first.find((result) => result.ruleId === rule.body.id)?.eventId as string;
 
-    const second = await evaluateAlertRules();
-    const repeated = second.find((result) => result.ruleId === rule.body.id);
-    expect(repeated?.triggered).toBe(false);
-    expect(repeated?.observed).toBe(500);
+    const acknowledged = await agent.post(`/api/workspaces/${organizationId}/alerts/${eventId}/acknowledge`);
+    expect(acknowledged.status).toBe(200);
+    expect(acknowledged.body.acknowledged).toBe(true);
 
+    const repeat = await agent.post(`/api/workspaces/${organizationId}/alerts/${eventId}/acknowledge`);
+    expect(repeat.status).toBe(409);
+
+    const afterAck = await evaluateAlertRules(new Date(Date.now() + 60 * 60 * 1000));
+    expect(afterAck.find((result) => result.ruleId === rule.body.id)?.outcome).toBe('unchanged');
+
+    const deliveries = await prisma.alertDelivery.findMany({ where: { eventId } });
+    expect(deliveries).toHaveLength(1);
+
+    const stored = await prisma.alertEvent.findUniqueOrThrow({ where: { id: eventId } });
+    expect(stored.acknowledgedAt).not.toBeNull();
+    expect(stored.acknowledgedById).toBe(userId);
+    expect(stored.reminderLevel).toBe(1);
+  });
+
+  it('resolves an open event once the condition clears', async () => {
+    const { agent, organizationId, domainId, userId } = await createWorkspaceDomain('alerts.resolve.test');
+    await agent.post(`/api/workspaces/${organizationId}/domains/${domainId}/reports`).send({
+      xml: aggregateReport('alerts.resolve.test', 'resolve-1', [{ ip: '45.83.12.9', count: 400, dkim: 'fail', spf: 'fail' }]),
+    });
+
+    const rule = await agent.post(`/api/workspaces/${organizationId}/alert-rules`).send({
+      domainId,
+      name: 'Resolves when quiet',
+      metric: 'FAILURE_COUNT',
+      operator: 'GREATER_THAN',
+      threshold: 100,
+      cooldownMinutes: 5,
+      recipientUserIds: [userId],
+    });
+
+    const first = await evaluateAlertRules();
+    const eventId = first.find((result) => result.ruleId === rule.body.id)?.eventId as string;
+
+    const future = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    await prisma.dmarcReport.updateMany({ where: { domainId }, data: { receivedAt: new Date(Date.now() - 60 * 60 * 1000) } });
+    await prisma.dmarcReportRecord.deleteMany({ where: { report: { domainId } } });
+
+    const resolved = await evaluateAlertRules(future);
+    expect(resolved.find((result) => result.ruleId === rule.body.id)?.outcome).toBe('resolved');
+
+    const stored = await prisma.alertEvent.findUniqueOrThrow({ where: { id: eventId } });
+    expect(stored.resolvedAt).not.toBeNull();
+
+    const acked = await agent.post(`/api/workspaces/${organizationId}/alerts/${eventId}/acknowledge`);
+    expect(acked.status).toBe(409);
+  });
+
+  it('re-alerts after the acknowledgement suppression window if the problem persists', async () => {
+    const { agent, organizationId, domainId, userId } = await createWorkspaceDomain('alerts.realert.test');
+    await agent.post(`/api/workspaces/${organizationId}/domains/${domainId}/reports`).send({
+      xml: aggregateReport('alerts.realert.test', 'realert-1', [{ ip: '45.83.12.9', count: 800, dkim: 'fail', spf: 'fail' }]),
+    });
+
+    const rule = await agent.post(`/api/workspaces/${organizationId}/alert-rules`).send({
+      domainId,
+      name: 'Suppress then re-alert',
+      metric: 'FAILURE_COUNT',
+      operator: 'GREATER_THAN',
+      threshold: 100,
+      windowMinutes: 60,
+      cooldownMinutes: 5,
+      recipientUserIds: [userId],
+    });
+
+    const first = await evaluateAlertRules();
+    const firstEvent = first.find((result) => result.ruleId === rule.body.id)?.eventId as string;
+    await agent.post(`/api/workspaces/${organizationId}/alerts/${firstEvent}/acknowledge`);
+
+    const suppressed = await evaluateAlertRules();
+    expect(suppressed.find((result) => result.ruleId === rule.body.id)?.outcome).toBe('unchanged');
     expect(await prisma.alertEvent.count({ where: { ruleId: rule.body.id } })).toBe(1);
+
+    await prisma.alertEvent.update({
+      where: { id: firstEvent },
+      data: { acknowledgedAt: new Date(Date.now() - 2 * 60 * 60 * 1000) },
+    });
+
+    const reAlerted = await evaluateAlertRules();
+    const outcome = reAlerted.find((result) => result.ruleId === rule.body.id);
+    expect(outcome?.outcome).toBe('triggered');
+    expect(outcome?.eventId).not.toBe(firstEvent);
+    expect(await prisma.alertEvent.count({ where: { ruleId: rule.body.id } })).toBe(2);
   });
 
   it('does not trigger when the metric is below the threshold', async () => {
@@ -274,7 +402,7 @@ describe('alerting', () => {
 
     const results = await evaluateAlertRules();
     const outcome = results.find((result) => result.ruleId === rule.body.id);
-    expect(outcome?.triggered).toBe(false);
+    expect(outcome?.outcome).toBe('unchanged');
     expect(outcome?.observed).toBe(0);
   });
 

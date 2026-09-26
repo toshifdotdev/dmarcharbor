@@ -11,6 +11,7 @@ export const forensicCollectionSchema = z.object({
 export const forensicIdentitySchema = z.object({
   retainForensicPii: z.boolean(),
   confirmLegalBasis: z.boolean().optional().default(false),
+  confirmNamePurge: z.boolean().optional().default(false),
 });
 
 export const forensicListQuerySchema = z.object({

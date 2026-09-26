@@ -8,22 +8,23 @@ generator client {
 }
 
 model User {
-  id                     String                  @id
-  name                   String
-  email                  String
-  emailVerified          Boolean                 @default(false)
-  image                  String?
-  createdAt              DateTime                @default(now())
-  updatedAt              DateTime                @updatedAt
-  sessions               Session[]
-  accounts               Account[]
-  members                Member[]
-  invitations            Invitation[]
-  requestedScans         Scan[]                  @relation("RequestedScans")
-  enabledForensicPii     Domain[]                @relation("ForensicPiiEnabledBy")
-  createdAlertRules      AlertRule[]             @relation("CreatedAlertRules")
-  alertDeliveries        AlertDelivery[]
-  notificationPreference NotificationPreference?
+  id                      String                  @id
+  name                    String
+  email                   String
+  emailVerified           Boolean                 @default(false)
+  image                   String?
+  createdAt               DateTime                @default(now())
+  updatedAt               DateTime                @updatedAt
+  sessions                Session[]
+  accounts                Account[]
+  members                 Member[]
+  invitations             Invitation[]
+  requestedScans          Scan[]                  @relation("RequestedScans")
+  enabledForensicPii      Domain[]                @relation("ForensicPiiEnabledBy")
+  createdAlertRules       AlertRule[]             @relation("CreatedAlertRules")
+  alertDeliveries         AlertDelivery[]
+  acknowledgedAlertEvents AlertEvent[]            @relation("AcknowledgedAlertEvents")
+  notificationPreference  NotificationPreference?
 
   @@unique([email])
   @@map("user")
@@ -323,25 +324,26 @@ enum DmarcAuthType {
 }
 
 model AlertRule {
-  id              String           @id @default(cuid())
-  organizationId  String
-  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  domainId        String
-  domain          Domain           @relation(fields: [domainId], references: [id], onDelete: Cascade)
-  createdById     String?
-  createdBy       User?            @relation("CreatedAlertRules", fields: [createdById], references: [id], onDelete: SetNull)
-  name            String
-  metric          AlertMetric
-  operator        AlertOperator
-  threshold       Int
-  windowMinutes   Int              @default(1440)
-  cooldownMinutes Int              @default(1440)
-  enabled         Boolean          @default(true)
-  lastTriggeredAt DateTime?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  recipients      AlertRecipient[]
-  events          AlertEvent[]
+  id               String           @id @default(cuid())
+  organizationId   String
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  domainId         String
+  domain           Domain           @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  createdById      String?
+  createdBy        User?            @relation("CreatedAlertRules", fields: [createdById], references: [id], onDelete: SetNull)
+  name             String
+  metric           AlertMetric
+  operator         AlertOperator
+  threshold        Int
+  windowMinutes    Int              @default(1440)
+  cooldownMinutes  Int              @default(1440)
+  maxReminderLevel Int              @default(3)
+  enabled          Boolean          @default(true)
+  lastTriggeredAt  DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  recipients       AlertRecipient[]
+  events           AlertEvent[]
 
   @@index([organizationId, enabled])
   @@index([domainId, enabled])
@@ -362,24 +364,30 @@ model AlertRecipient {
 }
 
 model AlertEvent {
-  id             String          @id @default(cuid())
-  ruleId         String
-  rule           AlertRule       @relation(fields: [ruleId], references: [id], onDelete: Cascade)
-  organizationId String
-  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  domainId       String
-  domain         Domain          @relation(fields: [domainId], references: [id], onDelete: Cascade)
-  metric         AlertMetric
-  operator       AlertOperator
-  observedValue  Int
-  threshold      Int
-  windowMinutes  Int
-  summary        String
-  context        Json?
-  triggeredAt    DateTime        @default(now())
-  deliveries     AlertDelivery[]
+  id               String          @id @default(cuid())
+  ruleId           String
+  rule             AlertRule       @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  organizationId   String
+  organization     Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  domainId         String
+  domain           Domain          @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  metric           AlertMetric
+  operator         AlertOperator
+  observedValue    Int
+  threshold        Int
+  windowMinutes    Int
+  summary          String
+  context          Json?
+  reminderLevel    Int             @default(1)
+  acknowledgedAt   DateTime?
+  acknowledgedById String?
+  acknowledgedBy   User?           @relation("AcknowledgedAlertEvents", fields: [acknowledgedById], references: [id], onDelete: SetNull)
+  resolvedAt       DateTime?
+  triggeredAt      DateTime        @default(now())
+  deliveries       AlertDelivery[]
 
   @@index([ruleId, triggeredAt])
+  @@index([ruleId, acknowledgedAt])
   @@index([domainId, triggeredAt])
   @@index([organizationId, triggeredAt])
   @@map("alert_event")
@@ -393,12 +401,13 @@ model AlertDelivery {
   user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   channel   AlertChannel        @default(EMAIL)
   status    AlertDeliveryStatus @default(PENDING)
+  reminderLevel Int             @default(1)
   attempts  Int                 @default(0)
   lastError String?
   sentAt    DateTime?
   createdAt DateTime            @default(now())
 
-  @@unique([eventId, userId, channel])
+  @@unique([eventId, userId, channel, reminderLevel])
   @@index([userId, status])
   @@map("alert_delivery")
 }
