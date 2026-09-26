@@ -252,16 +252,16 @@ describe('plan-gated forensic identity retention', () => {
 
     const ownerView = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/forensics`);
     expect(ownerView.status).toBe(200);
-    expect(ownerView.body.forensics[0].subjectLine).toBe('Wire transfer details');
-    expect(ownerView.body.forensics[0].recipientAddresses).toEqual(['alice@example.com']);
-    expect(ownerView.body.forensics[0].piiAvailable).toBe(true);
+    expect(ownerView.body.items[0].subjectLine).toBe('Wire transfer details');
+    expect(ownerView.body.items[0].recipientAddresses).toEqual(['alice@example.com']);
+    expect(ownerView.body.items[0].piiAvailable).toBe(true);
 
     await prisma.member.updateMany({ where: { organizationId }, data: { role: 'analyst' } });
     const analystView = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/forensics`);
     expect(analystView.status).toBe(200);
-    expect(analystView.body.forensics[0].subjectLine).toBeUndefined();
-    expect(analystView.body.forensics[0].recipientAddresses).toBeUndefined();
-    expect(analystView.body.forensics[0].piiWithheld).toBe(true);
+    expect(analystView.body.items[0].subjectLine).toBeUndefined();
+    expect(analystView.body.items[0].recipientAddresses).toBeUndefined();
+    expect(analystView.body.items[0].piiWithheld).toBe(true);
 
     await prisma.member.updateMany({ where: { organizationId }, data: { role: 'owner', userId } });
   });

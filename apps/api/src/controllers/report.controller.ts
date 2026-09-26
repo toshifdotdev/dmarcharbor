@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { resourceIdSchema } from '../models/client.model.js';
 import { reportIngestSchema } from '../models/report.model.js';
 import { getDomain } from '../services/client.service.js';
+import { buildPage, parsePagination } from '../utils/pagination.js';
 import {
   getDmarcReport,
   ingestDmarcReport,
@@ -76,8 +77,17 @@ export async function listReportsController(request: Request, response: Response
     return;
   }
 
-  const reports = await listDomainReports(response.locals.organizationId, domainId);
-  response.json(reports);
+  const page = parsePagination(request, response);
+  if (!page.ok) {
+    return;
+  }
+
+  const { rows, limit } = await listDomainReports(response.locals.organizationId, domainId, {
+    limit: page.limit,
+    cursor: page.cursor,
+  });
+
+  response.json(buildPage(rows, limit));
 }
 
 export async function getReportController(request: Request, response: Response): Promise<void> {

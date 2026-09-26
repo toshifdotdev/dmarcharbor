@@ -497,9 +497,9 @@ describe('client-facing report share', () => {
     await agent.post(`/api/workspaces/${organizationId}/report-shares`).send({ domainId });
     const listed = await agent.get(`/api/workspaces/${organizationId}/report-shares`);
     expect(listed.status).toBe(200);
-    expect(listed.body).toHaveLength(1);
-    expect(listed.body[0].domain.name).toBe('onboard-client.test');
-    expect(listed.body[0].client.name).toBe('Acme Corp');
+    expect(listed.body.items).toHaveLength(1);
+    expect(listed.body.items[0].domain.name).toBe('onboard-client.test');
+    expect(listed.body.items[0].client.name).toBe('Acme Corp');
 
     await prisma.member.updateMany({ where: { userId: member.userId }, data: { role: 'viewer' } });
     const denied = await agent.post(`/api/workspaces/${organizationId}/report-shares`).send({ domainId });

@@ -5,8 +5,8 @@ import {
   forensicCollectionSchema,
   forensicIdentitySchema,
   forensicIngestSchema,
-  forensicListQuerySchema,
 } from '../models/forensic.model.js';
+import { buildPage, parsePagination } from '../utils/pagination.js';
 import { getDomain } from '../services/client.service.js';
 import { ForensicReportParseError } from '../services/forensic-report-parser.service.js';
 import {
@@ -104,15 +104,22 @@ export async function listForensicsController(request: Request, response: Respon
     return;
   }
 
-  const query = forensicListQuerySchema.safeParse(request.query);
+  const page = parsePagination(request, response);
+  if (!page.ok) {
+    return;
+  }
+
   const organizationId = response.locals.organizationId;
-  const [forensics, includePii] = await Promise.all([
-    listDomainForensics(organizationId, domainId, query.success ? query.data.limit : undefined),
+  const [{ rows, limit }, includePii] = await Promise.all([
+    listDomainForensics(organizationId, domainId, { limit: page.limit, cursor: page.cursor }),
     mayIdentify(request, organizationId),
   ]);
 
   response.json({
-    forensics: forensics.map((forensic) => presentForensic(forensic, includePii)),
+    ...buildPage(
+      rows.map((forensic) => presentForensic(forensic, includePii)),
+      limit,
+    ),
     ...forensicRetentionSummary(),
   });
 }

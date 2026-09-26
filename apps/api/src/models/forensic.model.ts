@@ -14,10 +14,6 @@ export const forensicIdentitySchema = z.object({
   confirmNamePurge: z.boolean().optional().default(false),
 });
 
-export const forensicListQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(200).optional(),
-});
-
 export const insightsQuerySchema = z.object({
   days: z.coerce.number().int().min(1).max(365).optional(),
 });

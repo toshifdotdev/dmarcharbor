@@ -135,7 +135,7 @@ describe('alerting', () => {
 
     const listed = await agent.get(`/api/workspaces/${organizationId}/alert-rules`);
     expect(listed.status).toBe(200);
-    expect(listed.body).toHaveLength(1);
+    expect(listed.body.items).toHaveLength(1);
   });
 
   it('rejects a rule for a domain outside the workspace and a bad definition', async () => {
@@ -217,7 +217,7 @@ describe('alerting', () => {
     expect(mine[0].outcome).toBe('triggered');
     expect(mine[0].observed).toBe(500);
 
-    const events = await listAlertEvents(organizationId, { domainId });
+    const { rows: events } = await listAlertEvents(organizationId, { domainId });
     expect(events).toHaveLength(1);
     expect(events[0].observedValue).toBe(500);
     expect(events[0].threshold).toBe(100);
@@ -507,7 +507,7 @@ describe('alerting', () => {
 
     const listed = await agent.get(`/api/workspaces/${organizationId}/alerts`);
     expect(listed.status).toBe(200);
-    expect(listed.body[0].status).toBe('STALE');
+    expect(listed.body.items[0].status).toBe('STALE');
   });
 
   it('stores the timezone and rejects an invalid one', async () => {
@@ -573,7 +573,7 @@ describe('alerting', () => {
 
     await evaluateAlertRules();
 
-    const events = await listAlertEvents(organizationId, { domainId });
+    const { rows: events } = await listAlertEvents(organizationId, { domainId });
     expect(events).toHaveLength(1);
 
     const delivery = await prisma.alertDelivery.findFirstOrThrow({ where: { eventId: events[0].id } });
@@ -609,7 +609,7 @@ describe('alerting', () => {
 
     await evaluateAlertRules();
 
-    const events = await listAlertEvents(organizationId, { domainId });
+    const { rows: events } = await listAlertEvents(organizationId, { domainId });
     const delivery = await prisma.alertDelivery.findFirstOrThrow({ where: { eventId: events[0].id } });
     expect(['SKIPPED_QUIET_HOURS', 'SENT']).toContain(delivery.status);
   });

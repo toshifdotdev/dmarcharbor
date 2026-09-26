@@ -245,7 +245,7 @@ describe('forensic report ingestion', () => {
 
     const list = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/forensics`);
     expect(list.status).toBe(200);
-    expect(list.body.forensics).toHaveLength(1);
+    expect(list.body.items).toHaveLength(1);
     expect(list.body.redactionVersion).toBe(1);
   });
 
@@ -260,7 +260,7 @@ describe('forensic report ingestion', () => {
     await prisma.member.updateMany({ where: { organizationId }, data: { role: 'analyst' } });
     const allowed = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/forensics`);
     expect(allowed.status).toBe(200);
-    expect(allowed.body.forensics).toHaveLength(1);
+    expect(allowed.body.items).toHaveLength(1);
   });
 
   it('lets only forensic purge holders delete forensic data', async () => {

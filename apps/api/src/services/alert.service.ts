@@ -3,6 +3,7 @@ import { prisma } from '../database/prisma.js';
 import { env } from '../config/env.js';
 import { sendAuthEmail } from '../email/email.service.js';
 import { createAlertNotifications } from './notification.service.js';
+import { resolveLimit } from '../utils/pagination.js';
 
 const riskByMetric: Record<AlertMetric, 'high' | 'medium'> = {
   FAILURE_COUNT: 'high',
@@ -162,11 +163,17 @@ export async function createAlertRule(input: {
   });
 }
 
-export async function listAlertRules(organizationId: string): Promise<PersistedRule[]> {
+export async function listAlertRules(
+  organizationId: string,
+  options: { limit?: number; cursor?: string } = {},
+): Promise<PersistedRule[]> {
+  const limit = resolveLimit(options.limit);
   return prisma.alertRule.findMany({
     where: { organizationId },
     include: ruleInclude,
-    orderBy: { createdAt: 'desc' },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: limit + 1,
+    ...(options.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
   });
 }
 
@@ -239,13 +246,15 @@ export async function deleteAlertRule(organizationId: string, ruleId: string): P
 
 export async function listAlertEvents(
   organizationId: string,
-  options: { domainId?: string; limit?: number } = {},
-): Promise<
-  Prisma.AlertEventGetPayload<{
+  options: { domainId?: string; limit?: number; cursor?: string } = {},
+): Promise<{
+  rows: Prisma.AlertEventGetPayload<{
     include: { domain: { select: { id: true; name: true } }; rule: { select: { id: true; name: true } } };
-  }>[]
-> {
-  return prisma.alertEvent.findMany({
+  }>[];
+  limit: number;
+}> {
+  const limit = resolveLimit(options.limit);
+  const rows = await prisma.alertEvent.findMany({
     where: {
       organizationId,
       domainId: options.domainId,
@@ -254,9 +263,12 @@ export async function listAlertEvents(
       domain: { select: { id: true, name: true } },
       rule: { select: { id: true, name: true } },
     },
-    orderBy: { triggeredAt: 'desc' },
-    take: clamp(options.limit ?? 50, 1, 200),
+    orderBy: [{ triggeredAt: 'desc' }, { id: 'desc' }],
+    take: limit + 1,
+    ...(options.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
   });
+
+  return { rows, limit };
 }
 
 export async function buildDomainSnapshot(domainId: string, windowMinutes: number, now = new Date()): Promise<DomainSnapshot> {

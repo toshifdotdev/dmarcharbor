@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { prisma } from '../database/prisma.js';
 import { readDmarcRecord } from '../scanner/dmarc-tags.js';
 import { getDomainInsights } from './report-intelligence.service.js';
+import { resolveLimit } from '../utils/pagination.js';
 import { assessPolicyReadiness } from './onboarding.service.js';
 
 const defaultShareDays = 30;
@@ -60,8 +61,9 @@ export async function createReportShare(input: {
   };
 }
 
-export async function listReportShares(organizationId: string) {
-  return prisma.reportShare.findMany({
+export async function listReportShares(organizationId: string, options: { limit?: number; cursor?: string } = {}) {
+  const limit = resolveLimit(options.limit);
+  const rows = await prisma.reportShare.findMany({
     where: { organizationId },
     select: {
       id: true,
@@ -76,8 +78,12 @@ export async function listReportShares(organizationId: string) {
       domain: { select: { id: true, name: true } },
       client: { select: { id: true, name: true } },
     },
-    orderBy: { createdAt: 'desc' },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: limit + 1,
+    ...(options.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
   });
+
+  return { rows, limit };
 }
 
 export async function revokeReportShare(organizationId: string, shareId: string): Promise<boolean> {

@@ -13,10 +13,13 @@ import { inboundReportRouter } from './routes/inbound-report.routes.js';
 import { notificationRouter } from './routes/notification.routes.js';
 import { reportRouter } from './routes/report.routes.js';
 import { sessionRouter } from './routes/session.routes.js';
+import { requestContext } from './middleware/request-context.middleware.js';
+import { sendError } from './utils/api-error.js';
 
 export function createApp(): express.Express {
   const app = express();
 
+  app.use(requestContext);
   app.use(cors({ origin: env.CORS_ORIGINS, credentials: true }));
   app.all('/api/auth/*splat', toNodeHandler(auth));
   app.use('/api', inboundReportRouter);
@@ -34,6 +37,10 @@ export function createApp(): express.Express {
   app.use('/api', clientRouter);
   app.use('/api', domainScanRouter);
   app.use('/api', scanRouter);
+
+  app.use('/api', (_request, response) => {
+    sendError(response, 404, 'The requested endpoint does not exist.');
+  });
 
   return app;
 }

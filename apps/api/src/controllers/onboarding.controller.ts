@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { prisma } from '../database/prisma.js';
+import { buildPage, parsePagination } from '../utils/pagination.js';
 import { resourceIdSchema } from '../models/client.model.js';
 import { dmarcRecordQuerySchema, reportShareCreateSchema } from '../models/onboarding.model.js';
 import {
@@ -99,8 +100,18 @@ export async function createReportShareController(request: Request, response: Re
   response.status(201).json(share);
 }
 
-export async function listReportSharesController(_request: Request, response: Response): Promise<void> {
-  response.json(await listReportShares(response.locals.organizationId));
+export async function listReportSharesController(request: Request, response: Response): Promise<void> {
+  const page = parsePagination(request, response);
+  if (!page.ok) {
+    return;
+  }
+
+  const { rows } = await listReportShares(response.locals.organizationId, {
+    limit: page.limit,
+    cursor: page.cursor,
+  });
+
+  response.json(buildPage(rows, page.limit));
 }
 
 export async function revokeReportShareController(request: Request, response: Response): Promise<void> {

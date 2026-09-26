@@ -181,7 +181,7 @@ describe('DMARC report ingestion', () => {
 
     const history = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/reports`);
     expect(history.status).toBe(200);
-    expect(history.body).toHaveLength(1);
+    expect(history.body.items).toHaveLength(1);
 
     const detail = await agent.get(`/api/workspaces/${organizationId}/reports/${ingested.body.report.id}`);
     expect(detail.status).toBe(200);
@@ -208,8 +208,8 @@ describe('DMARC report ingestion', () => {
 
     const history = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/reports`);
     expect(history.status).toBe(200);
-    expect(history.body).toHaveLength(1);
-    expect(history.body[0].policyDomain).toBe('mailbox.test');
+    expect(history.body.items).toHaveLength(1);
+    expect(history.body.items[0].policyDomain).toBe('mailbox.test');
 
     const invalidSignature = await request(app)
       .post('/api/internal/reports/inbound')

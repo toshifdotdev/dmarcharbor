@@ -3,6 +3,7 @@ import { prisma } from '../database/prisma.js';
 import { readDmarcRecord } from '../scanner/dmarc-tags.js';
 import { normalizeDomain } from '../scanner/domain.js';
 import { parseForensicReport } from './forensic-report-parser.service.js';
+import { resolveLimit } from '../utils/pagination.js';
 import {
   decryptSensitive,
   decryptSensitiveList,
@@ -229,17 +230,21 @@ export async function ingestForensicReportByReportedDomain(rawEmail: string): Pr
 export async function listDomainForensics(
   organizationId: string,
   domainId: string,
-  limit = 100,
-): Promise<PersistedForensic[]> {
-  return prisma.dmarcForensicReport.findMany({
+  options: { limit?: number; cursor?: string } = {},
+): Promise<{ rows: PersistedForensic[]; limit: number }> {
+  const limit = resolveLimit(options.limit);
+  const rows = await prisma.dmarcForensicReport.findMany({
     where: {
       domainId,
       domain: { client: { organizationId } },
     },
     include: forensicInclude,
-    orderBy: { receivedAt: 'desc' },
-    take: Math.min(Math.max(limit, 1), 200),
+    orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }],
+    take: limit + 1,
+    ...(options.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
   });
+
+  return { rows, limit };
 }
 
 export async function getForensicReport(organizationId: string, forensicId: string): Promise<PersistedForensic | null> {

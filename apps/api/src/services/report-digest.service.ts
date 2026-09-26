@@ -3,6 +3,7 @@ import { sendAuthEmail } from '../email/email.service.js';
 import { readDmarcRecord } from '../scanner/dmarc-tags.js';
 import { getDomainInsights } from './report-intelligence.service.js';
 import { assessPolicyReadiness } from './onboarding.service.js';
+import { resolveLimit } from '../utils/pagination.js';
 
 const maximumRecipients = 20;
 
@@ -56,14 +57,19 @@ export async function createReportDigest(input: {
   });
 }
 
-export async function listReportDigests(organizationId: string) {
-  return prisma.reportDigest.findMany({
+export async function listReportDigests(organizationId: string, options: { limit?: number; cursor?: string } = {}) {
+  const limit = resolveLimit(options.limit);
+  const rows = await prisma.reportDigest.findMany({
     where: { organizationId },
     include: {
       domain: { select: { id: true, name: true, client: { select: { id: true, name: true } } } },
     },
-    orderBy: { createdAt: 'desc' },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: limit + 1,
+    ...(options.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
   });
+
+  return { rows, limit };
 }
 
 export async function updateReportDigest(

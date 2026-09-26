@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { prisma } from '../database/prisma.js';
+import { buildPage, parsePagination } from '../utils/pagination.js';
 import { resourceIdSchema } from '../models/client.model.js';
 import { notificationListQuerySchema, reportDigestCreateSchema, reportDigestUpdateSchema } from '../models/notification.model.js';
 import {
@@ -101,8 +102,18 @@ export async function createReportDigestController(request: Request, response: R
   response.status(201).json(digest);
 }
 
-export async function listReportDigestsController(_request: Request, response: Response): Promise<void> {
-  response.json(await listReportDigests(response.locals.organizationId));
+export async function listReportDigestsController(request: Request, response: Response): Promise<void> {
+  const page = parsePagination(request, response);
+  if (!page.ok) {
+    return;
+  }
+
+  const { rows } = await listReportDigests(response.locals.organizationId, {
+    limit: page.limit,
+    cursor: page.cursor,
+  });
+
+  response.json(buildPage(rows, page.limit));
 }
 
 export async function updateReportDigestController(request: Request, response: Response): Promise<void> {

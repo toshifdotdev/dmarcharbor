@@ -1,11 +1,11 @@
 import type { Request, Response } from 'express';
 import {
-  alertEventQuerySchema,
   alertRuleCreateSchema,
   alertRuleUpdateSchema,
   notificationPreferenceSchema,
 } from '../models/alert.model.js';
 import { resourceIdSchema } from '../models/client.model.js';
+import { buildPage, parsePagination } from '../utils/pagination.js';
 import {
   acknowledgeAlertEvent,
   createAlertRule,
@@ -53,8 +53,18 @@ export async function createAlertRuleController(request: Request, response: Resp
   response.status(201).json(rule);
 }
 
-export async function listAlertRulesController(_request: Request, response: Response): Promise<void> {
-  response.json(await listAlertRules(response.locals.organizationId));
+export async function listAlertRulesController(request: Request, response: Response): Promise<void> {
+  const page = parsePagination(request, response);
+  if (!page.ok) {
+    return;
+  }
+
+  const rows = await listAlertRules(response.locals.organizationId, {
+    limit: page.limit,
+    cursor: page.cursor,
+  });
+
+  response.json(buildPage(rows, page.limit));
 }
 
 export async function updateAlertRuleController(request: Request, response: Response): Promise<void> {
@@ -91,23 +101,31 @@ export async function deleteAlertRuleController(request: Request, response: Resp
 }
 
 export async function listAlertEventsController(request: Request, response: Response): Promise<void> {
-  const query = alertEventQuerySchema.safeParse(request.query);
-  const events = await listAlertEvents(response.locals.organizationId, {
-    domainId: query.success ? query.data.domainId : undefined,
-    limit: query.success ? query.data.limit : undefined,
+  const page = parsePagination(request, response);
+  if (!page.ok) {
+    return;
+  }
+
+  const { rows, limit } = await listAlertEvents(response.locals.organizationId, {
+    domainId: typeof request.query.domainId === 'string' ? request.query.domainId : undefined,
+    limit: page.limit,
+    cursor: page.cursor,
   });
 
   response.json(
-    events.map((event) => ({
-      ...event,
-      status: event.acknowledgedAt
-        ? 'ACKNOWLEDGED'
-        : event.resolvedAt
-          ? 'RESOLVED'
-          : event.staleAt
-            ? 'STALE'
-            : 'OPEN',
-    })),
+    buildPage(
+      rows.map((event) => ({
+        ...event,
+        status: event.acknowledgedAt
+          ? 'ACKNOWLEDGED'
+          : event.resolvedAt
+            ? 'RESOLVED'
+            : event.staleAt
+              ? 'STALE'
+              : 'OPEN',
+      })),
+      limit,
+    ),
   );
 }
 

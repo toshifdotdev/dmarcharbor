@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
+import { resolveLimit } from '../utils/pagination.js';
 import { parseDmarcReport } from './report-parser.service.js';
 
 const reportInclude = {
@@ -180,15 +181,24 @@ export async function ingestDmarcReportByPolicyDomain(xml: string): Promise<Mail
   });
 }
 
-export async function listDomainReports(organizationId: string, domainId: string): Promise<PersistedReport[]> {
-  return prisma.dmarcReport.findMany({
+export async function listDomainReports(
+  organizationId: string,
+  domainId: string,
+  options: { limit?: number; cursor?: string } = {},
+): Promise<{ rows: PersistedReport[]; limit: number }> {
+  const limit = resolveLimit(options.limit);
+  const rows = await prisma.dmarcReport.findMany({
     where: {
       domainId,
       domain: { client: { organizationId } },
     },
     include: reportInclude,
-    orderBy: { receivedAt: 'desc' },
+    orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }],
+    take: limit + 1,
+    ...(options.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
   });
+
+  return { rows, limit };
 }
 
 export async function getDmarcReport(organizationId: string, reportId: string): Promise<PersistedReport | null> {

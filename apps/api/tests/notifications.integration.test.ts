@@ -391,9 +391,9 @@ describe('scheduled client report digests', () => {
 
     const listed = await agent.get(`/api/workspaces/${organizationId}/report-digests`);
     expect(listed.status).toBe(200);
-    expect(listed.body).toHaveLength(1);
-    expect(listed.body[0].domain.name).toBe('digest-client.test');
-    expect(listed.body[0].domain.client.name).toBe('Notify Client');
+    expect(listed.body.items).toHaveLength(1);
+    expect(listed.body.items[0].domain.name).toBe('digest-client.test');
+    expect(listed.body.items[0].domain.client.name).toBe('Notify Client');
 
     const sent = await agent.post(`/api/workspaces/${organizationId}/report-digests/${created.body.id}/send`);
     expect(sent.status).toBe(200);

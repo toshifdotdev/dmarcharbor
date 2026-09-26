@@ -32,11 +32,6 @@ export const alertRuleUpdateSchema = z.object({
   recipientUserIds: z.array(z.string().trim().min(1)).min(1).max(50).optional(),
 });
 
-export const alertEventQuerySchema = z.object({
-  domainId: z.string().trim().min(1).optional(),
-  limit: z.coerce.number().int().min(1).max(200).optional(),
-});
-
 export const notificationPreferenceSchema = z.object({
   emailAlerts: z.boolean().optional(),
   timezone: z.string().trim().min(1).max(64).optional(),

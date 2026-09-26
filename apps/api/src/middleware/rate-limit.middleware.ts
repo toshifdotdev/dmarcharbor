@@ -13,3 +13,16 @@ export const reportIngestRateLimiter = rateLimit({
   standardHeaders: 'draft-7',
   legacyHeaders: false,
 });
+
+export const publicReportRateLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 30,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: {
+    error: {
+      code: 'RATE_LIMITED',
+      message: 'Too many report views. Try again shortly.',
+    },
+  },
+});
