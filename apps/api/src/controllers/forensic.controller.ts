@@ -1,6 +1,12 @@
 import type { Request, Response } from 'express';
+import { requestHasOrganizationPermission } from '../auth/permission-check.js';
 import { resourceIdSchema } from '../models/client.model.js';
-import { forensicCollectionSchema, forensicIngestSchema, forensicListQuerySchema } from '../models/forensic.model.js';
+import {
+  forensicCollectionSchema,
+  forensicIdentitySchema,
+  forensicIngestSchema,
+  forensicListQuerySchema,
+} from '../models/forensic.model.js';
 import { getDomain } from '../services/client.service.js';
 import { ForensicReportParseError } from '../services/forensic-report-parser.service.js';
 import {
@@ -9,13 +15,19 @@ import {
   getForensicReport,
   ingestForensicReport,
   listDomainForensics,
+  presentForensic,
   purgeForensicReports,
   setForensicCollection,
+  setForensicIdentityRetention,
 } from '../services/forensic-report.service.js';
 
 function parseId(value: string | string[] | undefined): string | null {
   const parsed = resourceIdSchema.safeParse(value);
   return parsed.success ? parsed.data : null;
+}
+
+async function mayIdentify(request: Request, organizationId: string): Promise<boolean> {
+  return requestHasOrganizationPermission(request, organizationId, 'forensic', 'identify');
 }
 
 export async function ingestForensicReportController(request: Request, response: Response): Promise<void> {
@@ -93,13 +105,16 @@ export async function listForensicsController(request: Request, response: Respon
   }
 
   const query = forensicListQuerySchema.safeParse(request.query);
-  const forensics = await listDomainForensics(
-    response.locals.organizationId,
-    domainId,
-    query.success ? query.data.limit : undefined,
-  );
+  const organizationId = response.locals.organizationId;
+  const [forensics, includePii] = await Promise.all([
+    listDomainForensics(organizationId, domainId, query.success ? query.data.limit : undefined),
+    mayIdentify(request, organizationId),
+  ]);
 
-  response.json({ forensics, ...forensicRetentionSummary() });
+  response.json({
+    forensics: forensics.map((forensic) => presentForensic(forensic, includePii)),
+    ...forensicRetentionSummary(),
+  });
 }
 
 export async function getForensicReportController(request: Request, response: Response): Promise<void> {
@@ -109,13 +124,18 @@ export async function getForensicReportController(request: Request, response: Re
     return;
   }
 
-  const forensic = await getForensicReport(response.locals.organizationId, forensicId);
+  const organizationId = response.locals.organizationId;
+  const [forensic, includePii] = await Promise.all([
+    getForensicReport(organizationId, forensicId),
+    mayIdentify(request, organizationId),
+  ]);
+
   if (!forensic) {
     response.status(404).json({ error: { message: 'Forensic report not found in this workspace.' } });
     return;
   }
 
-  response.json(forensic);
+  response.json(presentForensic(forensic, includePii));
 }
 
 export async function deleteForensicReportController(request: Request, response: Response): Promise<void> {
@@ -162,6 +182,41 @@ export async function setForensicCollectionController(request: Request, response
 
   if (outcome.status === 'not_found') {
     response.status(404).json({ error: { message: 'Domain not found in this workspace.' } });
+    return;
+  }
+
+  response.json({ domain: outcome.domain, ...forensicRetentionSummary() });
+}
+
+export async function setForensicIdentityController(request: Request, response: Response): Promise<void> {
+  const domainId = parseId(request.params.domainId);
+  const body = forensicIdentitySchema.safeParse(request.body);
+
+  if (!domainId || !body.success) {
+    response.status(400).json({ error: { message: 'A valid domain and retainForensicPii flag are required.' } });
+    return;
+  }
+
+  const outcome = await setForensicIdentityRetention(
+    response.locals.organizationId,
+    domainId,
+    body.data.retainForensicPii,
+    body.data.confirmLegalBasis,
+    response.locals.session?.user?.id,
+  );
+
+  if (outcome.status === 'not_found') {
+    response.status(404).json({ error: { message: 'Domain not found in this workspace.' } });
+    return;
+  }
+
+  if (outcome.status === 'legal_basis_required') {
+    response.status(400).json({
+      error: {
+        message:
+          'Retaining named recipients is personal data. Confirm the lawful basis for your workspace before enabling it.',
+      },
+    });
     return;
   }
 

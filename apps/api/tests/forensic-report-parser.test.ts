@@ -108,19 +108,26 @@ describe('forensic report parser', () => {
     ]);
   });
 
-  it('never returns personal data in plaintext', () => {
+  it('carries personal data only inside the explicit identifiers block', () => {
     const report = parseForensicReport(forensicEmail());
     const serialized = JSON.stringify(report);
+    const withoutIdentifiers = JSON.stringify({ ...report, identifiers: undefined });
 
-    expect(serialized).not.toContain('alice@example.com');
-    expect(serialized).not.toContain('attacker@spammer.test');
-    expect(serialized).not.toContain('Wire transfer details');
-    expect(serialized).not.toContain('abc123@spammer.test');
     expect(report.recipientPseudonyms[0]).toMatch(hexFingerprint);
     expect(report.subjectPseudonym).toMatch(hexFingerprint);
     expect(report.messageIdPseudonym).toMatch(hexFingerprint);
     expect(report.envelopeFromPseudonym).toMatch(hexFingerprint);
     expect(report.diagnosticCodes[0]).toContain('[redacted:');
+
+    expect(withoutIdentifiers).not.toContain('alice@example.com');
+    expect(withoutIdentifiers).not.toContain('attacker@spammer.test');
+    expect(withoutIdentifiers).not.toContain('Wire transfer details');
+    expect(withoutIdentifiers).not.toContain('abc123@spammer.test');
+
+    expect(report.identifiers.recipientAddresses).toEqual(['alice@example.com']);
+    expect(report.identifiers.envelopeFrom).toBe('attacker@spammer.test');
+    expect(report.identifiers.subjectLine).toBe('Wire transfer details');
+    expect(serialized).toContain('identifiers');
   });
 
   it('produces a stable fingerprint and stable pseudonyms across deliveries', () => {
@@ -183,10 +190,12 @@ describe('forensic report parser', () => {
     ].join('\r\n');
 
     const report = parseForensicReport(raw);
+    const withoutIdentifiers = JSON.stringify({ ...report, identifiers: undefined });
 
     expect(report.hasOriginalMessageIncluded).toBe(true);
     expect(report.subjectPseudonym).toMatch(hexFingerprint);
-    expect(JSON.stringify(report)).not.toContain('Confidential payroll change');
+    expect(withoutIdentifiers).not.toContain('Confidential payroll change');
+    expect(withoutIdentifiers).not.toContain('Transfer 50000');
     expect(JSON.stringify(report)).not.toContain('Transfer 50000');
   });
 

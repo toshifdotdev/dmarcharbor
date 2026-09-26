@@ -6,7 +6,7 @@ const statement = {
   client: ['create', 'read', 'update', 'delete'],
   domain: ['create', 'read', 'update', 'delete'],
   report: ['create', 'read', 'update', 'delete', 'ingest'],
-  forensic: ['read', 'ingest', 'purge'],
+  forensic: ['read', 'ingest', 'purge', 'identify'],
   billing: ['read', 'update'],
 } as const;
 

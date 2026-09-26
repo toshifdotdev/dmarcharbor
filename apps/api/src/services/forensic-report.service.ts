@@ -3,7 +3,17 @@ import { prisma } from '../database/prisma.js';
 import { readDmarcRecord } from '../scanner/dmarc-tags.js';
 import { normalizeDomain } from '../scanner/domain.js';
 import { parseForensicReport } from './forensic-report-parser.service.js';
-import { forensicRedactionVersion, forensicRetentionDays, forensicRetentionExpiry } from './privacy.service.js';
+import {
+  decryptSensitive,
+  decryptSensitiveList,
+  encryptSensitive,
+  encryptSensitiveList,
+  forensicPiiRetentionDays,
+  forensicPiiRetentionExpiry,
+  forensicRedactionVersion,
+  forensicRetentionDays,
+  forensicRetentionExpiry,
+} from './privacy.service.js';
 
 const forensicInclude = {
   domain: {
@@ -90,6 +100,7 @@ export async function ingestForensicReport(input: IngestForensicInput): Promise<
       status: true,
       dmarcRecord: true,
       collectForensicReports: true,
+      retainForensicPii: true,
     },
   });
 
@@ -127,6 +138,7 @@ export async function ingestForensicReport(input: IngestForensicInput): Promise<
   }
 
   try {
+    const retainPii = domain.retainForensicPii;
     const forensic = await prisma.dmarcForensicReport.create({
       data: {
         domainId: domain.id,
@@ -155,8 +167,12 @@ export async function ingestForensicReport(input: IngestForensicInput): Promise<
         arrivedAt: parsed.arrivedAt,
         hasOriginalHeaders: parsed.hasOriginalHeaders,
         hasOriginalMessageIncluded: parsed.hasOriginalMessageIncluded,
+        piiRetained: retainPii,
+        recipientAddresses: retainPii ? toJson(encryptSensitiveList(parsed.identifiers.recipientAddresses)) : undefined,
+        subjectLine: parsed.identifiers.subjectLine && retainPii ? encryptSensitive(parsed.identifiers.subjectLine) : undefined,
+        envelopeFrom: parsed.identifiers.envelopeFrom && retainPii ? encryptSensitive(parsed.identifiers.envelopeFrom) : undefined,
         redactionVersion: forensicRedactionVersion,
-        retentionExpiresAt: forensicRetentionExpiry(),
+        retentionExpiresAt: retainPii ? forensicPiiRetentionExpiry() : forensicRetentionExpiry(),
       },
       include: forensicInclude,
     });
@@ -270,8 +286,108 @@ export async function deleteForensicReport(organizationId: string, forensicId: s
   return true;
 }
 
-export function forensicRetentionSummary(): { retentionDays: number; redactionVersion: number } {
-  return { retentionDays: forensicRetentionDays(), redactionVersion: forensicRedactionVersion };
+export function forensicRetentionSummary(): {
+  retentionDays: number;
+  piiRetentionDays: number;
+  redactionVersion: number;
+} {
+  return {
+    retentionDays: forensicRetentionDays(),
+    piiRetentionDays: forensicPiiRetentionDays(),
+    redactionVersion: forensicRedactionVersion,
+  };
+}
+
+export interface PresentedForensic extends Record<string, unknown> {
+  piiAvailable: boolean;
+  piiWithheld?: boolean;
+}
+
+export function presentForensic(forensic: PersistedForensic, includePii: boolean): PresentedForensic {
+  const base = { ...forensic, piiAvailable: forensic.piiRetained } as Record<string, unknown> & {
+    piiAvailable: boolean;
+  };
+
+  if (!forensic.piiRetained) {
+    return base;
+  }
+
+  if (!includePii) {
+    return { ...base, piiWithheld: true, recipientAddresses: undefined, subjectLine: undefined, envelopeFrom: undefined };
+  }
+
+  return {
+    ...base,
+    recipientAddresses: decryptSensitiveList(forensic.recipientAddresses),
+    subjectLine: decryptSensitive(forensic.subjectLine),
+    envelopeFrom: decryptSensitive(forensic.envelopeFrom),
+  };
+}
+
+export type ForensicPiiOutcome =
+  | { status: 'not_found' }
+  | { status: 'legal_basis_required' }
+  | {
+      status: 'updated';
+      domain: {
+        id: string;
+        name: string;
+        collectForensicReports: boolean;
+        retainForensicPii: boolean;
+        rufConfigured: boolean;
+        forensicPiiEnabledAt: Date | null;
+      };
+    };
+
+export async function setForensicIdentityRetention(
+  organizationId: string,
+  domainId: string,
+  retainForensicPii: boolean,
+  confirmedLegalBasis: boolean,
+  enabledById: string | undefined,
+): Promise<ForensicPiiOutcome> {
+  const domain = await prisma.domain.findFirst({
+    where: {
+      id: domainId,
+      client: { organizationId },
+    },
+    select: {
+      id: true,
+      name: true,
+      dmarcRecord: true,
+      collectForensicReports: true,
+      retainForensicPii: true,
+    },
+  });
+
+  if (!domain) {
+    return { status: 'not_found' };
+  }
+
+  if (retainForensicPii && !confirmedLegalBasis) {
+    return { status: 'legal_basis_required' };
+  }
+
+  const updated = await prisma.domain.update({
+    where: { id: domain.id },
+    data: {
+      retainForensicPii,
+      forensicPiiEnabledAt: retainForensicPii ? new Date() : null,
+      forensicPiiEnabledById: retainForensicPii ? enabledById ?? null : null,
+    },
+    select: {
+      id: true,
+      name: true,
+      collectForensicReports: true,
+      retainForensicPii: true,
+      forensicPiiEnabledAt: true,
+    },
+  });
+
+  return {
+    status: 'updated',
+    domain: { ...updated, rufConfigured: rufConfigured(domain) },
+  };
 }
 
 export async function setForensicCollection(

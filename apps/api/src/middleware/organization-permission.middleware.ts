@@ -3,7 +3,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { auth } from '../auth/auth.config.js';
 
 export type OrganizationResource = 'client' | 'domain' | 'report' | 'forensic' | 'billing';
-export type OrganizationAction = 'create' | 'read' | 'update' | 'delete' | 'ingest' | 'purge';
+export type OrganizationAction = 'create' | 'read' | 'update' | 'delete' | 'ingest' | 'purge' | 'identify';
 
 export function requireOrganizationPermission(resource: OrganizationResource, action: OrganizationAction) {
   return async (request: Request, response: Response, next: NextFunction): Promise<void> => {

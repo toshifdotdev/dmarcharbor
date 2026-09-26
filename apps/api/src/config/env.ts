@@ -5,6 +5,7 @@ config();
 
 const developmentSecret = 'dmarcharbor-development-only-secret-change-me';
 const developmentForensicSecret = 'dmarcharbor-development-only-forensic-secret-change-me';
+const developmentPiiKey = 'dmarcharbor-development-only-pii-encryption-key-change-me';
 const optionalSecret = z.preprocess(
   (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
   z.string().trim().min(1).optional(),
@@ -26,7 +27,9 @@ const envSchema = z.object({
   MICROSOFT_TENANT_ID: z.string().trim().min(1).default('common'),
   REPORT_INGEST_SECRET: optionalSecret,
   FORENSIC_PSEUDONYM_SECRET: z.string().min(32).default(developmentForensicSecret),
+  FORENSIC_PII_ENCRYPTION_KEY: z.string().min(32).default(developmentPiiKey),
   FORENSIC_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(30),
+  FORENSIC_PII_RETENTION_DAYS: z.coerce.number().int().min(1).max(30).default(7),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -62,6 +65,10 @@ if (parsed.data.NODE_ENV === 'production' && !parsed.data.REPORT_INGEST_SECRET) 
 
 if (parsed.data.NODE_ENV === 'production' && parsed.data.FORENSIC_PSEUDONYM_SECRET === developmentForensicSecret) {
   throw new Error('FORENSIC_PSEUDONYM_SECRET must be set in production.');
+}
+
+if (parsed.data.NODE_ENV === 'production' && parsed.data.FORENSIC_PII_ENCRYPTION_KEY === developmentPiiKey) {
+  throw new Error('FORENSIC_PII_ENCRYPTION_KEY must be set in production.');
 }
 
 export const env = {

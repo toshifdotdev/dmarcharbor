@@ -20,6 +20,7 @@ model User {
   members        Member[]
   invitations    Invitation[]
   requestedScans Scan[]       @relation("RequestedScans")
+  enabledForensicPii Domain[] @relation("ForensicPiiEnabledBy")
 
   @@unique([email])
   @@map("user")
@@ -147,6 +148,10 @@ model Domain {
   dmarcPolicy            String?
   dmarcRecord            String?
   collectForensicReports Boolean               @default(false)
+  retainForensicPii      Boolean               @default(false)
+  forensicPiiEnabledAt   DateTime?
+  forensicPiiEnabledById String?
+  forensicPiiEnabledBy   User?                 @relation("ForensicPiiEnabledBy", fields: [forensicPiiEnabledById], references: [id], onDelete: SetNull)
   spfRecord              String?
   dkimSelectors          Json?
   mxRecords              Json?
@@ -273,6 +278,10 @@ model DmarcForensicReport {
   arrivedAt                  DateTime?
   hasOriginalHeaders         Boolean      @default(false)
   hasOriginalMessageIncluded Boolean      @default(false)
+  piiRetained                Boolean      @default(false)
+  recipientAddresses         Json?
+  subjectLine                String?
+  envelopeFrom               String?
   redactionVersion           Int
   retentionExpiresAt         DateTime
   receivedAt                 DateTime     @default(now())

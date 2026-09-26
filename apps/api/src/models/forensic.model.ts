@@ -8,9 +8,19 @@ export const forensicCollectionSchema = z.object({
   collectForensicReports: z.boolean(),
 });
 
+export const forensicIdentitySchema = z.object({
+  retainForensicPii: z.boolean(),
+  confirmLegalBasis: z.boolean().optional().default(false),
+});
+
 export const forensicListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional(),
 });
 
+export const insightsQuerySchema = z.object({
+  days: z.coerce.number().int().min(1).max(365).optional(),
+});
+
 export type ForensicIngestRequest = z.infer<typeof forensicIngestSchema>;
 export type ForensicCollectionRequest = z.infer<typeof forensicCollectionSchema>;
+export type ForensicIdentityRequest = z.infer<typeof forensicIdentitySchema>;

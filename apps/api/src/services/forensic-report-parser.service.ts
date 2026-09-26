@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { normalizeDomain } from '../scanner/domain.js';
-import { pseudonymize, pseudonymizeAddress } from './privacy.service.js';
+import { normalizeAddress, pseudonymize, pseudonymizeAddress } from './privacy.service.js';
 
 const maxEmailLength = 5_000_000;
 const maxParts = 40;
@@ -16,6 +16,12 @@ export interface ParsedForensicAuthResult {
   selector?: string;
   scope?: string;
   result: string;
+}
+
+export interface ParsedForensicIdentifiers {
+  recipientAddresses: string[];
+  envelopeFrom?: string;
+  subjectLine?: string;
 }
 
 export interface ParsedForensicReport {
@@ -44,6 +50,7 @@ export interface ParsedForensicReport {
   arrivedAt?: Date;
   hasOriginalHeaders: boolean;
   hasOriginalMessageIncluded: boolean;
+  identifiers: ParsedForensicIdentifiers;
 }
 
 interface MimePart {
@@ -501,7 +508,6 @@ export function parseForensicReport(rawEmail: string): ParsedForensicReport {
     ? pseudonymize(`message-id:${originalHeaders['message-id'].trim()}`)
     : undefined;
   const originalFromPseudonym = originalHeaders?.from ? pseudonymizeAddress(originalHeaders.from) : undefined;
-  const originalToPseudonym = originalHeaders?.to ? pseudonymizeAddress(originalHeaders.to) : undefined;
 
   const recipientPseudonyms = [
     ...new Set(
@@ -511,8 +517,20 @@ export function parseForensicReport(rawEmail: string): ParsedForensicReport {
     ),
   ];
 
-  if (!recipientPseudonyms.length && originalToPseudonym) {
-    recipientPseudonyms.push(originalToPseudonym);
+  const recipientAddresses = [
+    ...new Set(
+      recipients
+        .map((recipient) => normalizeAddress(recipient))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ];
+
+  if (!recipientAddresses.length && originalHeaders?.to) {
+    const address = normalizeAddress(originalHeaders.to);
+    if (address) {
+      recipientAddresses.push(address);
+      recipientPseudonyms.push(pseudonymizeAddress(address) as string);
+    }
   }
 
   const parsed: Omit<ParsedForensicReport, 'fingerprint'> = {
@@ -546,6 +564,11 @@ export function parseForensicReport(rawEmail: string): ParsedForensicReport {
     ),
     hasOriginalHeaders: Boolean(originalHeadersPart),
     hasOriginalMessageIncluded: Boolean(originalMessagePart),
+    identifiers: {
+      recipientAddresses,
+      envelopeFrom: normalizeAddress(envelopeFrom) ?? normalizeAddress(originalHeaders?.from),
+      subjectLine: originalHeaders?.subject ? originalHeaders.subject.replace(/\s+/g, ' ').trim() : undefined,
+    },
   };
 
   return { ...parsed, fingerprint: buildFingerprint(parsed) };
