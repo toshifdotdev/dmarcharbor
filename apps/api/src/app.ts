@@ -3,6 +3,7 @@ import cors from 'cors';
 import express from 'express';
 import { auth } from './auth/auth.config.js';
 import { env } from './config/env.js';
+import { alertRouter } from './routes/alert.routes.js';
 import { scanRouter } from './routes/scan.routes.js';
 import { clientRouter } from './routes/client.routes.js';
 import { domainScanRouter } from './routes/domain-scan.routes.js';
@@ -19,6 +20,7 @@ export function createApp(): express.Express {
   app.use('/api', inboundReportRouter);
   app.use('/api', reportRouter);
   app.use('/api', forensicRouter);
+  app.use('/api', alertRouter);
   app.use(express.json({ limit: '10kb' }));
   app.get('/api/health', (_request, response) => {
     response.json({ status: 'ok', service: 'dmarcharbor-api' });

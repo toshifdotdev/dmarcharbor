@@ -30,6 +30,11 @@ const envSchema = z.object({
   FORENSIC_PII_ENCRYPTION_KEY: z.string().min(32).default(developmentPiiKey),
   FORENSIC_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(30),
   FORENSIC_PII_RETENTION_DAYS: z.coerce.number().int().min(1).max(30).default(7),
+  ALERT_EVALUATION_INTERVAL_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
+  ALERT_SCHEDULER_DISABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
 });
 
 const parsed = envSchema.safeParse(process.env);

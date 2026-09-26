@@ -8,19 +8,22 @@ generator client {
 }
 
 model User {
-  id             String       @id
-  name           String
-  email          String
-  emailVerified  Boolean      @default(false)
-  image          String?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  sessions       Session[]
-  accounts       Account[]
-  members        Member[]
-  invitations    Invitation[]
-  requestedScans Scan[]       @relation("RequestedScans")
-  enabledForensicPii Domain[] @relation("ForensicPiiEnabledBy")
+  id                     String                  @id
+  name                   String
+  email                  String
+  emailVerified          Boolean                 @default(false)
+  image                  String?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  sessions               Session[]
+  accounts               Account[]
+  members                Member[]
+  invitations            Invitation[]
+  requestedScans         Scan[]                  @relation("RequestedScans")
+  enabledForensicPii     Domain[]                @relation("ForensicPiiEnabledBy")
+  createdAlertRules      AlertRule[]             @relation("CreatedAlertRules")
+  alertDeliveries        AlertDelivery[]
+  notificationPreference NotificationPreference?
 
   @@unique([email])
   @@map("user")
@@ -85,6 +88,8 @@ model Organization {
   members     Member[]
   invitations Invitation[]
   clients     Client[]
+  alertRules  AlertRule[]
+  alertEvents AlertEvent[]
 
   @@unique([slug])
   @@map("organization")
@@ -161,6 +166,8 @@ model Domain {
   scans                  Scan[]
   dmarcReports           DmarcReport[]
   forensicReports        DmarcForensicReport[]
+  alertRules             AlertRule[]
+  alertEvents            AlertEvent[]
 
   @@unique([clientId, name])
   @@index([clientId])
@@ -250,10 +257,10 @@ model DmarcAuthResult {
 }
 
 model DmarcForensicReport {
-  id                         String       @id @default(cuid())
+  id                         String    @id @default(cuid())
   domainId                   String
-  domain                     Domain       @relation(fields: [domainId], references: [id], onDelete: Cascade)
-  fingerprint                String       @unique
+  domain                     Domain    @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  fingerprint                String    @unique
   feedbackType               String
   reportedDomain             String
   sourceIp                   String
@@ -269,22 +276,22 @@ model DmarcForensicReport {
   remoteMta                  String?
   userAgent                  String?
   diagnosticCodes            Json?
-  recipientCount             Int          @default(0)
+  recipientCount             Int       @default(0)
   recipientPseudonyms        Json?
   envelopeFromPseudonym      String?
   messageIdPseudonym         String?
   subjectPseudonym           String?
   originalMessageDate        DateTime?
   arrivedAt                  DateTime?
-  hasOriginalHeaders         Boolean      @default(false)
-  hasOriginalMessageIncluded Boolean      @default(false)
-  piiRetained                Boolean      @default(false)
+  hasOriginalHeaders         Boolean   @default(false)
+  hasOriginalMessageIncluded Boolean   @default(false)
+  piiRetained                Boolean   @default(false)
   recipientAddresses         Json?
   subjectLine                String?
   envelopeFrom               String?
   redactionVersion           Int
   retentionExpiresAt         DateTime
-  receivedAt                 DateTime     @default(now())
+  receivedAt                 DateTime  @default(now())
 
   @@index([domainId, receivedAt])
   @@index([retentionExpiresAt])
@@ -313,4 +320,125 @@ enum DmarcReportType {
 enum DmarcAuthType {
   DKIM
   SPF
+}
+
+model AlertRule {
+  id              String           @id @default(cuid())
+  organizationId  String
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  domainId        String
+  domain          Domain           @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  createdById     String?
+  createdBy       User?            @relation("CreatedAlertRules", fields: [createdById], references: [id], onDelete: SetNull)
+  name            String
+  metric          AlertMetric
+  operator        AlertOperator
+  threshold       Int
+  windowMinutes   Int              @default(1440)
+  cooldownMinutes Int              @default(1440)
+  enabled         Boolean          @default(true)
+  lastTriggeredAt DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  recipients      AlertRecipient[]
+  events          AlertEvent[]
+
+  @@index([organizationId, enabled])
+  @@index([domainId, enabled])
+  @@index([enabled, lastTriggeredAt])
+  @@map("alert_rule")
+}
+
+model AlertRecipient {
+  id        String    @id @default(cuid())
+  ruleId    String
+  rule      AlertRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  userId    String
+  createdAt DateTime  @default(now())
+
+  @@unique([ruleId, userId])
+  @@index([ruleId])
+  @@map("alert_recipient")
+}
+
+model AlertEvent {
+  id             String          @id @default(cuid())
+  ruleId         String
+  rule           AlertRule       @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  domainId       String
+  domain         Domain          @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  metric         AlertMetric
+  operator       AlertOperator
+  observedValue  Int
+  threshold      Int
+  windowMinutes  Int
+  summary        String
+  context        Json?
+  triggeredAt    DateTime        @default(now())
+  deliveries     AlertDelivery[]
+
+  @@index([ruleId, triggeredAt])
+  @@index([domainId, triggeredAt])
+  @@index([organizationId, triggeredAt])
+  @@map("alert_event")
+}
+
+model AlertDelivery {
+  id        String              @id @default(cuid())
+  eventId   String
+  event     AlertEvent          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel   AlertChannel        @default(EMAIL)
+  status    AlertDeliveryStatus @default(PENDING)
+  attempts  Int                 @default(0)
+  lastError String?
+  sentAt    DateTime?
+  createdAt DateTime            @default(now())
+
+  @@unique([eventId, userId, channel])
+  @@index([userId, status])
+  @@map("alert_delivery")
+}
+
+model NotificationPreference {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emailAlerts        Boolean  @default(true)
+  quietHoursStart    String?
+  quietHoursEnd      String?
+  onlyHighRiskAlerts Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@map("notification_preference")
+}
+
+enum AlertMetric {
+  FAILURE_COUNT
+  FAILURE_RATE
+  SOURCE_IP_VOLUME
+  FORENSIC_FAILURES
+  REPORT_SILENCE
+}
+
+enum AlertOperator {
+  GREATER_THAN
+  GREATER_THAN_OR_EQUAL
+  LESS_THAN
+}
+
+enum AlertChannel {
+  EMAIL
+}
+
+enum AlertDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED_QUIET_HOURS
+  SKIPPED_DISABLED
 }

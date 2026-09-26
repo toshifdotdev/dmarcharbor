@@ -1,0 +1,520 @@
+import type { AlertDeliveryStatus, AlertMetric, AlertOperator, Prisma } from '@prisma/client';
+import { prisma } from '../database/prisma.js';
+import { sendAuthEmail } from '../email/email.service.js';
+
+const riskByMetric: Record<AlertMetric, 'high' | 'medium'> = {
+  FAILURE_COUNT: 'high',
+  FAILURE_RATE: 'high',
+  SOURCE_IP_VOLUME: 'high',
+  FORENSIC_FAILURES: 'high',
+  REPORT_SILENCE: 'medium',
+};
+
+const maxLookbackMinutes = 43_200;
+
+const ruleInclude = {
+  domain: { select: { id: true, name: true } },
+  recipients: { select: { userId: true } },
+  organization: { select: { id: true, name: true, slug: true } },
+} as const;
+
+type PersistedRule = Prisma.AlertRuleGetPayload<{ include: typeof ruleInclude }>;
+
+export interface DomainSnapshot {
+  domainId: string;
+  windowMinutes: number;
+  aggregateRecords: { sourceIp: string; messageCount: number; failed: boolean; receivedAt: Date }[];
+  forensicRows: { sourceIp: string; rejected: boolean; receivedAt: Date; recipientCount: number }[];
+  totalMessages: number;
+  failedMessages: number;
+  failureRate: number;
+  busiestSourceMessages: number;
+  busiestSourceIp: string | null;
+  forensicCount: number;
+  forensicRejections: number;
+  hoursSinceLastReport: number | null;
+}
+
+function isPass(value: string | null): boolean {
+  return (value ?? '').trim().toLowerCase() === 'pass';
+}
+
+function evaluate(operator: AlertOperator, observed: number, threshold: number): boolean {
+  if (operator === 'GREATER_THAN') {
+    return observed > threshold;
+  }
+  if (operator === 'GREATER_THAN_OR_EQUAL') {
+    return observed >= threshold;
+  }
+  return observed < threshold;
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(Math.max(value, minimum), maximum);
+}
+
+function parseHour(value: string | null | undefined): number | null {
+  if (!value || !/^\d{2}:\d{2}$/.test(value)) {
+    return null;
+  }
+
+  const hours = Number(value.slice(0, 2));
+  const minutes = Number(value.slice(3, 5));
+  if (hours > 23 || minutes > 59) {
+    return null;
+  }
+
+  return hours * 60 + minutes;
+}
+
+export function isWithinQuietHours(
+  quietHoursStart: string | null,
+  quietHoursEnd: string | null,
+  at: Date,
+): boolean {
+  const start = parseHour(quietHoursStart);
+  const end = parseHour(quietHoursEnd);
+  if (start === null || end === null || start === end) {
+    return false;
+  }
+
+  const minutes = at.getUTCHours() * 60 + at.getUTCMinutes();
+  return start < end ? minutes >= start && minutes < end : minutes >= start || minutes < end;
+}
+
+export async function createAlertRule(input: {
+  organizationId: string;
+  domainId: string;
+  createdById: string | undefined;
+  name: string;
+  metric: AlertMetric;
+  operator: AlertOperator;
+  threshold: number;
+  windowMinutes: number;
+  cooldownMinutes: number;
+  recipientUserIds: string[];
+}): Promise<PersistedRule | null> {
+  const domain = await prisma.domain.findFirst({
+    where: { id: input.domainId, client: { organizationId: input.organizationId } },
+    select: { id: true },
+  });
+
+  if (!domain) {
+    return null;
+  }
+
+  const members = await prisma.member.findMany({
+    where: { organizationId: input.organizationId, userId: { in: input.recipientUserIds } },
+    select: { userId: true },
+  });
+
+  return prisma.alertRule.create({
+    data: {
+      organizationId: input.organizationId,
+      domainId: domain.id,
+      createdById: input.createdById ?? null,
+      name: input.name,
+      metric: input.metric,
+      operator: input.operator,
+      threshold: input.threshold,
+      windowMinutes: clamp(input.windowMinutes, 5, maxLookbackMinutes),
+      cooldownMinutes: clamp(input.cooldownMinutes, 5, maxLookbackMinutes),
+      recipients: {
+        create: members.map((member) => ({ userId: member.userId })),
+      },
+    },
+    include: ruleInclude,
+  });
+}
+
+export async function listAlertRules(organizationId: string): Promise<PersistedRule[]> {
+  return prisma.alertRule.findMany({
+    where: { organizationId },
+    include: ruleInclude,
+    orderBy: { createdAt: 'desc' },
+  });
+}
+
+export async function getAlertRule(organizationId: string, ruleId: string): Promise<PersistedRule | null> {
+  return prisma.alertRule.findFirst({
+    where: { id: ruleId, organizationId },
+    include: ruleInclude,
+  });
+}
+
+export async function updateAlertRule(
+  organizationId: string,
+  ruleId: string,
+  changes: {
+    name?: string;
+    threshold?: number;
+    windowMinutes?: number;
+    cooldownMinutes?: number;
+    enabled?: boolean;
+    recipientUserIds?: string[];
+  },
+): Promise<PersistedRule | null> {
+  const rule = await prisma.alertRule.findFirst({
+    where: { id: ruleId, organizationId },
+    select: { id: true },
+  });
+
+  if (!rule) {
+    return null;
+  }
+
+  return prisma.$transaction(async (transaction) => {
+    if (changes.recipientUserIds) {
+      const members = await transaction.member.findMany({
+        where: { organizationId, userId: { in: changes.recipientUserIds } },
+        select: { userId: true },
+      });
+
+      await transaction.alertRecipient.deleteMany({ where: { ruleId: rule.id } });
+      if (members.length) {
+        await transaction.alertRecipient.createMany({
+          data: members.map((member) => ({ ruleId: rule.id, userId: member.userId })),
+        });
+      }
+    }
+
+    return transaction.alertRule.update({
+      where: { id: rule.id },
+      data: {
+        name: changes.name,
+        threshold: changes.threshold === undefined ? undefined : Math.max(0, changes.threshold),
+        windowMinutes:
+          changes.windowMinutes === undefined ? undefined : clamp(changes.windowMinutes, 5, maxLookbackMinutes),
+        cooldownMinutes:
+          changes.cooldownMinutes === undefined ? undefined : clamp(changes.cooldownMinutes, 5, maxLookbackMinutes),
+        enabled: changes.enabled,
+      },
+      include: ruleInclude,
+    });
+  });
+}
+
+export async function deleteAlertRule(organizationId: string, ruleId: string): Promise<boolean> {
+  const result = await prisma.alertRule.deleteMany({ where: { id: ruleId, organizationId } });
+  return result.count > 0;
+}
+
+export async function listAlertEvents(
+  organizationId: string,
+  options: { domainId?: string; limit?: number } = {},
+): Promise<
+  Prisma.AlertEventGetPayload<{
+    include: { domain: { select: { id: true; name: true } }; rule: { select: { id: true; name: true } } };
+  }>[]
+> {
+  return prisma.alertEvent.findMany({
+    where: {
+      organizationId,
+      domainId: options.domainId,
+    },
+    include: {
+      domain: { select: { id: true, name: true } },
+      rule: { select: { id: true, name: true } },
+    },
+    orderBy: { triggeredAt: 'desc' },
+    take: clamp(options.limit ?? 50, 1, 200),
+  });
+}
+
+export async function buildDomainSnapshot(domainId: string, windowMinutes: number, now = new Date()): Promise<DomainSnapshot> {
+  const window = clamp(windowMinutes, 5, maxLookbackMinutes);
+  const since = new Date(now.getTime() - window * 60 * 1000);
+
+  const [reports, forensics, lastReport, lastForensic] = await Promise.all([
+    prisma.dmarcReport.findMany({
+      where: { domainId, receivedAt: { gte: since } },
+      select: {
+        receivedAt: true,
+        records: {
+          select: { sourceIp: true, messageCount: true, dkimResult: true, spfResult: true },
+        },
+      },
+      take: 500,
+    }),
+    prisma.dmarcForensicReport.findMany({
+      where: { domainId, receivedAt: { gte: since } },
+      select: { sourceIp: true, disposition: true, receivedAt: true, recipientCount: true },
+      take: 2_000,
+    }),
+    prisma.dmarcReport.findFirst({
+      where: { domainId },
+      select: { receivedAt: true },
+      orderBy: { receivedAt: 'desc' },
+    }),
+    prisma.dmarcForensicReport.findFirst({
+      where: { domainId },
+      select: { receivedAt: true },
+      orderBy: { receivedAt: 'desc' },
+    }),
+  ]);
+
+  const perSource = new Map<string, number>();
+  let totalMessages = 0;
+  let failedMessages = 0;
+
+  const aggregateRecords = reports.flatMap((report) =>
+    report.records.map((record) => {
+      const failed = !isPass(record.dkimResult) || !isPass(record.spfResult);
+      totalMessages += record.messageCount;
+      if (failed) {
+        failedMessages += record.messageCount;
+      }
+      perSource.set(record.sourceIp, (perSource.get(record.sourceIp) ?? 0) + record.messageCount);
+      return { sourceIp: record.sourceIp, messageCount: record.messageCount, failed, receivedAt: report.receivedAt };
+    }),
+  );
+
+  let busiestSourceIp: string | null = null;
+  let busiestSourceMessages = 0;
+  for (const [sourceIp, count] of perSource) {
+    if (count > busiestSourceMessages) {
+      busiestSourceIp = sourceIp;
+      busiestSourceMessages = count;
+    }
+  }
+
+  const forensicRejections = forensics.filter(
+    (row) => row.disposition === 'reject' || row.disposition === 'quarantine',
+  ).length;
+
+  const lastSeen = [lastReport?.receivedAt, lastForensic?.receivedAt]
+    .filter((value): value is Date => Boolean(value))
+    .sort((left, right) => right.getTime() - left.getTime())[0];
+
+  return {
+    domainId,
+    windowMinutes: window,
+    aggregateRecords,
+    forensicRows: forensics.map((row) => ({
+      sourceIp: row.sourceIp,
+      rejected: row.disposition === 'reject' || row.disposition === 'quarantine',
+      receivedAt: row.receivedAt,
+      recipientCount: row.recipientCount,
+    })),
+    totalMessages,
+    failedMessages,
+    failureRate: totalMessages ? Math.round((failedMessages / totalMessages) * 100) : 0,
+    busiestSourceMessages,
+    busiestSourceIp,
+    forensicCount: forensics.length,
+    forensicRejections,
+    hoursSinceLastReport: lastSeen ? Math.round(((now.getTime() - lastSeen.getTime()) / 3_600_000) * 100) / 100 : null,
+  };
+}
+
+function observedFor(snapshot: DomainSnapshot, metric: AlertMetric): number | null {
+  switch (metric) {
+    case 'FAILURE_COUNT':
+      return snapshot.failedMessages;
+    case 'FAILURE_RATE':
+      return snapshot.failureRate;
+    case 'SOURCE_IP_VOLUME':
+      return snapshot.busiestSourceMessages;
+    case 'FORENSIC_FAILURES':
+      return snapshot.forensicRejections;
+    case 'REPORT_SILENCE':
+      return snapshot.hoursSinceLastReport;
+    default:
+      return null;
+  }
+}
+
+function summarise(
+  rule: { metric: AlertMetric; operator: AlertOperator; threshold: number; windowMinutes: number },
+  snapshot: DomainSnapshot,
+  observed: number,
+): string {
+  const unit = rule.metric === 'FAILURE_RATE' ? '%' : rule.metric === 'REPORT_SILENCE' ? 'h' : ' messages';
+  const comparison = rule.operator === 'LESS_THAN' ? 'below' : 'above';
+
+  if (rule.metric === 'REPORT_SILENCE') {
+    const last = snapshot.hoursSinceLastReport === null ? 'never' : `${snapshot.hoursSinceLastReport}h ago`;
+    return `No DMARC report has been received since ${last}, which is ${comparison} the ${rule.threshold}h threshold.`;
+  }
+
+  if (rule.metric === 'SOURCE_IP_VOLUME' && snapshot.busiestSourceIp) {
+    return `Source ${snapshot.busiestSourceIp} sent ${observed}${unit} in the last ${rule.windowMinutes} minutes, ${comparison} the ${rule.threshold}${unit} threshold.`;
+  }
+
+  return `Observed ${observed}${unit} in the last ${rule.windowMinutes} minutes, ${comparison} the ${rule.threshold}${unit} threshold.`;
+}
+
+function contextFor(snapshot: DomainSnapshot, metric: AlertMetric): Prisma.InputJsonValue {
+  return {
+    totalMessages: snapshot.totalMessages,
+    failedMessages: snapshot.failedMessages,
+    failureRate: snapshot.failureRate,
+    busiestSourceIp: snapshot.busiestSourceIp,
+    busiestSourceMessages: snapshot.busiestSourceMessages,
+    forensicCount: snapshot.forensicCount,
+    forensicRejections: snapshot.forensicRejections,
+    hoursSinceLastReport: snapshot.hoursSinceLastReport,
+    metric,
+  };
+}
+
+export async function evaluateRule(
+  rule: PersistedRule,
+  now = new Date(),
+): Promise<{ triggered: boolean; observed: number | null; snapshot: DomainSnapshot }> {
+  const snapshot = await buildDomainSnapshot(rule.domainId, rule.windowMinutes, now);
+  const observed = observedFor(snapshot, rule.metric);
+
+  if (observed === null) {
+    return { triggered: false, observed, snapshot };
+  }
+
+  if (!evaluate(rule.operator, observed, rule.threshold)) {
+    return { triggered: false, observed, snapshot };
+  }
+
+  if (
+    rule.lastTriggeredAt &&
+    now.getTime() - rule.lastTriggeredAt.getTime() < rule.cooldownMinutes * 60 * 1000
+  ) {
+    return { triggered: false, observed, snapshot };
+  }
+
+  return { triggered: true, observed, snapshot };
+}
+
+async function deliverEvent(
+  eventId: string,
+  recipientUserIds: string[],
+  organizationName: string,
+  domainName: string,
+  subject: string,
+  body: string,
+  risk: 'high' | 'medium',
+  now: Date,
+): Promise<void> {
+  if (recipientUserIds.length === 0) {
+    return;
+  }
+
+  const users = await prisma.user.findMany({
+    where: { id: { in: recipientUserIds } },
+    select: {
+      id: true,
+      email: true,
+      notificationPreference: {
+        select: { emailAlerts: true, quietHoursStart: true, quietHoursEnd: true, onlyHighRiskAlerts: true },
+      },
+    },
+  });
+
+  for (const user of users) {
+    const preference = user.notificationPreference;
+    let status: AlertDeliveryStatus = 'PENDING';
+
+    if (preference && !preference.emailAlerts) {
+      status = 'SKIPPED_DISABLED';
+    } else if (preference?.onlyHighRiskAlerts && risk !== 'high') {
+      status = 'SKIPPED_DISABLED';
+    } else if (preference && isWithinQuietHours(preference.quietHoursStart, preference.quietHoursEnd, now)) {
+      status = 'SKIPPED_QUIET_HOURS';
+    }
+
+    const delivery = await prisma.alertDelivery.create({
+      data: { eventId, userId: user.id, channel: 'EMAIL', status },
+    });
+
+    if (status !== 'PENDING') {
+      continue;
+    }
+
+    try {
+      await sendAuthEmail({ to: user.email, subject, text: body });
+      await prisma.alertDelivery.update({
+        where: { id: delivery.id },
+        data: { status: 'SENT', attempts: 1, sentAt: new Date() },
+      });
+    } catch (error) {
+      await prisma.alertDelivery.update({
+        where: { id: delivery.id },
+        data: {
+          status: 'FAILED',
+          attempts: 1,
+          lastError: error instanceof Error ? error.message : 'Unknown delivery error.',
+        },
+      });
+    }
+  }
+}
+
+export interface RuleEvaluationResult {
+  ruleId: string;
+  triggered: boolean;
+  observed: number | null;
+}
+
+export async function evaluateAlertRules(now = new Date()): Promise<RuleEvaluationResult[]> {
+  const rules = await prisma.alertRule.findMany({
+    where: { enabled: true, domain: { status: 'VERIFIED' } },
+    include: ruleInclude,
+    orderBy: { id: 'asc' },
+  });
+
+  const results: RuleEvaluationResult[] = [];
+
+  for (const rule of rules) {
+    const { triggered, observed, snapshot } = await evaluateRule(rule, now);
+    results.push({ ruleId: rule.id, triggered, observed });
+
+    if (!triggered || observed === null) {
+      continue;
+    }
+
+    const summary = summarise(rule, snapshot, observed);
+    const risk = riskByMetric[rule.metric];
+
+    const event = await prisma.alertEvent.create({
+      data: {
+        ruleId: rule.id,
+        organizationId: rule.organizationId,
+        domainId: rule.domainId,
+        metric: rule.metric,
+        operator: rule.operator,
+        observedValue: observed,
+        threshold: rule.threshold,
+        windowMinutes: rule.windowMinutes,
+        summary,
+        context: contextFor(snapshot, rule.metric),
+      },
+      select: { id: true },
+    });
+
+    await prisma.alertRule.update({
+      where: { id: rule.id },
+      data: { lastTriggeredAt: now },
+    });
+
+    await deliverEvent(
+      event.id,
+      rule.recipients.map((recipient) => recipient.userId),
+      rule.organization.name,
+      rule.domain.name,
+      `[DMARC Harbor] ${rule.domain.name}: ${rule.name}`,
+      [
+        `Workspace: ${rule.organization.name}`,
+        `Domain: ${rule.domain.name}`,
+        `Alert: ${rule.name} (${rule.metric})`,
+        summary,
+        '',
+        `Threshold: ${rule.operator} ${rule.threshold}`,
+        `Window: ${rule.windowMinutes} minutes`,
+        '',
+        'Review this domain in DMARC Harbor.',
+      ].join('\n'),
+      risk,
+      now,
+    );
+  }
+
+  return results;
+}
