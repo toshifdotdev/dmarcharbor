@@ -2,7 +2,8 @@ import { prisma } from '../database/prisma.js';
 import { env } from '../config/env.js';
 import { readDmarcRecord } from '../scanner/dmarc-tags.js';
 import { getDomainInsights, type DomainInsights } from './report-intelligence.service.js';
-import { senderBlockers } from './sender-breakdown.service.js';
+import { newSenderBlockers, senderBlockers } from './sender-breakdown.service.js';
+import { normalizePct, pctNotes, readPct, recommendPctStep, type PctRecommendation } from './dmarc-rollout.service.js';
 
 export type DmarcPolicyChoice = 'none' | 'quarantine' | 'reject';
 export type ReadinessLevel = 'none' | 'quarantine' | 'reject';
@@ -31,6 +32,7 @@ export interface DmarcRecordDraft {
   type: 'TXT';
   value: string;
   policy: DmarcPolicyChoice;
+  pct: number;
   aggregateAddress: string;
   forensicAddress: string | null;
   notes: string[];
@@ -103,26 +105,26 @@ export function buildDmarcRecord(
   domain: string,
   policy: DmarcPolicyChoice,
   includeForensics: boolean,
+  pct?: number,
 ): DmarcRecordDraft {
+  const requestedPct = normalizePct(pct) ?? 100;
+  const effectivePct = policy === 'none' ? 100 : requestedPct;
+
   const parts = [
     'v=DMARC1',
     `p=${policy}`,
     `rua=mailto:${env.REPORT_AGGREGATE_ADDRESS}`,
   ];
 
-  if (policy !== 'none') {
-    parts.push('pct=100');
+  if (policy !== 'none' && effectivePct < 100) {
+    parts.push(`pct=${effectivePct}`);
   }
 
   if (includeForensics) {
     parts.push(`ruf=mailto:${env.REPORT_FORENSIC_ADDRESS}`);
   }
 
-  const notes = [
-    `Create a TXT record on ${domain} at the host _dmarc.${domain}.`,
-    'Start with p=none. It only observes and never blocks or quarantines mail.',
-    'Move to p=quarantine then p=reject once readiness checks pass, so legitimate mail is never broken.',
-  ];
+  const notes = pctNotes(domain, policy, effectivePct);
 
   if (includeForensics) {
     notes.push(
@@ -135,6 +137,7 @@ export function buildDmarcRecord(
     type: 'TXT',
     value: parts.join('; '),
     policy,
+    pct: effectivePct,
     aggregateAddress: env.REPORT_AGGREGATE_ADDRESS,
     forensicAddress: includeForensics ? env.REPORT_FORENSIC_ADDRESS : null,
     notes,
@@ -198,6 +201,7 @@ export async function assessPolicyReadiness(
 
     if (observedSenders > 0) {
       blockers.push(...senderBlockers(failingSenders));
+      blockers.push(...newSenderBlockers(senders));
     }
 
     if (openAlerts > 0) {
@@ -252,11 +256,13 @@ export interface OnboardingResult extends OnboardingState_ {
   domain: { id: string; name: string; status: string; score: number | null; dmarcPolicy: string | null };
   reporting: {
     publishedPolicy: string | null;
+    publishedPct: number;
     aggregateConfigured: boolean;
     forensicConfigured: boolean;
     collectionEnabled: boolean;
     identityRetentionEnabled: boolean;
   };
+  rollout: PctRecommendation;
   suggestedRecord: DmarcRecordDraft;
 }
 
@@ -288,6 +294,10 @@ export async function getOnboardingState(organizationId: string, domainId: strin
   const forensicConfigured = tags.forensicTargets.length > 0;
   const reportsReceived = (insights?.aggregate.reportCount ?? 0) > 0;
   const openAlerts = readiness.openAlerts + readiness.staleAlerts;
+  const publishedPolicy = tags.tags.p?.trim().toLowerCase();
+  const rolloutPolicy: DmarcPolicyChoice =
+    publishedPolicy === 'quarantine' || publishedPolicy === 'reject' ? publishedPolicy : 'none';
+  const rollout: PctRecommendation = recommendPctStep(readPct(tags.tags), rolloutPolicy);
 
   const steps: OnboardingStep[] = [
     {
@@ -340,6 +350,17 @@ export async function getOnboardingState(organizationId: string, domainId: strin
         ? `Ready to move to p=${readiness.level}.`
         : readiness.blockers[0] ?? 'Keep p=none until the readiness checks pass.',
     },
+    {
+      id: 'canary_rollout',
+      title: 'Roll out in stages',
+      status: !verified || !aggregateConfigured ? 'blocked' : rolloutPolicy === 'none' ? 'blocked' : rollout.advancing ? 'pending' : 'done',
+      detail:
+        rolloutPolicy === 'none'
+          ? 'Once p is above none, use pct to apply the policy to a small share of mail first.'
+          : rollout.advancing
+            ? rollout.reason
+            : 'Enforcement is applied to all mail. Watch for new sending services.',
+    },
   ];
 
   const state: OnboardingState = !verified
@@ -364,6 +385,7 @@ export async function getOnboardingState(organizationId: string, domainId: strin
     },
     reporting: {
       publishedPolicy: domain.dmarcPolicy,
+      publishedPct: readPct(tags.tags),
       aggregateConfigured,
       forensicConfigured,
       collectionEnabled: domain.collectForensicReports,
@@ -375,6 +397,7 @@ export async function getOnboardingState(organizationId: string, domainId: strin
     steps,
     recommendedPolicy: readiness.level,
     readiness,
+    rollout: rollout,
     suggestedRecord: buildDmarcRecord(domain.name, 'none', !forensicConfigured),
   };
 }

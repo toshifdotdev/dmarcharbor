@@ -53,12 +53,16 @@ export async function dmarcRecordController(request: Request, response: Response
   const query = dmarcRecordQuerySchema.safeParse(request.query);
   if (!query.success) {
     response.status(400).json({
-      error: { message: 'policy must be one of none, quarantine or reject, and forensics must be true or false.' },
+      error: {
+        code: 'INVALID_REQUEST',
+        message:
+          'policy must be one of none, quarantine or reject. pct must be a whole number between 0 and 100, and forensics must be true or false.',
+      },
     });
     return;
   }
 
-  response.json(buildDmarcRecord(domain, query.data.policy, query.data.forensics));
+  response.json(buildDmarcRecord(domain, query.data.policy, query.data.forensics, query.data.pct));
 }
 
 export async function policyReadinessController(request: Request, response: Response): Promise<void> {

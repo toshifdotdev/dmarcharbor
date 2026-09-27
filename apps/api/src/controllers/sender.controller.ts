@@ -1,7 +1,13 @@
 import type { Request, Response } from 'express';
 import { resourceIdSchema } from '../models/client.model.js';
 import { getDomain } from '../services/client.service.js';
-import { buildSenderBreakdown, senderBreakdownThresholds } from '../services/sender-breakdown.service.js';
+import {
+  buildSenderBreakdown,
+  newSenderBlockers,
+  possibleSpoofingSources,
+  senderBreakdownThresholds,
+} from '../services/sender-breakdown.service.js';
+import { newSenderWindowDays } from '../services/dmarc-rollout.service.js';
 
 export async function senderBreakdownController(request: Request, response: Response): Promise<void> {
   const domainId = resourceIdSchema.safeParse(request.params.domainId);
@@ -17,8 +23,14 @@ export async function senderBreakdownController(request: Request, response: Resp
     return;
   }
 
+  const senders = await buildSenderBreakdown(organizationId, domainId.data);
+
   response.json({
-    senders: await buildSenderBreakdown(organizationId, domainId.data),
+    senders,
+    newSenders: senders.filter((sender) => sender.isNew),
+    possibleSpoofingSources: possibleSpoofingSources(senders),
+    newSenderBlockers: newSenderBlockers(senders),
     thresholds: senderBreakdownThresholds,
+    newSenderWindowDays,
   });
 }

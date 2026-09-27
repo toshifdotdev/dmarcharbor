@@ -166,15 +166,23 @@ describe('DMARC record generation', () => {
     expect(record.notes.join(' ')).toContain('p=none');
   });
 
-  it('adds pct=100 and ruf= for enforcing policies', () => {
+  it('adds ruf= for enforcing policies and leaves out pct at the 100 default', () => {
     const quarantine = buildDmarcRecord('example.com', 'quarantine', true);
     expect(quarantine.value).toContain('p=quarantine');
-    expect(quarantine.value).toContain('pct=100');
+    expect(quarantine.value).not.toContain('pct');
+    expect(quarantine.pct).toBe(100);
     expect(quarantine.value).toContain('ruf=mailto:dmarc-forensics@reports.dmarcharbor.com');
     expect(quarantine.notes.join(' ')).toContain('personal data');
 
     const reject = buildDmarcRecord('example.com', 'reject', false);
-    expect(reject.value).toBe('v=DMARC1; p=reject; rua=mailto:dmarc-reports@reports.dmarcharbor.com; pct=100');
+    expect(reject.value).toBe('v=DMARC1; p=reject; rua=mailto:dmarc-reports@reports.dmarcharbor.com');
+  });
+
+  it('adds pct only when the canary is below 100', () => {
+    const canary = buildDmarcRecord('example.com', 'quarantine', false, 5);
+    expect(canary.value).toBe(
+      'v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@reports.dmarcharbor.com; pct=5',
+    );
   });
 
   it('serves the record over the API', async () => {

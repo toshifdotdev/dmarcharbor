@@ -2,6 +2,13 @@ import { z } from 'zod';
 
 export const dmarcRecordQuerySchema = z.object({
   policy: z.enum(['none', 'quarantine', 'reject']).default('none'),
+  pct: z
+    .string()
+    .trim()
+    .regex(/^\d{1,3}$/, 'pct must be a whole number between 0 and 100')
+    .transform((value) => Number(value))
+    .refine((value) => value >= 0 && value <= 100, 'pct must be between 0 and 100')
+    .optional(),
   forensics: z
     .enum(['true', 'false'])
     .default('false')

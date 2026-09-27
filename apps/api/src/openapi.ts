@@ -551,7 +551,11 @@ export const openApiDocument = {
       get: {
         tags: ['Onboarding and sharing'],
         summary: 'Generate the DMARC TXT record',
-        description: 'Returns the exact record value for the requested policy.',
+        description: [
+          'Returns the exact record value for the requested policy.',
+          'Use pct to apply the policy to only part of your mail, so a misconfigured sending service cannot block everything at once.',
+          'The usual ladder is 5, 10, 25, 50, then 100. pct is left out when it is 100, and has no effect while p=none.',
+        ].join(' '),
         parameters: [
           orgParam,
           idParam('domainId', 'Domain identifier.'),
@@ -562,13 +566,20 @@ export const openApiDocument = {
             schema: { type: 'string', enum: ['none', 'quarantine', 'reject'], default: 'none' },
           },
           {
+            name: 'pct',
+            in: 'query',
+            required: false,
+            description: 'Share of mail the policy applies to, as a whole number from 0 to 100.',
+            schema: { type: 'integer', minimum: 0, maximum: 100, default: 100 },
+          },
+          {
             name: 'forensics',
             in: 'query',
             required: false,
             schema: { type: 'boolean', default: false },
           },
         ],
-        responses: { 200: { description: 'Record host, value and setup notes.' }, ...standardErrors },
+        responses: { 200: { description: 'Record host, value, pct and setup notes.' }, ...standardErrors },
       },
     },
     '/workspaces/{organizationId}/domains/{domainId}/senders': {
@@ -579,9 +590,12 @@ export const openApiDocument = {
           'Splits traffic by sending service, which is the source IP combined with the aligned authentication domain.',
           'A blended pass rate hides a rare but broken sender inside a large healthy one, so each sender is graded on its own failure share.',
           'Grades are clean, degraded, failing, or insufficient-data when there are too few messages to judge.',
+          'Senders first seen within the last seven days are flagged as new, which is how a spoofed source or an unexpected new service shows up.',
+          'A new sender is graded authenticated when it passes both SPF and DKIM, partially-authenticated when it passes only one, and unauthenticated when it passes neither.',
+          'possibleSpoofingSources lists new senders that pass neither, because a legitimate service normally passes at least one.',
         ].join(' '),
         parameters: [orgParam, idParam('domainId', 'Domain identifier.')],
-        responses: { 200: { description: 'Sender rows plus the thresholds used to grade them.' }, ...standardErrors },
+        responses: { 200: { description: 'Sender rows, new sender findings, and the thresholds used to grade them.' }, ...standardErrors },
       },
     },
     '/workspaces/{organizationId}/domains/{domainId}/policy-readiness': {
