@@ -58,6 +58,81 @@ export async function getDomain(organizationId: string, domainId: string) {
   });
 }
 
+export interface OwnershipCheckResult {
+  verified: boolean;
+  lookupStatus: string;
+  error?: string;
+  host: string;
+  type: 'TXT';
+  value: string;
+}
+
+/**
+ * Reads the ownership TXT record and compares it to the expected value.
+ *
+ * Kept separate from the HTTP route so the same check can run on demand from
+ * the interface, from an integration calling the API, and from the background
+ * re-verification pass. One implementation means all three can never disagree
+ * about whether a domain is owned.
+ */
+export async function checkDomainOwnership(domain: {
+  name: string;
+  verificationToken: string;
+}): Promise<OwnershipCheckResult> {
+  const host = `_dmarc-harbor-verification.${domain.name}`;
+  const expectedValue = `dmarc-harbor-verification=${domain.verificationToken}`;
+  const lookup = await systemDnsReader.resolveTxt(host);
+  const verified = lookup.status === 'found' && lookup.value?.some((chunks) => chunks.join('') === expectedValue) === true;
+
+  return {
+    verified,
+    lookupStatus: lookup.status,
+    ...(lookup.error ? { error: lookup.error } : {}),
+    host,
+    type: 'TXT',
+    value: expectedValue,
+  };
+}
+
+/**
+ * Applies an ownership result to a domain and emits domain.verified on the
+ * transition only, so a re-check of an already verified domain is silent and
+ * an integration is not trained to ignore the event.
+ */
+export async function applyOwnershipResult(
+  organizationId: string,
+  domain: { id: string; name: string; clientId: string; status: string; verificationToken: string },
+  check: OwnershipCheckResult,
+  now = new Date(),
+): Promise<'VERIFIED' | 'FAILED' | 'PENDING'> {
+  const alreadyVerified = domain.status === 'VERIFIED';
+
+  if (check.verified) {
+    if (!alreadyVerified) {
+      await emitEvent(organizationId, 'domain.verified', {
+        domainId: domain.id,
+        domainName: domain.name,
+        clientId: domain.clientId,
+        verifiedAt: now.toISOString(),
+        source: 'background',
+      });
+    }
+    await prisma.domain.update({ where: { id: domain.id }, data: { status: 'VERIFIED', verifiedAt: now } });
+    return 'VERIFIED';
+  }
+
+  if (check.lookupStatus === 'missing' && alreadyVerified) {
+    await prisma.domain.update({ where: { id: domain.id }, data: { status: 'FAILED', verifiedAt: null } });
+    return 'FAILED';
+  }
+
+  if (check.lookupStatus === 'missing' || check.lookupStatus === 'nxdomain') {
+    return 'PENDING';
+  }
+
+  return domain.status === 'VERIFIED' ? 'VERIFIED' : 'PENDING';
+}
+
 export async function verifyDomain(organizationId: string, domainId: string) {
   const domain = await getDomain(organizationId, domainId);
 
@@ -65,47 +140,13 @@ export async function verifyDomain(organizationId: string, domainId: string) {
     return null;
   }
 
-  const host = `_dmarc-harbor-verification.${domain.name}`;
-  const expectedValue = `dmarc-harbor-verification=${domain.verificationToken}`;
-  const lookup = await systemDnsReader.resolveTxt(host);
-  const verified = lookup.status === 'found' && lookup.value?.some((chunks) => chunks.join('') === expectedValue) === true;
-  let updatedDomain = domain;
+  const verification = await checkDomainOwnership(domain);
+  const status = await applyOwnershipResult(organizationId, domain, verification);
 
-  if (verified) {
-    const firstTime = domain.status !== 'VERIFIED';
-    updatedDomain = await prisma.domain.update({
-      where: { id: domain.id },
-      data: { status: 'VERIFIED', verifiedAt: new Date() },
-      include: { client: true },
-    });
+  const updated = await prisma.domain.findUniqueOrThrow({
+    where: { id: domain.id },
+    include: { client: true },
+  });
 
-    // Emitted only on the transition, so a re-check of an already verified
-    // domain does not fire a second event and train the integration to ignore it.
-    if (firstTime) {
-      await emitEvent(organizationId, 'domain.verified', {
-        domainId: domain.id,
-        domainName: domain.name,
-        clientId: domain.clientId,
-        verifiedAt: new Date().toISOString(),
-      });
-    }
-  } else if (lookup.status === 'missing' && domain.status === 'VERIFIED') {
-    updatedDomain = await prisma.domain.update({
-      where: { id: domain.id },
-      data: { status: 'FAILED', verifiedAt: null },
-      include: { client: true },
-    });
-  }
-
-  return {
-    domain: updatedDomain,
-    verification: {
-      host,
-      type: 'TXT',
-      value: expectedValue,
-      verified,
-      lookupStatus: lookup.status,
-      error: lookup.error,
-    },
-  };
+  return { domain: updated, verification: { ...verification, status } };
 }

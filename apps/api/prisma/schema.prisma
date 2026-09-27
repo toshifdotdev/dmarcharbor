@@ -92,6 +92,12 @@ model Organization {
   createdAt             DateTime
   metadata              String?
   plan                  PlanTier              @default(MOORING)
+  brandLogoUrl          String?
+  brandPrimaryColor     String?
+  brandAccentColor      String?
+  customDomain          String?               @unique
+  customDomainToken     String?
+  customDomainVerifiedAt DateTime?
   members               Member[]
   invitations           Invitation[]
   portalAccessGrants    ClientPortalAccess[]
@@ -112,6 +118,7 @@ model Organization {
 
   @@unique([slug])
   @@index([plan])
+  @@index([customDomain])
   @@map("organization")
 }
 
@@ -864,6 +871,8 @@ enum AuditAction {
   WEBHOOK_ENDPOINT_SUSPENDED
   PORTAL_ACCESS_GRANTED
   PORTAL_ACCESS_REVOKED
+  BRANDING_UPDATED
+  CUSTOM_DOMAIN_VERIFIED
 }
 
 enum AuditOutcome {

@@ -82,6 +82,7 @@ export const openApiDocument = {
     { name: 'Billing' },
     { name: 'Webhooks' },
     { name: 'Client portal' },
+    { name: 'White label' },
   ],
   paths: {
     '/v1/clients': {
@@ -319,6 +320,91 @@ export const openApiDocument = {
         ].join(' '),
         parameters: [idParam('domainId', 'Domain identifier.')],
         responses: { 200: { description: 'Domain insights, senders and spoofing warnings.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/branding': {
+      get: {
+        tags: ['White label'],
+        summary: 'Stored white label settings',
+        description: 'The raw branding values held for this workspace, including the custom domain and whether its DNS record has been verified. Agency side.',
+        parameters: [orgParam],
+        responses: { 200: { description: 'Stored branding values.' }, ...standardErrors },
+      },
+      patch: {
+        tags: ['White label'],
+        summary: 'Set the logo and colours',
+        description: [
+          'An agency selling monitoring to its clients should not hand over reports headed with a product they do not own, so the client facing surface presents the agency logo and colours instead.',
+          'The logo must be an https URL and the colours must be hex. Applied to client facing pages and emails only. The agency own interface deliberately keeps DMARC Harbor branding, so support stays unambiguous.',
+          'Requires the branding.whitelabel entitlement, so it is an Admiralty feature.',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: { ...standardErrors, 200: { description: 'Branding updated.' }, 400: { description: 'The logo or colour is not usable.' } },
+      },
+    },
+    '/workspaces/{organizationId}/branding/custom-domain': {
+      put: {
+        tags: ['White label'],
+        summary: 'Set the custom domain clients see',
+        description: [
+          'Returns a TXT record to publish, on the same ownership proof pattern as domain verification.',
+          'The custom domain is not used until the record is verified, so a half configured agency cannot serve a broken portal to a client.',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: { ...standardErrors, 200: { description: 'Saved, with the record to publish.' } },
+      },
+    },
+    '/workspaces/{organizationId}/branding/custom-domain/verify': {
+      post: {
+        tags: ['White label'],
+        summary: 'Verify the custom domain',
+        description: 'Reads the TXT record and marks the domain usable. Recorded in the audit trail the first time it succeeds.',
+        parameters: [orgParam],
+        responses: { ...standardErrors, 200: { description: 'Verification result.' } },
+      },
+    },
+    '/branding/host': {
+      get: {
+        tags: ['White label'],
+        security: [],
+        summary: 'Which agency serves this hostname',
+        description: [
+          'Resolves the agency for the hostname the request arrived on, so a white labelled portal knows whose brand to render before anybody has signed in.',
+          'No authentication is required and only branding is returned, never clients, domains or counts. A hostname that has never been verified returns 404, so an unverified or removed domain cannot be used to discover an agency.',
+        ].join(' '),
+        parameters: [
+          {
+            name: 'Host',
+            in: 'header',
+            required: true,
+            schema: { type: 'string' },
+            description: 'The hostname of the custom domain, as sent by the browser.',
+          },
+        ],
+        responses: {
+          200: { description: 'The branding for the agency that owns this hostname.' },
+          ...standardErrors,
+        },
+      },
+    },
+    '/portal/branding': {
+      get: {
+        tags: ['White label'],
+        summary: 'Branding a client contact should render',
+        description: [
+          'Resolved from the portal scope, so a contact always sees their own agency branding.',
+          'The workspace name is always present. The logo, colours and custom domain are only returned when the plan includes white labelling, and the custom domain only once its DNS record is verified.',
+        ].join(' '),
+        responses: { 200: { description: 'Branding for the client facing surface.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/branding/resolved': {
+      get: {
+        tags: ['White label'],
+        summary: 'Branding after licensing is applied',
+        description: 'Same resolution as the portal endpoint, for the agency interface, so a workspace on a plan without white labelling can be shown what clients actually see.',
+        parameters: [orgParam],
+        responses: { 200: { description: 'Resolved branding.' }, ...standardErrors },
       },
     },
     '/health': {

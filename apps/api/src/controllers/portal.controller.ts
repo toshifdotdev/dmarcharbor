@@ -6,6 +6,7 @@ import { grantPortalAccess, listPortalAccess, revokePortalAccess } from '../serv
 import { getDomainInsights } from '../services/report-intelligence.service.js';
 import { buildSenderBreakdown, possibleSpoofingSources } from '../services/sender-breakdown.service.js';
 import { portalClientFilter } from '../middleware/portal.middleware.js';
+import { resolveBranding } from '../services/branding.service.js';
 import { resourceIdSchema } from '../models/client.model.js';
 
 const grantSchema = z.object({
@@ -112,6 +113,7 @@ export async function portalOverviewController(_request: Request, response: Resp
 
   response.json({
     workspace: { name: (await prisma.organization.findUniqueOrThrow({ where: { id: organizationId }, select: { name: true } })).name },
+    branding: await resolveBranding(organizationId),
     grants: response.locals.portalGrants,
     clients,
     totals: {
