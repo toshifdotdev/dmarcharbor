@@ -53,9 +53,24 @@ export const viewer = accessControl.newRole({
   billing: ['read'],
 });
 
+/**
+ * A client contact, not agency staff.
+ *
+ * This role can read reports and nothing else. It has no forensic access, so it
+ * cannot see recipient data, no billing access, and no member or domain
+ * management. The ClientPortalAccess records are what decide which clients
+ * they see, and this role is what stops them reaching anything outside that.
+ */
+export const portal = accessControl.newRole({
+  client: ['read'],
+  domain: ['read'],
+  report: ['read'],
+});
+
 export const organizationRoles = {
   owner,
   admin,
   analyst,
   viewer,
+  portal,
 };

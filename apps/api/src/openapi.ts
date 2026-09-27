@@ -81,6 +81,7 @@ export const openApiDocument = {
     { name: 'Onboarding and sharing' },
     { name: 'Billing' },
     { name: 'Webhooks' },
+    { name: 'Client portal' },
   ],
   paths: {
     '/v1/clients': {
@@ -258,6 +259,66 @@ export const openApiDocument = {
         description: 'Requeues a failed delivery with the same payload and a fresh signature. Useful after the receiver has been fixed.',
         parameters: [orgParam, idParam('deliveryId', 'Delivery identifier.')],
         responses: { 202: { description: 'Requeued.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/clients/{clientId}/portal-access': {
+      post: {
+        tags: ['Client portal'],
+        summary: 'Invite a client contact to see their own report',
+        description: [
+          'The grant is held against an email address, not an account, so the agency never sets a password on behalf of somebody else staff. It activates the first time that person signs in with the same address, and works equally with a password or with Google or Microsoft sign in.',
+          'A grant covers exactly one client. The contact cannot see any other client in the workspace, whichever internal role they also happen to hold.',
+          'Requires the portal.client entitlement, so it is a Harbor and Admiralty feature.',
+        ].join(' '),
+        parameters: [orgParam, idParam('clientId', 'Client the contact should see.')],
+        responses: {
+          ...standardErrors,
+          201: { description: 'Grant created, with bound set to false until they first sign in.' },
+          402: { description: 'The plan does not include the client portal.' },
+          404: { description: 'Client not found in this workspace.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/portal-access': {
+      get: {
+        tags: ['Client portal'],
+        summary: 'List client portal grants',
+        description: 'Shows every invited contact, whether they have signed in yet, and when they were last seen. Agency staff only.',
+        parameters: [orgParam, { name: 'clientId', in: 'query', required: false, schema: { type: 'string' } }],
+        responses: { 200: { description: 'Grants with their binding state.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/portal-access/{accessId}': {
+      delete: {
+        tags: ['Client portal'],
+        summary: 'Revoke a client contact',
+        description: 'Takes effect on the next request. Recorded in the audit trail.',
+        parameters: [orgParam, idParam('accessId', 'Grant identifier.')],
+        responses: { 204: { description: 'Revoked.' }, ...standardErrors },
+      },
+    },
+    '/portal': {
+      get: {
+        tags: ['Client portal'],
+        summary: 'What a client contact can see',
+        description: [
+          'The whole portal surface for the signed in contact: their clients, their verified domains, their scores and published policy, and when the last report arrived.',
+          'Scoped by the resolved grant list rather than by anything in the request, so a contact cannot widen their own view. An account with no grant is refused with a message explaining that they need an invitation.',
+          'Contains no forensic evidence, no recipient data, no billing and no other workspace content.',
+        ].join(' '),
+        responses: { 200: { description: 'The contact own clients and domains.' }, ...standardErrors },
+      },
+    },
+    '/portal/domains/{domainId}': {
+      get: {
+        tags: ['Client portal'],
+        summary: 'One domain report for a client contact',
+        description: [
+          'Aggregate results, the per sending service breakdown and any possible spoofing source, for a single domain.',
+          'Forensic reports are deliberately absent. A client contact can see that mail failed and which service caused it, never who received it.',
+        ].join(' '),
+        parameters: [idParam('domainId', 'Domain identifier.')],
+        responses: { 200: { description: 'Domain insights, senders and spoofing warnings.' }, ...standardErrors },
       },
     },
     '/health': {

@@ -26,6 +26,7 @@ model User {
   createdReportDigests    ReportDigest[]          @relation("CreatedReportDigests")
   notifications           Notification[]
   auditEvents             AuditLog[]
+  portalAccessGrants      ClientPortalAccess[]
   alertDeliveries         AlertDelivery[]
   acknowledgedAlertEvents AlertEvent[]            @relation("AcknowledgedAlertEvents")
   notificationPreference  NotificationPreference?
@@ -93,6 +94,7 @@ model Organization {
   plan                  PlanTier              @default(MOORING)
   members               Member[]
   invitations           Invitation[]
+  portalAccessGrants    ClientPortalAccess[]
   clients               Client[]
   alertRules            AlertRule[]
   alertEvents           AlertEvent[]
@@ -154,6 +156,7 @@ model Client {
   updatedAt      DateTime      @updatedAt
   domains        Domain[]
   reportShares   ReportShare[]
+  portalAccess   ClientPortalAccess[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -648,6 +651,28 @@ model ApiKey {
   @@map("api_key")
 }
 
+model ClientPortalAccess {
+  id             String        @id @default(cuid())
+  clientId       String
+  client         Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  email          String
+  userId         String?
+  user           User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  displayName    String?
+  revokedAt      DateTime?
+  firstSeenAt    DateTime?
+  invitedById    String?
+  createdAt      DateTime      @default(now())
+
+  @@unique([clientId, email])
+  @@index([email])
+  @@index([userId])
+  @@index([organizationId, revokedAt])
+  @@map("client_portal_access")
+}
+
 model WebhookEndpoint {
   id             String            @id @default(cuid())
   organizationId String
@@ -837,6 +862,8 @@ enum AuditAction {
   WEBHOOK_ENDPOINT_UPDATED
   WEBHOOK_ENDPOINT_DELETED
   WEBHOOK_ENDPOINT_SUSPENDED
+  PORTAL_ACCESS_GRANTED
+  PORTAL_ACCESS_REVOKED
 }
 
 enum AuditOutcome {
