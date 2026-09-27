@@ -11,6 +11,7 @@ import {
 import { requireSession } from '../middleware/auth.middleware.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
 import { publicReportRateLimiter } from '../middleware/rate-limit.middleware.js';
+import { senderBreakdownController } from '../controllers/sender.controller.js';
 
 const onboardingJsonParser = express.json({ limit: '16kb' });
 
@@ -27,6 +28,12 @@ onboardingRouter.get(
   requireSession,
   requireOrganizationPermission('domain', 'read'),
   dmarcRecordController,
+);
+onboardingRouter.get(
+  '/workspaces/:organizationId/domains/:domainId/senders',
+  requireSession,
+  requireOrganizationPermission('domain', 'read'),
+  senderBreakdownController,
 );
 onboardingRouter.get(
   '/workspaces/:organizationId/domains/:domainId/policy-readiness',

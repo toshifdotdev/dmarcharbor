@@ -527,11 +527,27 @@ export const openApiDocument = {
         responses: { 200: { description: 'Record host, value and setup notes.' }, ...standardErrors },
       },
     },
+    '/workspaces/{organizationId}/domains/{domainId}/senders': {
+      get: {
+        tags: ['Reports'],
+        summary: 'Per sending service breakdown',
+        description: [
+          'Splits traffic by sending service, which is the source IP combined with the aligned authentication domain.',
+          'A blended pass rate hides a rare but broken sender inside a large healthy one, so each sender is graded on its own failure share.',
+          'Grades are clean, degraded, failing, or insufficient-data when there are too few messages to judge.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier.')],
+        responses: { 200: { description: 'Sender rows plus the thresholds used to grade them.' }, ...standardErrors },
+      },
+    },
     '/workspaces/{organizationId}/domains/{domainId}/policy-readiness': {
       get: {
         tags: ['Onboarding and sharing'],
         summary: 'Policy readiness and blockers',
-        description: 'Never changes anything. Reports whether tightening is safe and lists every blocker.',
+        description: [
+          'Never changes anything. Reports whether tightening is safe and lists every blocker.',
+          'Two gates exist to protect legitimate mail that a blended pass rate would hide: a per sending service failure gate, and a staged rollout gate that forbids jumping straight to reject.',
+        ].join(' '),
         parameters: [orgParam, idParam('domainId', 'Domain identifier.')],
         responses: { 200: { description: 'Readiness plus human readable blockers.' }, ...standardErrors },
       },

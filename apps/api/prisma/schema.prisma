@@ -249,11 +249,14 @@ model DmarcReportRecord {
   spfResult    String?
   headerFrom   String?
   envelopeFrom String?
+  senderDomain String?
+  senderKey    String?
   policyReason String?
   authResults  DmarcAuthResult[]
 
   @@index([reportId])
   @@index([sourceIp])
+  @@index([senderKey])
   @@map("dmarc_report_record")
 }
 

@@ -327,7 +327,7 @@ describe('portfolio onboarding', () => {
     const rows = portfolio.body.clients.flatMap((entry: { domains: { domainName: string; state: string }[] }) => entry.domains);
     const monitored = rows.find((row: { domainName: string }) => row.domainName === 'portfolio-a.test');
     expect(monitored.state).toBe('MONITORING');
-    expect(monitored.passRatePercent).toBe(0);
+    expect(monitored.passRatePercent).toBe(100);
     expect(monitored.messagesObserved).toBe(40_000);
 
     const pendingRow = rows.find((row: { domainName: string }) => row.domainName === 'portfolio-pending.test');

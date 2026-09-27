@@ -20,6 +20,8 @@ export interface ParsedReportRecord {
   spfResult?: string;
   headerFrom?: string;
   envelopeFrom?: string;
+  senderDomain?: string;
+  senderKey?: string;
   policyReason?: string;
   authResults: ParsedAuthResult[];
 }
@@ -167,7 +169,47 @@ function parseAuthResults(value: unknown): ParsedAuthResult[] {
   return [...dkimResults, ...spfResults];
 }
 
-function parseRecords(value: unknown): ParsedReportRecord[] {
+function normaliseOptionalDomain(value: string | undefined): string | undefined {
+  const candidate = value?.trim().toLowerCase().replace(/\.$/, '');
+  if (!candidate) {
+    return undefined;
+  }
+
+  try {
+    return normalizeDomain(candidate);
+  } catch {
+    return undefined;
+  }
+}
+
+export function resolveSenderDomain(
+  policyDomain: string,
+  record: { headerFrom?: string; envelopeFrom?: string; authResults: ParsedAuthResult[] },
+): string | undefined {
+  const aligned = record.authResults.find(
+    (result) => result.domain && normaliseOptionalDomain(result.domain) === policyDomain,
+  );
+
+  if (aligned?.domain) {
+    return normaliseOptionalDomain(aligned.domain);
+  }
+
+  const spfDomain = record.authResults.find((result) => result.type === 'SPF' && result.domain)?.domain;
+  const dkimDomain = record.authResults.find((result) => result.type === 'DKIM' && result.domain)?.domain;
+
+  return (
+    normaliseOptionalDomain(spfDomain) ??
+    normaliseOptionalDomain(dkimDomain) ??
+    normaliseOptionalDomain(record.headerFrom) ??
+    normaliseOptionalDomain(record.envelopeFrom)
+  );
+}
+
+function buildSenderKey(sourceIp: string, senderDomain: string | undefined): string | undefined {
+  return senderDomain ? senderDomain : `${sourceIp}|unknown`;
+}
+
+function parseRecords(value: unknown, policyDomain: string): ParsedReportRecord[] {
   const records = asArray(value);
   if (records.length === 0) {
     throw new DmarcReportParseError('The report does not contain any records.');
@@ -185,16 +227,27 @@ function parseRecords(value: unknown): ParsedReportRecord[] {
     }
 
     const identifiers = asRecord(record.identifiers);
+    const sourceIp = requiredText(row.source_ip, 'record source_ip');
+    const authResults = parseAuthResults(record.auth_results);
+    const headerFrom = text(identifiers?.header_from);
+    const senderDomain = resolveSenderDomain(policyDomain, {
+      headerFrom,
+      envelopeFrom: text(identifiers?.envelope_from),
+      authResults,
+    });
+
     return {
-      sourceIp: requiredText(row.source_ip, 'record source_ip'),
+      sourceIp,
       messageCount: requiredNumber(row.count, 'record count'),
       disposition: text(policyEvaluated.disposition),
       dkimResult: text(policyEvaluated.dkim),
       spfResult: text(policyEvaluated.spf),
-      headerFrom: text(identifiers?.header_from),
+      headerFrom,
       envelopeFrom: text(identifiers?.envelope_from),
+      senderDomain,
+      senderKey: buildSenderKey(sourceIp, senderDomain),
       policyReason: reasonText(policyEvaluated.reason),
-      authResults: parseAuthResults(record.auth_results),
+      authResults,
     };
   });
 }
@@ -248,6 +301,6 @@ export function parseDmarcReport(xml: string): ParsedDmarcReport {
     policySp: text(policy.sp),
     policyFraction: fraction,
     reportError: text(metadata?.error),
-    records: parseRecords(feedback.record),
+    records: parseRecords(feedback.record, policyDomain),
   };
 }

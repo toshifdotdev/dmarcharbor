@@ -193,7 +193,7 @@ export async function getPortfolioOnboarding(organizationId: string, now = new D
     }
     const averageRate = rates.length ? rates.reduce((total, value) => total + value, 0) / rates.length : null;
     const passRatePercent =
-      averageRate === null ? null : Math.round((100 - averageRate) * 100) / 100;
+      averageRate === null ? null : Math.round(averageRate * 100) / 100;
     const daysObserved = daySpan(stats.windowBegin, now);
 
     const blockers: string[] = [];

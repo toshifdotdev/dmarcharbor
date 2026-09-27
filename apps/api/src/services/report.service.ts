@@ -138,6 +138,8 @@ export async function ingestDmarcReport(input: IngestReportInput): Promise<Inges
             spfResult: record.spfResult,
             headerFrom: record.headerFrom,
             envelopeFrom: record.envelopeFrom,
+            senderDomain: record.senderDomain,
+            senderKey: record.senderKey,
             policyReason: record.policyReason,
             authResults: {
               create: record.authResults.map((authResult) => ({

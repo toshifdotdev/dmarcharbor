@@ -2,6 +2,7 @@ import { prisma } from '../database/prisma.js';
 import { env } from '../config/env.js';
 import { readDmarcRecord } from '../scanner/dmarc-tags.js';
 import { getDomainInsights, type DomainInsights } from './report-intelligence.service.js';
+import { senderBlockers } from './sender-breakdown.service.js';
 
 export type DmarcPolicyChoice = 'none' | 'quarantine' | 'reject';
 export type ReadinessLevel = 'none' | 'quarantine' | 'reject';
@@ -12,6 +13,18 @@ export const readinessThresholds = {
   quarantinePassRatePercent: 95,
   rejectPassRatePercent: 99,
 } as const;
+
+const policyOrder: Record<ReadinessLevel | 'unknown', number> = {
+  none: 0,
+  unknown: 0,
+  quarantine: 1,
+  reject: 2,
+};
+
+export function currentPolicyLevel(policy: string | null | undefined): ReadinessLevel | 'unknown' {
+  const value = (policy ?? '').trim().toLowerCase();
+  return value === 'none' || value === 'quarantine' || value === 'reject' ? value : 'unknown';
+}
 
 export interface DmarcRecordDraft {
   host: string;
@@ -52,11 +65,14 @@ export interface OnboardingState_ {
 export interface PolicyReadiness {
   level: ReadinessLevel;
   ready: boolean;
+  currentPolicy: ReadinessLevel | 'unknown';
   daysObserved: number;
   messagesObserved: number;
   passRatePercent: number | null;
   openAlerts: number;
   staleAlerts: number;
+  failingSenders: number;
+  observedSenders: number;
   blockers: string[];
 }
 
@@ -80,7 +96,7 @@ function passRateFrom(insights: DomainInsights | null): number | null {
 
   const values = [spf, dkim].filter((value): value is number => value !== null);
   const average = values.reduce((total, value) => total + value, 0) / values.length;
-  return Math.round((100 - average) * 100) / 100;
+  return Math.round(average * 100) / 100;
 }
 
 export function buildDmarcRecord(
@@ -147,6 +163,11 @@ export async function assessPolicyReadiness(
     resolved.aggregate.messageWindow.end ? new Date(resolved.aggregate.messageWindow.end) : new Date(),
   );
 
+  const currentPolicy = currentPolicyLevel(resolved.reporting.publishedPolicy);
+  const senders = resolved.senders ?? [];
+  const failingSenders = senders.filter((sender) => sender.status === 'failing');
+  const observedSenders = senders.filter((sender) => sender.hasEnoughSignal).length;
+
   const evaluate = (level: ReadinessLevel): string[] => {
     const blockers: string[] = [];
     const requiredPassRate =
@@ -175,6 +196,10 @@ export async function assessPolicyReadiness(
       }
     }
 
+    if (observedSenders > 0) {
+      blockers.push(...senderBlockers(failingSenders));
+    }
+
     if (openAlerts > 0) {
       blockers.push(`${openAlerts} alert(s) are still open on this domain.`);
     }
@@ -183,23 +208,42 @@ export async function assessPolicyReadiness(
       blockers.push(`${staleAlerts} alert(s) have gone stale and need review.`);
     }
 
+    if (policyOrder[currentPolicy] >= policyOrder[level]) {
+      blockers.push(`The domain already publishes p=${currentPolicy}.`);
+    }
+
+    if (level === 'reject' && policyOrder[currentPolicy] < policyOrder.quarantine) {
+      blockers.push(
+        'The domain is not on p=quarantine yet. Enforce in stages: move to quarantine, watch a full reporting cycle, then consider reject.',
+      );
+    }
+
     return blockers;
   };
 
   const rejectBlockers = evaluate('reject');
   const quarantineBlockers = evaluate('quarantine');
 
-  const level: ReadinessLevel = rejectBlockers.length === 0 ? 'reject' : quarantineBlockers.length === 0 ? 'quarantine' : 'none';
+  let level: ReadinessLevel = 'none';
+  if (rejectBlockers.length === 0) {
+    level = 'reject';
+  } else if (quarantineBlockers.length === 0) {
+    level = 'quarantine';
+  }
+
   const blockers = level === 'reject' ? rejectBlockers : level === 'quarantine' ? quarantineBlockers : [...quarantineBlockers];
 
   return {
     level,
     ready: level !== 'none',
+    currentPolicy,
     daysObserved,
     messagesObserved,
     passRatePercent,
     openAlerts,
     staleAlerts,
+    failingSenders: failingSenders.length,
+    observedSenders,
     blockers,
   };
 }
@@ -207,6 +251,7 @@ export async function assessPolicyReadiness(
 export interface OnboardingResult extends OnboardingState_ {
   domain: { id: string; name: string; status: string; score: number | null; dmarcPolicy: string | null };
   reporting: {
+    publishedPolicy: string | null;
     aggregateConfigured: boolean;
     forensicConfigured: boolean;
     collectionEnabled: boolean;
@@ -318,6 +363,7 @@ export async function getOnboardingState(organizationId: string, domainId: strin
       dmarcPolicy: domain.dmarcPolicy,
     },
     reporting: {
+      publishedPolicy: domain.dmarcPolicy,
       aggregateConfigured,
       forensicConfigured,
       collectionEnabled: domain.collectForensicReports,

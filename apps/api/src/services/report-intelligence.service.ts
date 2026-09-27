@@ -1,5 +1,6 @@
 import { prisma } from '../database/prisma.js';
 import { readDmarcRecord } from '../scanner/dmarc-tags.js';
+import { buildSenderBreakdown, type SenderBreakdownRow } from './sender-breakdown.service.js';
 
 const maxScannedRecords = 5_000;
 const defaultTrendDays = 30;
@@ -33,7 +34,14 @@ export interface TrendSpike {
 
 export interface DomainInsights {
   domain: { id: string; name: string; status: string; score: number | null };
-  reporting: { aggregateConfigured: boolean; forensicConfigured: boolean; collectionEnabled: boolean; identityRetentionEnabled: boolean };
+  reporting: {
+    publishedPolicy: string | null;
+    aggregateConfigured: boolean;
+    forensicConfigured: boolean;
+    collectionEnabled: boolean;
+    identityRetentionEnabled: boolean;
+  };
+  senders: SenderBreakdownRow[];
   aggregate: {
     reportCount: number;
     recordCount: number;
@@ -134,6 +142,15 @@ function latestIso(current: string | null, candidate: Date | null): string | nul
   return !current || value > current ? value : current;
 }
 
+function earliestIso(current: string | null, candidate: Date | null): string | null {
+  if (!candidate) {
+    return current;
+  }
+
+  const value = candidate.toISOString();
+  return !current || value < current ? value : current;
+}
+
 export async function getDomainInsights(
   organizationId: string,
   domainId: string,
@@ -150,6 +167,7 @@ export async function getDomainInsights(
       status: true,
       score: true,
       dmarcRecord: true,
+      dmarcPolicy: true,
       collectForensicReports: true,
       retainForensicPii: true,
     },
@@ -159,7 +177,7 @@ export async function getDomainInsights(
     return null;
   }
 
-  const [reports, forensics] = await Promise.all([
+  const [reports, forensics, senders] = await Promise.all([
     prisma.dmarcReport.findMany({
       where: { domainId: domain.id },
       select: {
@@ -193,6 +211,7 @@ export async function getDomainInsights(
       },
       take: maxScannedRecords,
     }),
+    buildSenderBreakdown(organizationId, domainId),
   ]);
 
   const sources = emptyMap();
@@ -209,7 +228,7 @@ export async function getDomainInsights(
   for (const report of reports) {
     recordCount += report.records.length;
     lastReportAt = latestIso(lastReportAt, report.receivedAt);
-    windowBegin = latestIso(windowBegin, report.dateRangeBegin);
+    windowBegin = earliestIso(windowBegin, report.dateRangeBegin);
     windowEnd = latestIso(windowEnd, report.dateRangeEnd);
 
     const bucket = buckets.get(dayKey(report.receivedAt)) ?? {
@@ -300,15 +319,19 @@ export async function getDomainInsights(
       : [];
 
   const tags = readDmarcRecord(domain.dmarcRecord);
+  const aggregateConfigured = tags.aggregateTargets.length > 0;
+  const forensicConfigured = tags.forensicTargets.length > 0;
 
   return {
     domain: { id: domain.id, name: domain.name, status: domain.status, score: domain.score },
     reporting: {
-      aggregateConfigured: tags.aggregateTargets.length > 0,
-      forensicConfigured: tags.forensicTargets.length > 0,
+      publishedPolicy: domain.dmarcPolicy,
+      aggregateConfigured,
+      forensicConfigured,
       collectionEnabled: domain.collectForensicReports,
       identityRetentionEnabled: domain.retainForensicPii,
     },
+    senders,
     aggregate: {
       reportCount: reports.length,
       recordCount,
