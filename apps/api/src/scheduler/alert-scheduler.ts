@@ -2,6 +2,7 @@ import { env } from '../config/env.js';
 import { prisma } from '../database/prisma.js';
 import { evaluateAlertRules, runAlertRollups } from '../services/alert.service.js';
 import { runReportDigests } from '../services/report-digest.service.js';
+import { executeDueErasures } from '../services/erasure/erasure.service.js';
 
 let timer: NodeJS.Timeout | undefined;
 let running = false;
@@ -25,6 +26,11 @@ export async function runAlertEvaluationOnce(): Promise<void> {
     const notified = rollups.filter((result) => result.notified).length;
     if (notified > 0) {
       console.info(`[alerts] sent ${notified} owner rollup(s)`);
+    }
+
+    const erasures = await executeDueErasures();
+    if (erasures.length > 0) {
+      console.info(`[erasure] completed ${erasures.length} due erasure request(s)`);
     }
 
     const digests = await runReportDigests();

@@ -2,7 +2,7 @@ import { fromNodeHeaders } from 'better-auth/node';
 import type { NextFunction, Request, Response } from 'express';
 import { auth } from '../auth/auth.config.js';
 
-export type OrganizationResource = 'client' | 'domain' | 'report' | 'forensic' | 'billing';
+export type OrganizationResource = 'client' | 'domain' | 'report' | 'forensic' | 'billing' | 'organization';
 export type OrganizationAction = 'create' | 'read' | 'update' | 'delete' | 'ingest' | 'purge' | 'identify';
 
 export function requireOrganizationPermission(resource: OrganizationResource, action: OrganizationAction) {

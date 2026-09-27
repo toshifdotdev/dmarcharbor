@@ -124,6 +124,78 @@ export const openApiDocument = {
         responses: { 200: { description: 'Plan catalog.' } },
       },
     },
+    '/workspaces/{organizationId}/erasures/preview': {
+      get: {
+        tags: ['Billing'],
+        summary: 'Preview what an erasure would do',
+        description: [
+          'Returns the exact record counts that would be deleted, anonymised or kept, with the reason for each, before anything is touched. No database writes occur.',
+          'Built from the same classification the export uses, so what an export includes and what an erasure removes can never disagree.',
+          'The reason DMARC evidence is kept is that it contains no recipient data, while named recipients are deleted in full.',
+        ].join(' '),
+        parameters: [
+          orgParam,
+          { name: 'scope', in: 'query', required: true, schema: { type: 'string', enum: ['ORGANIZATION', 'CLIENT', 'DOMAIN'] } },
+          { name: 'targetId', in: 'query', required: false, schema: { type: 'string' } },
+        ],
+        responses: { 200: { description: 'Planned actions, totals, grace period and statement.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/erasures': {
+      get: {
+        tags: ['Billing'],
+        summary: 'List erasure requests',
+        description: 'Newest first, including the certificate for completed requests.',
+        parameters: [orgParam, ...queryPagination],
+        responses: { 200: { description: 'Erasure requests.' }, ...standardErrors },
+      },
+      post: {
+        tags: ['Billing'],
+        summary: 'Request an erasure',
+        description: [
+          'Included on every plan, including the free one, because the right to erasure cannot be a paid feature.',
+          'The request is held for seven days before it runs, so an accidental request can be cancelled. The workspace owner is the only role that can request one.',
+          'Scope to a client or a domain to erase only that data. Erasing a client or a domain never removes agency staff accounts or sessions.',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: {
+          ...standardErrors,
+          202: { description: 'Request created, pending, with the preview attached.' },
+          404: { description: 'The client or domain is not in this workspace.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/erasures/{erasureId}': {
+      get: {
+        tags: ['Billing'],
+        summary: 'Erasure request detail',
+        description: 'State, timings and the certificate, which contains no personal data and survives the erasure it describes.',
+        parameters: [orgParam, idParam('erasureId', 'Erasure request identifier.')],
+        responses: { 200: { description: 'Request detail and certificate.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/erasures/{erasureId}/cancel': {
+      post: {
+        tags: ['Billing'],
+        summary: 'Cancel a pending erasure',
+        description: 'Stops a request that has not run yet. This is the safeguard against an accidental request.',
+        parameters: [orgParam, idParam('erasureId', 'Erasure request identifier.')],
+        responses: { ...standardErrors, 204: { description: 'Cancelled before execution.' }, 409: { description: 'The request is no longer pending.' } },
+      },
+    },
+    '/workspaces/{organizationId}/erasures/{erasureId}/execute': {
+      post: {
+        tags: ['Billing'],
+        summary: 'Execute an erasure now',
+        description: [
+          'Inside the seven day grace period this requires an explicit confirmation, because it is irreversible.',
+          'Named recipient records are destroyed, identifying fields on security records are cleared while the records are kept, and DMARC authentication evidence is retained because it holds no recipient data.',
+          'A certificate is written before the deletes and survives them, so there is permanent proof the request was carried out.',
+        ].join(' '),
+        parameters: [orgParam, idParam('erasureId', 'Erasure request identifier.')],
+        responses: { ...standardErrors, 200: { description: 'Completed, with the certificate.' }, 400: { description: 'Still inside the grace period and not confirmed.' } },
+      },
+    },
     '/workspaces/{organizationId}/exports': {
       get: {
         tags: ['Billing'],

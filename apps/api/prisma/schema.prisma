@@ -667,8 +667,8 @@ enum ExportState {
 
 model ErasureRequest {
   id             String        @id @default(cuid())
-  organizationId String
-  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   scope          ErasureScope  @default(ORGANIZATION)
   targetId       String?
   requestedById  String
@@ -680,6 +680,7 @@ model ErasureRequest {
 
   @@index([organizationId, state])
   @@index([state, purgeAfter])
+  @@index([completedAt])
   @@map("erasure_request")
 }
 
@@ -740,6 +741,9 @@ enum AuditAction {
   EXPORT_REQUESTED
   EXPORT_DOWNLOADED
   EXPORT_REVOKED
+  ERASURE_REQUESTED
+  ERASURE_CANCELLED
+  ERASURE_COMPLETED
 }
 
 enum AuditOutcome {
