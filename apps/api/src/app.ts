@@ -10,6 +10,9 @@ import { clientRouter } from './routes/client.routes.js';
 import { entitlementRouter } from './routes/entitlement.routes.js';
 import { exportRouter } from './routes/export.routes.js';
 import { erasureRouter } from './routes/erasure.routes.js';
+import { apiV1Router } from './routes/api-v1.routes.js';
+import { apiKeyRouter } from './routes/api-key.routes.js';
+import { webhookRouter } from './routes/webhook.routes.js';
 import { domainScanRouter } from './routes/domain-scan.routes.js';
 import { forensicRouter } from './routes/forensic.routes.js';
 import { inboundReportRouter } from './routes/inbound-report.routes.js';
@@ -42,6 +45,9 @@ export function createApp(): express.Express {
   app.use('/api', entitlementRouter);
   app.use('/api', exportRouter);
   app.use('/api', erasureRouter);
+  app.use('/api', apiKeyRouter);
+  app.use('/api', webhookRouter);
+  app.use('/api/v1', apiV1Router);
   app.use('/api', domainScanRouter);
   app.use('/api', scanRouter);
 

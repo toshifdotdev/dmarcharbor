@@ -16,9 +16,28 @@ function isRouterIdentifier(name: string): boolean {
   return name === 'app' || name.toLowerCase().endsWith('router');
 }
 
+/**
+ * Routers are mounted at a prefix in app.ts and declare paths relative to it,
+ * so the documented contract only matches the registered route once the mount
+ * point is applied. Reading it here keeps the drift test exact rather than
+ * weakening the assertion.
+ */
+function mountPrefixes(): Map<string, string> {
+  const appFile = join(routesDirectory, '..', 'app.ts');
+  const source = readFileSync(appFile, 'utf8');
+  const prefixes = new Map<string, string>();
+
+  for (const match of source.matchAll(/app\.use\(\s*'([^']*)'\s*,\s*(\w+)\s*\)/g)) {
+    prefixes.set(match[2]!, match[1]!);
+  }
+
+  return prefixes;
+}
+
 function discoverRoutes(): { method: string; documentedPath: string }[] {
   const files = readdirSync(routesDirectory).filter((name) => name.endsWith('.routes.ts'));
   const discovered: { method: string; documentedPath: string }[] = [];
+  const prefixes = mountPrefixes();
 
   for (const file of files) {
     const source = readFileSync(join(routesDirectory, file), 'utf8');
@@ -27,9 +46,15 @@ function discoverRoutes(): { method: string; documentedPath: string }[] {
         continue;
       }
 
+      const routerName = match[1]!;
+      const mount = prefixes.get(routerName) ?? '';
+      // The document declares a server base of /api, so only the part of the
+      // mount beyond that base belongs in a documented path.
+      const extra = mount.startsWith('/api') ? mount.slice('/api'.length) : mount;
+
       discovered.push({
         method: match[2].toUpperCase(),
-        documentedPath: normaliseExpressPath(match[3]),
+        documentedPath: normaliseExpressPath(`${extra}${match[3]}`),
       });
     }
   }

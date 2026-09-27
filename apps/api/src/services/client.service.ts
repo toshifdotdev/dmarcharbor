@@ -1,4 +1,5 @@
 import { prisma } from '../database/prisma.js';
+import { emitEvent } from './webhook.service.js';
 import { normalizeDomain } from '../scanner/domain.js';
 import { systemDnsReader } from '../scanner/dns.js';
 import type { CreateClientRequest, CreateDomainRequest } from '../models/client.model.js';
@@ -71,11 +72,23 @@ export async function verifyDomain(organizationId: string, domainId: string) {
   let updatedDomain = domain;
 
   if (verified) {
+    const firstTime = domain.status !== 'VERIFIED';
     updatedDomain = await prisma.domain.update({
       where: { id: domain.id },
       data: { status: 'VERIFIED', verifiedAt: new Date() },
       include: { client: true },
     });
+
+    // Emitted only on the transition, so a re-check of an already verified
+    // domain does not fire a second event and train the integration to ignore it.
+    if (firstTime) {
+      await emitEvent(organizationId, 'domain.verified', {
+        domainId: domain.id,
+        domainName: domain.name,
+        clientId: domain.clientId,
+        verifiedAt: new Date().toISOString(),
+      });
+    }
   } else if (lookup.status === 'missing' && domain.status === 'VERIFIED') {
     updatedDomain = await prisma.domain.update({
       where: { id: domain.id },

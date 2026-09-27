@@ -104,6 +104,9 @@ model Organization {
   entitlementOverrides  EntitlementOverride[]
   erasureRequests       ErasureRequest[]
   exportJobs            ExportJob[]
+  apiKeys               ApiKey[]
+  idempotencyRecords    IdempotencyRecord[]
+  webhookEndpoints      WebhookEndpoint[]
 
   @@unique([slug])
   @@index([plan])
@@ -626,6 +629,81 @@ model EntitlementOverride {
   @@map("entitlement_override")
 }
 
+model ApiKey {
+  id             String        @id @default(cuid())
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  prefix         String
+  keyHash        String        @unique
+  scopes         String[]      @default(["read"])
+  lastUsedAt     DateTime?
+  lastUsedIp     String?
+  revokedAt      DateTime?
+  expiresAt      DateTime?
+  createdById    String?
+  createdAt      DateTime      @default(now())
+
+  @@index([organizationId, revokedAt])
+  @@map("api_key")
+}
+
+model WebhookEndpoint {
+  id             String            @id @default(cuid())
+  organizationId String
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  url            String
+  secret         String
+  events         String[]
+  active         Boolean           @default(true)
+  suspendedAt    DateTime?
+  failureCount   Int               @default(0)
+  lastDeliveryAt DateTime?
+  createdById    String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  deliveries     WebhookDelivery[]
+
+  @@index([organizationId, active])
+  @@map("webhook_endpoint")
+}
+
+model WebhookDelivery {
+  id            String                @id @default(cuid())
+  endpointId    String
+  endpoint      WebhookEndpoint       @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  organizationId String
+  event         String
+  payload       Json
+  status        WebhookDeliveryStatus @default(PENDING)
+  attempts      Int                   @default(0)
+  responseCode  Int?
+  lastError     String?
+  nextAttemptAt DateTime?
+  deliveredAt   DateTime?
+  createdAt     DateTime              @default(now())
+
+  @@index([status, nextAttemptAt])
+  @@index([endpointId, createdAt])
+  @@map("webhook_delivery")
+}
+
+model IdempotencyRecord {
+  id             String       @id @default(cuid())
+  key            String       @unique
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  requestHash    String
+  statusCode     Int?
+  responseBody   Json?
+  createdAt      DateTime     @default(now())
+
+  @@index([createdAt])
+  @@index([organizationId])
+  @@map("idempotency_record")
+}
+
 model ExportJob {
   id                 String        @id @default(cuid())
   organizationId     String
@@ -646,6 +724,13 @@ model ExportJob {
   @@index([organizationId, createdAt])
   @@index([state, purgeAfter])
   @@map("export_job")
+}
+
+enum WebhookDeliveryStatus {
+  PENDING
+  DELIVERED
+  FAILED
+  SUSPENDED
 }
 
 enum ExportScope {
@@ -744,6 +829,14 @@ enum AuditAction {
   ERASURE_REQUESTED
   ERASURE_CANCELLED
   ERASURE_COMPLETED
+  API_KEY_CREATED
+  API_KEY_REVOKED
+  CLIENTS_BULK_IMPORTED
+  DOMAINS_BULK_IMPORTED
+  WEBHOOK_ENDPOINT_CREATED
+  WEBHOOK_ENDPOINT_UPDATED
+  WEBHOOK_ENDPOINT_DELETED
+  WEBHOOK_ENDPOINT_SUSPENDED
 }
 
 enum AuditOutcome {

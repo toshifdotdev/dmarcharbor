@@ -4,6 +4,7 @@ import { env } from '../config/env.js';
 import { sendAuthEmail } from '../email/email.service.js';
 import { createAlertNotifications } from './notification.service.js';
 import { buildSenderBreakdown, possibleSpoofingSources } from './sender-breakdown.service.js';
+import { emitEvent } from './webhook.service.js';
 import { resolveLimit } from '../utils/pagination.js';
 
 const riskByMetric: Record<AlertMetric, 'high' | 'medium'> = {
@@ -690,6 +691,19 @@ export async function evaluateAlertRules(now = new Date()): Promise<RuleEvaluati
 
       await prisma.alertRule.update({ where: { id: rule.id }, data: { lastTriggeredAt: now } });
       await notifyRecipients(rule, event.id, summary, observed, 1, now, snapshot);
+
+      await emitEvent(rule.organizationId, 'alert.triggered', {
+        alertEventId: event.id,
+        ruleId: rule.id,
+        ruleName: rule.name,
+        domainId: rule.domainId,
+        domainName: rule.domain.name,
+        metric: rule.metric,
+        observedValue: observed,
+        threshold: rule.threshold,
+        summary,
+        triggeredAt: now.toISOString(),
+      });
 
       results.push({
         ruleId: rule.id,

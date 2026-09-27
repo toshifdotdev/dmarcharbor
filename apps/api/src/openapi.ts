@@ -80,8 +80,186 @@ export const openApiDocument = {
     { name: 'Notifications' },
     { name: 'Onboarding and sharing' },
     { name: 'Billing' },
+    { name: 'Webhooks' },
   ],
   paths: {
+    '/v1/clients': {
+      get: {
+        tags: ['API'],
+        summary: 'List clients with their domains',
+        description: [
+          'Machine readable counterpart to the browser interface, for a professional service automation tool or an internal script.',
+          'The workspace is taken from the API key rather than the path, so a key can never be pointed at another workspace by mistake.',
+        ].join(' '),
+        security: [{ apiKeyAuth: [] }],
+        responses: { 200: { description: 'Every client in the workspace with its domains.' } },
+      },
+      post: {
+        tags: ['API'],
+        summary: 'Create a client',
+        description: 'Returns the domain verification records, ready to publish in the client own DNS.',
+        security: [{ apiKeyAuth: [] }],
+        responses: { 201: { description: 'Created, with verification details.' } },
+      },
+    },
+    '/v1/clients/bulk': {
+      post: {
+        tags: ['API'],
+        summary: 'Import many clients at once',
+        description: [
+          'The bulk counterpart to repeated single creates. Agencies usually have a client list before they have a domain list, so this accepts both together or clients alone.',
+          'Every row is independent. A bad row is reported in failures and skipped rather than failing the batch, because a spreadsheet imported from a client CRM should not lose 180 valid rows to one typo.',
+          'Rows beyond the plan limit are reported in planLimitRejections with the reason, and the rest still import.',
+          'Send an Idempotency-Key header. A retried request replays the original response instead of creating duplicates, which matters because automation retries on timeout.',
+        ].join(' '),
+        security: [{ apiKeyAuth: [] }],
+        responses: {
+          201: { description: 'Per item results for created, failed and plan blocked rows.' },
+          402: { description: 'The plan allows no further clients.' },
+        },
+      },
+    },
+    '/v1/domains': {
+      get: {
+        tags: ['API'],
+        summary: 'List every domain in the workspace',
+        description: [
+          'Flat list across all clients, each with its client, verification state and published policy.',
+          'Returns the whole set rather than a page, because an integration normally wants to reconcile everything it manages rather than walk pages.',
+        ].join(' '),
+        security: [{ apiKeyAuth: [] }],
+        responses: { 200: { description: 'Domains with verification state and policy.' } },
+      },
+      post: {
+        tags: ['API'],
+        summary: 'Add one domain to a client',
+        description: 'Returns the TXT record to publish so the domain can be verified without a second call.',
+        security: [{ apiKeyAuth: [] }],
+        responses: { 201: { description: 'Added, with the verification record to publish.' } },
+      },
+    },
+    '/v1/domains/bulk': {
+      post: {
+        tags: ['API'],
+        summary: 'Add many domains to one client',
+        description: [
+          'Deliberately separate from the client import, because agencies receive the domain list at a different time from the client list.',
+          'Same guarantees as the client import: per row outcomes, plan limits reported rather than silently truncating, and Idempotency-Key support.',
+        ].join(' '),
+        security: [{ apiKeyAuth: [] }],
+        responses: { 201: { description: 'Per item results.' } },
+      },
+    },
+    '/v1/domains/{domainId}/verify': {
+      post: {
+        tags: ['API'],
+        summary: 'Check domain ownership now',
+        description: [
+          'Reads the domain DNS TXT record and compares it to the expected value in constant time.',
+          'Returns the host and value to publish so a caller can retry without a second read, and reports whether the record is found, still propagating or wrong.',
+        ].join(' '),
+        security: [{ apiKeyAuth: [] }],
+        parameters: [idParam('domainId', 'Domain identifier from the domains list.')],
+        responses: { 200: { description: 'Verification result and the record that is expected.' } },
+      },
+    },
+    '/workspaces/{organizationId}/api-keys': {
+      get: {
+        tags: ['API'],
+        summary: 'List API keys',
+        description: 'Metadata only. The key itself is never retrievable after creation. Owner only.',
+        parameters: [orgParam],
+        responses: { 200: { description: 'Keys with prefix, scopes, last used and expiry.' }, ...standardErrors },
+      },
+      post: {
+        tags: ['API'],
+        summary: 'Create an API key',
+        description: [
+          'Returns the full key exactly once. Only a hash is stored, so a database read cannot recover a usable key.',
+          'Scopes are read, write, or both. A read scoped key cannot create or modify anything, which is the right choice for a dashboard or reporting integration.',
+          'Owner only, because a key acts on the whole workspace with the authority of its scopes.',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: { 201: { description: 'The key, shown once.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/api-keys/{keyId}': {
+      delete: {
+        tags: ['API'],
+        summary: 'Revoke an API key',
+        description: 'Takes effect immediately. Recorded in the audit trail.',
+        parameters: [orgParam, idParam('keyId', 'Key identifier.')],
+        responses: { 204: { description: 'Revoked.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/webhooks': {
+      get: {
+        tags: ['Webhooks'],
+        summary: 'List webhook endpoints',
+        description: [
+          'Endpoints this workspace delivers events to. Subscribing events and delivery health, never the signing secret, which is shown once at creation.',
+          'A large agency receives hundreds of report notifications a day, so domain.verified and alert.triggered are subscribed by default and report.received is opt in. Ignoring events trains people to ignore the endpoint.',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: { 200: { description: 'Endpoints with their events and delivery health.' }, ...standardErrors },
+      },
+      post: {
+        tags: ['Webhooks'],
+        summary: 'Register a webhook endpoint',
+        description: [
+          'Returns a signing secret once. We sign every payload with HMAC SHA-256 over the timestamp and the body, and the receiver recomputes it to confirm the event really came from DMARC Harbor.',
+          'The URL must be public https. A local or private address is refused, because a customer cannot receive a delivery from inside our network.',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: { 201: { description: 'Endpoint created, with the signing secret shown once.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/webhooks/{webhookId}': {
+      patch: {
+        tags: ['Webhooks'],
+        summary: 'Update an endpoint',
+        description: 'Change the url, subscribed events, or pause and resume delivery.',
+        parameters: [orgParam, idParam('webhookId', 'Endpoint identifier.')],
+        responses: { 200: { description: 'Updated.' }, ...standardErrors },
+      },
+      delete: {
+        tags: ['Webhooks'],
+        summary: 'Delete an endpoint',
+        description: 'Stops delivery immediately and removes the delivery history with it. Cannot be undone.',
+        parameters: [orgParam, idParam('webhookId', 'Endpoint identifier.')],
+        responses: { 204: { description: 'Deleted along with its delivery history.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/webhooks/test': {
+      post: {
+        tags: ['Webhooks'],
+        summary: 'Queue a test delivery',
+        description: 'Queues one event so the receiver can confirm its endpoint and signature handling. Safe to call at any time.',
+        parameters: [orgParam],
+        responses: { 202: { description: 'Queued, or reported as having no subscriber.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/webhook-deliveries': {
+      get: {
+        tags: ['Webhooks'],
+        summary: 'Delivery log',
+        description: [
+          'Every attempt, with the response code and the last error, so a failing integration can be diagnosed without waiting for the customer to report it.',
+          'A payload is a pointer, not the data. When a report arrives the event carries identifiers and a timestamp, and the integration fetches detail from the read API if it wants it. Embedding report contents would make a high volume feed slow and would duplicate the API.',
+        ].join(' '),
+        parameters: [orgParam, { name: 'endpointId', in: 'query', required: false, schema: { type: 'string' } }],
+        responses: { 200: { description: 'Recent deliveries.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/webhook-deliveries/{deliveryId}/replay': {
+      post: {
+        tags: ['Webhooks'],
+        summary: 'Replay a delivery',
+        description: 'Requeues a failed delivery with the same payload and a fresh signature. Useful after the receiver has been fixed.',
+        parameters: [orgParam, idParam('deliveryId', 'Delivery identifier.')],
+        responses: { 202: { description: 'Requeued.' }, ...standardErrors },
+      },
+    },
     '/health': {
       get: {
         tags: ['System'],
@@ -956,6 +1134,12 @@ export const openApiDocument = {
         in: 'cookie',
         name: 'better-auth.session_token',
         description: 'Session cookie set by Better Auth after sign in.',
+      },
+      apiKeyAuth: {
+        type: 'http',
+        scheme: 'bearer',
+        description:
+          'API key issued from the workspace settings, sent as a bearer token. The key identifies the workspace, so the workspace is never taken from the path.',
       },
     },
     schemas: {

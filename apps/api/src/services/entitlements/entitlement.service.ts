@@ -1,5 +1,6 @@
 import type { PlanTier, Prisma } from '@prisma/client';
 import { prisma } from '../../database/prisma.js';
+import { emitEvent } from '../webhook.service.js';
 import { countCountedDomains } from '../inventory/inventory.service.js';
 import {
   alwaysAllowedEntitlements,
@@ -187,6 +188,17 @@ export async function assertQuota(
   const label = quotaLabel(quota);
   const upgradeTo = nextTier(entitlements.plan);
   const upgradeName = upgradeTo ? planCatalog[upgradeTo].label : null;
+
+  await emitEvent(organizationId, 'entitlement.exceeded', {
+    quota,
+    label,
+    used: usage.used,
+    limit: usage.limit,
+    plan: entitlements.plan,
+    planLabel: entitlements.label,
+    upgradeTo,
+    occurredAt: new Date().toISOString(),
+  });
 
   throw new EntitlementError(
     'PLAN_LIMIT_REACHED',

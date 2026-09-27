@@ -27,6 +27,23 @@ export const secureSessionRouterRateLimiter = rateLimit({
   },
 });
 
+export const apiRateLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 300,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: (request) => {
+    const header = request.header('authorization');
+    return header ? header.slice(-24) : request.ip ?? 'unknown';
+  },
+  message: {
+    error: {
+      code: 'RATE_LIMITED',
+      message: 'Too many API requests. Wait a minute and try again.',
+    },
+  },
+});
+
 export const publicReportRateLimiter = rateLimit({
   windowMs: 60_000,
   limit: 30,

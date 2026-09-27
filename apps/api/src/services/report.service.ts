@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
+import { emitEvent } from './webhook.service.js';
 import { resolveLimit } from '../utils/pagination.js';
 import { parseDmarcReport } from './report-parser.service.js';
 import { reportRetentionExpiry } from './privacy.service.js';
@@ -154,6 +155,17 @@ export async function ingestDmarcReport(input: IngestReportInput): Promise<Inges
         },
       },
       include: reportInclude,
+    });
+
+    // Pointer only. The integration decides whether to fetch the report, which
+    // keeps a high volume feed cheap for both sides.
+    await emitEvent(input.organizationId, 'report.received', {
+      reportId: report.id,
+      domainId: domain.id,
+      domainName: domain.name,
+      reportType: report.reportType,
+      recordCount: report.recordCount,
+      receivedAt: report.receivedAt.toISOString(),
     });
 
     return { status: 'created', report };
