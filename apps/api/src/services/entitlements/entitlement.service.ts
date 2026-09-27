@@ -1,5 +1,6 @@
 import type { PlanTier, Prisma } from '@prisma/client';
 import { prisma } from '../../database/prisma.js';
+import { countCountedDomains } from '../inventory/inventory.service.js';
 import {
   alwaysAllowedEntitlements,
   effectivePlan,
@@ -10,7 +11,6 @@ import {
   type QuotaKey,
 } from './plan-catalog.js';
 
-const domainGraceDays = 14;
 
 export interface ResolvedEntitlements {
   plan: PlanTier;
@@ -124,17 +124,7 @@ export async function resolveEntitlements(organizationId: string, now = new Date
   return bumped;
 }
 
-export async function countCountedDomains(organizationId: string, retentionDays: number, now = new Date()): Promise<number> {
-  const activeSince = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1000);
-  const graceSince = new Date(now.getTime() - domainGraceDays * 24 * 60 * 60 * 1000);
-
-  return prisma.domain.count({
-    where: {
-      client: { organizationId },
-      OR: [{ dmarcReports: { some: { receivedAt: { gte: activeSince } } } }, { createdAt: { gte: graceSince } }],
-    },
-  });
-}
+export { countCountedDomains } from '../inventory/inventory.service.js';
 
 export async function quotaUsage(
   organizationId: string,
