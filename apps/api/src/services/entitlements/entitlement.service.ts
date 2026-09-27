@@ -157,7 +157,10 @@ export async function assertFeature(organizationId: string, feature: Entitlement
   const requiredBy = Object.entries(planCatalog)
     .filter(([, definition]) => definition.features[feature])
     .map(([tier]) => tier)
-    .sort((left, right) => planCatalog[left as PlanTier].priceMonthlyUsd - planCatalog[right as PlanTier].priceMonthlyUsd)[0];
+    .sort(
+      (left, right) =>
+        planCatalog[left as PlanTier].prices.USD.monthlyMinor - planCatalog[right as PlanTier].prices.USD.monthlyMinor,
+    )[0];
 
   throw new EntitlementError(
     'FEATURE_NOT_IN_PLAN',

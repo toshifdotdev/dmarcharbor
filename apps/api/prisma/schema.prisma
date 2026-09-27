@@ -114,6 +114,7 @@ model Organization {
   exportJobs            ExportJob[]
   apiKeys               ApiKey[]
   idempotencyRecords    IdempotencyRecord[]
+  billingEvents         BillingEvent[]
   webhookEndpoints      WebhookEndpoint[]
 
   @@unique([slug])
@@ -721,6 +722,27 @@ model WebhookDelivery {
   @@map("webhook_delivery")
 }
 
+/// A billing webhook that has been received, with the provider's own id
+/// deduplicating redeliveries. Both providers retry until acknowledged, so the
+/// same event can arrive many times and out of order.
+model BillingEvent {
+  id                     String        @id @default(cuid())
+  providerEventId        String        @unique
+  provider               BillingProvider
+  type                   String
+  organizationId         String?
+  organization           Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  providerSubscriptionId String?
+  payload                Json
+  occurredAt             DateTime
+  createdAt              DateTime      @default(now())
+
+  @@index([organizationId])
+  @@index([providerSubscriptionId])
+  @@index([createdAt])
+  @@map("billing_event")
+}
+
 model IdempotencyRecord {
   id             String       @id @default(cuid())
   key            String       @unique
@@ -871,6 +893,8 @@ enum AuditAction {
   WEBHOOK_ENDPOINT_SUSPENDED
   PORTAL_ACCESS_GRANTED
   PORTAL_ACCESS_REVOKED
+  SUBSCRIPTION_UPDATED
+  PAYMENT_FAILED
   BRANDING_UPDATED
   CUSTOM_DOMAIN_VERIFIED
 }

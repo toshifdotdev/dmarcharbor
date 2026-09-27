@@ -29,7 +29,7 @@ describe('plan catalog', () => {
     for (let index = 1; index < planOrder.length; index += 1) {
       const lower = planCatalog[planOrder[index - 1]!];
       const higher = planCatalog[planOrder[index]!];
-      expect(higher.priceMonthlyUsd).toBeGreaterThanOrEqual(lower.priceMonthlyUsd);
+      expect(higher.prices.USD.monthlyMinor).toBeGreaterThanOrEqual(lower.prices.USD.monthlyMinor);
       expect(higher.maxClients).toBeGreaterThanOrEqual(lower.maxClients);
       expect(higher.maxActiveDomains).toBeGreaterThanOrEqual(lower.maxActiveDomains);
       expect(higher.maxMembers).toBeGreaterThanOrEqual(lower.maxMembers);
@@ -38,22 +38,26 @@ describe('plan catalog', () => {
   });
 
   it('keeps the free plan free', () => {
-    expect(planCatalog.MOORING.priceMonthlyUsd).toBe(0);
-    expect(planCatalog.MOORING.priceAnnualUsd).toBe(0);
+    expect(planCatalog.MOORING.prices.USD.monthlyMinor).toBe(0);
+    expect(planCatalog.MOORING.prices.USD.annualMinor).toBe(0);
   });
 
   it('prices the agreed ladder', () => {
-    expect(planCatalog.FAIRWAY.priceMonthlyUsd).toBe(19);
-    expect(planCatalog.HARBOR.priceMonthlyUsd).toBe(79);
-    expect(planCatalog.ADMIRALTY.priceMonthlyUsd).toBe(249);
+    expect(planCatalog.FAIRWAY.prices.USD.monthlyMinor).toBe(1900);
+    expect(planCatalog.HARBOR.prices.USD.monthlyMinor).toBe(7900);
+    expect(planCatalog.ADMIRALTY.prices.USD.monthlyMinor).toBe(24900);
+
+    expect(planCatalog.FAIRWAY.prices.INR.monthlyMinor).toBe(159900);
+    expect(planCatalog.HARBOR.prices.INR.monthlyMinor).toBe(659900);
+    expect(planCatalog.ADMIRALTY.prices.INR.monthlyMinor).toBe(2099900);
   });
 
   it('offers a roughly 17 percent annual discount on paid plans', () => {
     for (const tier of ['FAIRWAY', 'HARBOR', 'ADMIRALTY'] as const) {
       const plan = planCatalog[tier];
-      const tenMonths = plan.priceMonthlyUsd * 10;
-      expect(plan.priceAnnualUsd).toBeLessThanOrEqual(tenMonths);
-      expect(plan.priceAnnualUsd).toBeGreaterThan(plan.priceMonthlyUsd * 9);
+      const tenMonths = plan.prices.USD.monthlyMinor * 10;
+      expect(plan.prices.USD.annualMinor).toBeLessThanOrEqual(tenMonths);
+      expect(plan.prices.USD.annualMinor).toBeGreaterThan(plan.prices.USD.monthlyMinor * 9);
     }
   });
 

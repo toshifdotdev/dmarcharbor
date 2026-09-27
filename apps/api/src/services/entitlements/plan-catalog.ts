@@ -21,12 +21,29 @@ export type EntitlementKey =
 
 export type QuotaKey = 'client' | 'activeDomain' | 'member';
 
+/**
+ * Currencies a plan can be sold in.
+ *
+ * The catalog holds both rather than a single price so the same plan ladder
+ * serves an Indian agency and a European one. Which currency is actually
+ * charged is decided at checkout by the provider, not here.
+ */
+export type BillingCurrency = 'USD' | 'INR';
+
+export const billingCurrencies: readonly BillingCurrency[] = ['USD', 'INR'];
+
+/** Whole currency units, never a floating point fraction of money. */
+export interface PlanPrice {
+  /** Paise for INR, cents for USD. */
+  monthlyMinor: number;
+  annualMinor: number;
+}
+
 export interface PlanDefinition {
   tier: PlanTier;
   label: string;
   descriptor: string;
-  priceMonthlyUsd: number;
-  priceAnnualUsd: number;
+  prices: Record<BillingCurrency, PlanPrice>;
   maxClients: number;
   maxActiveDomains: number;
   maxMembers: number;
@@ -62,6 +79,30 @@ const allFeatures = (overrides: Partial<Record<EntitlementKey, boolean>> = {}): 
  */
 export const alwaysAllowedEntitlements: readonly EntitlementKey[] = ['data.export', 'data.erase'];
 
+/**
+ * Entitlements that are deliberately priced but not yet enforced.
+ *
+ * These belong to a plan tier in the catalog, yet there is no code path that
+ * can turn them on, so there is nothing to gate. They are listed here rather
+ * than left out of the catalog so the door stays open, and so the audit test
+ * can tell an intentional omission apart from an oversight.
+ *
+ * `auth.sso` and `rollout.canary` are commercial promises, not working
+ * features. Neither may appear in checkout, a public plan comparison or any
+ * other marketing surface until the code that delivers it exists, because
+ * selling them early is a chargeback waiting to happen.
+ */
+export const plannedEntitlements: readonly EntitlementKey[] = ['auth.sso', 'rollout.canary'];
+
+/**
+ * Features granted on every plan, so there is no gate to write.
+ *
+ * Aggregate reporting is what a free user exists to see, and the audit trail
+ * is the trust signal that makes an MSP willing to hand over a client list in
+ * the first place. Neither is a paid differentiator.
+ */
+export const alwaysOnEntitlements: readonly EntitlementKey[] = ['reports.aggregate', 'audit.trail'];
+
 const off = { 'alerts.spoofing': false, 'rollout.canary': false, digests: false } as const;
 const noForensic = { 'reports.forensic': false, 'reports.forensicNamed': false } as const;
 const noNamedForensic = { 'reports.forensicNamed': false } as const;
@@ -77,8 +118,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     tier: 'MOORING',
     label: 'Mooring',
     descriptor: 'Watch a couple of domains while you decide.',
-    priceMonthlyUsd: 0,
-    priceAnnualUsd: 0,
+    prices: { USD: { monthlyMinor: 0, annualMinor: 0 }, INR: { monthlyMinor: 0, annualMinor: 0 } },
     maxClients: 1,
     maxActiveDomains: 2,
     maxMembers: 1,
@@ -90,8 +130,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     tier: 'FAIRWAY',
     label: 'Fairway',
     descriptor: 'Quarantine without rejection. Run a small client book.',
-    priceMonthlyUsd: 19,
-    priceAnnualUsd: 190,
+    prices: { USD: { monthlyMinor: 1900, annualMinor: 19000 }, INR: { monthlyMinor: 159900, annualMinor: 1599000 } },
     maxClients: 5,
     maxActiveDomains: 20,
     maxMembers: 3,
@@ -103,8 +142,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     tier: 'HARBOR',
     label: 'Harbor',
     descriptor: 'Full enforcement with named forensic evidence and client portal.',
-    priceMonthlyUsd: 79,
-    priceAnnualUsd: 790,
+    prices: { USD: { monthlyMinor: 7900, annualMinor: 79000 }, INR: { monthlyMinor: 659900, annualMinor: 6599000 } },
     maxClients: 20,
     maxActiveDomains: 80,
     maxMembers: 10,
@@ -116,8 +154,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     tier: 'ADMIRALTY',
     label: 'Admiralty',
     descriptor: 'White label, API and SSO for large portfolios.',
-    priceMonthlyUsd: 249,
-    priceAnnualUsd: 2490,
+    prices: { USD: { monthlyMinor: 24900, annualMinor: 249000 }, INR: { monthlyMinor: 2099900, annualMinor: 20999000 } },
     maxClients: 75,
     maxActiveDomains: 300,
     maxMembers: 25,
@@ -128,6 +165,59 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
 };
 
 export const planOrder: PlanTier[] = ['MOORING', 'FAIRWAY', 'HARBOR', 'ADMIRALTY'];
+
+/**
+ * Smallest currency unit for a currency. INR divides into 100 paise, and USD
+ * into 100 cents, but they are different units, so a helper is safer than
+ * remembering which is which at a call site.
+ */
+const minorUnitDigits = 2;
+
+export function formatPrice(plan: PlanTier, currency: BillingCurrency, interval: 'monthly' | 'annual'): string {
+  const amount = planCatalog[plan].prices[currency][interval === 'monthly' ? 'monthlyMinor' : 'annualMinor'];
+
+  if (amount === 0) {
+    return 'Free';
+  }
+
+  const major = amount / 10 ** minorUnitDigits;
+  const formatted = new Intl.NumberFormat(currency === 'INR' ? 'en-IN' : 'en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(major);
+
+  return `${currency === 'INR' ? '\u20b9' : '$'}${formatted}`;
+}
+
+/**
+ * The rough rate used only to show an Indian buyer what a USD price means.
+ *
+ * This is a display convenience, never a conversion for charging. The amount a
+ * customer is billed is always the price in the currency they check out in, so
+ * a stale rate here can mislead but can never overcharge.
+ */
+export const displayRateUsdToInr = 84;
+
+export function formatPriceWithConversion(
+  plan: PlanTier,
+  currency: BillingCurrency,
+  interval: 'monthly' | 'annual',
+): { primary: string; secondary: string | null } {
+  const primary = formatPrice(plan, currency, interval);
+  if (currency === 'INR') {
+    return { primary, secondary: null };
+  }
+
+  const amount = planCatalog[plan].prices.USD[interval === 'monthly' ? 'monthlyMinor' : 'annualMinor'];
+  if (amount === 0) {
+    return { primary, secondary: null };
+  }
+
+  const major = amount / 10 ** minorUnitDigits;
+  const inr = Math.round((major * displayRateUsdToInr) / 100) * 100;
+
+  return { primary, secondary: `\u2248 \u20b9${new Intl.NumberFormat('en-IN').format(inr)}` };
+}
 
 export function planLabel(tier: PlanTier): string {
   return planCatalog[tier].label;
