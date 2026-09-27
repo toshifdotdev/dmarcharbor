@@ -424,7 +424,11 @@ export const openApiDocument = {
       post: {
         tags: ['Alerts'],
         summary: 'Create an alert rule',
-        description: 'Requires report update. Recorded in the audit trail.',
+        description: [
+          'Requires report update. Recorded in the audit trail.',
+          'Metrics are FAILURE_COUNT, FAILURE_RATE, SOURCE_IP_VOLUME, FORENSIC_FAILURES, REPORT_SILENCE and NEW_UNAUTHENTICATED_SOURCE.',
+          'NEW_UNAUTHENTICATED_SOURCE counts sending sources first seen in the last seven days that failed both SPF and DKIM, which is the closest signal to a spoofing attempt. Use GREATER_THAN_OR_EQUAL with a threshold of 1.',
+        ].join(' '),
         parameters: [orgParam],
         responses: { 201: { description: 'Rule created.' }, ...standardErrors },
       },

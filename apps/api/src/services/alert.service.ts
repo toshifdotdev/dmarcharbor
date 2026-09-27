@@ -3,6 +3,7 @@ import { prisma } from '../database/prisma.js';
 import { env } from '../config/env.js';
 import { sendAuthEmail } from '../email/email.service.js';
 import { createAlertNotifications } from './notification.service.js';
+import { buildSenderBreakdown, possibleSpoofingSources } from './sender-breakdown.service.js';
 import { resolveLimit } from '../utils/pagination.js';
 
 const riskByMetric: Record<AlertMetric, 'high' | 'medium'> = {
@@ -11,6 +12,7 @@ const riskByMetric: Record<AlertMetric, 'high' | 'medium'> = {
   SOURCE_IP_VOLUME: 'high',
   FORENSIC_FAILURES: 'high',
   REPORT_SILENCE: 'medium',
+  NEW_UNAUTHENTICATED_SOURCE: 'high',
 };
 
 const maxLookbackMinutes = 43_200;
@@ -36,6 +38,7 @@ export interface DomainSnapshot {
   forensicCount: number;
   forensicRejections: number;
   hoursSinceLastReport: number | null;
+  newUnauthenticatedSources: NewSourceDetail[];
 }
 
 function isPass(value: string | null): boolean {
@@ -271,6 +274,38 @@ export async function listAlertEvents(
   return { rows, limit };
 }
 
+export interface NewSourceDetail {
+  senderKey: string;
+  senderDomain: string | null;
+  totalMessages: number;
+  failedMessages: number;
+  sourceIps: string[];
+  firstSeenAt: string;
+  detail: string;
+}
+
+async function newSpoofingSourcesForDomain(domainId: string): Promise<NewSourceDetail[]> {
+  const domain = await prisma.domain.findUnique({
+    where: { id: domainId },
+    select: { client: { select: { organizationId: true } } },
+  });
+
+  if (!domain) {
+    return [];
+  }
+
+  const rows = await buildSenderBreakdown(domain.client.organizationId, domainId);
+  return possibleSpoofingSources(rows).map((warning) => ({
+    senderKey: warning.senderKey,
+    senderDomain: warning.senderDomain,
+    totalMessages: warning.totalMessages,
+    failedMessages: warning.failedMessages,
+    sourceIps: warning.sourceIps,
+    firstSeenAt: rows.find((row) => row.senderKey === warning.senderKey)?.firstSeenAt ?? new Date().toISOString(),
+    detail: warning.detail,
+  }));
+}
+
 export async function buildDomainSnapshot(domainId: string, windowMinutes: number, now = new Date()): Promise<DomainSnapshot> {
   const window = clamp(windowMinutes, 5, maxLookbackMinutes);
   const since = new Date(now.getTime() - window * 60 * 1000);
@@ -336,6 +371,8 @@ export async function buildDomainSnapshot(domainId: string, windowMinutes: numbe
     .filter((value): value is Date => Boolean(value))
     .sort((left, right) => right.getTime() - left.getTime())[0];
 
+  const newUnauthenticatedSources = await newSpoofingSourcesForDomain(domainId);
+
   return {
     domainId,
     windowMinutes: window,
@@ -354,6 +391,7 @@ export async function buildDomainSnapshot(domainId: string, windowMinutes: numbe
     forensicCount: forensics.length,
     forensicRejections,
     hoursSinceLastReport: lastSeen ? Math.round(((now.getTime() - lastSeen.getTime()) / 3_600_000) * 100) / 100 : null,
+    newUnauthenticatedSources,
   };
 }
 
@@ -369,6 +407,8 @@ function observedFor(snapshot: DomainSnapshot, metric: AlertMetric): number | nu
       return snapshot.forensicRejections;
     case 'REPORT_SILENCE':
       return snapshot.hoursSinceLastReport;
+    case 'NEW_UNAUTHENTICATED_SOURCE':
+      return snapshot.newUnauthenticatedSources.length;
     default:
       return null;
   }
@@ -379,6 +419,18 @@ function summarise(
   snapshot: DomainSnapshot,
   observed: number,
 ): string {
+  if (rule.metric === 'NEW_UNAUTHENTICATED_SOURCE') {
+    const named = snapshot.newUnauthenticatedSources
+      .slice(0, 3)
+      .map((source) => source.senderDomain ?? source.senderKey)
+      .join(', ');
+
+    return (
+      `${observed} sending source${observed === 1 ? '' : 's'} seen in the last 7 days failed both SPF and DKIM` +
+      `${named ? `: ${named}` : ''}. A legitimate service normally passes at least one, so confirm with the domain owner and then enforce.`
+    );
+  }
+
   const unit = rule.metric === 'FAILURE_RATE' ? '%' : rule.metric === 'REPORT_SILENCE' ? 'h' : ' messages';
   const comparison = rule.operator === 'LESS_THAN' ? 'below' : 'above';
 
@@ -404,6 +456,7 @@ function contextFor(snapshot: DomainSnapshot, metric: AlertMetric): Prisma.Input
     forensicCount: snapshot.forensicCount,
     forensicRejections: snapshot.forensicRejections,
     hoursSinceLastReport: snapshot.hoursSinceLastReport,
+    newUnauthenticatedSources: snapshot.newUnauthenticatedSources as unknown as Prisma.InputJsonValue,
     metric,
   };
 }
@@ -636,7 +689,7 @@ export async function evaluateAlertRules(now = new Date()): Promise<RuleEvaluati
       });
 
       await prisma.alertRule.update({ where: { id: rule.id }, data: { lastTriggeredAt: now } });
-      await notifyRecipients(rule, event.id, summary, observed, 1, now);
+      await notifyRecipients(rule, event.id, summary, observed, 1, now, snapshot);
 
       results.push({
         ruleId: rule.id,
@@ -670,7 +723,7 @@ export async function evaluateAlertRules(now = new Date()): Promise<RuleEvaluati
       data: { reminderLevel },
     });
 
-    await notifyRecipients(rule, openEvent.id, summary, observed, reminderLevel, now);
+    await notifyRecipients(rule, openEvent.id, summary, observed, reminderLevel, now, snapshot);
 
     results.push({
       ruleId: rule.id,
@@ -691,9 +744,30 @@ async function notifyRecipients(
   observed: number,
   reminderLevel: number,
   now: Date,
+  snapshot?: DomainSnapshot,
 ): Promise<void> {
   const risk = riskByMetric[rule.metric];
   const recipientUserIds = rule.recipients.map((recipient) => recipient.userId);
+
+  const spoofingLines =
+    rule.metric === 'NEW_UNAUTHENTICATED_SOURCE' && snapshot
+      ? [
+          '',
+          'Sending sources to check:',
+          ...snapshot.newUnauthenticatedSources
+            .slice(0, 10)
+            .map(
+              (source) =>
+                `  ${source.senderDomain ?? source.senderKey}: ${source.failedMessages} of ${source.totalMessages} messages failed both SPF and DKIM` +
+                `${source.sourceIps.length ? `, from ${source.sourceIps.join(', ')}` : ''}, first seen ${source.firstSeenAt.slice(0, 10)}.`,
+            ),
+          snapshot.newUnauthenticatedSources.length > 10
+            ? `  ...and ${snapshot.newUnauthenticatedSources.length - 10} more`
+            : '',
+          '',
+          'If the domain owner confirms this is not their service, move to p=reject to stop it.',
+        ]
+      : [];
 
   await createAlertNotifications({
     alertEventId: eventId,
@@ -719,6 +793,7 @@ async function notifyRecipients(
       '',
       `Threshold: ${rule.operator} ${rule.threshold}`,
       `Window: ${rule.windowMinutes} minutes`,
+      ...spoofingLines,
       reminderLevel > 1 ? `Reminder ${reminderLevel} of ${rule.maxReminderLevel}` : 'This is the first notification.',
       escalationNote(reminderLevel),
       '',

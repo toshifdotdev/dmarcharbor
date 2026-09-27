@@ -6,6 +6,7 @@ const metricSchema = z.enum([
   'SOURCE_IP_VOLUME',
   'FORENSIC_FAILURES',
   'REPORT_SILENCE',
+  'NEW_UNAUTHENTICATED_SOURCE',
 ]);
 
 const operatorSchema = z.enum(['GREATER_THAN', 'GREATER_THAN_OR_EQUAL', 'LESS_THAN']);
