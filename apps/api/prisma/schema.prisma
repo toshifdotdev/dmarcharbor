@@ -103,6 +103,7 @@ model Organization {
   subscription          Subscription?
   entitlementOverrides  EntitlementOverride[]
   erasureRequests       ErasureRequest[]
+  exportJobs            ExportJob[]
 
   @@unique([slug])
   @@index([plan])
@@ -625,6 +626,45 @@ model EntitlementOverride {
   @@map("entitlement_override")
 }
 
+model ExportJob {
+  id                 String        @id @default(cuid())
+  organizationId     String
+  organization       Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  requestedById      String
+  scope              ExportScope   @default(ORGANIZATION)
+  targetId           String?
+  scopeLabel         String
+  format             ExportFormat  @default(JSON)
+  state              ExportState   @default(READY)
+  downloadTokenHash  String?       @unique
+  downloadExpiresAt  DateTime?
+  downloadedAt       DateTime?
+  redactions         Json?
+  purgeAfter         DateTime
+  createdAt          DateTime      @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([state, purgeAfter])
+  @@map("export_job")
+}
+
+enum ExportScope {
+  ORGANIZATION
+  CLIENT
+  DOMAIN
+}
+
+enum ExportFormat {
+  JSON
+  CSV
+}
+
+enum ExportState {
+  READY
+  REVOKED
+  EXPIRED
+}
+
 model ErasureRequest {
   id             String        @id @default(cuid())
   organizationId String
@@ -697,6 +737,9 @@ enum AuditAction {
   PLAN_CHANGED
   ENTITLEMENT_OVERRIDE_SET
   ENTITLEMENT_OVERRIDE_REMOVED
+  EXPORT_REQUESTED
+  EXPORT_DOWNLOADED
+  EXPORT_REVOKED
 }
 
 enum AuditOutcome {

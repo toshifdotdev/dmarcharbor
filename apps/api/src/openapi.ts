@@ -124,6 +124,69 @@ export const openApiDocument = {
         responses: { 200: { description: 'Plan catalog.' } },
       },
     },
+    '/workspaces/{organizationId}/exports': {
+      get: {
+        tags: ['Billing'],
+        summary: 'List export jobs',
+        description: 'Newest first. Download tokens are never returned by this list, only at creation.',
+        parameters: [orgParam, ...queryPagination],
+        responses: { 200: { description: 'Recent export jobs.' }, ...standardErrors },
+      },
+      post: {
+        tags: ['Billing'],
+        summary: 'Request a data export',
+        description: [
+          'Returns a signed, expiring download link. Included on every plan, including the free one, because the right to take your own data away cannot be a paid feature.',
+          'Scope the export to a single client to hand one customer only their own data, which is the usual agency request.',
+          'Passwords, session tokens and OAuth tokens are never included. They are credentials, not data, and exporting them would hand over the ability to impersonate the account.',
+          'Named forensic data is included when it exists, because it is the customer own data. Where nothing was stored, nothing is invented.',
+          'Security records are included by action and time with identifying fields withheld, and the file says so.',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: {
+          ...standardErrors,
+          201: { description: 'Export job with a download link that expires in seven days.' },
+          404: { description: 'The client or domain is not in this workspace.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/exports/{exportId}': {
+      get: {
+        tags: ['Billing'],
+        summary: 'Export job status',
+        description: 'Current state of one export job, when its download link expires, and when the job record itself is purged.',
+        parameters: [orgParam, idParam('exportId', 'Export job identifier.')],
+        responses: { 200: { description: 'Job state, link expiry and purge date.' }, ...standardErrors },
+      },
+      delete: {
+        tags: ['Billing'],
+        summary: 'Revoke an export link',
+        description: 'Stops the link working immediately. Recorded in the audit trail.',
+        parameters: [orgParam, idParam('exportId', 'Export job identifier.')],
+        responses: { 204: { description: 'Link revoked.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/exports/{exportId}/download': {
+      get: {
+        tags: ['Billing'],
+        summary: 'Download an export',
+        description: [
+          'Streams the export as a file. Requires both a valid session and the single use download token, and the token is stored only as a SHA-256 hash so a database read cannot recover it.',
+          'JSON is complete and machine readable. CSV is a spreadsheet of report rows and forensic rows for analysis.',
+        ].join(' '),
+        parameters: [
+          orgParam,
+          idParam('exportId', 'Export job identifier.'),
+          { name: 'token', in: 'query', required: true, schema: { type: 'string' } },
+        ],
+        responses: {
+          ...standardErrors,
+          200: { description: 'The export file.' },
+          400: { description: 'No download token was supplied.' },
+          404: { description: 'The link is invalid, expired or revoked.' },
+        },
+      },
+    },
     '/workspaces/{organizationId}/entitlements': {
       get: {
         tags: ['Billing'],
