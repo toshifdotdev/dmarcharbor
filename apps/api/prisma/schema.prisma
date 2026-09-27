@@ -84,23 +84,28 @@ model Verification {
 }
 
 model Organization {
-  id            String         @id
-  name          String
-  slug          String
-  logo          String?
-  createdAt     DateTime
-  metadata      String?
-  members       Member[]
-  invitations   Invitation[]
-  clients       Client[]
-  alertRules    AlertRule[]
-  alertEvents   AlertEvent[]
-  reportShares  ReportShare[]
-  reportDigests ReportDigest[]
-  notifications Notification[]
-  AuditLog      AuditLog[]
+  id                    String                @id
+  name                  String
+  slug                  String
+  logo                  String?
+  createdAt             DateTime
+  metadata              String?
+  plan                  PlanTier              @default(MOORING)
+  members               Member[]
+  invitations           Invitation[]
+  clients               Client[]
+  alertRules            AlertRule[]
+  alertEvents           AlertEvent[]
+  reportShares          ReportShare[]
+  reportDigests         ReportDigest[]
+  notifications         Notification[]
+  AuditLog              AuditLog[]
+  subscription          Subscription?
+  entitlementOverrides  EntitlementOverride[]
+  erasureRequests       ErasureRequest[]
 
   @@unique([slug])
+  @@index([plan])
   @@map("organization")
 }
 
@@ -584,6 +589,93 @@ enum DigestFrequency {
   MONTHLY
 }
 
+model Subscription {
+  id                     String             @id @default(cuid())
+  organizationId         String
+  organization           Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan                   PlanTier           @default(MOORING)
+  status                 SubscriptionStatus @default(ACTIVE)
+  provider               BillingProvider    @default(NONE)
+  providerCustomerId     String?
+  providerSubscriptionId String?            @unique
+  currentPeriodEnd       DateTime?
+  cancelAtPeriodEnd      Boolean            @default(false)
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  @@unique([organizationId])
+  @@index([provider])
+  @@index([status])
+  @@map("subscription")
+}
+
+model EntitlementOverride {
+  id             String        @id @default(cuid())
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  entitlement    String
+  enabled        Boolean       @default(true)
+  reason         String?
+  expiresAt      DateTime?
+  createdById    String?
+  createdAt      DateTime      @default(now())
+
+  @@unique([organizationId, entitlement])
+  @@index([expiresAt])
+  @@map("entitlement_override")
+}
+
+model ErasureRequest {
+  id             String        @id @default(cuid())
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  scope          ErasureScope  @default(ORGANIZATION)
+  targetId       String?
+  requestedById  String
+  state          ErasureState  @default(PENDING)
+  certificate    Json?
+  purgeAfter     DateTime
+  completedAt    DateTime?
+  createdAt      DateTime      @default(now())
+
+  @@index([organizationId, state])
+  @@index([state, purgeAfter])
+  @@map("erasure_request")
+}
+
+enum PlanTier {
+  MOORING
+  FAIRWAY
+  HARBOR
+  ADMIRALTY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  PAST_DUE
+  CANCELLED
+  EXPIRED
+}
+
+enum BillingProvider {
+  NONE
+  RAZORPAY
+  PADDLE
+}
+
+enum ErasureScope {
+  ORGANIZATION
+  CLIENT
+  DOMAIN
+}
+
+enum ErasureState {
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
 enum AuditAction {
   FORENSIC_IDENTITY_ENABLED
   FORENSIC_IDENTITY_DISABLED
@@ -602,6 +694,9 @@ enum AuditAction {
   SESSIONS_REVOKED_OTHERS
   SESSIONS_REVOKED_ALL
   PASSWORD_CHANGED
+  PLAN_CHANGED
+  ENTITLEMENT_OVERRIDE_SET
+  ENTITLEMENT_OVERRIDE_REMOVED
 }
 
 enum AuditOutcome {

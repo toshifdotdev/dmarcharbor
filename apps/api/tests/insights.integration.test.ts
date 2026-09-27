@@ -3,6 +3,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
+import { grantPlan } from './helpers/plan.js';
 
 let fixtureId = 0;
 const password = 'correct-horse-battery-staple';
@@ -182,9 +183,12 @@ async function createWorkspaceDomain(
 
   const owner = await prisma.member.findFirstOrThrow({ where: { organizationId: workspace.body.id } });
 
+  const organizationId = workspace.body.id as string;
+  await grantPlan(organizationId);
+
   return {
     agent,
-    organizationId: workspace.body.id as string,
+    organizationId: organizationId,
     domainId: domain.body.id as string,
     userId: owner.userId,
   };

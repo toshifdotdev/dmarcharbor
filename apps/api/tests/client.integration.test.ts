@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { systemDnsReader } from '../src/scanner/dns.js';
+import { grantPlan } from './helpers/plan.js';
 
 let fixtureId = 0;
 const password = 'correct-horse-battery-staple';
@@ -31,6 +32,9 @@ async function createWorkspace(): Promise<{ agent: ReturnType<typeof request.age
     slug: `client-operations-${Date.now()}-${fixtureId}`,
   });
   expect(workspace.status).toBe(201);
+
+  const organizationId = workspace.body.id as string;
+  await grantPlan(organizationId);
 
   return { agent, organizationId: workspace.body.id as string };
 }

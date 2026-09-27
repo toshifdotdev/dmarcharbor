@@ -7,6 +7,7 @@ import {
   verifyDomainController,
 } from '../controllers/client.controller.js';
 import { requireSession } from '../middleware/auth.middleware.js';
+import { requireQuota } from '../middleware/entitlement.middleware.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
 
 export const clientRouter = Router();
@@ -21,6 +22,7 @@ clientRouter.post(
   '/workspaces/:organizationId/clients',
   requireSession,
   requireOrganizationPermission('client', 'create'),
+  requireQuota('client'),
   createClientController,
 );
 clientRouter.get(
@@ -33,6 +35,7 @@ clientRouter.post(
   '/workspaces/:organizationId/clients/:clientId/domains',
   requireSession,
   requireOrganizationPermission('domain', 'create'),
+  requireQuota('activeDomain'),
   createDomainController,
 );
 clientRouter.post(

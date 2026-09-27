@@ -7,6 +7,7 @@ import { alertRouter } from './routes/alert.routes.js';
 import { onboardingRouter, publicReportRouter } from './routes/onboarding.routes.js';
 import { scanRouter } from './routes/scan.routes.js';
 import { clientRouter } from './routes/client.routes.js';
+import { entitlementRouter } from './routes/entitlement.routes.js';
 import { domainScanRouter } from './routes/domain-scan.routes.js';
 import { forensicRouter } from './routes/forensic.routes.js';
 import { inboundReportRouter } from './routes/inbound-report.routes.js';
@@ -36,6 +37,7 @@ export function createApp(): express.Express {
   app.use('/api', sessionRouter);
   app.use('/api', sessionManagementRouter);
   app.use('/api', clientRouter);
+  app.use('/api', entitlementRouter);
   app.use('/api', domainScanRouter);
   app.use('/api', scanRouter);
 

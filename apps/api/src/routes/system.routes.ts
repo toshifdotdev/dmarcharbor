@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { prisma } from '../database/prisma.js';
 import { env } from '../config/env.js';
 import { listAuditEvents } from '../services/audit.service.js';
+import { planCatalogResponse } from '../services/entitlements/entitlement.service.js';
+import { alwaysAllowedEntitlements } from '../services/entitlements/plan-catalog.js';
 import { requireSession } from '../middleware/auth.middleware.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
 import { paginationQuerySchema } from '../utils/pagination.js';
@@ -64,6 +66,11 @@ systemRouter.get('/meta', (_request, response) => {
       staleDays: env.ALERT_STALE_DAYS,
     },
     schedulerDisabled: env.ALERT_SCHEDULER_DISABLED,
+    plans: planCatalogResponse(),
+    entitlements: {
+      alwaysAllowed: [...alwaysAllowedEntitlements],
+      quotas: ['client', 'activeDomain', 'member'],
+    },
   });
 });
 

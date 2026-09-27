@@ -5,6 +5,7 @@ import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { evaluateAlertRules } from '../src/services/alert.service.js';
 import { runReportDigests } from '../src/services/report-digest.service.js';
+import { grantPlan } from './helpers/plan.js';
 
 let fixtureId = 0;
 const password = 'correct-horse-battery-staple';
@@ -101,9 +102,12 @@ async function setup(
 
   const member = await prisma.member.findFirstOrThrow({ where: { organizationId: workspace.body.id } });
 
+  const organizationId = workspace.body.id as string;
+  await grantPlan(organizationId);
+
   return {
     agent,
-    organizationId: workspace.body.id as string,
+    organizationId: organizationId,
     clientId: client.body.id as string,
     domainId: domain.body.id as string,
     userId: member.userId as string,

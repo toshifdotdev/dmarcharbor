@@ -79,6 +79,7 @@ export const openApiDocument = {
     { name: 'Alerts' },
     { name: 'Notifications' },
     { name: 'Onboarding and sharing' },
+    { name: 'Billing' },
   ],
   paths: {
     '/health': {
@@ -104,8 +105,75 @@ export const openApiDocument = {
       get: {
         tags: ['System'],
         summary: 'Runtime configuration',
-        description: 'Effective retention windows and alerting intervals, for the UI to display.',
+        description: [
+          'Effective retention windows, alerting intervals and the full plan catalog, for the UI to display.',
+          'Include the catalog in the pricing page so the interface can show correct upgrade prompts before a customer hits a limit.',
+        ].join(' '),
         responses: { 200: { description: 'Configuration snapshot.' } },
+      },
+    },
+    '/plans': {
+      get: {
+        tags: ['System'],
+        summary: 'Plan catalog',
+        description: [
+          'The four plans with their limits, features and prices. Public, so a pricing page can render before anyone signs up.',
+          'Mooring is free and covers two active domains. Fairway is 19, Harbor is 79 and Admiralty is 249 per month.',
+          'Data export and erasure are included on every plan, because the right to access and delete personal data cannot be paywalled.',
+        ].join(' '),
+        responses: { 200: { description: 'Plan catalog.' } },
+      },
+    },
+    '/workspaces/{organizationId}/entitlements': {
+      get: {
+        tags: ['Billing'],
+        summary: 'What this workspace may do right now',
+        description: [
+          'The effective plan, its limits, and every feature flag after plan and any support override are applied.',
+          'Internal override reasons are only returned to a member who can change billing.',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: { 200: { description: 'Resolved entitlements.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/plan': {
+      get: {
+        tags: ['Billing'],
+        summary: 'Current plan and catalog',
+        description: 'Current plan plus the full catalog, for a billing page.',
+        parameters: [orgParam],
+        responses: { 200: { description: 'Current plan and catalog.' }, ...standardErrors },
+      },
+      patch: {
+        tags: ['Billing'],
+        summary: 'Change plan',
+        description: [
+          'Requires billing update, which only the workspace owner holds.',
+          'Used by support and by the billing providers to move a workspace between plans. Every change is recorded in the audit trail.',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: { 200: { description: 'Updated entitlements.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/entitlement-overrides': {
+      post: {
+        tags: ['Billing'],
+        summary: 'Grant or revoke a single entitlement',
+        description: [
+          'Turns one feature on or off for this workspace without changing its plan, for a trial extension, a partner pilot or a goodwill fix.',
+          'Always requires a reason and can carry an expiry so the override lapses on its own. Recorded in the audit trail.',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: { 200: { description: 'Updated entitlements.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/entitlement-overrides/{entitlement}': {
+      delete: {
+        tags: ['Billing'],
+        summary: 'Remove an override',
+        description: 'Returns the workspace to whatever the plan alone grants. Recorded in the audit trail.',
+        parameters: [orgParam, idParam('entitlement', 'Entitlement key, for example reports.forensicNamed.')],
+        responses: { 200: { description: 'Updated entitlements.' }, ...standardErrors },
       },
     },
     '/docs/openapi.json': {

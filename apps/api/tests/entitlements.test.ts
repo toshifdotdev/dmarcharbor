@@ -1,0 +1,155 @@
+import { describe, expect, it } from 'vitest';
+import {
+  alwaysAllowedEntitlements,
+  effectivePlan,
+  nextTier,
+  planCatalog,
+  planOrder,
+  planLabel,
+  previousTier,
+  quotaLimitFor,
+} from '../src/services/entitlements/plan-catalog.js';
+
+describe('plan catalog', () => {
+  it('exposes the four plans in ascending order', () => {
+    expect(planOrder).toEqual(['MOORING', 'FAIRWAY', 'HARBOR', 'ADMIRALTY']);
+    expect(planCatalog.MOORING.label).toBe('Mooring');
+    expect(planCatalog.FAIRWAY.label).toBe('Fairway');
+    expect(planCatalog.HARBOR.label).toBe('Harbor');
+    expect(planCatalog.ADMIRALTY.label).toBe('Admiralty');
+  });
+
+  it('gives every plan a plain language descriptor', () => {
+    for (const plan of Object.values(planCatalog)) {
+      expect(plan.descriptor.length).toBeGreaterThan(10);
+    }
+  });
+
+  it('never increases a limit as the price drops', () => {
+    for (let index = 1; index < planOrder.length; index += 1) {
+      const lower = planCatalog[planOrder[index - 1]!];
+      const higher = planCatalog[planOrder[index]!];
+      expect(higher.priceMonthlyUsd).toBeGreaterThanOrEqual(lower.priceMonthlyUsd);
+      expect(higher.maxClients).toBeGreaterThanOrEqual(lower.maxClients);
+      expect(higher.maxActiveDomains).toBeGreaterThanOrEqual(lower.maxActiveDomains);
+      expect(higher.maxMembers).toBeGreaterThanOrEqual(lower.maxMembers);
+      expect(higher.dataRetentionDays).toBeGreaterThanOrEqual(lower.dataRetentionDays);
+    }
+  });
+
+  it('keeps the free plan free', () => {
+    expect(planCatalog.MOORING.priceMonthlyUsd).toBe(0);
+    expect(planCatalog.MOORING.priceAnnualUsd).toBe(0);
+  });
+
+  it('prices the agreed ladder', () => {
+    expect(planCatalog.FAIRWAY.priceMonthlyUsd).toBe(19);
+    expect(planCatalog.HARBOR.priceMonthlyUsd).toBe(79);
+    expect(planCatalog.ADMIRALTY.priceMonthlyUsd).toBe(249);
+  });
+
+  it('offers a roughly 17 percent annual discount on paid plans', () => {
+    for (const tier of ['FAIRWAY', 'HARBOR', 'ADMIRALTY'] as const) {
+      const plan = planCatalog[tier];
+      const tenMonths = plan.priceMonthlyUsd * 10;
+      expect(plan.priceAnnualUsd).toBeLessThanOrEqual(tenMonths);
+      expect(plan.priceAnnualUsd).toBeGreaterThan(plan.priceMonthlyUsd * 9);
+    }
+  });
+
+  it('moves up and down one tier at a time', () => {
+    expect(nextTier('MOORING')).toBe('FAIRWAY');
+    expect(nextTier('FAIRWAY')).toBe('HARBOR');
+    expect(nextTier('HARBOR')).toBe('ADMIRALTY');
+    expect(nextTier('ADMIRALTY')).toBeNull();
+    expect(previousTier('MOORING')).toBeNull();
+    expect(previousTier('ADMIRALTY')).toBe('HARBOR');
+  });
+
+  it('reports quota limits per plan', () => {
+    expect(quotaLimitFor('MOORING', 'client')).toBe(1);
+    expect(quotaLimitFor('MOORING', 'activeDomain')).toBe(2);
+    expect(quotaLimitFor('HARBOR', 'activeDomain')).toBe(80);
+    expect(quotaLimitFor('ADMIRALTY', 'activeDomain')).toBe(300);
+  });
+
+  it('labels every plan', () => {
+    expect(planLabel('HARBOR')).toBe('Harbor');
+  });
+});
+
+describe('statutory entitlements are never paywalled', () => {
+  it('grants data export and erasure on every plan', () => {
+    for (const plan of Object.values(planCatalog)) {
+      for (const required of alwaysAllowedEntitlements) {
+        expect(plan.features[required], `${plan.label} must include ${required}`).toBe(true);
+      }
+    }
+  });
+
+  it('gives the free plan aggregate reports, audit trail and its statutory rights, nothing else', () => {
+    const free = planCatalog.MOORING.features;
+    const granted = Object.entries(free)
+      .filter(([, enabled]) => enabled)
+      .map(([key]) => key)
+      .sort();
+
+    expect(granted).toEqual(['audit.trail', 'data.erase', 'data.export', 'reports.aggregate']);
+  });
+
+  it('still offers pseudonymous forensic evidence on Fairway but never named', () => {
+    expect(planCatalog.MOORING.features['reports.forensic']).toBe(false);
+    expect(planCatalog.FAIRWAY.features['reports.forensic']).toBe(true);
+    expect(planCatalog.HARBOR.features['reports.forensic']).toBe(true);
+  });
+
+  it('gates the agency growth features to the plans that can be grown into', () => {
+    expect(planCatalog.MOORING.features['portal.client']).toBe(false);
+    expect(planCatalog.FAIRWAY.features['portal.client']).toBe(false);
+    expect(planCatalog.HARBOR.features['portal.client']).toBe(true);
+
+    expect(planCatalog.MOORING.features['api.access']).toBe(false);
+    expect(planCatalog.FAIRWAY.features['api.access']).toBe(false);
+    expect(planCatalog.HARBOR.features['api.access']).toBe(true);
+
+    expect(planCatalog.HARBOR.features['branding.whitelabel']).toBe(false);
+    expect(planCatalog.ADMIRALTY.features['branding.whitelabel']).toBe(true);
+
+    expect(planCatalog.HARBOR.features['auth.sso']).toBe(false);
+    expect(planCatalog.ADMIRALTY.features['auth.sso']).toBe(true);
+  });
+
+  it('keeps named forensic evidence off every plan below Harbor', () => {
+    expect(planCatalog.MOORING.features['reports.forensicNamed']).toBe(false);
+    expect(planCatalog.FAIRWAY.features['reports.forensicNamed']).toBe(false);
+    expect(planCatalog.HARBOR.features['reports.forensicNamed']).toBe(true);
+    expect(planCatalog.ADMIRALTY.features['reports.forensicNamed']).toBe(true);
+  });
+});
+
+describe('effective plan from subscription state', () => {
+  const future = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  const past = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+  it('treats a workspace with no subscription as the free plan', () => {
+    expect(effectivePlan(null)).toBe('MOORING');
+  });
+
+  it('honours an active subscription', () => {
+    expect(effectivePlan({ plan: 'HARBOR', status: 'ACTIVE', currentPeriodEnd: future })).toBe('HARBOR');
+  });
+
+  it('keeps a cancelled plan until the paid period ends', () => {
+    expect(effectivePlan({ plan: 'HARBOR', status: 'CANCELLED', currentPeriodEnd: future })).toBe('HARBOR');
+    expect(effectivePlan({ plan: 'HARBOR', status: 'CANCELLED', currentPeriodEnd: past })).toBe('MOORING');
+  });
+
+  it('drops a lapsed trial to the free plan', () => {
+    expect(effectivePlan({ plan: 'ADMIRALTY', status: 'TRIALING', currentPeriodEnd: future })).toBe('ADMIRALTY');
+    expect(effectivePlan({ plan: 'ADMIRALTY', status: 'TRIALING', currentPeriodEnd: past })).toBe('MOORING');
+  });
+
+  it('keeps a past due customer on the plan so billing can retry', () => {
+    expect(effectivePlan({ plan: 'FAIRWAY', status: 'PAST_DUE', currentPeriodEnd: future })).toBe('FAIRWAY');
+  });
+});
