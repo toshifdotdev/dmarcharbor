@@ -2,6 +2,7 @@ import { AlertMetric, AlertOperator } from '@prisma/client';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
+import { grantPlan } from './helpers/plan.js';
 import { app } from '../src/index.js';
 import { buildDmarcRecord, readinessThresholds } from '../src/services/onboarding.service.js';
 
@@ -116,6 +117,7 @@ async function createWorkspace(
     slug: `onboarding-${Date.now()}-${fixtureId}`,
   });
   expect(workspace.status).toBe(201);
+  await grantPlan(workspace.body.id);
 
   const client = await agent.post(`/api/workspaces/${workspace.body.id}/clients`).send({
     name: 'Acme Corp',

@@ -2,6 +2,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { evaluateAlertRules, evaluateRule, getAlertRule } from '../src/services/alert.service.js';
 import { prisma } from '../src/database/prisma.js';
+import { grantPlan } from './helpers/plan.js';
 import { app } from '../src/index.js';
 import { ingestDmarcReport } from '../src/services/report.service.js';
 
@@ -62,6 +63,8 @@ async function createWorkspaceDomain() {
     name: 'Spoof Agency',
     slug: `spoof-${Date.now()}-${fixtureId}`,
   });
+  await grantPlan(workspace.body.id);
+
   const client = await agent.post(`/api/workspaces/${workspace.body.id}/clients`).send({
     name: 'Spoof Client',
     slug: `spoof-client-${Date.now()}-${fixtureId}`,

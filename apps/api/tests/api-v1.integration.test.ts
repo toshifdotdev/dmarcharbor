@@ -4,6 +4,7 @@ import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { createApiKey, hashApiKey, verifyApiKey } from '../src/services/api-key.service.js';
 import { grantPlan } from './helpers/plan.js';
+import { setOverride } from '../src/services/entitlements/entitlement.service.js';
 
 let fixtureId = 0;
 const password = 'correct-horse-battery-staple';
@@ -187,7 +188,10 @@ describe('bulk onboarding', () => {
   });
 
   it('reports plan limits rather than silently truncating', async () => {
-    const { key } = await setup('MOORING');
+    const { key, organizationId } = await setup('MOORING');
+    // The API itself is not on Mooring, so the test grants just that feature.
+    // The one client quota that makes this test meaningful is untouched.
+    await setOverride(organizationId, { entitlement: 'api.access', enabled: true, reason: 'Test grants API access on a quota-limited plan.' });
 
     const response = await request(app)
       .post('/api/v1/clients/bulk')

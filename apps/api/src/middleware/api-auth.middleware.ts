@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
 import { touchApiKey, verifyApiKey, type ApiScope } from '../services/api-key.service.js';
+import { EntitlementError, assertFeature } from '../services/entitlements/entitlement.service.js';
 
 export class ApiAuthError extends Error {
   readonly status: number;
@@ -62,6 +63,21 @@ export function requireApiKey(scope: ApiScope = 'read') {
         },
       });
       return;
+    }
+
+    // Checked on every request, not only when the key is issued. A key minted
+    // on a paid plan stays cryptographically valid forever, so without this a
+    // workspace that downgrades would keep the full API indefinitely.
+    try {
+      await assertFeature(key.organizationId, 'api.access');
+    } catch (error) {
+      if (error instanceof EntitlementError) {
+        response.status(error.status).json({
+          error: { code: error.code, message: error.message, ...error.details },
+        });
+        return;
+      }
+      throw error;
     }
 
     response.locals.organizationId = key.organizationId;

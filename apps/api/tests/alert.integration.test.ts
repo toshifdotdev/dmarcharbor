@@ -8,6 +8,7 @@ import {
   runAlertRollups,
 } from '../src/services/alert.service.js';
 import { prisma } from '../src/database/prisma.js';
+import { grantPlan } from './helpers/plan.js';
 import { app } from '../src/index.js';
 
 let fixtureId = 0;
@@ -76,6 +77,7 @@ async function createWorkspaceDomain(
     slug: `alert-operations-${Date.now()}-${fixtureId}`,
   });
   expect(workspace.status).toBe(201);
+  await grantPlan(workspace.body.id);
 
   const client = await agent.post(`/api/workspaces/${workspace.body.id}/clients`).send({
     name: 'Alert Client',

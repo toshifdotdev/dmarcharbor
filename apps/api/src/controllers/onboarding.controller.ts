@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { prisma } from '../database/prisma.js';
 import { recordAuditEvent } from '../services/audit.service.js';
+import { assertFeature } from '../services/entitlements/entitlement.service.js';
 import { buildPage, parsePagination } from '../utils/pagination.js';
 import { resourceIdSchema } from '../models/client.model.js';
 import { dmarcRecordQuerySchema, reportShareCreateSchema } from '../models/onboarding.model.js';
@@ -87,6 +88,10 @@ export async function createReportShareController(request: Request, response: Re
     response.status(400).json({ error: { message: 'A valid domain and expiry are required.' } });
     return;
   }
+
+  // A share link publishes report data to anyone holding the URL, so it is a
+  // paid feature and not just a link.
+  await assertFeature(response.locals.organizationId, 'sharing.links');
 
   const share = await createReportShare({
     organizationId: response.locals.organizationId,

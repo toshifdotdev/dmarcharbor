@@ -1,3 +1,4 @@
+import { assertFeature } from '../services/entitlements/entitlement.service.js';
 import type { Request, Response } from 'express';
 import { prisma } from '../database/prisma.js';
 import { buildPage, parsePagination } from '../utils/pagination.js';
@@ -77,6 +78,8 @@ export async function portfolioOnboardingController(_request: Request, response:
 }
 
 export async function createReportDigestController(request: Request, response: Response): Promise<void> {
+  await assertFeature(response.locals.organizationId, 'digests');
+
   const body = reportDigestCreateSchema.safeParse(request.body);
   if (!body.success) {
     response.status(400).json({ error: { message: 'A valid domain, frequency and recipient list are required.' } });

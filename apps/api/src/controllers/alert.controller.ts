@@ -6,6 +6,7 @@ import {
 } from '../models/alert.model.js';
 import { resourceIdSchema } from '../models/client.model.js';
 import { recordAuditEvent } from '../services/audit.service.js';
+import { assertFeature } from '../services/entitlements/entitlement.service.js';
 import { buildPage, parsePagination } from '../utils/pagination.js';
 import {
   acknowledgeAlertEvent,
@@ -31,6 +32,15 @@ export async function createAlertRuleController(request: Request, response: Resp
     response.status(400).json({ error: { message: 'A complete alert rule definition is required.' } });
     return;
   }
+
+  // Spoofing detection is a separate licence from plain email alerts, because
+  // it is the feature an agency is actually buying rather than a notification
+  // preference.
+  const metric = body.data.metric as string;
+  await assertFeature(
+    response.locals.organizationId,
+    metric === 'NEW_UNAUTHENTICATED_SOURCE' ? 'alerts.spoofing' : 'alerts.email',
+  );
 
   const rule = await createAlertRule({
     organizationId: response.locals.organizationId,

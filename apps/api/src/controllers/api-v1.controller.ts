@@ -3,7 +3,7 @@ import type { Request, Response } from 'express';
 import { prisma } from '../database/prisma.js';
 import { apiKeyCreateSchema, bulkClientsSchema, bulkDomainsSchema } from '../models/api.model.js';
 import { resourceIdSchema } from '../models/client.model.js';
-import { EntitlementError } from '../services/entitlements/entitlement.service.js';
+import { EntitlementError, assertFeature } from '../services/entitlements/entitlement.service.js';
 import {
   createApiKey,
   findIdempotentResult,
@@ -267,6 +267,11 @@ export async function listApiDomainsController(request: Request, response: Respo
 }
 
 export async function createApiKeyController(request: Request, response: Response): Promise<void> {
+  // Minting a key is the entry point to the whole public API, so the plan
+  // check belongs here. Without it the free tier can drive bulk onboarding and
+  // webhooks, which is a paid feature running on a zero rupee account.
+  await assertFeature(response.locals.organizationId, 'api.access');
+
   const body = apiKeyCreateSchema.safeParse(request.body);
 
   if (!body.success) {
