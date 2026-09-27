@@ -133,6 +133,50 @@ export const openApiDocument = {
         },
       },
     },
+    '/me/sessions': {
+      get: {
+        tags: ['Auth'],
+        summary: 'List active sessions',
+        description: [
+          'One row per sign in, showing the device, address and age. The session token is never returned, because the token is the credential.',
+          'Exactly one row has current set to true, which is the caller own session.',
+        ].join(' '),
+        responses: { 200: { description: 'Sessions, newest first.' }, ...standardErrors },
+      },
+    },
+    '/me/sessions/{sessionId}': {
+      delete: {
+        tags: ['Auth'],
+        summary: 'Revoke one session',
+        description: 'Only the caller own sessions can be revoked. Revoking the current session returns 409, since that is sign out.',
+        parameters: [idParam('sessionId', 'Session identifier from the list endpoint.')],
+        responses: {
+          ...standardErrors,
+          204: { description: 'Revoked and recorded in the audit trail.' },
+          404: { description: 'No such session belongs to the caller.' },
+          409: { description: 'That is the session currently in use.' },
+        },
+      },
+    },
+    '/me/sessions/revoke-others': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Sign out every other device',
+        description: [
+          'Keeps the current session. This is the response to a suspected compromise.',
+          'A password change also revokes other sessions automatically, because the API forces that on every password change.',
+        ].join(' '),
+        responses: { 200: { description: 'How many sessions remain.' }, ...standardErrors },
+      },
+    },
+    '/me/sessions/revoke-all': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Sign out everywhere including this device',
+        description: 'Ends every session for the account, so the caller is signed out too.',
+        responses: { 204: { description: 'All sessions revoked.' }, ...standardErrors },
+      },
+    },
     '/me': {
       get: {
         tags: ['Auth'],

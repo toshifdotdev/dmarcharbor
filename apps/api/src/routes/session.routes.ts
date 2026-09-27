@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getMe } from '../controllers/session.controller.js';
+import { getMe } from '../controllers/account.controller.js';
 import {
   createWorkspace,
   listWorkspaceMembers,

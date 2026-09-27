@@ -13,6 +13,7 @@ import { inboundReportRouter } from './routes/inbound-report.routes.js';
 import { notificationRouter } from './routes/notification.routes.js';
 import { reportRouter } from './routes/report.routes.js';
 import { sessionRouter } from './routes/session.routes.js';
+import { sessionManagementRouter } from './routes/session-management.routes.js';
 import { systemRouter } from './routes/system.routes.js';
 import { requestContext } from './middleware/request-context.middleware.js';
 import { sendError } from './utils/api-error.js';
@@ -33,6 +34,7 @@ export function createApp(): express.Express {
   app.use('/api', notificationRouter);
   app.use(express.json({ limit: '10kb' }));
   app.use('/api', sessionRouter);
+  app.use('/api', sessionManagementRouter);
   app.use('/api', clientRouter);
   app.use('/api', domainScanRouter);
   app.use('/api', scanRouter);

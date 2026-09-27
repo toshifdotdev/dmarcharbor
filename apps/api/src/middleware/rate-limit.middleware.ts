@@ -14,6 +14,19 @@ export const reportIngestRateLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+export const secureSessionRouterRateLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: {
+    error: {
+      code: 'RATE_LIMITED',
+      message: 'Too many security requests. Wait a minute and try again.',
+    },
+  },
+});
+
 export const publicReportRateLimiter = rateLimit({
   windowMs: 60_000,
   limit: 30,

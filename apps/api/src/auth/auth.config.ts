@@ -1,8 +1,10 @@
 import { betterAuth } from 'better-auth';
 import { prismaAdapter } from '@better-auth/prisma-adapter';
 import { organization } from 'better-auth/plugins';
+import { createAuthMiddleware, APIError } from 'better-auth/api';
 import { env } from '../config/env.js';
 import { prisma } from '../database/prisma.js';
+import { recordAuditEvent } from '../services/audit.service.js';
 import { accessControl, organizationRoles } from './permissions.js';
 import { queueAuthEmail } from '../email/email.service.js';
 
@@ -80,6 +82,48 @@ export const auth = betterAuth({
     database: {
       joins: true,
     },
+  },
+  hooks: {
+    before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path !== '/change-password') {
+        return;
+      }
+
+      const body = ctx.body as { currentPassword?: unknown; newPassword?: unknown; revokeOtherSessions?: unknown } | undefined;
+      if (!body) {
+        return;
+      }
+
+      if (typeof body.newPassword === 'string' && body.newPassword === body.currentPassword) {
+        throw new APIError('BAD_REQUEST', {
+          message: 'The new password must be different from the current password.',
+        });
+      }
+
+      body.revokeOtherSessions = true;
+    }),
+    after: createAuthMiddleware(async (ctx) => {
+      if (ctx.path !== '/change-password' || !ctx.context.returned) {
+        return;
+      }
+
+      const newSession = ctx.context.newSession;
+      if (!newSession?.user?.id) {
+        return;
+      }
+
+      try {
+        await recordAuditEvent({
+          actorUserId: newSession.user.id,
+          action: 'PASSWORD_CHANGED',
+          targetType: 'user',
+          targetId: newSession.user.id,
+          detail: { revokedOtherSessions: true, sessionRotated: true },
+        });
+      } catch (error) {
+        console.error('Failed to record password change audit event', error);
+      }
+    }),
   },
   plugins: [
     organization({
