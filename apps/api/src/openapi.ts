@@ -622,6 +622,67 @@ export const openApiDocument = {
         responses: { 200: { description: 'Accepted, including duplicates and unrecognised events.' }, 401: { description: 'Bad or stale signature.' }, 503: { description: 'Webhooks are not configured.' } },
       },
     },
+    '/workspaces/{organizationId}/branding/logo/upload': {
+      post: {
+        tags: ['White label'],
+        summary: 'Request a URL to upload a logo',
+        description: [
+          'Returns a presigned URL. The file goes straight from the browser to object storage and never passes through this server, which is what keeps binary handling, request body limits and memory pressure out of the API.',
+          'The content type and size are checked here, before the URL is issued. That is the only point at which an upload can be constrained, because a presigned URL cannot be revoked once handed out.',
+          'Accepted: SVG, PNG, JPEG and WebP, up to 256KB. SVG is safe here because assets are served from a separate origin under a sandbox content security policy, which disables script execution even on a direct navigation.',
+        ].join(' '),
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['contentType', 'byteSize'],
+                properties: {
+                  contentType: { type: 'string', enum: ['image/svg+xml', 'image/png', 'image/jpeg', 'image/webp'] },
+                  byteSize: { type: 'integer', description: 'Declared size, checked against the 256KB cap.' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          ...standardErrors,
+          201: { description: 'A presigned upload URL, the object key and the public URL it will be served from.' },
+          400: { description: 'The file type is not an accepted image.' },
+          413: { description: 'The file is larger than the cap.' },
+          503: { description: 'Object storage is not configured.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/branding/logo/confirm': {
+      post: {
+        tags: ['White label'],
+        summary: 'Use a just uploaded object as this workspace logo',
+        description: [
+          'Separate from issuing the URL because uploading and saving are different steps. An object can exist while the agency never confirms it, which is an orphan rather than a branding setting, and a storage lifecycle rule sweeps those.',
+          'The key must be inside this workspace prefix. A key from elsewhere is refused, or a tenant could point its portal at another tenant asset.',
+          'The previous logo is deleted, so repeated rebranding does not accumulate files.',
+        ].join(' '),
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['objectKey'],
+                properties: { objectKey: { type: 'string' } },
+              },
+            },
+          },
+        },
+        responses: {
+          ...standardErrors,
+          200: { description: 'The resolved branding.' },
+          404: { description: 'That upload does not belong to this workspace.' },
+        },
+      },
+    },
     '/branding/host': {
       get: {
         tags: ['White label'],

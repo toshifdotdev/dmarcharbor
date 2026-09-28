@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import {
+  confirmLogoUploadController,
+  createLogoUploadController,
   getBrandingController,
   getStoredBrandingController,
   portalBrandingController,
@@ -10,6 +12,7 @@ import {
 } from '../controllers/branding.controller.js';
 import { requireSession } from '../middleware/auth.middleware.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
+import { requireFeature } from '../middleware/entitlement.middleware.js';
 import { requirePortalScope } from '../middleware/portal.middleware.js';
 
 export const brandingRouter = Router();
@@ -48,4 +51,25 @@ brandingRouter.get(
   requireSession,
   requireOrganizationPermission('organization', 'read'),
   getBrandingController,
+);
+
+/**
+ * Issuing an upload URL and confirming it are both paid capabilities, because
+ * both put an asset in a client facing page. The browser PUTs straight to the
+ * bucket, so no file bytes pass through this server.
+ */
+brandingRouter.post(
+  '/workspaces/:organizationId/branding/logo/upload',
+  requireSession,
+  requireOrganizationPermission('organization', 'update'),
+  requireFeature('branding.logoUpload'),
+  createLogoUploadController,
+);
+
+brandingRouter.post(
+  '/workspaces/:organizationId/branding/logo/confirm',
+  requireSession,
+  requireOrganizationPermission('organization', 'update'),
+  requireFeature('branding.logoUpload'),
+  confirmLogoUploadController,
 );

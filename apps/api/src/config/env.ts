@@ -38,6 +38,18 @@ const envSchema = z.object({
   // to verify that an incoming webhook genuinely came from Paddle.
   PADDLE_API_KEY: optionalSecret,
   PADDLE_WEBHOOK_SECRET: optionalSecret,
+
+  // Logo storage. Absent until a bucket exists, so branding still works with a
+  // logo URL pasted in, and upload simply reports that it is not configured.
+  AWS_REGION: optionalSecret,
+  LOGO_BUCKET: optionalSecret,
+  LOGO_CDN_ORIGIN: optionalSecret,
+  // Optional. On AWS these come from the instance role and need not be set at
+  // all, so an unsigned local setup still works.
+  AWS_ACCESS_KEY_ID: optionalSecret,
+  AWS_SECRET_ACCESS_KEY: optionalSecret,
+  /** Public asset origin, so it can be registered as its own CSP scope. */
+  ASSETS_ORIGIN: optionalSecret,
   FORENSIC_PSEUDONYM_SECRET: z.string().min(32).default(developmentForensicSecret),
   FORENSIC_PII_ENCRYPTION_KEY: z.string().min(32).default(developmentPiiKey),
   FORENSIC_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(30),

@@ -169,9 +169,16 @@ describe('white label branding', () => {
     });
 
     expect(updated.status).toBe(200);
-    expect(updated.body.logoUrl).toBe('https://cdn.northgate.test/logo.svg');
     expect(updated.body.primaryColor).toBe('#1a2b3c');
     expect(updated.body.branded).toBe(true);
+
+    // The pasted URL is stored, so an operator can see what was configured, but
+    // it is not served. Only a logo held in our own object storage is ever put
+    // in front of a client contact, because an agency supplied image on a client
+    // facing page is a tracking pixel.
+    expect(updated.body.logoUrl).toBeNull();
+    const stored = await prisma.organization.findUniqueOrThrow({ where: { id: organizationId } });
+    expect(stored.brandLogoUrl).toBe('https://cdn.northgate.test/logo.svg');
   });
 
   it('refuses branding below Admiralty, so a cheap plan cannot look like a branded agency', async () => {
@@ -249,6 +256,75 @@ describe('white label branding', () => {
     expect(row.customDomainToken).toBeNull();
   });
 
+  it('never serves a logo from an agency controlled url', async () => {
+    const { organizationId } = await setup('ADMIRALTY');
+
+    // This is the reason the whole upload feature exists. A client facing page
+    // that loads an agency supplied image hands that agency the contact's IP,
+    // when they signed in, which client they opened and how long they stayed.
+    const tracking = 'https://pixel.agency-tracker.test/logo.png';
+    await prisma.organization.update({
+      where: { id: organizationId },
+      data: { brandLogoUrl: tracking },
+    });
+
+    const resolved = await resolveBranding(organizationId);
+
+    // The stored value is kept for support, but nothing client facing may use it.
+    expect(resolved.logoUrl).toBeNull();
+    expect(JSON.stringify(resolved)).not.toContain('agency-tracker.test');
+  });
+
+  it('refuses an upload that is not an image, and never issues a url for one', async () => {
+    const { agent, organizationId } = await setup('ADMIRALTY');
+
+    const refused = await agent
+      .post(`/api/workspaces/${organizationId}/branding/logo/upload`)
+      .send({ contentType: 'text/html', byteSize: 2048 });
+
+    // Storage is not configured in tests, so a rejected type must fail on the
+    // type rather than on the missing bucket, otherwise the check is untested.
+    expect(refused.status).toBe(400);
+    expect(refused.body.error.code).toBe('UNSUPPORTED_LOGO_TYPE');
+  });
+
+  it('refuses an oversized logo', async () => {
+    const { agent, organizationId } = await setup('ADMIRALTY');
+
+    const refused = await agent
+      .post(`/api/workspaces/${organizationId}/branding/logo/upload`)
+      .send({ contentType: 'image/png', byteSize: 5 * 1024 * 1024 });
+
+    expect(refused.status).toBe(413);
+    expect(refused.body.error.code).toBe('LOGO_TOO_LARGE');
+  });
+
+  it('gates logo upload to the tier that includes it', async () => {
+    const { agent, organizationId } = await setup('HARBOR');
+
+    const refused = await agent
+      .post(`/api/workspaces/${organizationId}/branding/logo/upload`)
+      .send({ contentType: 'image/png', byteSize: 4096 });
+
+    expect(refused.status).toBe(402);
+    expect(refused.body.error.feature).toBe('branding.logoUpload');
+    expect(refused.body.error.requiredIn).toBe('ADMIRALTY');
+  });
+
+  it('refuses to confirm an object key belonging to another workspace', async () => {
+    const mine = await setup('ADMIRALTY');
+    const theirs = await setup('ADMIRALTY');
+
+    // Otherwise a tenant could point its client facing portal at another
+    // tenant asset simply by naming the key.
+    const refused = await mine.agent
+      .post(`/api/workspaces/${mine.organizationId}/branding/logo/confirm`)
+      .send({ objectKey: `logos/${theirs.organizationId}/stolen.svg` });
+
+    expect(refused.status).toBe(404);
+    expect(refused.body.error.code).toBe('OBJECT_NOT_FOUND');
+  });
+
   it('gives a client contact their agency branding and nobody else', async () => {
     const { agent, organizationId } = await setup('ADMIRALTY');
 
@@ -268,12 +344,16 @@ describe('white label branding', () => {
 
     const branding = await contact.get('/api/portal/branding');
     expect(branding.status).toBe(200);
-    expect(branding.body.logoUrl).toBe('https://cdn.northgate.test/logo.svg');
+    // Colours and the agency name reach the contact. The logo does not, because
+    // this one was pasted from an external URL rather than uploaded to our own
+    // storage, and an external image on a client facing page is a tracking
+    // pixel. The upload route is the only way a logo gets served.
+    expect(branding.body.logoUrl).toBeNull();
     expect(branding.body.primaryColor).toBe('#112233');
     expect(branding.body.workspaceName).toBe('Northgate Digital');
 
     const overview = await contact.get('/api/portal');
-    expect(overview.body.branding.logoUrl).toBe('https://cdn.northgate.test/logo.svg');
+    expect(overview.body.branding.logoUrl).toBeNull();
 
     // The contact still cannot reach the agency side of branding.
     expect((await contact.get(`/api/workspaces/${organizationId}/branding`)).status).toBe(403);
@@ -320,7 +400,9 @@ describe('white label branding', () => {
 
     expect(served.status).toBe(200);
     expect(served.body.workspaceName).toBe('Northgate Digital');
-    expect(served.body.logoUrl).toBe('https://cdn.northgate.test/logo.svg');
+    // Colours and the name resolve for the agency on its own hostname. A pasted
+    // external logo does not, for the same tracking reason as everywhere else.
+    expect(served.body.logoUrl).toBeNull();
     expect(served.body.primaryColor).toBe('#0f172a');
     expect(served.body.customDomain).toBe(host);
 

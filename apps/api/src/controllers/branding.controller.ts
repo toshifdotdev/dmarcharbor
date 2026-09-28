@@ -10,6 +10,8 @@ import {
   verifyCustomDomain,
 } from '../services/branding.service.js';
 import { EntitlementError, assertFeature } from '../services/entitlements/entitlement.service.js';
+import { LogoStorageError, createLogoUploadUrl, publicLogoUrl } from '../services/branding/logo-storage.service.js';
+import { updateBranding as updateBrandingSettings } from '../services/branding.service.js';
 
 const brandingSchema = z.object({
   logoUrl: z.string().max(500).nullable().optional(),
@@ -19,6 +21,15 @@ const brandingSchema = z.object({
 
 const domainSchema = z.object({
   customDomain: z.string().trim().max(300).nullable(),
+});
+
+const logoUploadSchema = z.object({
+  contentType: z.string().min(1).max(80),
+  byteSize: z.number().int().positive(),
+});
+
+const logoConfirmSchema = z.object({
+  objectKey: z.string().min(1).max(300),
 });
 
 function sendBrandingError(response: Response, error: unknown): void {
@@ -143,4 +154,72 @@ export async function getStoredBrandingController(_request: Request, response: R
   });
 
   response.json(organization);
+}
+
+/* ------------------------------------------------------------------- logo */
+
+/**
+ * Issues a presigned upload URL.
+ *
+ * The file never reaches this server. Content type and size are checked here
+ * because that is the last point at which an upload can be constrained: a
+ * presigned URL cannot be revoked once it has been handed out, so validating
+ * after the upload would leave the object reachable and the check pointless.
+ */
+export async function createLogoUploadController(request: Request, response: Response): Promise<void> {
+  const body = logoUploadSchema.safeParse(request.body);
+  if (!body.success) {
+    response.status(400).json({ error: { code: 'INVALID_REQUEST', message: body.error.issues[0]?.message ?? 'A content type and size are required.' } });
+    return;
+  }
+
+  try {
+    response.status(201).json(
+      await createLogoUploadUrl({
+        organizationId: response.locals.organizationId,
+        contentType: body.data.contentType,
+        byteSize: body.data.byteSize,
+      }),
+    );
+  } catch (error) {
+    if (error instanceof LogoStorageError) {
+      response.status(error.status).json({ error: { code: error.code, message: error.message } });
+      return;
+    }
+    response.status(500).json({ error: { code: 'INTERNAL', message: 'The logo could not be prepared for upload.' } });
+  }
+}
+
+/**
+ * Records an uploaded logo as this workspace's logo.
+ *
+ * Separate from issuing the URL, because uploading and saving are different
+ * steps. An object can exist while the agency never confirms it, which is an
+ * orphan rather than a branding setting, and the lifecycle rule sweeps those.
+ */
+export async function confirmLogoUploadController(request: Request, response: Response): Promise<void> {
+  const body = logoConfirmSchema.safeParse(request.body);
+  if (!body.success) {
+    response.status(400).json({ error: { code: 'INVALID_REQUEST', message: body.error.issues[0]?.message ?? 'An object key is required.' } });
+    return;
+  }
+
+  try {
+    // A key from outside this workspace is refused, or a tenant could point its
+    // portal at another tenant's asset.
+    if (!body.data.objectKey.startsWith(`logos/${response.locals.organizationId}/`)) {
+      response.status(404).json({ error: { code: 'OBJECT_NOT_FOUND', message: 'That upload does not belong to this workspace.' } });
+      return;
+    }
+
+    await updateBrandingSettings({
+      organizationId: response.locals.organizationId,
+      actorUserId: response.locals.session?.user?.id,
+      logoUrl: publicLogoUrl(body.data.objectKey),
+    });
+
+    response.json(await resolveBranding(response.locals.organizationId));
+  } catch (error) {
+    sendBrandingError(response, error);
+  }
 }

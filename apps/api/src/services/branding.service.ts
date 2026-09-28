@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { prisma } from '../database/prisma.js';
+import { deleteStoredLogo, objectKeyFromLogoUrl, publicLogoUrl } from './branding/logo-storage.service.js';
 import { recordAuditEvent } from './audit.service.js';
 import { resolveEntitlements } from './entitlements/entitlement.service.js';
 import { systemDnsReader } from '../scanner/dns.js';
@@ -84,6 +85,10 @@ export async function updateBranding(input: {
   actorUserId?: string | null;
 }): Promise<ResolvedBranding> {
   const data: Record<string, string | null> = {};
+  const previous = await prisma.organization.findUniqueOrThrow({
+    where: { id: input.organizationId },
+    select: { brandLogoUrl: true },
+  });
 
   if (input.logoUrl !== undefined) {
     if (input.logoUrl === null || input.logoUrl.trim() === '') {
@@ -132,7 +137,37 @@ export async function updateBranding(input: {
     detail: { ...data },
   });
 
+  // A replaced logo leaves an orphaned object behind. Removing it here rather
+  // than in a sweeper means the bucket does not accumulate one file per
+  // rebrand, and a customer who swaps logos a dozen times is not a storage
+  // incident. Only ever touches our own origin.
+  if (data.brandLogoUrl !== undefined && data.brandLogoUrl !== previous.brandLogoUrl) {
+    await deleteStoredLogo(objectKeyFromLogoUrl(previous.brandLogoUrl));
+  }
+
   return resolveBranding(input.organizationId);
+}
+
+/**
+ * Removes a workspace's stored logo when the plan no longer includes one.
+ *
+ * Called on downgrade. A customer's brand asset must not sit in a bucket
+ * indefinitely after the feature that justified storing it has been withdrawn,
+ * which is the mirror image of the rule that a failed payment never destroys
+ * data: losing paid functionality must not silently keep their files.
+ */
+export async function removeLogoOnDowngrade(organizationId: string): Promise<boolean> {
+  const organization = await prisma.organization.findUniqueOrThrow({
+    where: { id: organizationId },
+    select: { brandLogoUrl: true },
+  });
+
+  const removed = await deleteStoredLogo(objectKeyFromLogoUrl(organization.brandLogoUrl));
+  if (removed) {
+    await prisma.organization.update({ where: { id: organizationId }, data: { brandLogoUrl: null } });
+  }
+
+  return removed;
 }
 
 export async function setCustomDomain(input: {
@@ -324,9 +359,15 @@ export async function resolveBranding(organizationId: string): Promise<ResolvedB
   const licensed = entitlements.features['branding.whitelabel'] ?? false;
   const domainVerified = Boolean(organization.customDomain && organization.customDomainVerifiedAt);
 
+  // A logo is only ever served from our own origin. An agency pasted a URL is
+  // dropped rather than rendered, because a client facing page that loads an
+  // agency controlled image hands that agency the contact's IP, the time they
+  // signed in and which client they opened.
+  const storedLogo = objectKeyFromLogoUrl(organization.brandLogoUrl);
+
   return {
     workspaceName: organization.name,
-    logoUrl: licensed ? organization.brandLogoUrl : null,
+    logoUrl: licensed && storedLogo ? publicLogoUrl(storedLogo) : null,
     primaryColor: licensed ? organization.brandPrimaryColor : null,
     accentColor: licensed ? organization.brandAccentColor : null,
     customDomain: licensed && domainVerified ? organization.customDomain : null,

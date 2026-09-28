@@ -2,6 +2,7 @@ import type { PlanTier, SubscriptionStatus } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
 import { recordAuditEvent } from '../services/audit.service.js';
 import { effectivePlan } from '../services/entitlements/plan-catalog.js';
+import { removeLogoOnDowngrade } from '../services/branding.service.js';
 import type { BillingEvent, BillingProvider, ProviderSubscriptionStatus } from './provider.js';
 
 /**
@@ -134,6 +135,14 @@ export async function applyBillingEvent(event: BillingEvent): Promise<ApplyEvent
     // The organisation's plan is what entitlement resolution actually reads, so
     // it is written in the same transaction as the subscription above.
     await tx.organization.update({ where: { id: organizationId }, data: { plan: resolvedPlan } });
+
+    // Dropping a stored asset is the mirror image of never destroying data on a
+    // failed payment: a customer must not have their brand left sitting in a
+    // bucket after the tier that justified storing it has gone. Only the
+    // reference is cleared, never anything the customer owns.
+    if (resolvedPlan !== 'ADMIRALTY') {
+      await removeLogoOnDowngrade(organizationId);
+    }
 
     await tx.auditLog.create({
       data: {

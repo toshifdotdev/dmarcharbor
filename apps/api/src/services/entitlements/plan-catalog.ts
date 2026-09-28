@@ -81,7 +81,7 @@ const allFeatures = (overrides: Partial<Record<EntitlementKey, boolean>> = {}): 
   // code cannot deliver.
   'reports.compliancePack': true,
   'reports.inbox': false,
-  'branding.logoUpload': false,
+  'branding.logoUpload': true,
   ...overrides,
 });
 
@@ -110,7 +110,6 @@ export const plannedEntitlements: readonly EntitlementKey[] = [
   'auth.sso',
   'rollout.canary',
   'reports.inbox',
-  'branding.logoUpload',
 ];
 
 /**
@@ -130,7 +129,8 @@ const noSharing = { 'sharing.links': false, digests: false } as const;
 const noPortal = { 'portal.client': false } as const;
 const noApi = { 'api.access': false } as const;
 const noSso = { 'auth.sso': false } as const;
-const noBrand = { 'branding.whitelabel': false } as const;
+// Logo upload ships with white labelling, so the two travel together.
+const noBrand = { 'branding.whitelabel': false, 'branding.logoUpload': false } as const;
 /**
  * The Trust Center and the compliance pack are enterprise procurement gates, so
  * both start at Harbor rather than being Admiral only. A pack that only the

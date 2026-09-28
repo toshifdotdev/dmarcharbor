@@ -2,6 +2,7 @@ import type { ErasureScope, Prisma } from '@prisma/client';
 import { prisma } from '../../database/prisma.js';
 import { env } from '../../config/env.js';
 import { sendErasureCompletedEmail, sendErasureScheduledEmail } from '../../email/mailer.js';
+import { deleteStoredLogo, objectKeyFromLogoUrl } from '../branding/logo-storage.service.js';
 import { recordAuditEvent } from '../audit.service.js';
 import {
   buildErasureCertificate,
@@ -315,6 +316,17 @@ export async function executeErasure(
     if (request.scope === 'CLIENT') {
       await prisma.client.deleteMany({ where: clientFilter });
     }
+  }
+
+  // A deletion request that skipped a stored file would not be a deletion, so
+  // the asset goes at the same time as the row that pointed at it.
+  const branding = await prisma.organization.findUnique({
+    where: { id: organizationId },
+    select: { brandLogoUrl: true },
+  });
+  await deleteStoredLogo(objectKeyFromLogoUrl(branding?.brandLogoUrl));
+  if (branding?.brandLogoUrl) {
+    await prisma.organization.update({ where: { id: organizationId }, data: { brandLogoUrl: null } });
   }
 
   await prisma.erasureRequest.update({

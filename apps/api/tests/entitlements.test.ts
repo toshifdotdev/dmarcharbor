@@ -124,6 +124,10 @@ describe('statutory entitlements are never paywalled', () => {
     expect(planCatalog.HARBOR.features['auth.sso']).toBe(false);
     expect(planCatalog.ADMIRALTY.features['auth.sso']).toBe(false);
 
+    // Logo upload is an Admiralty feature, alongside white labelling.
+    expect(planCatalog.HARBOR.features['branding.logoUpload']).toBe(false);
+    expect(planCatalog.ADMIRALTY.features['branding.logoUpload']).toBe(true);
+
     // The Trust Center is live and starts at Harbor.
     expect(planCatalog.MOORING.features['trust.center']).toBe(false);
     expect(planCatalog.FAIRWAY.features['trust.center']).toBe(false);
