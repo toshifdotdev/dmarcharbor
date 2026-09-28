@@ -101,6 +101,7 @@ model Organization {
   members               Member[]
   invitations           Invitation[]
   portalAccessGrants    ClientPortalAccess[]
+  compliancePacks       CompliancePack[]
   clients               Client[]
   alertRules            AlertRule[]
   alertEvents           AlertEvent[]
@@ -177,6 +178,7 @@ model Client {
   /// let anyone enumerate clients, so the slug is random and can be rotated
   /// without changing the underlying record.
   trustSlug              String?       @unique
+  compliancePacks       CompliancePack[]
 }
 
 model Domain {
@@ -756,6 +758,37 @@ model BillingPlan {
   @@map("billing_plan")
 }
 
+/// A signed compliance pack issued for one client.
+///
+/// The PDF is not stored. Its SHA-256 is, because the hash is the claim and the
+/// bytes are not, and storing both would mean the document could be silently
+/// replaced. History is kept so a pack an auditor already holds stays provable
+/// after a later regeneration.
+model CompliancePack {
+  id             String    @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId       String
+  client         Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  scope          String
+  documentVersion String
+  /// The state of the world the document describes, and the PDF creation date.
+  /// Fixed rather than taken from the clock, so the same inputs give the same
+  /// bytes and therefore the same hash.
+  asOf           DateTime
+  pdfHash        String    @unique
+  byteSize       Int
+  pageCount      Int
+  supersededAt   DateTime?
+  generatedById  String?
+  createdAt      DateTime  @default(now())
+
+  @@index([clientId])
+  @@index([organizationId])
+  @@index([createdAt])
+  @@map("compliance_pack")
+}
+
 /// A billing webhook that has been received, with the provider's own id
 /// deduplicating redeliveries. Both providers retry until acknowledged, so the
 /// same event can arrive many times and out of order.
@@ -946,6 +979,7 @@ enum AuditAction {
   BILLING_RESUMED
   TRUST_CENTER_CREATED
   TRUST_CENTER_REVOKED
+  COMPLIANCE_PACK_ISSUED
   PAYMENT_FAILED
   BRANDING_UPDATED
   CUSTOM_DOMAIN_VERIFIED

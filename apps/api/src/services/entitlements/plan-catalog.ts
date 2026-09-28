@@ -79,7 +79,7 @@ const allFeatures = (overrides: Partial<Record<EntitlementKey, boolean>> = {}): 
   // Priced but not built, so granted to nobody. Turning one on is the last
   // step of its phase, which keeps the catalog from promising something the
   // code cannot deliver.
-  'reports.compliancePack': false,
+  'reports.compliancePack': true,
   'reports.inbox': false,
   'branding.logoUpload': false,
   ...overrides,
@@ -109,7 +109,6 @@ export const alwaysAllowedEntitlements: readonly EntitlementKey[] = ['data.expor
 export const plannedEntitlements: readonly EntitlementKey[] = [
   'auth.sso',
   'rollout.canary',
-  'reports.compliancePack',
   'reports.inbox',
   'branding.logoUpload',
 ];
@@ -132,8 +131,12 @@ const noPortal = { 'portal.client': false } as const;
 const noApi = { 'api.access': false } as const;
 const noSso = { 'auth.sso': false } as const;
 const noBrand = { 'branding.whitelabel': false } as const;
-/** The Trust Center is an enterprise procurement gate, so it starts at Harbor. */
-const noTrustCenter = { 'trust.center': false } as const;
+/**
+ * The Trust Center and the compliance pack are enterprise procurement gates, so
+ * both start at Harbor rather than being Admiral only. A pack that only the
+ * largest plan can produce is a trophy nobody reaches.
+ */
+const noTrustCenter = { 'trust.center': false, 'reports.compliancePack': false } as const;
 
 export const planCatalog: Record<PlanTier, PlanDefinition> = {
   MOORING: {

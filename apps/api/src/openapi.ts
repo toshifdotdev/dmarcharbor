@@ -421,6 +421,59 @@ export const openApiDocument = {
         responses: { 200: { description: 'Withdrawn.' }, ...standardErrors },
       },
     },
+    '/compliance-packs/verify': {
+      get: {
+        tags: ['Trust Center'],
+        security: [],
+        summary: 'Verify a compliance pack against its published digest',
+        description: [
+          'Public and unauthenticated, because the person verifying a pack is an auditor at the client organisation holding the file and with no account here.',
+          'Returns the digest and dates for a document reference, and nothing else. No client name, no domain, no personal data, so it cannot be used as a public directory of clients.',
+          'Deliberately not routed under /trust/{slug}, because a literal path there would be captured by that parameter and answer a confusing 404.',
+        ].join(' '),
+        parameters: [{ name: 'reference', in: 'query', required: true, schema: { type: 'string' } }],
+        responses: {
+          200: { description: 'The published digest, with the instructions and the limits of what it proves.' },
+          404: { description: 'No document with that reference.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/clients/{clientId}/compliance-packs': {
+      get: {
+        tags: ['Trust Center'],
+        summary: 'Packs previously issued for this client',
+        description: 'Newest first, including superseded documents, because an auditor may still be holding an older copy.',
+        parameters: [
+          { name: 'organizationId', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'clientId', in: 'path', required: true, schema: { type: 'string' } },
+        ],
+        responses: { 200: { description: 'Issued packs with their digests.' }, ...standardErrors },
+      },
+      post: {
+        tags: ['Trust Center'],
+        summary: 'Issue a signed compliance pack',
+        description: [
+          'Streams the PDF with its digest in the X-DMARC-Pack-Sha256 header, so a reader never has to ask for the value separately.',
+          'The digest is deliberately not printed inside the document. A file cannot contain its own digest, because writing it in changes the file and therefore the digest. The document carries a reference instead and the digest is published here.',
+          'A self attestation. It proves the document is unaltered since issue, not that the provider is trustworthy.',
+        ].join(' '),
+        parameters: [
+          { name: 'organizationId', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'clientId', in: 'path', required: true, schema: { type: 'string' } },
+        ],
+        responses: {
+          ...standardErrors,
+          200: {
+            description: 'The PDF.',
+            headers: {
+              'X-DMARC-Pack-Sha256': { schema: { type: 'string' }, description: 'SHA-256 of the exact bytes served.' },
+              'X-DMARC-Pack-Reference': { schema: { type: 'string' }, description: 'Document reference, quoted in the PDF.' },
+            },
+          },
+          402: { description: 'The reports.compliancePack entitlement is not on this plan.' },
+        },
+      },
+    },
     '/workspaces/{organizationId}/billing': {
       get: {
         tags: ['Billing'],
