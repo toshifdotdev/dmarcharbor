@@ -5,10 +5,26 @@ import { runReportDigests } from '../services/report-digest.service.js';
 import { executeDueErasures } from '../services/erasure/erasure.service.js';
 import { reverifyUnverifiedDomains } from '../services/domain-reverify.service.js';
 import { purgeExpiredIdempotencyRecords } from '../services/api-key.service.js';
+import { runDunning, runReconciliation } from '../billing/dunning.js';
 
 let timer: NodeJS.Timeout | undefined;
 let running = false;
 let lastReverifyAt = 0;
+let lastDunningAt = 0;
+let lastReconcileAt = 0;
+
+/**
+ * Dunning and reconciliation are slow, careful jobs, so each runs on its own
+ * interval rather than on every alert tick.
+ *
+ * Dunning withdraws a plan after a payment failure, which must not happen
+ * thirteen times an hour. Reconciliation is the safety net for webhooks that
+ * never arrived, and there is no value in asking a provider more often than it
+ * could plausibly have changed anything.
+ */
+function isDue(now: number, lastRun: number, intervalMinutes: number): boolean {
+  return now - lastRun >= intervalMinutes * 60 * 1000;
+}
 
 /**
  * Re-verification is far slower than alert evaluation, so it only runs when
@@ -19,6 +35,11 @@ let lastReverifyAt = 0;
 function reverificationIsDue(now: number): boolean {
   const intervalMs = Math.max(env.DOMAIN_REVERIFY_INTERVAL_MINUTES, 1) * 60 * 1000;
   return now - lastReverifyAt >= intervalMs;
+}
+
+/** Exposed so a test can assert the gating without waiting on real time. */
+export function billingJobState(): { dunning: number; reconcile: number } {
+  return { dunning: lastDunningAt, reconcile: lastReconcileAt };
 }
 
 export async function runAlertEvaluationOnce(): Promise<void> {
@@ -60,6 +81,26 @@ export async function runAlertEvaluationOnce(): Promise<void> {
     const expiredIdempotency = await purgeExpiredIdempotencyRecords();
     if (expiredIdempotency > 0) {
       console.info(`[api] cleared ${expiredIdempotency} expired idempotency record(s)`);
+    }
+
+    if (isDue(Date.now(), lastDunningAt, env.BILLING_DUNNING_INTERVAL_MINUTES)) {
+      lastDunningAt = Date.now();
+      const dunning = await runDunning();
+      if (dunning.warned > 0 || dunning.downgraded > 0) {
+        console.info(
+          `[billing] dunning examined ${dunning.examined}, ${dunning.warned} still retrying, ${dunning.downgraded} moved to the free plan`,
+        );
+      }
+    }
+
+    if (isDue(Date.now(), lastReconcileAt, env.BILLING_RECONCILE_INTERVAL_MINUTES)) {
+      lastReconcileAt = Date.now();
+      const reconciled = await runReconciliation();
+      if (reconciled.repaired > 0 || reconciled.unreachable > 0) {
+        console.info(
+          `[billing] reconciliation examined ${reconciled.examined}, ${reconciled.repaired} repaired, ${reconciled.unreachable} unreachable`,
+        );
+      }
     }
 
     const digests = await runReportDigests();

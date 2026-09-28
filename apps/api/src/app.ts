@@ -15,6 +15,7 @@ import { apiKeyRouter } from './routes/api-key.routes.js';
 import { webhookRouter } from './routes/webhook.routes.js';
 import { portalRouter } from './routes/portal.routes.js';
 import { brandingRouter } from './routes/branding.routes.js';
+import { billingRouter } from './routes/billing.routes.js';
 import { portalErrorHandler } from './middleware/portal.middleware.js';
 import { domainScanRouter } from './routes/domain-scan.routes.js';
 import { forensicRouter } from './routes/forensic.routes.js';
@@ -41,7 +42,18 @@ export function createApp(): express.Express {
   app.use('/api', alertRouter);
   app.use('/api', onboardingRouter);
   app.use('/api', notificationRouter);
-  app.use(express.json({ limit: '10kb' }));
+  // The raw body is retained alongside the parsed one because both payment
+  // providers sign the exact bytes they sent. Re-serialising the parsed object
+  // produces different bytes, so a signature verified against it fails
+  // intermittently, which is the classic "webhook works sometimes" bug.
+  app.use(
+    express.json({
+      limit: '10kb',
+      verify: (request, _response, buffer) => {
+        (request as unknown as { rawBody?: string }).rawBody = buffer.toString('utf8');
+      },
+    }),
+  );
   app.use('/api', sessionRouter);
   app.use('/api', sessionManagementRouter);
   app.use('/api', clientRouter);
@@ -52,6 +64,7 @@ export function createApp(): express.Express {
   app.use('/api', webhookRouter);
   app.use('/api', portalRouter);
   app.use('/api', brandingRouter);
+  app.use('/api', billingRouter);
   app.use(portalErrorHandler);
   app.use('/api/v1', apiV1Router);
   app.use('/api', domainScanRouter);

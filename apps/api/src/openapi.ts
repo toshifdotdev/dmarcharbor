@@ -363,6 +363,154 @@ export const openApiDocument = {
         responses: { ...standardErrors, 200: { description: 'Verification result.' } },
       },
     },
+    '/workspaces/{organizationId}/billing': {
+      get: {
+        tags: ['Billing'],
+        summary: 'What this workspace is paying for right now',
+        description:
+          'Reports the effective plan, so a workspace mid cancellation still shows the plan it has paid for until the period ends.',
+        responses: { 200: { description: 'Current plan, status, period end and price.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/billing/checkout': {
+      post: {
+        tags: ['Billing'],
+        summary: 'Start a subscription checkout',
+        description: [
+          'Returns a hosted page on the payment provider. No card data ever reaches this server.',
+          'Nothing marks the workspace as paid here. The plan changes only when a signature verified webhook confirms the money moved, because a customer closing the tab is indistinguishable from success if you trust the redirect.',
+          'INR checkouts route to Razorpay, which settles into an Indian bank account. Other currencies route to Paddle, which is the merchant of record and handles international sales tax.',
+        ].join(' '),
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['plan', 'contact'],
+                properties: {
+                  plan: { type: 'string', enum: ['FAIRWAY', 'HARBOR', 'ADMIRALTY'] },
+                  interval: { type: 'string', enum: ['monthly', 'annual'], default: 'monthly' },
+                  currency: { type: 'string', enum: ['USD', 'INR'], default: 'INR' },
+                  contact: {
+                    type: 'object',
+                    required: ['name', 'email'],
+                    properties: {
+                      name: { type: 'string' },
+                      email: { type: 'string', format: 'email' },
+                      taxId: {
+                        type: 'string',
+                        nullable: true,
+                        description: 'GSTIN. Indian businesses above the registration threshold need it on the invoice.',
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          ...standardErrors,
+          201: { description: 'A hosted checkout URL.' },
+          402: { description: 'The plan exists but this workspace cannot currently buy it.' },
+          409: { description: 'This workspace already has an active subscription.' },
+          503: { description: 'The provider is not configured, or its plans have not been synced.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/billing/plan': {
+      patch: {
+        tags: ['Billing'],
+        summary: 'Move to a different plan at the end of the paid period',
+        description: [
+          'Scheduled rather than immediate, so nobody is charged a prorated amount they did not expect. There is no proration in this phase.',
+          'Moving to the free plan is treated as a cancellation, so the workspace keeps the period already paid for.',
+        ].join(' '),
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['plan'],
+                properties: {
+                  plan: { type: 'string', enum: ['MOORING', 'FAIRWAY', 'HARBOR', 'ADMIRALTY'] },
+                  interval: { type: 'string', enum: ['monthly', 'annual'], default: 'monthly' },
+                },
+              },
+            },
+          },
+        },
+        responses: { 200: { description: 'The change is scheduled for the end of the current period.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/billing/cancel': {
+      post: {
+        tags: ['Billing'],
+        summary: 'Cancel, keeping access until the paid period ends',
+        description: 'The workspace keeps the plan it paid for, then drops to the free plan when the period lapses. No data is ever removed.',
+        responses: { 200: { description: 'Cancelled, with the date access ends.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/billing/resume': {
+      post: {
+        tags: ['Billing'],
+        summary: 'Undo a pending cancellation or scheduled plan change',
+        description:
+          'Only useful before the period ends. Once the period lapses the workspace is on the free plan and must start a new checkout instead.',
+        responses: { 200: { description: 'The subscription will continue.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/billing/portal': {
+      post: {
+        tags: ['Billing'],
+        summary: 'Open the provider hosted billing portal',
+        description: 'Paddle offers a full portal. Razorpay does not, and reports that plainly rather than pretending one exists.',
+        responses: {
+          ...standardErrors,
+          200: { description: 'A portal URL.' },
+          409: { description: 'No billing account yet.' },
+          501: { description: 'This provider has no portal.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/billing/plan-sync': {
+      get: {
+        tags: ['Billing'],
+        summary: 'Which provider plans still need creating',
+        description:
+          'Operator view. A plan with no stored mapping cannot be sold, so checkout refuses it rather than guessing a price. Reports price drift when the stored price no longer matches the catalog.',
+
+        parameters: [
+          { name: 'provider', in: 'query', required: false, schema: { type: 'string', enum: ['RAZORPAY', 'PADDLE'] } },
+          { name: 'currency', in: 'query', required: false, schema: { type: 'string', enum: ['USD', 'INR'] } },
+        ],
+        responses: { ...standardErrors, 200: { description: 'Sync status per plan.' } },
+      },
+    },
+    '/webhooks/razorpay': {
+      post: {
+        tags: ['Billing'],
+        security: [],
+        summary: 'Razorpay payment webhook',
+        description: [
+          'The signature covers the exact bytes sent, so the raw body is preserved and never re-serialised.',
+          'Every event is deduplicated on the provider event id before it can change anything, because both providers redeliver until acknowledged and often out of order.',
+        ].join(' '),
+        parameters: [{ name: 'x-razorpay-event', in: 'header', required: true, schema: { type: 'string' } }],
+        responses: { 200: { description: 'Accepted, including duplicates and unrecognised events.' }, 401: { description: 'Bad signature.' }, 503: { description: 'Webhooks are not configured.' } },
+      },
+    },
+    '/webhooks/paddle': {
+      post: {
+        tags: ['Billing'],
+        security: [],
+        summary: 'Paddle payment webhook',
+        description: 'Verified with a timestamped HMAC, and a signature outside a five minute window is rejected so an old but valid one cannot be replayed.',
+        responses: { 200: { description: 'Accepted, including duplicates and unrecognised events.' }, 401: { description: 'Bad or stale signature.' }, 503: { description: 'Webhooks are not configured.' } },
+      },
+    },
     '/branding/host': {
       get: {
         tags: ['White label'],
@@ -443,6 +591,7 @@ export const openApiDocument = {
         summary: 'Plan catalog',
         description: [
           'The four plans with their limits, features and prices. Public, so a pricing page can render before anyone signs up.',
+          'Prices are returned in both USD cents and INR paise. The currency actually charged is whichever is selected at checkout.',
           'Mooring is free and covers two active domains. Fairway is 19, Harbor is 79 and Admiralty is 249 per month.',
           'Data export and erasure are included on every plan, because the right to access and delete personal data cannot be paywalled.',
         ].join(' '),

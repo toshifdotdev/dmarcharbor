@@ -26,12 +26,29 @@ const envSchema = z.object({
   MICROSOFT_CLIENT_SECRET: optionalSecret,
   MICROSOFT_TENANT_ID: z.string().trim().min(1).default('common'),
   REPORT_INGEST_SECRET: optionalSecret,
+
+  // Razorpay. Absent until a merchant account exists, so the app still boots
+  // and the billing routes report a clear 503 rather than failing to start.
+  RAZORPAY_KEY_ID: optionalSecret,
+  RAZORPAY_KEY_SECRET: optionalSecret,
+  /** Separate secret for webhook signature verification, never the API key secret. */
+  RAZORPAY_WEBHOOK_SECRET: optionalSecret,
+
+  // Paddle. A vendor id for API calls, plus a separate client secret used only
+  // to verify that an incoming webhook genuinely came from Paddle.
+  PADDLE_API_KEY: optionalSecret,
+  PADDLE_WEBHOOK_SECRET: optionalSecret,
   FORENSIC_PSEUDONYM_SECRET: z.string().min(32).default(developmentForensicSecret),
   FORENSIC_PII_ENCRYPTION_KEY: z.string().min(32).default(developmentPiiKey),
   FORENSIC_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(30),
   FORENSIC_PII_RETENTION_DAYS: z.coerce.number().int().min(1).max(30).default(7),
   ALERT_EVALUATION_INTERVAL_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
   DOMAIN_REVERIFY_INTERVAL_MINUTES: z.coerce.number().int().min(1).max(1440).default(60),
+  // Dunning withdraws a plan after a failed payment, so it runs daily rather
+  // than on every alert tick.
+  BILLING_DUNNING_INTERVAL_MINUTES: z.coerce.number().int().min(15).max(10080).default(1440),
+  // Reconciliation repairs drift a missed webhook would otherwise leave behind.
+  BILLING_RECONCILE_INTERVAL_MINUTES: z.coerce.number().int().min(15).max(10080).default(360),
   ALERT_ROLLUP_HOURS: z.coerce.number().int().min(1).max(168).default(24),
   ALERT_STALE_DAYS: z.coerce.number().int().min(1).max(365).default(7),
   REPORT_RETENTION_DAYS: z.coerce.number().int().min(7).max(3650).default(400),
@@ -61,6 +78,15 @@ function assertPairedCredentials(name: string, clientId?: string, clientSecret?:
 
 assertPairedCredentials('GOOGLE', parsed.data.GOOGLE_CLIENT_ID, parsed.data.GOOGLE_CLIENT_SECRET);
 assertPairedCredentials('MICROSOFT', parsed.data.MICROSOFT_CLIENT_ID, parsed.data.MICROSOFT_CLIENT_SECRET);
+
+// A half configured provider is worse than an unconfigured one, because it
+// fails at the point of taking a payment rather than at boot.
+if (Boolean(parsed.data.RAZORPAY_KEY_ID) !== Boolean(parsed.data.RAZORPAY_KEY_SECRET)) {
+  throw new Error('RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET must be configured together.');
+}
+if (Boolean(parsed.data.PADDLE_API_KEY) !== Boolean(parsed.data.PADDLE_WEBHOOK_SECRET)) {
+  throw new Error('PADDLE_API_KEY and PADDLE_WEBHOOK_SECRET must be configured together.');
+}
 
 if (parsed.data.NODE_ENV === 'production' && parsed.data.BETTER_AUTH_SECRET === developmentSecret) {
   throw new Error('BETTER_AUTH_SECRET must be set in production.');

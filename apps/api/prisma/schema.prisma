@@ -722,6 +722,32 @@ model WebhookDelivery {
   @@map("webhook_delivery")
 }
 
+/// A plan as it exists at a payment provider.
+///
+/// Our own tier and price live in the catalog, but the provider's plan id has
+/// to be stored somewhere, because a plan created on the provider's dashboard
+/// by hand is just as real as one created by code. Keeping it in the database
+/// means the mapping survives a deploy and can be inspected during support.
+model BillingPlan {
+  id              String          @id @default(cuid())
+  provider        BillingProvider
+  tier            PlanTier
+  /// Monthly or annual, as the provider spells it.
+  interval        BillingInterval
+  currency        BillingCurrency
+  /// Smallest currency unit, matching the catalog.
+  priceMinor      Int
+  /// The provider's own identifier for this plan.
+  providerPlanId  String
+  active          Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@unique([provider, tier, interval, currency])
+  @@index([provider, active])
+  @@map("billing_plan")
+}
+
 /// A billing webhook that has been received, with the provider's own id
 /// deduplicating redeliveries. Both providers retry until acknowledged, so the
 /// same event can arrive many times and out of order.
@@ -830,6 +856,18 @@ enum PlanTier {
   ADMIRALTY
 }
 
+enum BillingInterval {
+  MONTHLY
+  ANNUAL
+}
+
+/// Currencies a plan can be sold in. INR divides into paise and USD into cents,
+/// and both are stored in those smallest units rather than as a decimal.
+enum BillingCurrency {
+  USD
+  INR
+}
+
 enum SubscriptionStatus {
   ACTIVE
   TRIALING
@@ -894,6 +932,10 @@ enum AuditAction {
   PORTAL_ACCESS_GRANTED
   PORTAL_ACCESS_REVOKED
   SUBSCRIPTION_UPDATED
+  BILLING_CHECKOUT_STARTED
+  BILLING_PLAN_CHANGE_REQUESTED
+  BILLING_CANCELLED
+  BILLING_RESUMED
   PAYMENT_FAILED
   BRANDING_UPDATED
   CUSTOM_DOMAIN_VERIFIED
