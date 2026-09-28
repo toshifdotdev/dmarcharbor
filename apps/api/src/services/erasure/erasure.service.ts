@@ -1,5 +1,7 @@
 import type { ErasureScope, Prisma } from '@prisma/client';
 import { prisma } from '../../database/prisma.js';
+import { env } from '../../config/env.js';
+import { sendErasureCompletedEmail, sendErasureScheduledEmail } from '../../email/mailer.js';
 import { recordAuditEvent } from '../audit.service.js';
 import {
   buildErasureCertificate,
@@ -38,6 +40,19 @@ function inventoryScopeFor(organizationId: string, scope: ErasureScope, targetId
     return { kind: 'DOMAIN', organizationId, domainId: targetId };
   }
   return { kind: 'ORGANIZATION', organizationId };
+}
+
+function erasureScopeLabel(scope: string): string {
+  switch (scope) {
+    case 'ORGANIZATION':
+      return 'whole workspace';
+    case 'CLIENT':
+      return 'client';
+    case 'DOMAIN':
+      return 'domain';
+    default:
+      return 'workspace';
+  }
 }
 
 async function labelFor(organizationId: string, scope: ErasureScope, targetId?: string): Promise<string> {
@@ -127,6 +142,17 @@ export async function requestErasure(input: {
       personalDataRecords: preview.totals.personalDataRecords,
       executeAfter: preview.executeAfter,
     },
+  });
+
+  // The confirmation matters more here than anywhere else: a deletion is
+  // irreversible, so the person who asked has to be able to stop it. The
+  // message carries the cancel link, which is why the grace period exists at
+  // all rather than deleting immediately.
+  void sendErasureScheduledEmail({
+    organizationId: input.organizationId,
+    scopeLabel: preview.scopeLabel,
+    executesAt: request.purgeAfter,
+    cancelUrl: `${env.BETTER_AUTH_URL.replace(/\/$/, '')}/app/erasures/${request.id}`,
   });
 
   return { id: request.id, purgeAfter: request.purgeAfter, preview };
@@ -294,6 +320,14 @@ export async function executeErasure(
   await prisma.erasureRequest.update({
     where: { id: request.id },
     data: { state: 'COMPLETED', completedAt: now },
+  });
+
+  // Sent after the transaction commits, so the confirmation cannot arrive for a
+  // deletion that then failed.
+  void sendErasureCompletedEmail({
+    organizationId: request.organizationId,
+    scopeLabel: erasureScopeLabel(request.scope),
+    completedAt: now,
   });
 
   return {

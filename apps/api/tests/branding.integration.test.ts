@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { grantPlan } from './helpers/plan.js';
@@ -35,9 +35,6 @@ async function setup(plan: 'MOORING' | 'FAIRWAY' | 'HARBOR' | 'ADMIRALTY' = 'ADM
 
 describe('background domain re-verification', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('picks up a record that was published with nobody watching', async () => {
     const { agent, organizationId } = await setup();
@@ -143,9 +140,6 @@ describe('background domain re-verification', () => {
 
 describe('white label branding', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('rejects unusable logos and colours before saving', () => {
     expect(validateLogoUrl('http://cdn.example.com/logo.png')).toEqual({ error: 'The logo must be served over https.' });

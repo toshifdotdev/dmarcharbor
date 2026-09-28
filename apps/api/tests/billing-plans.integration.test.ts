@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import {
   BillingPlanError,
@@ -22,9 +22,6 @@ async function resetDatabase(): Promise<void> {
 
 describe('stored provider plans', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('describes every plan the catalog sells, in both currencies', () => {
     for (const currency of ['USD', 'INR'] as const) {

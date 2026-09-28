@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { grantPlan } from './helpers/plan.js';
@@ -61,9 +61,6 @@ async function setup(plan: 'MOORING' | 'FAIRWAY' | 'HARBOR' | 'ADMIRALTY' = 'HAR
 
 describe('client portal access', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('grants access by email, unbound until that person signs in', async () => {
     const { agent, organizationId, clients } = await setup();

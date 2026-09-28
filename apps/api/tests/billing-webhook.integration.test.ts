@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { saveStoredPlan } from '../src/billing/plans.js';
@@ -96,9 +96,6 @@ describe('payment webhook end to end', () => {
     await resetDatabase();
     await seedPlans();
   });
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('moves a workspace onto the paid plan only after a verified webhook', async () => {
     const { organizationId } = await setup();
@@ -192,9 +189,6 @@ describe('payment webhook end to end', () => {
 
 describe('dunning', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('keeps the plan while the paid period has not ended', async () => {
     const { organizationId } = await setup();

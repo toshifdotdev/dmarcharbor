@@ -1,5 +1,6 @@
 import { prisma } from '../database/prisma.js';
 import { recordAuditEvent } from './audit.service.js';
+import { sendPortalAccessGrantedEmail } from '../email/mailer.js';
 
 export interface PortalGrant {
   id: string;
@@ -94,6 +95,15 @@ export async function grantPortalAccess(input: {
     targetType: 'client_portal_access',
     targetId: row.id,
     detail: { clientName: client.name, email, displayName: input.displayName ?? null },
+  });
+
+  // A contact who is never told about the grant simply never signs in, so the
+  // agency has to be able to say who was invited. Fire and forget, because a
+  // bounced email must not fail the grant that already succeeded.
+  void sendPortalAccessGrantedEmail({
+    organizationId: input.organizationId,
+    clientId: input.clientId,
+    contactEmail: email,
   });
 
   return toGrant(row);

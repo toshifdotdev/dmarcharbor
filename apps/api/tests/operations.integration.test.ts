@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { purgeExpiredReports } from '../src/services/report.service.js';
@@ -92,9 +92,6 @@ async function setup(options: { ruf?: boolean } = {}) {
 
 describe('system probes', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('answers the liveness probe without touching dependencies', async () => {
     const response = await request(app).get('/api/health');
@@ -133,9 +130,6 @@ describe('system probes', () => {
 
 describe('aggregate report retention', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('stamps every stored report with a retention expiry', async () => {
     const { agent, organizationId, domainId } = await setup();
@@ -179,9 +173,6 @@ describe('aggregate report retention', () => {
 
 describe('audit trail', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('records the identity toggle in both directions with the actor and request id', async () => {
     const { agent, organizationId, domainId, userId } = await setup();

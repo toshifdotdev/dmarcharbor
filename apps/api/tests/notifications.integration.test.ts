@@ -1,6 +1,6 @@
 import { AlertMetric, AlertOperator } from '@prisma/client';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { evaluateAlertRules } from '../src/services/alert.service.js';
@@ -116,9 +116,6 @@ async function setup(
 
 describe('in-app notifications', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('creates notifications for rule recipients when an alert fires', async () => {
     const { agent, organizationId, domainId, userId } = await setup();
@@ -286,9 +283,6 @@ describe('in-app notifications', () => {
 
 describe('portfolio onboarding', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('aggregates every domain in the workspace by client and state', async () => {
     const { agent, organizationId, domainId, userId } = await setup({ domainName: 'portfolio-a.test' });
@@ -366,9 +360,6 @@ describe('portfolio onboarding', () => {
 
 describe('scheduled client report digests', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('creates, updates, sends and deletes a digest', async () => {
     const { agent, organizationId, domainId } = await setup({ domainName: 'digest-client.test' });

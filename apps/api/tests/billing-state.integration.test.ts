@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { app } from '../src/index.js';
 import { prisma } from '../src/database/prisma.js';
 import { MockBillingProvider } from '../src/billing/mock-provider.js';
@@ -76,9 +76,6 @@ function event(organizationId: string, overrides: Partial<BillingEvent> = {}): B
 
 describe('subscription state machine', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('moves a workspace onto the paid plan and records the change', async () => {
     const { organizationId, userId } = await setupWorkspace();

@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { resolveEntitlements, setOrganizationPlan } from '../src/services/entitlements/entitlement.service.js';
@@ -49,9 +49,6 @@ async function addDomain(
 
 describe('plan entitlements', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('starts every new workspace on the free plan with no subscription', async () => {
     const { organizationId } = await setup();

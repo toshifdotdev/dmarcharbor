@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { grantPlan } from './helpers/plan.js';
@@ -41,9 +41,6 @@ async function setup(plan: PlanTier = 'MOORING') {
 
 describe('paid feature enforcement', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('refuses to mint an API key on the free plan', async () => {
     const { agent, organizationId } = await setup('MOORING');

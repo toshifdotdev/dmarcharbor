@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { systemDnsReader } from '../src/scanner/dns.js';
@@ -41,9 +41,6 @@ async function createWorkspace(): Promise<{ agent: ReturnType<typeof request.age
 
 describe('clients and domains', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('creates and lists workspace clients and domains', async () => {
     const { agent, organizationId } = await createWorkspace();

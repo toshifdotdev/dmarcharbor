@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { buildSenderBreakdown, classifySender, senderBreakdownThresholds } from '../src/services/sender-breakdown.service.js';
@@ -231,9 +231,6 @@ describe('sender grading', () => {
 
 describe('per sending service breakdown', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('exposes a rare broken sender that the blended rate hides', async () => {
     const { agent, organizationId, domainId, domainName } = await setup();
@@ -330,9 +327,6 @@ describe('per sending service breakdown', () => {
 
 describe('readiness gates for the blind spots', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('blocks enforcement when a single sending service is broken', async () => {
     const { agent, organizationId, domainId, domainName } = await setup();

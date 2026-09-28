@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { buildSenderBreakdown, newSenderBlockers, possibleSpoofingSources } from '../src/services/sender-breakdown.service.js';
@@ -101,9 +101,6 @@ async function backdateReports(domainId: string, days: number): Promise<void> {
 
 describe('new sending service detection', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('flags a brand new sender that passes neither SPF nor DKIM as a possible spoof', async () => {
     const { organizationId, domainId, domainName } = await setup();

@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { grantPlan } from './helpers/plan.js';
 import { app } from '../src/index.js';
@@ -157,9 +157,6 @@ describe('unknown routes', () => {
 
 describe('paginated report history', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('walks through history with a cursor without repeating or skipping rows', async () => {
     const { agent, organizationId, domainId, domainName } = await setup();
@@ -211,9 +208,6 @@ describe('paginated report history', () => {
 
 describe('public share rate limiting', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('limits repeated unauthenticated views of a share link', async () => {
     const { agent, organizationId, domainId } = await setup();

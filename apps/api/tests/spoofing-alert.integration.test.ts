@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { evaluateAlertRules, evaluateRule, getAlertRule } from '../src/services/alert.service.js';
 import { prisma } from '../src/database/prisma.js';
 import { grantPlan } from './helpers/plan.js';
@@ -119,9 +119,6 @@ async function createSpoofRule(
 
 describe('new unauthenticated source alerting', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('fires when a new source fails both SPF and DKIM', async () => {
     const { agent, organizationId, domainId, domainName, userId } = await createWorkspaceDomain();

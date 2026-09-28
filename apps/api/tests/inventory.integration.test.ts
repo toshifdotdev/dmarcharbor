@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import {
@@ -84,9 +84,6 @@ async function seed(agent: ReturnType<typeof request.agent>, organizationId: str
 
 describe('data inventory', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('holds only account level personal data on a brand new workspace', async () => {
     const { organizationId } = await setup();

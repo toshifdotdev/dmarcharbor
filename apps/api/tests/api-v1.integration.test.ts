@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { createApiKey, hashApiKey, verifyApiKey } from '../src/services/api-key.service.js';
@@ -37,9 +37,6 @@ async function setup(plan: 'MOORING' | 'FAIRWAY' | 'HARBOR' | 'ADMIRALTY' = 'HAR
 
 describe('api keys', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('issues a key that is only ever shown once and stored as a hash', async () => {
     const { agent, organizationId, key } = await setup();
@@ -130,9 +127,6 @@ describe('api keys', () => {
 
 describe('bulk onboarding', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('imports many clients with their domains in one call', async () => {
     const { key, organizationId } = await setup();

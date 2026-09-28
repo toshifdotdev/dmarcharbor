@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { grantPlan } from './helpers/plan.js';
@@ -196,9 +196,6 @@ async function createWorkspaceDomain(
 
 describe('plan-gated forensic identity retention', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('stores no plaintext identities by default even when a report is received', async () => {
     const { domainId } = await createWorkspaceDomain('hashed.test');
@@ -336,9 +333,6 @@ describe('plan-gated forensic identity retention', () => {
 
 describe('domain insights', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('summarises reports, attributes sources, and detects spikes', async () => {
     const { agent, organizationId, domainId } = await createWorkspaceDomain('insights.test');

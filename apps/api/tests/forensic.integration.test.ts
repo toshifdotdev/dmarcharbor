@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { purgeExpiredForensicReports } from '../src/services/forensic-report.service.js';
@@ -151,9 +151,6 @@ async function createWorkspaceDomain(
 
 describe('forensic report ingestion', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('stores a redacted forensic report delivered by a signed inbound email', async () => {
     const { agent, organizationId, domainId } = await createWorkspaceDomain('forensic.test');

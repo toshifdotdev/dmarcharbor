@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import {
   evaluateAlertRules,
   evaluateRule,
@@ -112,9 +112,6 @@ async function createWorkspaceDomain(
 
 describe('alerting', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('creates a rule and lists it for the workspace', async () => {
     const { agent, organizationId, domainId, userId } = await createWorkspaceDomain('rules.test');

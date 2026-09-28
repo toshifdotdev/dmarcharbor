@@ -6,6 +6,7 @@ import { planCatalog, type BillingCurrency } from '../services/entitlements/plan
 import type { BillingInterval, ProviderName } from './provider.js';
 import { resolveProviderForCheckout } from './registry.js';
 import { planSyncReport, requireStoredPlan } from './plans.js';
+import { sendPlanChangedEmail, sendSubscriptionCancelledEmail } from '../email/mailer.js';
 
 /**
  * Checkout orchestration.
@@ -166,6 +167,17 @@ export async function changePlan(input: {
     interval: input.interval,
   });
 
+  // Told at the moment of the request, not when it takes effect, so nobody
+  // discovers a plan change by losing a feature.
+  if (subscription.currentPeriodEnd) {
+    void sendPlanChangedEmail({
+      organizationId: input.organizationId,
+      fromPlan: subscription.plan,
+      toPlan: input.plan,
+      effectiveAt: subscription.currentPeriodEnd,
+    });
+  }
+
   await recordAuditEvent({
     organizationId: input.organizationId,
     actorUserId: input.actorUserId ?? undefined,
@@ -197,6 +209,14 @@ export async function cancelSubscription(input: { organizationId: string; actorU
     where: { organizationId: input.organizationId },
     data: { cancelAtPeriodEnd: true },
   });
+
+  if (subscription.currentPeriodEnd) {
+    void sendSubscriptionCancelledEmail({
+      organizationId: input.organizationId,
+      plan: subscription.plan,
+      accessUntil: subscription.currentPeriodEnd,
+    });
+  }
 
   await recordAuditEvent({
     organizationId: input.organizationId,

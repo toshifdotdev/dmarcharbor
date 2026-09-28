@@ -98,7 +98,6 @@ describe('webhook endpoints', () => {
 
   afterAll(async () => {
     await new Promise<void>((resolve) => receiver.close(() => resolve()));
-    await prisma.$disconnect();
   });
 
   it('publishes the event list and the opt in default', async () => {
@@ -186,8 +185,18 @@ describe('webhook endpoints', () => {
     expect(signature).toMatch(/^sha256=[0-9a-f]{64}$/);
 
     // The receiver holds the same secret and can prove the event came from us.
-    const expected = signPayload(endpoint.secret, delivery.body, Math.floor(delivery.at / 1000));
+    // The timestamp comes from the header the sender signed with, not from the
+    // receiver's own clock, which is both correct and not second dependent.
+    const sentAt = Number(delivery.headers['x-dmarcharbor-timestamp']);
+    expect(Number.isInteger(sentAt)).toBe(true);
+    expect(sentAt).toBeLessThanOrEqual(Math.floor(Date.now() / 1000));
+
+    const expected = signPayload(endpoint.secret, delivery.body, sentAt);
     expect(signature).toBe(expected);
+
+    // A different second must not verify, which is what stops a captured
+    // delivery being replayed indefinitely.
+    expect(signPayload(endpoint.secret, delivery.body, sentAt + 1)).not.toBe(signature);
 
     const payload = JSON.parse(delivery.body);
     expect(payload.type).toBe('domain.verified');

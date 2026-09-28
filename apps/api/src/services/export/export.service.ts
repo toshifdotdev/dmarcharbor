@@ -1,6 +1,8 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { ExportFormat, ExportScope, Prisma } from '@prisma/client';
 import { prisma } from '../../database/prisma.js';
+import { env } from '../../config/env.js';
+import { sendExportReadyEmail } from '../../email/mailer.js';
 import { dataClasses } from '../inventory/data-classes.js';
 import { exportRedactions } from '../inventory/deletion-planner.js';
 import { buildInventory, type InventoryScope } from '../inventory/inventory.service.js';
@@ -77,6 +79,17 @@ export async function createExportJob(input: ExportRequest): Promise<{ id: strin
       purgeAfter,
     },
     select: { id: true },
+  });
+
+  // The export exists to satisfy a data access request, so the person who asked
+  // for it is told it is ready rather than having to poll for it.
+  const organization = await prisma.organization.findUnique({ where: { id: input.organizationId }, select: { name: true } });
+  await sendExportReadyEmail({
+    organizationId: input.organizationId,
+    exportJobId: job.id,
+    scopeLabel: organization?.name ?? 'workspace',
+    downloadUrl: `${env.BETTER_AUTH_URL.replace(/\/$/, '')}/app/exports/${token}`,
+    expiresAt,
   });
 
   return { id: job.id, token, expiresAt };

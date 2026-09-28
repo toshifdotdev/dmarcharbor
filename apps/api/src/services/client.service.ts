@@ -1,5 +1,6 @@
 import { prisma } from '../database/prisma.js';
 import { emitEvent } from './webhook.service.js';
+import { sendDomainVerificationEmail } from '../email/mailer.js';
 import { normalizeDomain } from '../scanner/domain.js';
 import { systemDnsReader } from '../scanner/dns.js';
 import type { CreateClientRequest, CreateDomainRequest } from '../models/client.model.js';
@@ -118,11 +119,21 @@ export async function applyOwnershipResult(
       });
     }
     await prisma.domain.update({ where: { id: domain.id }, data: { status: 'VERIFIED', verifiedAt: now } });
+
+    // Only on the transition. The background job re-checks a verified domain
+    // daily, and mailing the owner every time would be noise, not news.
+    if (!alreadyVerified) {
+      void sendDomainVerificationEmail({ organizationId, domainId: domain.id, verified: true });
+    }
     return 'VERIFIED';
   }
 
   if (check.lookupStatus === 'missing' && alreadyVerified) {
     await prisma.domain.update({ where: { id: domain.id }, data: { status: 'FAILED', verifiedAt: null } });
+
+    // A lapsed proof is urgent, because reports for this domain are now being
+    // rejected and the customer has a reporting gap they may not notice.
+    void sendDomainVerificationEmail({ organizationId, domainId: domain.id, verified: false });
     return 'FAILED';
   }
 

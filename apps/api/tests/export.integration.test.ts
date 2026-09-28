@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { buildCsvExport, buildExportPayload, createExportJob, hashToken } from '../src/services/export/export.service.js';
@@ -51,9 +51,6 @@ async function requestExport(
 
 describe('client data export', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('is available on the free plan, with no upgrade prompt', async () => {
     const { agent, organizationId } = await setup();

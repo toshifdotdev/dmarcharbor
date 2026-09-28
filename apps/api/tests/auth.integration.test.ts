@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 
@@ -12,9 +12,6 @@ async function resetDatabase(): Promise<void> {
 
 describe('authentication and workspaces', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('reports that the auth handler is available', async () => {
     const response = await request(app).get('/api/auth/ok');

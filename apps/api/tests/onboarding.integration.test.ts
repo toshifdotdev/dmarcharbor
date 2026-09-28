@@ -1,6 +1,6 @@
 import { AlertMetric, AlertOperator } from '@prisma/client';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { grantPlan } from './helpers/plan.js';
 import { app } from '../src/index.js';
@@ -154,9 +154,6 @@ async function createWorkspace(
 
 describe('DMARC record generation', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('builds a monitoring-only record for p=none without pct', () => {
     const record = buildDmarcRecord('example.com', 'none', false);
@@ -207,9 +204,6 @@ describe('DMARC record generation', () => {
 
 describe('onboarding state', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('reports an unverified domain as awaiting verification with blocked steps', async () => {
     const { agent, organizationId, domainId } = await createWorkspace({ verify: false, dmarcRecord: null });
@@ -297,9 +291,6 @@ describe('onboarding state', () => {
 
 describe('policy readiness', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('blocks tightening when there is too little data', async () => {
     const { agent, organizationId, domainId } = await createWorkspace();
@@ -358,9 +349,6 @@ describe('policy readiness', () => {
 
 describe('client-facing report share', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('serves a public report with no authentication and no personal data', async () => {
     const { agent, organizationId, domainId } = await createWorkspace();

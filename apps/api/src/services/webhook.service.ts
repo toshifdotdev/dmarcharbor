@@ -25,6 +25,15 @@ export const signatureHeader = 'x-dmarcharbor-signature';
 export const eventHeader = 'x-dmarcharbor-event';
 export const deliveryHeader = 'x-dmarcharbor-delivery';
 export const deliveryAttemptHeader = 'x-dmarcharbor-attempt';
+/**
+ * The exact timestamp the signature was computed over.
+ *
+ * Sent as its own header so a receiver never has to use its own clock, or
+ * guess when the request was made. Anything else makes verification depend on
+ * the two machines agreeing to the second, which fails intermittently and is
+ * indistinguishable from a forgery.
+ */
+export const timestampHeader = 'x-dmarcharbor-timestamp';
 
 export const deliveryBatchSize = 50;
 export const deliveryTimeoutMs = 10_000;
@@ -291,6 +300,7 @@ export async function deliverDueWebhooks(now = new Date()): Promise<DeliveryOutc
         headers: {
           'content-type': 'application/json',
           [signatureHeader]: signPayload(secret, body, timestamp),
+          [timestampHeader]: String(timestamp),
           [eventHeader]: delivery.event,
           [deliveryHeader]: delivery.id,
           [deliveryAttemptHeader]: String(attempt),

@@ -1,7 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 
@@ -156,9 +156,6 @@ async function createVerifiedDomain(domainName: string): Promise<{
 
 describe('DMARC report ingestion', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('ingests, deduplicates, lists, and returns an aggregate report', async () => {
     const { agent, organizationId, domainId } = await createVerifiedDomain('reports.test');

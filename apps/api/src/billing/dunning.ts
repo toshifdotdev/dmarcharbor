@@ -3,6 +3,7 @@ import { recordAuditEvent } from '../services/audit.service.js';
 import { providerFor } from './registry.js';
 import { reconcileWithProvider } from './subscription-state.js';
 import { effectivePlan } from '../services/entitlements/plan-catalog.js';
+import { sendPaymentFailedEmail } from '../email/mailer.js';
 
 /**
  * Recovers failed payments and repairs drift against the provider.
@@ -87,6 +88,15 @@ export async function runDunning(now = new Date()): Promise<DunningOutcome> {
       });
       continue;
     }
+
+    // Warned before anything is withdrawn, so the customer is never told after
+    // the fact. The message states plainly that no data is lost, because the
+    // instinct on seeing a failed payment is to assume the worst.
+    void sendPaymentFailedEmail({
+      organizationId: subscription.organizationId,
+      plan: subscription.plan,
+      graceEndsAt: new Date(now.getTime() + dunningGraceDays * 24 * 60 * 60 * 1000),
+    });
 
     await withdrawPlan(subscription.organizationId, subscription.plan, 'dunning');
     outcome.downgraded += 1;

@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 
@@ -34,9 +34,6 @@ async function signIn(email: string, agentPassword = password) {
 
 describe('session management', () => {
   beforeAll(resetDatabase);
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
 
   it('requires authentication for every session endpoint', async () => {
     expect((await request(app).get('/api/me/sessions')).status).toBe(401);

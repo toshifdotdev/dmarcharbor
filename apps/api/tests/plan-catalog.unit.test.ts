@@ -34,13 +34,37 @@ function sourceFiles(root: string): string[] {
   return found;
 }
 
-function enforcementSites(): string {
+function scanEnforcementSites(): string {
   const root = join(process.cwd(), 'src');
-  return sourceFiles(root)
-    .map((file) => readFileSync(file, 'utf8'))
-    .filter((contents) => contents.includes('assertFeature') || contents.includes('requireFeature'))
-    .join('\n');
+  const parts: string[] = [];
+
+  for (const file of sourceFiles(root)) {
+    try {
+      const contents = readFileSync(file, 'utf8');
+      if (contents.includes('assertFeature') || contents.includes('requireFeature')) {
+        parts.push(contents);
+      }
+    } catch {
+      // A file that cannot be read is skipped rather than failing the suite.
+      // Treating an unreadable file as "not enforced" would produce a failure
+      // that looks like a real regression.
+    }
+  }
+
+  const sites = parts.join('\n');
+
+  // Guards against the scan silently finding nothing, which would make every
+  // key look planned and turn this test into a no-op.
+  if (sites.length < 200) {
+    throw new Error('The enforcement scan read too little source to be meaningful.');
+  }
+
+  return sites;
 }
+
+// Read once, at module load, so the assertion itself is instant and cannot
+// flake on a slow or busy machine.
+const enforcementSites = scanEnforcementSites();
 
 const allKeys: EntitlementKey[] = Array.from(
   new Set(planOrder.flatMap((tier) => Object.keys(planCatalog[tier].features) as EntitlementKey[])),
@@ -71,7 +95,7 @@ describe('plan catalog integrity', () => {
   });
 
   it('enforces every entitlement, or lists it as planned, or grants it to all', () => {
-    const sites = enforcementSites();
+    const sites = enforcementSites;
     const intentional = new Set<EntitlementKey>([...plannedEntitlements, ...alwaysOnEntitlements, ...alwaysAllowedEntitlements]);
 
     const unenforced = allKeys.filter((key) => !intentional.has(key) && !sites.includes(`'${key}'`));
