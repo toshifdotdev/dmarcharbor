@@ -9,6 +9,11 @@ export default defineConfig({
     env: {
       EMAIL_PROVIDER: 'console',
       REPORT_INGEST_SECRET: 'test-report-ingest-secret-please-change',
+      // A known value so the staff operations can be exercised. The tests that
+      // matter assert that a workspace session cannot reach them, which needs
+      // the key to exist, otherwise the route is simply closed and the test
+      // would pass for the wrong reason.
+      STAFF_API_KEY: 'test-staff-key-not-a-real-secret',
     },
   },
 });

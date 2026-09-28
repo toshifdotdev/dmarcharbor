@@ -16,6 +16,7 @@ import { webhookRouter } from './routes/webhook.routes.js';
 import { portalRouter } from './routes/portal.routes.js';
 import { brandingRouter } from './routes/branding.routes.js';
 import { reportInboxRouter } from './routes/report-inbox.routes.js';
+import { ssoRouter } from './routes/sso.routes.js';
 import { billingRouter } from './routes/billing.routes.js';
 import { trustRouter } from './routes/trust.routes.js';
 import { portalErrorHandler } from './middleware/portal.middleware.js';
@@ -69,6 +70,7 @@ export function createApp(): express.Express {
   app.use('/api', billingRouter);
   app.use('/api', trustRouter);
   app.use('/api', reportInboxRouter);
+  app.use('/api', ssoRouter);
   app.use(portalErrorHandler);
   app.use('/api/v1', apiV1Router);
   app.use('/api', domainScanRouter);

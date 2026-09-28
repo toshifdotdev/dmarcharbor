@@ -7,6 +7,22 @@ import { resolveEntitlements, setOrganizationPlan } from '../src/services/entitl
 let fixtureId = 0;
 const password = 'correct-horse-battery-staple';
 
+/** The deployment secret the staff operations are authorised by. */
+const staffKey = 'test-staff-key-not-a-real-secret';
+
+/** PATCH as support would, rather than as a member of the workspace. */
+function staffPatch(path: string, body: object) {
+  return request(app).patch(path).set('Authorization', `Bearer ${staffKey}`).send(body);
+}
+
+function staffPost(path: string, body: object) {
+  return request(app).post(path).set('Authorization', `Bearer ${staffKey}`).send(body);
+}
+
+function staffDelete(path: string) {
+  return request(app).delete(path).set('Authorization', `Bearer ${staffKey}`);
+}
+
 async function resetDatabase(): Promise<void> {
   await prisma.$executeRawUnsafe(
     'TRUNCATE TABLE "entitlement_override", "erasure_request", "subscription", "audit_log", "notification", "report_digest", "report_share", "alert_delivery", "alert_event", "alert_recipient", "alert_rule", "notification_preference", "dmarc_forensic_report", "dmarc_auth_result", "dmarc_report_record", "dmarc_report", "scan", "domain", "client", "organization", invitation, member, session, account, verification, "user" CASCADE',
@@ -215,9 +231,9 @@ describe('plan entitlements', () => {
   });
 
   it('records a plan change in the audit trail', async () => {
-    const { agent, organizationId } = await setup();
+    const { organizationId } = await setup();
 
-    const changed = await agent.patch(`/api/workspaces/${organizationId}/plan`).send({
+    const changed = await staffPatch(`/api/workspaces/${organizationId}/plan`, {
       plan: 'HARBOR',
       reason: 'Agency upgrade after trial',
     });
@@ -230,10 +246,56 @@ describe('plan entitlements', () => {
   });
 
   it('rejects an invalid plan change', async () => {
+    const { organizationId } = await setup();
+
+    const invalid = await staffPatch(`/api/workspaces/${organizationId}/plan`, { plan: 'PLATINUM' });
+    expect(invalid.status).toBe(400);
+  });
+
+  it('refuses to let a workspace owner grant themselves a paid plan', async () => {
+    // The route used to require billing:update, which the owner role holds. An
+    // owner could therefore move their own workspace onto Admiralty for nothing,
+    // with no charge and no provider record, purely by calling the API. A plan
+    // is what money buys, so it is not something a workspace role may grant.
     const { agent, organizationId } = await setup();
 
-    const invalid = await agent.patch(`/api/workspaces/${organizationId}/plan`).send({ plan: 'PLATINUM' });
-    expect(invalid.status).toBe(400);
+    const attempt = await agent.patch(`/api/workspaces/${organizationId}/plan`).send({ plan: 'ADMIRALTY' });
+
+    expect(attempt.status).toBe(403);
+    const organization = await prisma.organization.findUniqueOrThrow({ where: { id: organizationId } });
+    expect(organization.plan).toBe('MOORING');
+    expect((await resolveEntitlements(organizationId)).features['branding.whitelabel']).toBe(false);
+  });
+
+  it('refuses to let a workspace owner grant themselves an entitlement override', async () => {
+    // The same hole one route over. An override bypasses the plan entirely, so
+    // on billing:update it meant an owner could grant themselves exactly the
+    // entitlement they were about to be refused.
+    const { agent, organizationId } = await setup();
+
+    const attempt = await agent
+      .post(`/api/workspaces/${organizationId}/entitlement-overrides`)
+      .send({ entitlement: 'trust.center', enabled: true, reason: 'self service' });
+
+    expect(attempt.status).toBe(403);
+    expect(await prisma.entitlementOverride.count({ where: { organizationId } })).toBe(0);
+  });
+
+  it('accepts a plan change with the staff credential', async () => {
+    const { agent, organizationId } = await setup();
+
+    const withKey = await request(app)
+      .patch(`/api/workspaces/${organizationId}/plan`)
+      .set('Authorization', `Bearer ${staffKey}`)
+      .send({ plan: 'ADMIRALTY' });
+    expect(withKey.status).toBe(200);
+
+    // A workspace session must not be able to ride along with a valid key, so
+    // the two are independent and the key alone is sufficient.
+    const withoutKey = await agent.patch(`/api/workspaces/${organizationId}/plan`).send({ plan: 'MOORING' });
+    expect(withoutKey.status).toBe(403);
+    const organization = await prisma.organization.findUniqueOrThrow({ where: { id: organizationId } });
+    expect(organization.plan).toBe('ADMIRALTY');
   });
 
   it('grants a temporary override and expires it automatically', async () => {
@@ -244,7 +306,7 @@ describe('plan entitlements', () => {
     const blocked = await agent.get(`/api/workspaces/${organizationId}/domains/${domain.body.id}/forensics`);
     expect(blocked.status).toBe(402);
 
-    const override = await agent.post(`/api/workspaces/${organizationId}/entitlement-overrides`).send({
+    const override = await staffPost(`/api/workspaces/${organizationId}/entitlement-overrides`, {
       entitlement: 'reports.forensic',
       enabled: true,
       reason: 'Comped for evaluation',
@@ -264,17 +326,15 @@ describe('plan entitlements', () => {
   });
 
   it('lets an override be revoked and records both directions', async () => {
-    const { agent, organizationId } = await setup();
+    const { organizationId } = await setup();
 
-    await agent.post(`/api/workspaces/${organizationId}/entitlement-overrides`).send({
+    await staffPost(`/api/workspaces/${organizationId}/entitlement-overrides`, {
       entitlement: 'api.access',
       enabled: true,
       reason: 'Pilot for a partner integration',
     });
 
-    const removed = await agent.delete(
-      `/api/workspaces/${organizationId}/entitlement-overrides/api.access`,
-    );
+    const removed = await staffDelete(`/api/workspaces/${organizationId}/entitlement-overrides/api.access`);
     expect(removed.status).toBe(200);
 
     const set = await prisma.auditLog.findMany({
@@ -320,7 +380,7 @@ describe('plan entitlements', () => {
   it('lets a viewer read usage but never change the plan or see internal reasons', async () => {
     const { agent, organizationId, email } = await setup();
 
-    await agent.post(`/api/workspaces/${organizationId}/entitlement-overrides`).send({
+    await staffPost(`/api/workspaces/${organizationId}/entitlement-overrides`, {
       entitlement: 'api.access',
       enabled: true,
       reason: 'comped for evaluation',

@@ -117,6 +117,7 @@ model Organization {
   idempotencyRecords    IdempotencyRecord[]
   billingEvents         BillingEvent[]
   reportInbox           ReportInbox?
+  ssoConnections        SsoConnection[]
   webhookEndpoints      WebhookEndpoint[]
 
   @@unique([slug])
@@ -732,9 +733,18 @@ model WebhookDelivery {
   lastError     String?
   nextAttemptAt DateTime?
   deliveredAt   DateTime?
+  /**
+   * When the claim was taken, and by whom.
+   *
+   * A claim that outlives the lease means the instance holding it died mid
+   * request, so the lease is what lets the delivery be retried by another
+   * instance rather than stranded in IN_FLIGHT for good.
+   */
+  claimedAt     DateTime?
+  claimedBy     String?
   createdAt     DateTime              @default(now())
 
-  @@index([status, nextAttemptAt])
+  @@index([status, nextAttemptAt, createdAt])
   @@index([endpointId, createdAt])
   @@map("webhook_delivery")
 }
@@ -774,6 +784,91 @@ model BillingPlan {
 /// The password is account level access, so it is encrypted with the same key
 /// as other sensitive values. The last seen UID lets each poll resume instead of
 /// rescanning, which keeps the cost flat regardless of mailbox age.
+enum SsoProtocol {
+  SAML
+  OIDC
+}
+
+enum SsoProvisioningMode {
+  /// Create the member on first successful assertion, bounded by a domain allowlist.
+  JIT
+  /// Only people who already hold an invitation may sign in.
+  DISABLED
+}
+
+/// One identity provider connection for one workspace.
+///
+/// Holds the provider's credentials, so it belongs to exactly one workspace and
+/// is always read through a workspace scope. A connection id from another
+/// workspace must resolve to nothing rather than to a usable IdP.
+model SsoConnection {
+  id                   String             @id @default(cuid())
+  organizationId       String
+  organization         Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  label                String
+  protocol             SsoProtocol
+  issuer               String
+  entryPoint           String
+  /// The relying party identifier registered with the customer's provider.
+  clientId             String
+  idpCertificate       String?
+  tokenEndpoint        String?
+  userinfoEndpoint     String?
+  /// Encrypted. The client secret is account level access to the identity
+  /// provider, and is never returned by any endpoint.
+  clientSecretEncrypted String
+  provisioning         SsoProvisioningMode @default(JIT)
+  defaultRole          String             @default("analyst")
+  enabled              Boolean            @default(true)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  /// The email domains permitted to provision. This allowlist is the security
+  /// boundary for just in time provisioning, so it is a separate table rather
+  /// than a delimited string that could be misparsed.
+  connections          SsoConnectionDomain[]
+  /// Authorisation requests in flight, so a callback behind a load balancer can
+  /// be answered by an instance that did not issue it.
+  authRequests         SsoAuthRequest[]
+
+  @@index([organizationId])
+  @@map("sso_connection")
+}
+
+/// A single sign on authorisation request that has not come back yet.
+///
+/// The state nonce is the whole point: it is single use, so an authorisation
+/// response captured from a browser cannot be replayed into a second session.
+/// Stored in the database rather than a signed cookie so the callback works on
+/// any instance behind a load balancer.
+model SsoAuthRequest {
+  id           String        @id @default(cuid())
+  connectionId String
+  connection   SsoConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  nonce        String        @unique
+  /// The PKCE verifier for this request.
+  ///
+  /// Held server side rather than in the browser so that an intercepted
+  /// authorisation code cannot be redeemed without it.
+  verifier     String
+  createdAt    DateTime      @default(now())
+
+  @@map("sso_auth_request")
+}
+
+/// One permitted email domain on an SSO connection.
+model SsoConnectionDomain {
+  id           String        @id @default(cuid())
+  connectionId String
+  connection   SsoConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  /// Lowercased and without a leading @, so a comparison cannot be evaded by
+  /// case or by writing it differently.
+  domain       String
+
+  @@unique([connectionId, domain])
+  @@map("sso_connection_domain")
+}
+
 model ReportInbox {
   id                  String    @id @default(cuid())
   organizationId      String    @unique
@@ -886,6 +981,8 @@ model ExportJob {
 
 enum WebhookDeliveryStatus {
   PENDING
+  /// Claimed by one instance and not yet answered. Only the claimer sends it.
+  IN_FLIGHT
   DELIVERED
   FAILED
   SUSPENDED
@@ -1022,6 +1119,9 @@ enum AuditAction {
   CUSTOM_DOMAIN_VERIFIED
   REPORT_INBOX_CONFIGURED
   REPORT_INBOX_REMOVED
+  SSO_CONNECTION_CREATED
+  SSO_CONNECTION_REMOVED
+  SSO_SIGN_IN
 }
 
 enum AuditOutcome {

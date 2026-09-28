@@ -119,10 +119,17 @@ describe('statutory entitlements are never paywalled', () => {
     expect(planCatalog.HARBOR.features['branding.whitelabel']).toBe(false);
     expect(planCatalog.ADMIRALTY.features['branding.whitelabel']).toBe(true);
 
-    // SSO is priced for Admiralty but not built, so no plan grants it. The tier
-    // that ships it turns the key on, which is the last step of that phase.
+    // SSO shipped, so Admiralty is now granted it. Provisioned members are
+    // bounded by the connection's email domain allowlist and can never be given
+    // the owner role, so trusting a provider is a way to admit a workspace's own
+    // staff rather than a way to hand out ownership.
     expect(planCatalog.HARBOR.features['auth.sso']).toBe(false);
-    expect(planCatalog.ADMIRALTY.features['auth.sso']).toBe(false);
+    expect(planCatalog.ADMIRALTY.features['auth.sso']).toBe(true);
+
+    // Scheduled client digests moved from Fairway to Harbor, where the other
+    // proof features sit.
+    expect(planCatalog.FAIRWAY.features['digests']).toBe(false);
+    expect(planCatalog.HARBOR.features['digests']).toBe(true);
 
     // Logo upload is an Admiralty feature, alongside white labelling.
     expect(planCatalog.HARBOR.features['branding.logoUpload']).toBe(false);

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { createHmac, randomBytes } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
@@ -268,9 +269,81 @@ export interface DeliveryOutcome {
   error?: string;
 }
 
-export async function deliverDueWebhooks(now = new Date()): Promise<DeliveryOutcome[]> {
-  const due = await prisma.webhookDelivery.findMany({
+/**
+ * How long a claim is honoured before the delivery is considered abandoned.
+ *
+ * Longer than the request timeout, so a request that is merely slow is never
+ * stolen out from under the instance still waiting on it. An instance that dies
+ * mid request costs one delivery this much delay rather than a stranded row.
+ */
+const claimLeaseMs = deliveryTimeoutMs + 60_000;
+
+let instanceId: string | undefined;
+
+/** Identifies this process in the claim, so a stuck row can be traced back. */
+function currentInstanceId(): string {
+  instanceId ??= `${process.pid}-${randomUUID()}`;
+  return instanceId;
+}
+
+/**
+ * Returns deliveries this instance owns, and only those.
+ *
+ * The claim is a conditional update keyed on the row still being PENDING, so
+ * when two instances read the same due list exactly one of them moves each row.
+ * That is what makes a delivery happen once per event under any number of
+ * replicas, and it is a transaction scoped single statement, so it is safe with
+ * a pooled connection. An advisory lock would not be: it is session scoped, so
+ * the lock and the unlock would land on different pooled sessions and the lock
+ * would be leaked rather than released.
+ *
+ * Abandoned claims are reclaimed first. An instance killed mid request leaves
+ * its rows in IN_FLIGHT, and without that sweep a customer's events would be
+ * silently dropped instead of retried.
+ */
+type ClaimableDelivery = {
+  id: string;
+  endpointId: string;
+  event: string;
+  payload: unknown;
+  attempts: number;
+  endpoint: { id: string; url: string; secret: string | null; failureCount: number };
+};
+
+async function claimDueDeliveries(now: Date): Promise<ClaimableDelivery[]> {
+  const staleBefore = new Date(now.getTime() - claimLeaseMs);
+
+  await prisma.webhookDelivery.updateMany({
+    where: { status: 'IN_FLIGHT', claimedAt: { lt: staleBefore } },
+    data: { status: 'PENDING', claimedAt: null, claimedBy: null },
+  });
+
+  const candidates = await prisma.webhookDelivery.findMany({
     where: { status: 'PENDING', nextAttemptAt: { lte: now } },
+    select: { id: true },
+    orderBy: { createdAt: 'asc' },
+    take: deliveryBatchSize,
+  });
+
+  const claimed: { id: string }[] = [];
+
+  for (const candidate of candidates) {
+    const result = await prisma.webhookDelivery.updateMany({
+      where: { id: candidate.id, status: 'PENDING' },
+      data: { status: 'IN_FLIGHT', claimedAt: now, claimedBy: currentInstanceId() },
+    });
+
+    if (result.count === 1) {
+      claimed.push(candidate);
+    }
+  }
+
+  if (claimed.length === 0) {
+    return [];
+  }
+
+  return prisma.webhookDelivery.findMany({
+    where: { id: { in: claimed.map((row) => row.id) } },
     select: {
       id: true,
       endpointId: true,
@@ -279,9 +352,11 @@ export async function deliverDueWebhooks(now = new Date()): Promise<DeliveryOutc
       attempts: true,
       endpoint: { select: { id: true, url: true, secret: true, failureCount: true } },
     },
-    orderBy: { createdAt: 'asc' },
-    take: deliveryBatchSize,
   });
+}
+
+export async function deliverDueWebhooks(now = new Date()): Promise<DeliveryOutcome[]> {
+  const due = await claimDueDeliveries(now);
 
   const outcomes: DeliveryOutcome[] = [];
 
@@ -313,7 +388,7 @@ export async function deliverDueWebhooks(now = new Date()): Promise<DeliveryOutc
       if (response.status >= 200 && response.status < 300) {
         await prisma.webhookDelivery.update({
           where: { id: delivery.id },
-          data: { status: 'DELIVERED', attempts: attempt, responseCode, deliveredAt: now, lastError: null },
+          data: { status: 'DELIVERED', attempts: attempt, responseCode, deliveredAt: now, lastError: null, claimedAt: null, claimedBy: null },
         });
         await prisma.webhookEndpoint.update({
           where: { id: delivery.endpoint.id },
@@ -339,26 +414,35 @@ export async function deliverDueWebhooks(now = new Date()): Promise<DeliveryOutc
         lastError: error,
         status: exhausted ? 'FAILED' : 'PENDING',
         nextAttemptAt: exhausted ? null : nextAttemptAt,
+        claimedAt: null,
+        claimedBy: null,
       },
     });
 
-    const failureCount = delivery.endpoint.failureCount + 1;
+    // Incremented in the database rather than from the value read before the
+    // request. Two instances failing the same endpoint at the same time would
+    // otherwise both write the same count and a genuinely broken endpoint would
+    // take twice as long as it should to reach the suspension threshold.
+    const bumped = await prisma.webhookEndpoint.update({
+      where: { id: delivery.endpoint.id },
+      data: { failureCount: { increment: 1 } },
+      select: { failureCount: true },
+    });
+
+    const failureCount = bumped.failureCount;
     const shouldSuspend = failureCount >= failureThreshold;
 
-    await prisma.webhookEndpoint.update({
-      where: { id: delivery.endpoint.id },
-      data: {
-        failureCount,
-        ...(shouldSuspend
-          ? { suspendedAt: new Date(now.getTime() + suspensionWindowHours * 60 * 60 * 1000) }
-          : {}),
-      },
-    });
+    if (shouldSuspend) {
+      await prisma.webhookEndpoint.update({
+        where: { id: delivery.endpoint.id },
+        data: { suspendedAt: new Date(now.getTime() + suspensionWindowHours * 60 * 60 * 1000) },
+      });
+    }
 
     if (shouldSuspend) {
       await prisma.webhookDelivery.updateMany({
-        where: { endpointId: delivery.endpoint.id, status: 'PENDING' },
-        data: { status: 'SUSPENDED' },
+        where: { endpointId: delivery.endpoint.id, status: { in: ['PENDING', 'IN_FLIGHT'] } },
+        data: { status: 'SUSPENDED', claimedAt: null, claimedBy: null },
       });
       await recordAuditEvent({
         organizationId: (await prisma.webhookEndpoint.findUniqueOrThrow({ where: { id: delivery.endpoint.id } })).organizationId,

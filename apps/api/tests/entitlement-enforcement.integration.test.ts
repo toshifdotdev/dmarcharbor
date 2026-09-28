@@ -90,6 +90,33 @@ describe('paid feature enforcement', () => {
     expect(refused.body.error.feature).toBe('digests');
   });
 
+  it('refuses client digests on Fairway, because the ladder sells them from Harbor', async () => {
+    // Fairway used to include digests. A recurring emailed digest is a proof
+    // artefact, so it now sits with the other proof features at Harbor, and
+    // this pins that boundary so a later catalog edit cannot quietly hand it
+    // back to a small agency that has no use for scheduled outbound mail.
+    const { agent, organizationId, domainId } = await setup('FAIRWAY');
+
+    // A body that would otherwise be accepted, so the 402 can only come from
+    // the entitlement gate and not from validation running first.
+    const refused = await agent
+      .post(`/api/workspaces/${organizationId}/report-digests`)
+      .send({ domainId, frequency: 'WEEKLY', sendHourUtc: 9, recipientEmails: ['owner@example.com'] });
+
+    expect(refused.status).toBe(402);
+    expect(refused.body.error.feature).toBe('digests');
+  });
+
+  it('allows client digests on Harbor, where they are now sold', async () => {
+    const { agent, organizationId, domainId } = await setup('HARBOR');
+
+    const created = await agent
+      .post(`/api/workspaces/${organizationId}/report-digests`)
+      .send({ domainId, frequency: 'WEEKLY', sendHourUtc: 9, recipientEmails: ['owner@example.com'] });
+
+    expect(created.status).toBe(201);
+  });
+
   it('allows each feature on the plan that sells it', async () => {
     const { agent, organizationId, domainId, userId } = await setup('FAIRWAY');
 

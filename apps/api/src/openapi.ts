@@ -27,6 +27,8 @@ const idParam = (name: string, description: string) => ({
 
 const orgParam = idParam('organizationId', 'Workspace identifier from the URL.');
 
+const connectionParam = idParam('connectionId', 'The identity provider connection to use.');
+
 const queryPagination = [
   {
     name: 'limit',
@@ -784,6 +786,110 @@ export const openApiDocument = {
         ].join(' '),
         parameters: [orgParam],
         responses: { ...standardErrors, 200: { description: 'Counts of messages, accepted, duplicates and unmatched.' } },
+      },
+    },
+    '/workspaces/{organizationId}/sso-connections': {
+      get: {
+        tags: ['Single sign on'],
+        summary: 'Configured identity provider connections',
+        description: [
+          'Returns the connection settings and the email domains each one admits. The provider client secret is not part of this payload and is never returned by any endpoint.',
+          'Requires the auth.sso entitlement, which is sold on Admiralty only.',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: { ...standardErrors, 200: { description: 'The connections this workspace trusts.' } },
+      },
+      post: {
+        tags: ['Single sign on'],
+        summary: 'Trust an identity provider for this workspace',
+        description: [
+          'A workspace that already runs its staff through an identity provider should not have to manage a second set of credentials, and an auditor will ask why a tool holding every client domain and forensic report is reachable with a local password.',
+          'Just in time provisioning is refused unless at least one permitted email domain is given. That allowlist is the entire security boundary: without it, anyone who can authenticate to any identity provider on the internet could provision themselves into the workspace by claiming an address at a domain they do not control.',
+          'The default role may be analyst, viewer or admin. It cannot be owner, because provisioning is unattended and handing out ownership from a directory would mean anyone it contains could change the plan or invite others.',
+        ].join(' '),
+        parameters: [orgParam],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['label', 'protocol', 'issuer', 'entryPoint', 'clientId', 'clientSecret'],
+                properties: {
+                  label: { type: 'string' },
+                  protocol: { type: 'string', enum: ['SAML', 'OIDC'] },
+                  issuer: { type: 'string', description: 'SAML entity id, or the OIDC issuer to discover.' },
+                  entryPoint: { type: 'string', description: 'SAML SSO url, or the OIDC callback url for this connection.' },
+                  clientId: { type: 'string' },
+                  clientSecret: { type: 'string', format: 'password' },
+                  idpCertificate: { type: 'string', description: 'IdP certificate, for SAML signature validation.' },
+                  provisioning: { type: 'string', enum: ['JIT', 'DISABLED'], default: 'JIT' },
+                  allowedEmailDomains: { type: 'array', items: { type: 'string' }, maxItems: 50 },
+                  defaultRole: { type: 'string', enum: ['analyst', 'viewer', 'admin'], default: 'analyst' },
+                },
+              },
+            },
+          },
+        },
+        responses: { ...standardErrors, 201: { description: 'The connection id.' }, 400: { description: 'The details are unusable, or provisioning was asked for with no permitted domain.' } },
+      },
+    },
+    '/workspaces/{organizationId}/sso-connections/{connectionId}': {
+      delete: {
+        tags: ['Single sign on'],
+        summary: 'Stop trusting a provider',
+        description: 'Scoped to this workspace, so a connection id belonging to another workspace removes nothing.',
+        parameters: [orgParam, connectionParam],
+        responses: { ...standardErrors, 204: { description: 'Removed.' } },
+      },
+    },
+    '/sso/{connectionId}': {
+      get: {
+        tags: ['Single sign on'],
+        security: [],
+        summary: 'Name the workspace and connection for a sign in page',
+        description: [
+          'Public and unauthenticated, because a person about to enter a work password somewhere should see whose workspace they are logging in to. A site claiming to be this workspace is then obvious.',
+          'A connection id is a capability for starting a sign in, not a way past the allowlist. Knowing it does not change what the returned assertion has to satisfy.',
+        ].join(' '),
+        parameters: [connectionParam],
+        responses: { ...standardErrors, 200: { description: 'The workspace name and protocol.' } },
+      },
+    },
+    '/sso/{connectionId}/start': {
+      get: {
+        tags: ['Single sign on'],
+        security: [],
+        summary: 'Begin a sign in',
+        description: [
+          'Redirects to the provider. OIDC uses the authorization code flow with PKCE and a single use state, so an intercepted code cannot be redeemed and a captured response cannot be replayed.',
+          'SAML builds a signed AuthnRequest, because a provider configured to require one will refuse a bare redirect.',
+        ].join(' '),
+        parameters: [connectionParam],
+        responses: { ...standardErrors, 302: { description: 'Redirect to the identity provider.' } },
+      },
+    },
+    '/sso/{connectionId}/callback': {
+      get: {
+        tags: ['Single sign on'],
+        security: [],
+        summary: 'OIDC callback',
+        description: [
+          'Verifies the id token against the provider published keys and the audience, then checks the email domain allowlist before any account is created. On success a normal session cookie is set, so the rest of the product cannot tell this apart from a password sign in.',
+          'The state is single use, so a response captured from a browser cannot be replayed into a second session.',
+        ].join(' '),
+        parameters: [connectionParam],
+        responses: { ...standardErrors, 302: { description: 'Signed in and redirected to the portal.' }, 403: { description: 'The email domain is not permitted for this connection.' } },
+      },
+    },
+    '/sso/{connectionId}/saml/acs': {
+      post: {
+        tags: ['Single sign on'],
+        security: [],
+        summary: 'SAML assertion consumer',
+        description: 'The assertion or the response must be signed by the configured IdP certificate, and the audience and destination are checked before the identity is trusted.',
+        parameters: [connectionParam],
+        responses: { ...standardErrors, 302: { description: 'Signed in and redirected to the portal.' } },
       },
     },
     '/health': {

@@ -26,6 +26,18 @@ const envSchema = z.object({
   MICROSOFT_CLIENT_SECRET: optionalSecret,
   MICROSOFT_TENANT_ID: z.string().trim().min(1).default('common'),
   REPORT_INGEST_SECRET: optionalSecret,
+  /**
+   * Server side credential for the support operations that have to change a
+   * plan outside a paid flow, such as honouring a contract rate or correcting a
+   * provider webhook that never arrived.
+   *
+   * Deliberately not a workspace permission. A plan is what money buys, so the
+   * ability to grant one cannot sit in the same role table as the ability to
+   * read a client's domains. When it is unset the operations are simply absent
+   * rather than open, so a deployment that has not configured it cannot be
+   * written into by accident.
+   */
+  STAFF_API_KEY: optionalSecret,
 
   // Razorpay. Absent until a merchant account exists, so the app still boots
   // and the billing routes report a clear 503 rather than failing to start.

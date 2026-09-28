@@ -271,6 +271,86 @@ describe('webhook endpoints', () => {
     expect(received).toHaveLength(1);
   });
 
+  it('delivers an event once when two instances poll at the same moment', async () => {
+    // What an autoscaled deployment actually does. Both instances read the same
+    // due row, so without a claim each of them would send it and the customer
+    // would receive the same event once per replica. The attempt counter was
+    // corrupted the same way, which quietly broke the retry budget.
+    const { agent, organizationId } = await setup();
+    await registerEndpoint(agent, organizationId, ['domain.verified']);
+
+    received = [];
+    nextStatus = 200;
+    await emitEvent(organizationId, 'domain.verified', { domainId: 'race-1' });
+
+    const [a, b] = await Promise.all([deliverDueWebhooks(), deliverDueWebhooks()]);
+
+    expect(received).toHaveLength(1);
+    expect(a.length + b.length).toBe(1);
+
+    const row = await prisma.webhookDelivery.findFirstOrThrow({ where: { organizationId } });
+    expect(row.status).toBe('DELIVERED');
+    // One real request, so it must be counted once. Two instances each
+    // incrementing from the same stale read of 0 would still read 1 here while
+    // two POSTs had gone out.
+    expect(row.attempts).toBe(1);
+    expect(row.claimedAt).toBeNull();
+    expect(row.claimedBy).toBeNull();
+  });
+
+  it('counts endpoint failures once per real failure, not once per instance', async () => {
+    const { agent, organizationId } = await setup();
+    await registerEndpoint(agent, organizationId, ['domain.verified']);
+
+    nextStatus = 500;
+    await emitEvent(organizationId, 'domain.verified', { domainId: 'fail-1' });
+    await Promise.all([deliverDueWebhooks(), deliverDueWebhooks()]);
+
+    const endpoint = await prisma.webhookEndpoint.findFirstOrThrow({ where: { organizationId } });
+    expect(endpoint.failureCount).toBe(1);
+  });
+
+  it('reclaims a delivery whose claiming instance died', async () => {
+    const { agent, organizationId } = await setup();
+    await registerEndpoint(agent, organizationId, ['domain.verified']);
+
+    await emitEvent(organizationId, 'domain.verified', { domainId: 'stale-1' });
+
+    // A claim left behind by a killed instance. If this were not swept the
+    // customer would silently never receive the event.
+    await prisma.webhookDelivery.updateMany({
+      where: { organizationId },
+      data: { status: 'IN_FLIGHT', claimedAt: new Date(Date.now() - 30 * 60 * 1000), claimedBy: 'dead-instance' },
+    });
+
+    received = [];
+    nextStatus = 200;
+    const outcomes = await deliverDueWebhooks();
+
+    expect(received).toHaveLength(1);
+    expect(outcomes[0]?.status).toBe('DELIVERED');
+  });
+
+  it('does not steal a claim that is still within its lease', async () => {
+    const { agent, organizationId } = await setup();
+    await registerEndpoint(agent, organizationId, ['domain.verified']);
+
+    await emitEvent(organizationId, 'domain.verified', { domainId: 'live-1' });
+
+    // Another instance is mid request. Stealing this would send the same event
+    // twice, which is the exact thing the claim exists to prevent.
+    await prisma.webhookDelivery.updateMany({
+      where: { organizationId },
+      data: { status: 'IN_FLIGHT', claimedAt: new Date(), claimedBy: 'busy-instance' },
+    });
+
+    received = [];
+    nextStatus = 200;
+
+    expect(await deliverDueWebhooks()).toHaveLength(0);
+    expect(received).toHaveLength(0);
+  });
+
   it('gives up after the attempt limit and records why', async () => {
     const { agent, organizationId } = await setup();
     await registerEndpoint(agent, organizationId, ['domain.verified']);

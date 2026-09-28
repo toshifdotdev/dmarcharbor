@@ -66,10 +66,11 @@ const allFeatures = (overrides: Partial<Record<EntitlementKey, boolean>> = {}): 
   digests: true,
   'audit.trail': true,
   'portal.client': true,
-  // Priced for Admiralty but not built, so nobody is granted it. A catalog that
-  // hands out a feature with no code behind it is a chargeback waiting to
-  // happen, which is the whole reason this list exists.
-  'auth.sso': false,
+  // Granted at Admiralty. Provisioned members are bounded by the connection's
+  // email domain allowlist and can never be handed the owner role, so an
+  // identity provider is a way to admit a workspace's own staff and not a way to
+  // hand out ownership.
+  'auth.sso': true,
   'rollout.canary': false,
   'branding.whitelabel': true,
   'api.access': true,
@@ -106,10 +107,7 @@ export const alwaysAllowedEntitlements: readonly EntitlementKey[] = ['data.expor
  * other marketing surface until the code that delivers it exists, because
  * selling them early is a chargeback waiting to happen.
  */
-export const plannedEntitlements: readonly EntitlementKey[] = [
-  'auth.sso',
-  'rollout.canary',
-];
+export const plannedEntitlements: readonly EntitlementKey[] = ['rollout.canary'];
 
 /**
  * Features granted on every plan, so there is no gate to write.
@@ -130,6 +128,23 @@ const noApi = { 'api.access': false } as const;
 const noSso = { 'auth.sso': false } as const;
 // Logo upload ships with white labelling, so the two travel together.
 const noBrand = { 'branding.whitelabel': false, 'branding.logoUpload': false } as const;
+/**
+ * Scheduled client digests start at Harbor.
+ *
+ * Fairway used to include them and now does not. The ladder is meant to read
+ * as watch, act, prove, resell, and a recurring emailed digest is a proof
+ * artefact: it asserts what we concluded and keeps showing up in the client's
+ * inbox whether or not anyone acts on it. Charging for it at Fairway meant a
+ * small agency paid for scheduled outbound mail it had no use for, while the
+ * forensic and enforcement work they were actually buying sat below it.
+ *
+ * Deliberately a downgrade in the ladder rather than a removal: a Fairway
+ * workspace that had digests configured keeps the rows and simply stops being
+ * sent them, because silently deleting a client's digest history would destroy
+ * the audit trail the feature exists to create.
+ */
+const noDigests = { digests: false } as const;
+
 /**
  * The Trust Center and the compliance pack are enterprise procurement gates, so
  * both start at Harbor rather than being Admiral only. A pack that only the
@@ -171,7 +186,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     maxMembers: 3,
     dataRetentionDays: 365,
     auditRetentionDays: 365,
-    features: allFeatures({ ...noNamedForensic, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox }),
+    features: allFeatures({ ...noNamedForensic, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noDigests }),
   },
   HARBOR: {
     tier: 'HARBOR',

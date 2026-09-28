@@ -26,6 +26,8 @@ it survives a handover or a lost conversation.
 | Compliance pack | `65b6ef8` | Signed PDF, published digest |
 | Logo storage | `4c12a0d` | S3, no agency URLs rendered |
 | IMAP collection and dedup | `ed29d3d` | Shared mailbox, encrypted credentials, report identity |
+| Billing safety and scaling | `683d4cd` | Staff-only plan changes, atomic webhook claim |
+| Enterprise SSO | `683d4cd` | SAML and OIDC, domain allowlist, JIT provisioning |
 
 ## Remaining
 
@@ -33,7 +35,7 @@ it survives a handover or a lost conversation.
 |---|---|---|
 | **Frontend** | Not started | Next.js. Billing screen, white label settings, portal, trust center, compliance pack download |
 | **4. IMAP ingestion and dedup** | Shipped | Mailbox credentials encrypted, poll resumes from the last UID, dedup on report identity |
-| **5. SSO** | Not started | SAML and OIDC, JIT provisioning, domain restriction, plus Google login as a separately labelled cheaper option |
+| **5. SSO** | Shipped | SAML and OIDC, JIT bounded by a domain allowlist, Admiralty only |
 
 ## Outstanding decisions
 
