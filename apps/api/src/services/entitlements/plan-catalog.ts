@@ -17,7 +17,11 @@ export type EntitlementKey =
   | 'api.access'
   | 'auth.sso'
   | 'data.export'
-  | 'data.erase';
+  | 'data.erase'
+  | 'trust.center'
+  | 'reports.compliancePack'
+  | 'reports.inbox'
+  | 'branding.logoUpload';
 
 export type QuotaKey = 'client' | 'activeDomain' | 'member';
 
@@ -58,16 +62,26 @@ const allFeatures = (overrides: Partial<Record<EntitlementKey, boolean>> = {}): 
   'reports.forensicNamed': true,
   'alerts.email': true,
   'alerts.spoofing': true,
-  'rollout.canary': true,
   'sharing.links': true,
   digests: true,
   'audit.trail': true,
   'portal.client': true,
+  // Priced for Admiralty but not built, so nobody is granted it. A catalog that
+  // hands out a feature with no code behind it is a chargeback waiting to
+  // happen, which is the whole reason this list exists.
+  'auth.sso': false,
+  'rollout.canary': false,
   'branding.whitelabel': true,
   'api.access': true,
-  'auth.sso': true,
   'data.export': true,
   'data.erase': true,
+  'trust.center': true,
+  // Priced but not built, so granted to nobody. Turning one on is the last
+  // step of its phase, which keeps the catalog from promising something the
+  // code cannot deliver.
+  'reports.compliancePack': false,
+  'reports.inbox': false,
+  'branding.logoUpload': false,
   ...overrides,
 });
 
@@ -92,7 +106,13 @@ export const alwaysAllowedEntitlements: readonly EntitlementKey[] = ['data.expor
  * other marketing surface until the code that delivers it exists, because
  * selling them early is a chargeback waiting to happen.
  */
-export const plannedEntitlements: readonly EntitlementKey[] = ['auth.sso', 'rollout.canary'];
+export const plannedEntitlements: readonly EntitlementKey[] = [
+  'auth.sso',
+  'rollout.canary',
+  'reports.compliancePack',
+  'reports.inbox',
+  'branding.logoUpload',
+];
 
 /**
  * Features granted on every plan, so there is no gate to write.
@@ -112,6 +132,8 @@ const noPortal = { 'portal.client': false } as const;
 const noApi = { 'api.access': false } as const;
 const noSso = { 'auth.sso': false } as const;
 const noBrand = { 'branding.whitelabel': false } as const;
+/** The Trust Center is an enterprise procurement gate, so it starts at Harbor. */
+const noTrustCenter = { 'trust.center': false } as const;
 
 export const planCatalog: Record<PlanTier, PlanDefinition> = {
   MOORING: {
@@ -124,7 +146,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     maxMembers: 1,
     dataRetentionDays: 30,
     auditRetentionDays: 30,
-    features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...off }),
+    features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...off }),
   },
   FAIRWAY: {
     tier: 'FAIRWAY',
@@ -136,7 +158,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     maxMembers: 3,
     dataRetentionDays: 365,
     auditRetentionDays: 365,
-    features: allFeatures({ ...noNamedForensic, ...noPortal, ...noApi, ...noSso, ...noBrand }),
+    features: allFeatures({ ...noNamedForensic, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter }),
   },
   HARBOR: {
     tier: 'HARBOR',
@@ -148,7 +170,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     maxMembers: 10,
     dataRetentionDays: 1095,
     auditRetentionDays: 1095,
-    features: allFeatures({ ...noSso, ...noBrand }),
+    features: allFeatures({ ...noSso, ...noBrand, 'trust.center': true }),
   },
   ADMIRALTY: {
     tier: 'ADMIRALTY',

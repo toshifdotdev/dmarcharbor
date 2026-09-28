@@ -363,6 +363,64 @@ export const openApiDocument = {
         responses: { ...standardErrors, 200: { description: 'Verification result.' } },
       },
     },
+    '/trust/{slug}': {
+      get: {
+        tags: ['Trust Center'],
+        security: [],
+        summary: 'The public Trust Center for one client',
+        description: [
+          'A public, unauthenticated page an enterprise auditor opens from a link their IT provider forwarded. No account is required, and none is asked for.',
+          'The slug is random and rotatable, because an enumerable address would disclose which clients an agency serves. Withdrawing the link answers exactly as an address that never existed, so the endpoint cannot be used to enumerate clients either.',
+          'Only the client the slug belongs to appears. A workspace holds many clients, so the payload is scoped to the client and never to the workspace.',
+          'Requires the trust.center entitlement to publish. The page is the public statement that this client is isolated from every other.',
+        ].join(' '),
+        parameters: [{ name: 'slug', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: {
+          ...standardErrors,
+          200: { description: 'What is held for this client, who can read it, and how long it is kept.' },
+          404: { description: 'No Trust Center at this address, or it was withdrawn.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/clients/{clientId}/trust-center': {
+      get: {
+        tags: ['Trust Center'],
+        summary: 'Whether this client has a published Trust Center',
+        description: 'Reading is harmless, so it is allowed on every plan. Creating one is what publishes a claim, and that is gated.',
+        parameters: [
+          { name: 'organizationId', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'clientId', in: 'path', required: true, schema: { type: 'string' } },
+        ],
+        responses: { 200: { description: 'The slug and public URL, or null when unpublished.' }, ...standardErrors },
+      },
+      post: {
+        tags: ['Trust Center'],
+        summary: 'Publish a Trust Center for this client',
+        description:
+          'Idempotent. Calling it again returns the existing link rather than rotating it, because a link already forwarded to an auditor would otherwise stop working for no reason.',
+        parameters: [
+          { name: 'organizationId', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'clientId', in: 'path', required: true, schema: { type: 'string' } },
+        ],
+        responses: {
+          ...standardErrors,
+          200: { description: 'The public URL and slug.' },
+          402: { description: 'The trust.center entitlement is not on this plan.' },
+          404: { description: 'That client is not in this workspace.' },
+        },
+      },
+      delete: {
+        tags: ['Trust Center'],
+        summary: 'Withdraw the public Trust Center',
+        description:
+          'A page that has been shared cannot be recalled, so the link is the thing that can be pulled. An agency that stops working with a client withdraws it here.',
+        parameters: [
+          { name: 'organizationId', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'clientId', in: 'path', required: true, schema: { type: 'string' } },
+        ],
+        responses: { 200: { description: 'Withdrawn.' }, ...standardErrors },
+      },
+    },
     '/workspaces/{organizationId}/billing': {
       get: {
         tags: ['Billing'],

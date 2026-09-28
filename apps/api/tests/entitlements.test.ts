@@ -119,8 +119,16 @@ describe('statutory entitlements are never paywalled', () => {
     expect(planCatalog.HARBOR.features['branding.whitelabel']).toBe(false);
     expect(planCatalog.ADMIRALTY.features['branding.whitelabel']).toBe(true);
 
+    // SSO is priced for Admiralty but not built, so no plan grants it. The tier
+    // that ships it turns the key on, which is the last step of that phase.
     expect(planCatalog.HARBOR.features['auth.sso']).toBe(false);
-    expect(planCatalog.ADMIRALTY.features['auth.sso']).toBe(true);
+    expect(planCatalog.ADMIRALTY.features['auth.sso']).toBe(false);
+
+    // The Trust Center is live and starts at Harbor.
+    expect(planCatalog.MOORING.features['trust.center']).toBe(false);
+    expect(planCatalog.FAIRWAY.features['trust.center']).toBe(false);
+    expect(planCatalog.HARBOR.features['trust.center']).toBe(true);
+    expect(planCatalog.ADMIRALTY.features['trust.center']).toBe(true);
   });
 
   it('keeps named forensic evidence off every plan below Harbor', () => {

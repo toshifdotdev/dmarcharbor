@@ -114,12 +114,13 @@ describe('plan catalog integrity', () => {
     }
   });
 
-  it('keeps a planned feature out of every plan until it can be delivered', () => {
-    // A planned entitlement may be priced, but nothing may rely on it yet, so
-    // the catalog must not be the only place it appears.
+  it('grants a planned feature to nobody, because nothing can turn it on yet', () => {
+    // A planned entitlement is priced so the ladder is honest about where the
+    // feature will sit, but it must be granted to no tier. If one is, the
+    // catalog is promising something the code cannot deliver.
     for (const key of plannedEntitlements) {
       const grantedBy = planOrder.filter((tier) => planCatalog[tier].features[key]);
-      expect(grantedBy.length, `${key} is planned but is granted by ${grantedBy.join(', ')}`).toBeGreaterThan(0);
+      expect(grantedBy, `${key} is planned but granted by ${grantedBy.join(', ')}`).toEqual([]);
     }
   });
 

@@ -168,7 +168,15 @@ model Client {
 
   @@unique([organizationId, slug])
   @@index([organizationId])
+  @@index([trustSlug])
   @@map("client")
+  /// Unguessable identifier for this client's public Trust Center.
+  ///
+  /// The Trust Center states what the platform holds and who can see it, which
+  /// an enterprise auditor opens directly from a link. A guessable path would
+  /// let anyone enumerate clients, so the slug is random and can be rotated
+  /// without changing the underlying record.
+  trustSlug              String?       @unique
 }
 
 model Domain {
@@ -936,6 +944,8 @@ enum AuditAction {
   BILLING_PLAN_CHANGE_REQUESTED
   BILLING_CANCELLED
   BILLING_RESUMED
+  TRUST_CENTER_CREATED
+  TRUST_CENTER_REVOKED
   PAYMENT_FAILED
   BRANDING_UPDATED
   CUSTOM_DOMAIN_VERIFIED
