@@ -61,6 +61,9 @@ const envSchema = z.object({
   BILLING_DUNNING_INTERVAL_MINUTES: z.coerce.number().int().min(15).max(10080).default(1440),
   // Reconciliation repairs drift a missed webhook would otherwise leave behind.
   BILLING_RECONCILE_INTERVAL_MINUTES: z.coerce.number().int().min(15).max(10080).default(360),
+  // Senders deliver by the day, so a short interval buys nothing and costs a
+  // login to a third party mail host every few minutes.
+  REPORT_INBOX_POLL_INTERVAL_MINUTES: z.coerce.number().int().min(5).max(1440).default(120),
   ALERT_ROLLUP_HOURS: z.coerce.number().int().min(1).max(168).default(24),
   ALERT_STALE_DAYS: z.coerce.number().int().min(1).max(365).default(7),
   REPORT_RETENTION_DAYS: z.coerce.number().int().min(7).max(3650).default(400),

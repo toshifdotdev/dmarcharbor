@@ -80,7 +80,7 @@ const allFeatures = (overrides: Partial<Record<EntitlementKey, boolean>> = {}): 
   // step of its phase, which keeps the catalog from promising something the
   // code cannot deliver.
   'reports.compliancePack': true,
-  'reports.inbox': false,
+  'reports.inbox': true,
   'branding.logoUpload': true,
   ...overrides,
 });
@@ -109,7 +109,6 @@ export const alwaysAllowedEntitlements: readonly EntitlementKey[] = ['data.expor
 export const plannedEntitlements: readonly EntitlementKey[] = [
   'auth.sso',
   'rollout.canary',
-  'reports.inbox',
 ];
 
 /**
@@ -138,6 +137,17 @@ const noBrand = { 'branding.whitelabel': false, 'branding.logoUpload': false } a
  */
 const noTrustCenter = { 'trust.center': false, 'reports.compliancePack': false } as const;
 
+/**
+ * Emailed report collection starts at Harbor.
+ *
+ * The feature exists so a workspace can stop polling for DNS published reports
+ * it already has, and the mailbox is the fragile part: credentials, a
+ * third party mail host and a UID cursor that can fall behind. Charging for it
+ * at a tier where the volume justifies that upkeep, rather than giving every
+ * free account a credential to store.
+ */
+const noInbox = { 'reports.inbox': false } as const;
+
 export const planCatalog: Record<PlanTier, PlanDefinition> = {
   MOORING: {
     tier: 'MOORING',
@@ -149,7 +159,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     maxMembers: 1,
     dataRetentionDays: 30,
     auditRetentionDays: 30,
-    features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...off }),
+    features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...off }),
   },
   FAIRWAY: {
     tier: 'FAIRWAY',
@@ -161,7 +171,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     maxMembers: 3,
     dataRetentionDays: 365,
     auditRetentionDays: 365,
-    features: allFeatures({ ...noNamedForensic, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter }),
+    features: allFeatures({ ...noNamedForensic, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox }),
   },
   HARBOR: {
     tier: 'HARBOR',

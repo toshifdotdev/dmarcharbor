@@ -116,6 +116,7 @@ model Organization {
   apiKeys               ApiKey[]
   idempotencyRecords    IdempotencyRecord[]
   billingEvents         BillingEvent[]
+  reportInbox           ReportInbox?
   webhookEndpoints      WebhookEndpoint[]
 
   @@unique([slug])
@@ -243,7 +244,13 @@ model DmarcReport {
   domainId              String
   domain                Domain              @relation(fields: [domainId], references: [id], onDelete: Cascade)
   reportType            DmarcReportType
+  /// SHA-256 of the raw XML. Identifies the exact bytes received.
   fingerprint           String              @unique
+  /// SHA-256 of the report's own identity: reporting organisation, report id
+  /// and date range. Two copies of one report can arrive by different
+  /// transports with different bytes, and this is what catches that. Nullable
+  /// and unique, so historical rows without one keep working.
+  reportIdentity        String?             @unique
   reportId              String?
   reportingOrganization String?
   reportingEmail        String?
@@ -758,6 +765,36 @@ model BillingPlan {
   @@map("billing_plan")
 }
 
+/// The mailbox that receives emailed DMARC reports.
+///
+/// One per workspace rather than per customer: the product works by pointing
+/// every monitored domain's rua tag at our own address, so there is a single
+/// shared inbox and no customer ever hands us credentials.
+///
+/// The password is account level access, so it is encrypted with the same key
+/// as other sensitive values. The last seen UID lets each poll resume instead of
+/// rescanning, which keeps the cost flat regardless of mailbox age.
+model ReportInbox {
+  id                  String    @id @default(cuid())
+  organizationId      String    @unique
+  organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  host                String
+  port                Int       @default(993)
+  secure              Boolean   @default(true)
+  username            String
+  encryptedPassword   String
+  lastPolledAt        DateTime?
+  lastUid             BigInt?
+  enabled             Boolean   @default(true)
+  consecutiveFailures Int       @default(0)
+  lastError           String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([enabled])
+  @@map("report_inbox")
+}
+
 /// A signed compliance pack issued for one client.
 ///
 /// The PDF is not stored. Its SHA-256 is, because the hash is the claim and the
@@ -983,6 +1020,8 @@ enum AuditAction {
   PAYMENT_FAILED
   BRANDING_UPDATED
   CUSTOM_DOMAIN_VERIFIED
+  REPORT_INBOX_CONFIGURED
+  REPORT_INBOX_REMOVED
 }
 
 enum AuditOutcome {

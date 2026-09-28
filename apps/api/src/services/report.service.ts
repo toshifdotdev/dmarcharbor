@@ -71,6 +71,31 @@ export async function purgeExpiredReports(force = false): Promise<number> {
   return result.count;
 }
 
+/**
+ * Finds a report we already hold, by identity first and content second.
+ *
+ * The identity lookup is what makes a report delivered twice by different
+ * transports count once. The content lookup remains the fallback for historical
+ * rows that predate the identity column, and for a report whose receiver
+ * omitted the fields identity needs.
+ */
+async function findExistingReport(parsed: { fingerprint: string; reportIdentity: string | null }) {
+  if (parsed.reportIdentity) {
+    const byIdentity = await prisma.dmarcReport.findUnique({
+      where: { reportIdentity: parsed.reportIdentity },
+      include: reportInclude,
+    });
+    if (byIdentity) {
+      return byIdentity;
+    }
+  }
+
+  return prisma.dmarcReport.findUnique({
+    where: { fingerprint: parsed.fingerprint },
+    include: reportInclude,
+  });
+}
+
 export async function ingestDmarcReport(input: IngestReportInput): Promise<IngestReportOutcome> {
   const domain = await prisma.domain.findFirst({
     where: {
@@ -98,11 +123,12 @@ export async function ingestDmarcReport(input: IngestReportInput): Promise<Inges
     return { status: 'domain_mismatch', reportDomain: parsed.policyDomain };
   }
 
-  const existing = await prisma.dmarcReport.findUnique({
-    where: { fingerprint: parsed.fingerprint },
-    include: reportInclude,
-  });
-
+  // Identity is checked before content. The same report can arrive by a DNS
+  // published URL and as an emailed attachment, and the two copies rarely have
+  // identical bytes, so a content hash alone would store it twice and double the
+  // reported volume. Content is still checked, because it is the only thing
+  // available for a report that does not state enough to identify itself.
+  const existing = await findExistingReport(parsed);
   if (existing) {
     return { status: 'duplicate', report: existing };
   }
@@ -115,6 +141,7 @@ export async function ingestDmarcReport(input: IngestReportInput): Promise<Inges
         domainId: domain.id,
         reportType: 'AGGREGATE',
         fingerprint: parsed.fingerprint,
+        ...(parsed.reportIdentity ? { reportIdentity: parsed.reportIdentity } : {}),
         retentionExpiresAt: reportRetentionExpiry(),
         reportId: parsed.reportId,
         reportingOrganization: parsed.reportingOrganization,
@@ -171,10 +198,9 @@ export async function ingestDmarcReport(input: IngestReportInput): Promise<Inges
     return { status: 'created', report };
   } catch (error) {
     if (isUniqueConstraint(error)) {
-      const duplicate = await prisma.dmarcReport.findUnique({
-        where: { fingerprint: parsed.fingerprint },
-        include: reportInclude,
-      });
+      // A concurrent delivery of the same report won the race, which is the
+      // expected outcome when two transports deliver at once.
+      const duplicate = await findExistingReport(parsed);
       if (duplicate) {
         return { status: 'duplicate', report: duplicate };
       }

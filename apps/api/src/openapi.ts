@@ -727,6 +727,65 @@ export const openApiDocument = {
         responses: { 200: { description: 'Resolved branding.' }, ...standardErrors },
       },
     },
+    '/workspaces/{organizationId}/report-inbox': {
+      get: {
+        tags: ['Report collection'],
+        summary: 'Mailbox settings for emailed report collection',
+        description: [
+          'Returns the host, username and the last poll result, and never the password. The password is account level access, so it is stored encrypted and is not readable back through any endpoint.',
+          'The mailbox is per workspace rather than per client, because the product works by pointing every monitored domain rua tag at one shared address, so no customer hands over IMAP credentials.',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: { ...standardErrors, 200: { description: 'Settings, with the password omitted.' } },
+      },
+      put: {
+        tags: ['Report collection'],
+        summary: 'Store or replace the mailbox',
+        description: [
+          'Replaces any previous mailbox, so a rotated password is applied by sending the new one rather than by editing the old.',
+          'Requires the reports.inbox entitlement, which starts at Harbor. A loopback or non mail port is refused, so a misconfiguration cannot reach a service on our own network and present the result as customer data.',
+        ].join(' '),
+        parameters: [orgParam],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['host', 'username', 'password'],
+                properties: {
+                  host: { type: 'string', example: 'imap.migadu.com' },
+                  port: { type: 'integer', description: 'Defaults to 993 for implicit TLS.' },
+                  secure: { type: 'boolean', description: 'Defaults to true.' },
+                  username: { type: 'string', example: 'agg@reports.dmarcharbor.com' },
+                  password: { type: 'string', format: 'password' },
+                },
+              },
+            },
+          },
+        },
+        responses: { ...standardErrors, 200: { description: 'Stored, with the password omitted.' }, 400: { description: 'The host or port is not a usable mail server.' } },
+      },
+      delete: {
+        tags: ['Report collection'],
+        summary: 'Stop collection and discard the mailbox',
+        description: 'Deletes the stored credentials. The messages themselves remain in the mail provider account and are removed there.',
+        parameters: [orgParam],
+        responses: { ...standardErrors, 204: { description: 'Removed.' } },
+      },
+    },
+    '/workspaces/{organizationId}/report-inbox/poll': {
+      post: {
+        tags: ['Report collection'],
+        summary: 'Poll the mailbox now',
+        description: [
+          'The scheduler polls on its own interval, so this exists for the case where a rua tag has just been pointed at us and the answer is wanted without waiting for the next cycle.',
+          'Returns what was found. A report already held is reported as a duplicate rather than skipped silently, because a sender split across DNS and email is normal and is the reason identity deduplication exists.',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: { ...standardErrors, 200: { description: 'Counts of messages, accepted, duplicates and unmatched.' } },
+      },
+    },
     '/health': {
       get: {
         tags: ['System'],

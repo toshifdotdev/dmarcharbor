@@ -29,6 +29,17 @@ export interface ParsedReportRecord {
 export interface ParsedDmarcReport {
   reportType: 'AGGREGATE';
   fingerprint: string;
+  /**
+   * Hash of what the report says about itself, rather than of its bytes.
+   *
+   * One report can arrive both as a DNS published URL and as an emailed
+   * attachment, and the two copies routinely differ in whitespace, attribute
+   * order or gzip settings. Hashing the raw XML therefore does not recognise
+   * them as the same report, and storing both would double the reported volume.
+   * Null when the report does not state enough to identify itself, in which case
+   * the content fingerprint remains the fallback.
+   */
+  reportIdentity: string | null;
   reportId?: string;
   reportingOrganization?: string;
   reportingEmail?: string;
@@ -252,6 +263,43 @@ function parseRecords(value: unknown, policyDomain: string): ParsedReportRecord[
   });
 }
 
+/**
+ * The identity a report claims for itself.
+ *
+ * Reporting organisation, report id and date range are the fields a receiver
+ * keeps stable across transports. The policy domain is included so two domains
+ * in one mailbox cannot collide, and the values are length prefixed so an
+ * ambiguous join cannot produce the same string two different ways.
+ */
+function reportIdentity(input: {
+  policyDomain?: string;
+  reportId?: string;
+  reportingOrganization?: string;
+  dateRangeBegin?: Date;
+  dateRangeEnd?: Date;
+}): string | null {
+  const organisation = input.reportingOrganization?.trim();
+  const reportId = input.reportId?.trim();
+
+  // Without a report id there is nothing stable to match on, and a hash of the
+  // date range alone would collapse every report from a receiver on a given day
+  // into one.
+  if (!organisation || !reportId) {
+    return null;
+  }
+
+  const parts = [
+    input.policyDomain ?? '',
+    organisation,
+    reportId,
+    input.dateRangeBegin ? input.dateRangeBegin.toISOString() : '',
+    input.dateRangeEnd ? input.dateRangeEnd.toISOString() : '',
+  ];
+
+  const canonical = parts.map((part) => `${part.length}:${part}`).join('|');
+  return createHash('sha256').update(canonical).digest('hex');
+}
+
 export function parseDmarcReport(xml: string): ParsedDmarcReport {
   let parsed: unknown;
   try {
@@ -288,6 +336,13 @@ export function parseDmarcReport(xml: string): ParsedDmarcReport {
   return {
     reportType: 'AGGREGATE',
     fingerprint: createHash('sha256').update(`${policyDomain}\n${xml}`).digest('hex'),
+    reportIdentity: reportIdentity({
+      policyDomain,
+      reportId: text(metadata?.report_id),
+      reportingOrganization: text(metadata?.org_name),
+      dateRangeBegin: optionalDate(dateRange?.begin, 'report begin date'),
+      dateRangeEnd: optionalDate(dateRange?.end, 'report end date'),
+    }),
     reportId: text(metadata?.report_id),
     reportingOrganization: text(metadata?.org_name),
     reportingEmail: text(metadata?.email),
