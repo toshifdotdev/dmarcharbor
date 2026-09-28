@@ -6,6 +6,7 @@ import { executeDueErasures } from '../services/erasure/erasure.service.js';
 import { reverifyUnverifiedDomains } from '../services/domain-reverify.service.js';
 import { purgeExpiredIdempotencyRecords } from '../services/api-key.service.js';
 import { runDunning, runReconciliation } from '../billing/dunning.js';
+import { withJobLease } from './job-lease.service.js';
 
 let timer: NodeJS.Timeout | undefined;
 let running = false;
@@ -49,6 +50,21 @@ export async function runAlertEvaluationOnce(): Promise<void> {
 
   running = true;
   try {
+    // Every instance starts this scheduler on boot. The flag above only stops
+    // one process overlapping itself, because Node is single threaded, so the
+    // cross process gate has to live in the database.
+    await withJobLease('alert-evaluation', () => runAlertEvaluationPass());
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : 'Unknown alert evaluation error.';
+    console.error(`[alerts] evaluation failed: ${detail}`);
+  } finally {
+    running = false;
+  }
+}
+
+/** The work itself, run only by the instance that won the lease. */
+async function runAlertEvaluationPass(): Promise<void> {
+  {
     const results = await evaluateAlertRules();
     const triggered = results.filter((result) => result.outcome === 'triggered').length;
     const escalated = results.filter((result) => result.outcome === 'escalated').length;
@@ -108,11 +124,6 @@ export async function runAlertEvaluationOnce(): Promise<void> {
     if (digestSent > 0) {
       console.info(`[digests] sent ${digestSent} client digest(s)`);
     }
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : 'Unknown alert evaluation error.';
-    console.error(`[alerts] evaluation failed: ${detail}`);
-  } finally {
-    running = false;
   }
 }
 

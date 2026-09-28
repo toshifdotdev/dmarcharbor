@@ -307,7 +307,32 @@ export async function runReportDigests(now = new Date()): Promise<DigestRunResul
       continue;
     }
 
+    // Claimed by writing the send time before sending, keyed on the value that
+    // was read. The check and the write are one statement, so when two
+    // instances see the same due digest exactly one of them moves the row and
+    // only that one sends. Writing lastSentAt after sending instead would let
+    // every instance pass the check, and the customer would receive the same
+    // weekly summary once per replica.
+    const claimed = await prisma.reportDigest.updateMany({
+      where: { id: digest.id, lastSentAt: digest.lastSentAt },
+      data: { lastSentAt: now },
+    });
+
+    if (claimed.count !== 1) {
+      results.push({ digestId: digest.id, sent: false, recipients: 0 });
+      continue;
+    }
+
     const content = await sendDigest(digest, now);
+
+    if (!content) {
+      // The claim is released so a failed send is retried on the next run
+      // rather than being silently consumed by the claim itself.
+      await prisma.reportDigest
+        .updateMany({ where: { id: digest.id, lastSentAt: now }, data: { lastSentAt: digest.lastSentAt } })
+        .catch(() => undefined);
+    }
+
     results.push({ digestId: digest.id, sent: Boolean(content), recipients: content?.recipientCount ?? 0 });
   }
 

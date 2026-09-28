@@ -22,6 +22,14 @@ import { processInboundDmarcEmail } from '../inbound-report.service.js';
  * re-fetched on every cycle.
  */
 
+/**
+ * How long a poll claim is honoured.
+ *
+ * Comfortably longer than the socket timeout, so a slow mailbox is never taken
+ * over mid poll and then finished by two instances at once.
+ */
+const pollClaimTimeoutMs = 10 * 60 * 1000;
+
 export class InboxError extends Error {
   readonly code: string;
   readonly status: number;
@@ -152,6 +160,23 @@ export async function pollInbox(organizationId: string): Promise<PollOutcome> {
     socketTimeout: 60_000,
   });
 
+  // Claimed before connecting. Every instance starts the inbox scheduler on
+  // boot, so without this each one opens a connection to the customer's mail
+  // host and reads the same cursor. That is the exact behaviour this module is
+  // written to avoid, and the thing a mail host blocks an address over.
+  const claim = await prisma.reportInbox.updateMany({
+    where: {
+      organizationId,
+      enabled: true,
+      OR: [{ pollClaimedAt: null }, { pollClaimedAt: { lt: new Date(Date.now() - pollClaimTimeoutMs) } }],
+    },
+    data: { pollClaimedAt: new Date() },
+  });
+
+  if (claim.count !== 1) {
+    return { messages: 0, accepted: 0, duplicates: 0, unmatched: 0 };
+  }
+
   const outcome: PollOutcome = { messages: 0, accepted: 0, duplicates: 0, unmatched: 0 };
 
   // UIDs are bigint in Prisma and number in IMAP, so the cursor is carried as a
@@ -230,6 +255,7 @@ export async function pollInbox(organizationId: string): Promise<PollOutcome> {
     where: { organizationId },
     data: {
       lastPolledAt: new Date(),
+      pollClaimedAt: null,
       ...(highestUid !== null ? { lastUid: BigInt(highestUid) } : {}),
       consecutiveFailures: 0,
       lastError: null,
@@ -265,6 +291,6 @@ export async function recordInboxFailure(organizationId: string, detail: string)
     where: { organizationId },
     // Deliberately the message only. An IMAP error string can contain the
     // username, and this column is read by the billing screen.
-    data: { consecutiveFailures: inbox.consecutiveFailures + 1, lastError: detail.slice(0, 200) },
+    data: { consecutiveFailures: inbox.consecutiveFailures + 1, lastError: detail.slice(0, 200), pollClaimedAt: null },
   });
 }

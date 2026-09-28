@@ -1,6 +1,7 @@
 import { env } from '../config/env.js';
 import { prisma } from '../database/prisma.js';
 import { deliverDueWebhooks } from '../services/webhook.service.js';
+import { withJobLease } from './job-lease.service.js';
 
 let timer: NodeJS.Timeout | undefined;
 let running = false;
@@ -14,20 +15,30 @@ export async function runWebhookDeliveryOnce(): Promise<{ delivered: number; ret
 
   running = true;
   try {
-    const outcomes = await deliverDueWebhooks();
-    const summary = {
-      delivered: outcomes.filter((outcome) => outcome.status === 'DELIVERED').length,
-      retry: outcomes.filter((outcome) => outcome.status === 'RETRY').length,
-      failed: outcomes.filter((outcome) => outcome.status === 'FAILED').length,
-    };
+    // Deliveries are already claimed row by row, so a second instance sending a
+    // different delivery is not a correctness problem. This lease is about the
+    // batch: it stops every replica scanning the same due rows every thirty
+    // seconds, which is N times the database work for the same outcome.
+    const summary = await withJobLease('webhook-delivery', async () => {
+      const outcomes = await deliverDueWebhooks();
+      const computed = {
+        delivered: outcomes.filter((outcome) => outcome.status === 'DELIVERED').length,
+        retry: outcomes.filter((outcome) => outcome.status === 'RETRY').length,
+        failed: outcomes.filter((outcome) => outcome.status === 'FAILED').length,
+      };
 
-    if (outcomes.length > 0) {
-      console.info(
-        `[webhooks] attempted ${outcomes.length}, delivered ${summary.delivered}, retrying ${summary.retry}, gave up ${summary.failed}`,
-      );
-    }
+      if (outcomes.length > 0) {
+        console.info(
+          `[webhooks] attempted ${outcomes.length}, delivered ${computed.delivered}, retrying ${computed.retry}, gave up ${computed.failed}`,
+        );
+      }
 
-    return summary;
+      return computed;
+    });
+
+    // Undefined when another instance holds the lease, which is a skip rather
+    // than a failure.
+    return summary ?? { delivered: 0, retry: 0, failed: 0 };
   } catch (error) {
     const detail = error instanceof Error ? error.message : 'Unknown webhook delivery error.';
     console.error(`[webhooks] delivery failed: ${detail}`);

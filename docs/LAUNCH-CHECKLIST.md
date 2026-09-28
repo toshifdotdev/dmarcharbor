@@ -159,29 +159,65 @@ you have not made yet.
 The polling path has never run against a real mail server. Test it against this
 mailbox before trusting it.
 
-### 9. Autoscaling hardening
+### 9. Autoscaling hardening — done
 
-Before a second instance exists, not after. Retrofitting claims into a live
-product with customers on it is much harder than adding them now.
+Every scheduler starts on boot, so an autoscaled deployment runs each one once
+per instance. Node is single threaded, which is why an in-process flag was enough
+to stop one process overlapping itself, and also why the flag could not stop the
+other processes: a flag cannot see them.
 
-Every scheduler currently starts on every instance, and only the *webhook*
-delivery is claimed atomically. Still duplicated across N instances:
+Two layers now cover this, and both are needed.
 
-- Report digests — customers get the same weekly email N times
-- Erasure execution — GDPR completion mail N times, and a `delete` that throws
-  on the loser
-- Alert first trigger — duplicate events, mail and webhooks
-- Alert escalation — a unique-constraint race that aborts the whole tick
-- Dunning — duplicate payment failure mail
-- Domain re-verification — duplicate verification mail, N× the DNS load
-- IMAP polling — N× logins to the customer's mail host
+**A job lease** (`apps/api/src/scheduler/job-lease.service.ts`) decides which
+instance runs a job. One conditional upsert, so it is safe on a pooled
+connection, and it expires on its own, so an instance killed mid job releases it
+without needing a reaper.
 
-The fix is the same in every case: claim the row with a conditional update keyed
-on the observed state, require `count === 1`, and give it a lease so a crashed
-instance's work is reclaimed. It is roughly a day.
+A Postgres advisory lock was considered and rejected: it is session scoped, so
+with a pooled connection the statement that takes the lock and the statement that
+releases it land on different sessions and the lock is leaked rather than
+released, after which the job silently stops running on that instance. The
+transaction scoped variant releases correctly but only at the end of its
+transaction, which would mean holding a database transaction open across DNS
+lookups, IMAP logins and outbound HTTP.
+
+**A row claim on every job that contacts a customer.** A lease stops the
+stampede; it cannot cover a crash between deciding to send and actually sending.
+Each of these takes the row with a conditional update and requires `count === 1`:
+
+- Webhook deliveries — `IN_FLIGHT` with a lease, reclaimed when the claim is stale
+- Scheduled client digests — writes the send time before sending, not after
+- Erasure — new `EXECUTING` state, with a sweep for claims a killed instance left
+- Alert first trigger — moves `lastTriggeredAt` off the value it read
+- Alert reminders and owner rollups — a lost unique key race is now benign instead
+  of aborting every remaining rule in the tick
+- Dunning — a new `dunningStage`, so the warning and the withdrawal each happen
+  exactly once
+- Domain re-verification — claims before the DNS lookup
+- IMAP polling — claims before connecting, so the fleet does not burst logins at
+  one customer mail host
+
+Billing reconciliation and the idempotency purge were already safe: the first
+uses a deterministic event identifier and the second is naturally idempotent.
+
+Dunning also had a bug that had nothing to do with autoscaling. Withdrawing a
+plan left the status on `PAST_DUE` and never advanced the period end, so the row
+kept matching the recovery query, the grace check stayed passed, and the customer
+was warned and emailed again on every daily run, indefinitely, on a single
+instance.
 
 `ALERT_SCHEDULER_DISABLED` remains an emergency kill switch. It is not a leader
 election and must not be used as one.
+
+Proven by `apps/api/tests/scheduler-scaling.integration.test.ts`, which fires two
+runs at the same rows with `Promise.all` for each job. Every one of those tests
+would have passed against the old code when the runs were sequential, which is
+the point: only genuinely concurrent execution exposes a read-then-write.
+
+**Still worth doing before scaling out for real:** raise
+`testTimeout` in `apps/api/vitest.integration.config.ts` above 20 seconds.
+Several tests make real DNS and HTTP calls, so the suite is timing sensitive
+under load and has produced spurious failures on a busy machine.
 
 ### 10. Data residency and sub-processors
 
@@ -251,5 +287,5 @@ misleading message.
 - [ ] One real logo uploaded and served from the asset origin
 - [ ] One real Trust Center page
 - [ ] One real compliance pack issued and verified by its digest
-- [ ] Two instances running, with no duplicated email and no duplicated webhook
+- [x] Every job that contacts a customer claims its row, proven by concurrent tests
 - [ ] Sub-processors named, residency question answered

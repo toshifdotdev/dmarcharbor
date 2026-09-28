@@ -558,9 +558,24 @@ async function deliverToUser(
     status = 'SKIPPED_QUIET_HOURS';
   }
 
-  const delivery = await prisma.alertDelivery.create({
-    data: { eventId, userId: user.id, channel: 'EMAIL', kind, status, reminderLevel },
+  // The unique key on (event, user, channel, kind, reminder level) is what stops
+  // the same reminder being sent twice. Under more than one instance both read
+  // the same current level and both try to write the next one, and the loser's
+  // unique violation is a normal outcome, not a fault: it means somebody else
+  // already delivered that exact reminder. Letting it propagate would abort the
+  // whole evaluation tick and leave every later rule unevaluated.
+  // createManyAndReturn rather than create, because create throws on the unique
+  // violation that is the expected outcome here, and because the returned row is
+  // needed to mark the delivery sent.
+  const created = await prisma.alertDelivery.createManyAndReturn({
+    data: [{ eventId, userId: user.id, channel: 'EMAIL', kind, status, reminderLevel }],
+    skipDuplicates: true,
   });
+
+  const delivery = created[0];
+  if (!delivery) {
+    return;
+  }
 
   if (status !== 'PENDING') {
     return;
@@ -673,6 +688,24 @@ export async function evaluateAlertRules(now = new Date()): Promise<RuleEvaluati
       }
 
       const summary = summarise(rule, snapshot, observed);
+
+      // Claimed by moving lastTriggeredAt off the value that was read, in one
+      // conditional statement. Two instances evaluating the same rule at the
+      // same moment both see no open event and both decide to fire; only one of
+      // them can move this row, and only that one creates the event and notifies.
+      // Without the claim each replica opened its own AlertEvent and emailed the
+      // recipient once per replica, and the dashboard showed two alerts for one
+      // condition.
+      const claim = await prisma.alertRule.updateMany({
+        where: { id: rule.id, lastTriggeredAt: rule.lastTriggeredAt },
+        data: { lastTriggeredAt: now },
+      });
+
+      if (claim.count !== 1) {
+        results.push({ ruleId: rule.id, outcome: 'unchanged', observed, eventId: lastEvent?.id });
+        continue;
+      }
+
       const event = await prisma.alertEvent.create({
         data: {
           ruleId: rule.id,
@@ -687,9 +720,16 @@ export async function evaluateAlertRules(now = new Date()): Promise<RuleEvaluati
           context: contextFor(snapshot, rule.metric),
         },
         select: { id: true },
+      }).catch(async (error: unknown) => {
+        // The claim is put back, because a rule whose lastTriggeredAt has been
+        // moved but which produced no event would look handled and never fire
+        // again. That is worse than a duplicate, because it is silent.
+        await prisma.alertRule
+          .updateMany({ where: { id: rule.id, lastTriggeredAt: now }, data: { lastTriggeredAt: rule.lastTriggeredAt } })
+          .catch(() => undefined);
+        throw error;
       });
 
-      await prisma.alertRule.update({ where: { id: rule.id }, data: { lastTriggeredAt: now } });
       await notifyRecipients(rule, event.id, summary, observed, 1, now, snapshot);
 
       await emitEvent(rule.organizationId, 'alert.triggered', {

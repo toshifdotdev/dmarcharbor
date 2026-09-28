@@ -1,4 +1,5 @@
 import js from '@eslint/js';
+import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
@@ -11,6 +12,18 @@ export default tseslint.config(
     files: ['**/*.{ts,tsx}'],
     rules: {
       'no-undef': 'off',
+    },
+  },
+  {
+    // Build and generation scripts. They are Node programs, not browser code, so
+    // they need the Node globals rather than the ones a browser would supply.
+    // Linting them is worth it: the brand geometry is generated from a script,
+    // and a typo in that script would otherwise only surface as a wrong logo.
+    files: ['**/*.{mjs,js,cjs}', 'scripts/**/*.{ts,mjs}'],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
     },
   },
 );

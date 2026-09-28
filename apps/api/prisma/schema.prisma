@@ -191,6 +191,13 @@ model Domain {
   status                 DomainStatus          @default(PENDING)
   verificationToken      String                @unique @default(uuid())
   verifiedAt             DateTime?
+  /// When this domain was last picked for a DNS re-check.
+  ///
+  /// The re-check decides whether a domain is still verified and sends the
+  /// customer an email when that changes. Several instances doing the same row
+  /// would each resolve DNS, each decide the transition happened, and each send
+  /// the same email.
+  recheckedAt            DateTime?
   lastScanAt             DateTime?
   dmarcPolicy            String?
   dmarcRecord            String?
@@ -633,6 +640,12 @@ model Subscription {
   providerSubscriptionId String?            @unique
   currentPeriodEnd       DateTime?
   cancelAtPeriodEnd      Boolean            @default(false)
+  /// How far through payment recovery this subscription is.
+  ///
+  /// Without it a withdrawn subscription kept matching the PAST_DUE filter,
+  /// because withdrawing left the status alone and never advanced the period, so
+  /// the customer was warned and emailed again on every daily run, for ever.
+  dunningStage           DunningStage       @default(NONE)
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt
 
@@ -841,6 +854,28 @@ model SsoConnection {
 /// response captured from a browser cannot be replayed into a second session.
 /// Stored in the database rather than a signed cookie so the callback works on
 /// any instance behind a load balancer.
+/// A short lived claim on running one named job.
+///
+/// Every scheduler in this service starts on boot, so an autoscaled deployment
+/// runs each of them once per instance. Node is single threaded, so a flag is
+/// enough to stop one process overlapping itself, but it knows nothing about the
+/// other processes: with three replicas a customer gets three copies of the same
+/// digest email. This row is how the processes find out about each other.
+///
+/// Acquired with a single conditional upsert, so it is safe on a pooled
+/// connection, and it expires on its own, so an instance killed mid job does not
+/// need a reaper to release it.
+model JobLease {
+  name String @id
+  /// The instance currently holding it, for tracing a stuck job to a process.
+  holder String
+  expiresAt DateTime
+  updatedAt DateTime @updatedAt
+
+  @@index([expiresAt])
+  @@map("job_lease")
+}
+
 model SsoAuthRequest {
   id           String        @id @default(cuid())
   connectionId String
@@ -879,6 +914,9 @@ model ReportInbox {
   username            String
   encryptedPassword   String
   lastPolledAt        DateTime?
+  /// When this instance started polling, used to stop several instances opening
+  /// a connection to the same customer mail host at once.
+  pollClaimedAt       DateTime?
   lastUid             BigInt?
   enabled             Boolean   @default(true)
   consecutiveFailures Int       @default(0)
@@ -1016,6 +1054,9 @@ model ErasureRequest {
   certificate    Json?
   purgeAfter     DateTime
   completedAt    DateTime?
+  /// When the claim was taken, so a row stranded by a killed instance can be
+  /// returned to PENDING instead of sitting in EXECUTING for ever.
+  claimedAt      DateTime?
   createdAt      DateTime      @default(now())
 
   @@index([organizationId, state])
@@ -1043,6 +1084,19 @@ enum BillingCurrency {
   INR
 }
 
+/// How far through payment recovery a subscription has got.
+///
+/// Each step is recorded so it happens once rather than on every run.
+enum DunningStage {
+  NONE
+  /// The customer has been told their payment failed and is inside the grace
+  /// window. The warning is not repeated.
+  WARNED
+  /// Access has already been withdrawn. Terminal, so the row leaves the
+  /// recovery query entirely.
+  WITHDRAWN
+}
+
 enum SubscriptionStatus {
   ACTIVE
   TRIALING
@@ -1065,6 +1119,13 @@ enum ErasureScope {
 
 enum ErasureState {
   PENDING
+  /// Claimed by one instance and mid deletion.
+  ///
+  /// Without an intermediate state two instances both read PENDING, both delete,
+  /// and both send the GDPR completion email. Worse, the loser throws on
+  /// organization.delete after the winner has already destroyed the row, which
+  /// surfaces as a scheduler error and hides the real outcome.
+  EXECUTING
   COMPLETED
   CANCELLED
 }

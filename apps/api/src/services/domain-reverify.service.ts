@@ -48,6 +48,7 @@ export async function reverifyUnverifiedDomains(now = new Date()): Promise<Rever
       status: true,
       verificationToken: true,
       verifiedAt: true,
+      recheckedAt: true,
       client: { select: { organizationId: true } },
     },
     orderBy: { createdAt: 'asc' },
@@ -58,6 +59,19 @@ export async function reverifyUnverifiedDomains(now = new Date()): Promise<Rever
 
   for (const domain of domains) {
     try {
+      // Claimed before the DNS lookup, keyed on the value that was read. Two
+      // instances reaching the same row both see PENDING, both resolve the
+      // record, and both would email the customer that the domain verified, so
+      // the lookup is not just duplicated work, it is duplicated contact.
+      const claim = await prisma.domain.updateMany({
+        where: { id: domain.id, recheckedAt: domain.recheckedAt },
+        data: { recheckedAt: now },
+      });
+
+      if (claim.count !== 1) {
+        continue;
+      }
+
       const check = await checkDomainOwnership(domain);
       const status = await applyOwnershipResult(domain.client.organizationId, domain, check, now);
 

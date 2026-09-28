@@ -222,8 +222,24 @@ export async function executeErasure(
 ): Promise<ErasureOutcome | null> {
   const now = options.now ?? new Date();
 
-  const request = await prisma.erasureRequest.findFirst({
+  // Claimed before any deletion happens. The read and the claim are one
+  // conditional update, so when several instances find the same due erasure only
+  // one of them proceeds and the erasure runs, and confirms, exactly once.
+  // The claim is on the state only. Whether a request is due is decided by the
+  // caller's query, not here: the scheduler only offers due requests, while a
+  // user confirming early is entitled to have it run immediately, and putting a
+  // due check in the claim turned that into a 409.
+  const claim = await prisma.erasureRequest.updateMany({
     where: { id: requestId, state: 'PENDING' },
+    data: { state: 'EXECUTING', claimedAt: now },
+  });
+
+  if (claim.count !== 1) {
+    return null;
+  }
+
+  const request = await prisma.erasureRequest.findFirst({
+    where: { id: requestId, state: 'EXECUTING' },
     select: {
       id: true,
       organizationId: true,
@@ -331,7 +347,7 @@ export async function executeErasure(
 
   await prisma.erasureRequest.update({
     where: { id: request.id },
-    data: { state: 'COMPLETED', completedAt: now },
+    data: { state: 'COMPLETED', completedAt: now, claimedAt: null },
   });
 
   // Sent after the transaction commits, so the confirmation cannot arrive for a
@@ -360,7 +376,26 @@ export async function cancelExpiredErasures(now = new Date()): Promise<number> {
   return count;
 }
 
+/**
+ * How long a claim is honoured before the erasure is assumed abandoned.
+ *
+ * Much longer than the lease, because a deletion is destructive and irreversible
+ * and a slow one must never be picked up by a second instance. The cost of
+ * being wrong this way is a delayed retry, not a double deletion.
+ */
+const erasureClaimTimeoutMs = 60 * 60 * 1000;
+
 export async function executeDueErasures(now = new Date()): Promise<ErasureOutcome[]> {
+  // Returns claims abandoned by a killed instance to the queue. Without this a
+  // customer's erasure request would sit in EXECUTING for ever, because the
+  // process that claimed it is gone and nothing else will touch it. The timeout
+  // is long enough that a genuinely slow deletion is never mistaken for a dead
+  // one, and re-running an erasure is safe because it is idempotent.
+  await prisma.erasureRequest.updateMany({
+    where: { state: 'EXECUTING', claimedAt: { lt: new Date(now.getTime() - erasureClaimTimeoutMs) } },
+    data: { state: 'PENDING', claimedAt: null },
+  });
+
   const due = await prisma.erasureRequest.findMany({
     where: { state: 'PENDING', purgeAfter: { lte: now } },
     select: { id: true },
@@ -370,9 +405,22 @@ export async function executeDueErasures(now = new Date()): Promise<ErasureOutco
   const outcomes: ErasureOutcome[] = [];
 
   for (const entry of due) {
-    const outcome = await executeErasure(entry.id, { now });
-    if (outcome) {
-      outcomes.push(outcome);
+    try {
+      const outcome = await executeErasure(entry.id, { now });
+      if (outcome) {
+        outcomes.push(outcome);
+      }
+    } catch (error) {
+      // Returned to PENDING so a transient failure is retried rather than the
+      // request being stranded mid state. The error is reported and the loop
+      // continues, because one bad request must not abandon the other nineteen
+      // that are due.
+      await prisma.erasureRequest
+        .updateMany({ where: { id: entry.id, state: 'EXECUTING' }, data: { state: 'PENDING', claimedAt: null } })
+        .catch(() => undefined);
+
+      const detail = error instanceof Error ? error.message : 'Unknown erasure failure.';
+      console.error(`[erasure] ${entry.id} failed and was requeued: ${detail}`);
     }
   }
 

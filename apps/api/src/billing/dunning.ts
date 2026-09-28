@@ -44,8 +44,10 @@ export interface ReconcileOutcome {
  * the provider, which is the only party that can safely retry it.
  */
 export async function runDunning(now = new Date()): Promise<DunningOutcome> {
+  // WITHDRAWN is terminal and excluded, so a workspace that has already lost
+  // access is not examined on every later run.
   const pastDue = await prisma.subscription.findMany({
-    where: { status: 'PAST_DUE' },
+    where: { status: 'PAST_DUE', dunningStage: { in: ['NONE', 'WARNED'] } },
     select: {
       organizationId: true,
       plan: true,
@@ -72,7 +74,28 @@ export async function runDunning(now = new Date()): Promise<DunningOutcome> {
     // follows, because most failed cards succeed on the next retry and
     // withdrawing a plan over a transient decline is how you lose a customer.
     if (pastDueMs < dunningGraceDays * 24 * 60 * 60 * 1000) {
+      // Claimed before anything is written, so two instances examining the same
+      // subscription on the same day do not both warn. Warned is not terminal
+      // because the withdrawal still has to happen once the grace is gone.
+      const claim = await prisma.subscription.updateMany({
+        where: { organizationId: subscription.organizationId, dunningStage: 'NONE' },
+        data: { dunningStage: 'WARNED' },
+      });
+
+      if (claim.count !== 1) {
+        continue;
+      }
+
       outcome.warned += 1;
+
+      // Sent after the claim, so a send cannot happen without the stage having
+      // been recorded, which is what would have let a second instance send it.
+      void sendPaymentFailedEmail({
+        organizationId: subscription.organizationId,
+        plan: subscription.plan,
+        graceEndsAt: new Date(now.getTime() + dunningGraceDays * 24 * 60 * 60 * 1000),
+      });
+
       await recordAuditEvent({
         organizationId: subscription.organizationId,
         action: 'PAYMENT_FAILED',
@@ -88,15 +111,6 @@ export async function runDunning(now = new Date()): Promise<DunningOutcome> {
       });
       continue;
     }
-
-    // Warned before anything is withdrawn, so the customer is never told after
-    // the fact. The message states plainly that no data is lost, because the
-    // instinct on seeing a failed payment is to assume the worst.
-    void sendPaymentFailedEmail({
-      organizationId: subscription.organizationId,
-      plan: subscription.plan,
-      graceEndsAt: new Date(now.getTime() + dunningGraceDays * 24 * 60 * 60 * 1000),
-    });
 
     await withdrawPlan(subscription.organizationId, subscription.plan, 'dunning');
     outcome.downgraded += 1;
@@ -115,11 +129,19 @@ export async function runDunning(now = new Date()): Promise<DunningOutcome> {
  * action.
  */
 async function withdrawPlan(organizationId: string, previousPlan: string, reason: 'dunning' | 'expired' | 'reconciled'): Promise<void> {
+  // The status is moved off PAST_DUE for dunning as well as for expiry. Leaving
+  // it on PAST_DUE is what made this loop: the row kept matching the recovery
+  // query, the period end stayed in the past, the grace check stayed passed, and
+  // the customer was warned and emailed again every day for ever.
   await prisma.$transaction([
     prisma.organization.update({ where: { id: organizationId }, data: { plan: 'MOORING' } }),
     prisma.subscription.update({
       where: { organizationId },
-      data: { status: reason === 'expired' ? 'EXPIRED' : 'PAST_DUE', plan: 'MOORING' },
+      data: {
+        status: reason === 'expired' || reason === 'dunning' ? 'EXPIRED' : 'PAST_DUE',
+        plan: 'MOORING',
+        ...(reason === 'dunning' ? { dunningStage: 'WITHDRAWN' as const } : {}),
+      },
     }),
   ]);
 
