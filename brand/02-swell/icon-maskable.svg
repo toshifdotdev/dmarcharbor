@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="DMARC Harbor">
+
+  <rect width="512" height="512" fill="#0B1F33"/>
+  <g transform="translate(158 158) scale(3.06)">
+  <!-- a baseline, so the bars read as measured against something rather than floating -->
+  <path d="M8 44.5h48" stroke="#0B1F33" stroke-width="3" stroke-linecap="round" opacity="0.85"/>
+  <g stroke-linecap="round" fill="none">
+    <path d="M16 42V30" stroke="#137A9B" stroke-width="8.5"/>
+    <path d="M32 42V19" stroke="#0E4A66" stroke-width="8.5"/>
+    <path d="M48 42V8" stroke="#F2A33C" stroke-width="8.5"/>
+  </g>
+  <path d="M6 51c5-4 10-4 15 0s10 4 15 0 10-4 15 0"
+        stroke="#137A9B" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.55"/>
+  <path d="M12 58c4.2-3.2 8.4-3.2 12.6 0s8.4 3.2 12.6 0 8.4-3.2 12.6 0"
+        stroke="#5FB6CE" stroke-width="3.2" fill="none" stroke-linecap="round" opacity="0.85"/>
+</g>
+
+</svg>

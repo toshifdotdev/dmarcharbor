@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="DMARC Harbor">
+
+  <rect x="0" y="0" width="512" height="512" fill="#0B1F33"/>
+  <g transform="translate(155 155) scale(3.02)">
+
+  <g stroke-linecap="round">
+    <path d="M14 46V34" stroke="#137A9B" stroke-width="11"/>
+    <path d="M32 46V24" stroke="#0E4A66" stroke-width="11"/>
+    <path d="M50 46V13" stroke="#F2A33C" stroke-width="11"/>
+  </g>
+  </g>
+
+</svg>

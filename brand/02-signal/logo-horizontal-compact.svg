@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 354 64" width="354" height="64" role="img" aria-label="DMARC Harbor">
+
+  <g transform="translate(0,0)">
+
+  <g stroke-linecap="round">
+    <path d="M14 46V34" stroke="#137A9B" stroke-width="11"/>
+    <path d="M32 46V24" stroke="#0E4A66" stroke-width="11"/>
+    <path d="M50 46V13" stroke="#F2A33C" stroke-width="11"/>
+  </g>
+  </g>
+  <text x="82" y="41" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Inter, Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="30" font-weight="650"
+        letter-spacing="-0.6" fill="#0B1F33">DMARC Harbor</text>
+  <text x="82" y="54" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Inter, Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="10.5" font-weight="600"
+        letter-spacing="3.4" fill="#137A9B">DMARC MONITORING</text>
+
+</svg>

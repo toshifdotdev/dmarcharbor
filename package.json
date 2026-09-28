@@ -8,7 +8,7 @@
     "workers/*"
   ],
   "scripts": {
-    "dev": "concurrently \"npm run dev --workspace @dmarcharbor/api\" \"npm run dev --workspace @dmarcharbor/web\"",
+    "dev": "npm run dev --workspace @dmarcharbor/api",
     "build": "npm run build --workspaces",
     "typecheck": "npm run typecheck --workspaces",
     "lint": "eslint .",

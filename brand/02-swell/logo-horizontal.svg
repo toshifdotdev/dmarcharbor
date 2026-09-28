@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 354 64" width="354" height="64" role="img" aria-label="DMARC Harbor">
+
+  <g>
+  <!-- a baseline, so the bars read as measured against something rather than floating -->
+  <path d="M8 44.5h48" stroke="#0B1F33" stroke-width="3" stroke-linecap="round" opacity="0.85"/>
+  <g stroke-linecap="round" fill="none">
+    <path d="M16 42V30" stroke="#137A9B" stroke-width="8.5"/>
+    <path d="M32 42V19" stroke="#0E4A66" stroke-width="8.5"/>
+    <path d="M48 42V8" stroke="#F2A33C" stroke-width="8.5"/>
+  </g>
+  <path d="M6 51c5-4 10-4 15 0s10 4 15 0 10-4 15 0"
+        stroke="#137A9B" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.55"/>
+  <path d="M12 58c4.2-3.2 8.4-3.2 12.6 0s8.4 3.2 12.6 0 8.4-3.2 12.6 0"
+        stroke="#5FB6CE" stroke-width="3.2" fill="none" stroke-linecap="round" opacity="0.85"/>
+  </g>
+  <text x="84" y="40" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Inter, Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="30" font-weight="650"
+        letter-spacing="-0.6" fill="#0B1F33">DMARC Harbor</text>
+  <text x="85" y="53" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Inter, Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="10" font-weight="600"
+        letter-spacing="3.2" fill="#137A9B">DMARC MONITORING</text>
+
+</svg>
