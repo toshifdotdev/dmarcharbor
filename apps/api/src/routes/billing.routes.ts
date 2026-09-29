@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireSession } from '../middleware/auth.middleware.js';
+import { requireStaff } from '../middleware/staff.middleware.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
 import {
   billingPortalController,
@@ -9,6 +10,7 @@ import {
   planSyncStatusController,
   paddleWebhookController,
   razorpayWebhookController,
+  reconcileController,
   resumeSubscriptionController,
   startCheckoutController,
 } from '../controllers/billing.controller.js';
@@ -59,6 +61,7 @@ billingRouter.post(
   requireSession,
   requireOrganizationPermission('billing', 'update'),
   resumeSubscriptionController,
+  reconcileController,
 );
 
 billingRouter.post(
@@ -67,6 +70,15 @@ billingRouter.post(
   requireOrganizationPermission('billing', 'update'),
   billingPortalController,
 );
+
+/**
+ * On demand reconciliation.
+ *
+ * Staff only, on the same credential as plan changes, because it makes outbound
+ * provider calls. Not a workspace route: no workspace role should be able to
+ * make the service sweep every customer's billing state.
+ */
+billingRouter.post('/billing/reconcile', requireStaff, reconcileController);
 
 /** Operator only: reports which provider plans still need creating. */
 billingRouter.get(

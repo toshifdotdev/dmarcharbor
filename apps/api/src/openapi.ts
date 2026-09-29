@@ -892,6 +892,32 @@ export const openApiDocument = {
         responses: { ...standardErrors, 302: { description: 'Signed in and redirected to the portal.' } },
       },
     },
+    '/billing/reconcile': {
+      post: {
+        tags: ['Billing'],
+        security: [{ staffKey: [] }],
+        summary: 'Reconcile billing state now, on demand',
+        description: [
+          'Compares every subscription against its payment provider immediately, instead of waiting for the scheduled run. Exists for the case where six hours is too long to answer a question a customer is already asking, such as "I paid an hour ago and my plan has not changed".',
+          'Optional organizationId narrows the sweep to one subscription, which is what support usually wants and avoids a provider API call per customer.',
+          'Staff only, on the same credential as plan changes. An endpoint that makes outbound provider calls on demand is not something a workspace role should reach.',
+          'Safe to call repeatedly. The event identifier is deterministic, so a reconciliation that races the real webhook recognises it as a duplicate and does nothing.',
+        ].join(' '),
+        parameters: [
+          {
+            name: 'organizationId',
+            in: 'query',
+            required: false,
+            schema: { type: 'string' },
+            description: 'Reconcile only this workspace. Omit to sweep every subscription.',
+          },
+        ],
+        responses: {
+          200: { description: 'What was examined, and what was repaired.' },
+          404: { description: 'That workspace has no provider subscription to reconcile.' },
+        },
+      },
+    },
     '/health': {
       get: {
         tags: ['System'],

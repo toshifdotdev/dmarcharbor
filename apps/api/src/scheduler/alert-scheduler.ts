@@ -6,7 +6,8 @@ import { executeDueErasures } from '../services/erasure/erasure.service.js';
 import { reverifyUnverifiedDomains } from '../services/domain-reverify.service.js';
 import { purgeExpiredIdempotencyRecords } from '../services/api-key.service.js';
 import { runDunning, runReconciliation } from '../billing/dunning.js';
-import { withJobLease } from './job-lease.service.js';
+import { repairWebhookEndpoints } from '../services/webhook.service.js';
+import { acquireDueLease, withJobLease } from './job-lease.service.js';
 
 let timer: NodeJS.Timeout | undefined;
 let running = false;
@@ -14,25 +15,6 @@ let lastReverifyAt = 0;
 let lastDunningAt = 0;
 let lastReconcileAt = 0;
 
-/**
- * Dunning and reconciliation are slow, careful jobs, so each runs on its own
- * interval rather than on every alert tick.
- *
- * Dunning withdraws a plan after a payment failure, which must not happen
- * thirteen times an hour. Reconciliation is the safety net for webhooks that
- * never arrived, and there is no value in asking a provider more often than it
- * could plausibly have changed anything.
- */
-function isDue(now: number, lastRun: number, intervalMinutes: number): boolean {
-  return now - lastRun >= intervalMinutes * 60 * 1000;
-}
-
-/**
- * Re-verification is far slower than alert evaluation, so it only runs when
- * its own interval has elapsed. Alert evaluation runs every 15 minutes by
- * default, and querying the domain table four times an hour to find nothing
- * new is wasted database work.
- */
 function reverificationIsDue(now: number): boolean {
   const intervalMs = Math.max(env.DOMAIN_REVERIFY_INTERVAL_MINUTES, 1) * 60 * 1000;
   return now - lastReverifyAt >= intervalMs;
@@ -99,7 +81,16 @@ async function runAlertEvaluationPass(): Promise<void> {
       console.info(`[api] cleared ${expiredIdempotency} expired idempotency record(s)`);
     }
 
-    if (isDue(Date.now(), lastDunningAt, env.BILLING_DUNNING_INTERVAL_MINUTES)) {
+    // Dunning and reconciliation are leased on their own schedule rather than on
+    // the alert tick, because they make provider API calls and must not run more
+    // often than the interval says. The schedule lives in the database, so a
+    // deploy neither loses it nor turns six hours into six minutes.
+    const dunningLease = await acquireDueLease(
+      'billing-dunning',
+      Math.max(env.BILLING_DUNNING_INTERVAL_MINUTES, 1) * 60 * 1000,
+    );
+
+    if (dunningLease.acquired) {
       lastDunningAt = Date.now();
       const dunning = await runDunning();
       if (dunning.warned > 0 || dunning.downgraded > 0) {
@@ -107,9 +98,16 @@ async function runAlertEvaluationPass(): Promise<void> {
           `[billing] dunning examined ${dunning.examined}, ${dunning.warned} still retrying, ${dunning.downgraded} moved to the free plan`,
         );
       }
+
+      await dunningLease.release();
     }
 
-    if (isDue(Date.now(), lastReconcileAt, env.BILLING_RECONCILE_INTERVAL_MINUTES)) {
+    const reconcileLease = await acquireDueLease(
+      'billing-reconciliation',
+      Math.max(env.BILLING_RECONCILE_INTERVAL_MINUTES, 1) * 60 * 1000,
+    );
+
+    if (reconcileLease.acquired) {
       lastReconcileAt = Date.now();
       const reconciled = await runReconciliation();
       if (reconciled.repaired > 0 || reconciled.unreachable > 0) {
@@ -117,6 +115,22 @@ async function runAlertEvaluationPass(): Promise<void> {
           `[billing] reconciliation examined ${reconciled.examined}, ${reconciled.repaired} repaired, ${reconciled.unreachable} unreachable`,
         );
       }
+
+      await reconcileLease.release();
+    }
+
+    // Repairs a webhook integration that has died permanently, which nothing
+    // else would ever look at again. On the persisted schedule so it is not
+    // re-examined on every tick, and leased so the fleet does not all probe.
+    const repairLease = await acquireDueLease('webhook-repair', 60 * 60 * 1000);
+    if (repairLease.acquired) {
+      const repaired = await repairWebhookEndpoints();
+      if (repaired.endpointsProbed > 0 || repaired.deliveriesRequeued > 0) {
+        console.info(
+          `[webhooks] probed ${repaired.endpointsProbed} suspended endpoint(s), requeued ${repaired.deliveriesRequeued} dead delivery(ies)`,
+        );
+      }
+      await repairLease.release();
     }
 
     const digests = await runReportDigests();

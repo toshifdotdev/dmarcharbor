@@ -1,6 +1,10 @@
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { env } from '../config/env.js';
+import { prisma } from '../database/prisma.js';
+import { providerFor } from '../billing/registry.js';
+import { reconcileWithProvider } from '../billing/subscription-state.js';
+import { runReconciliation } from '../billing/dunning.js';
 import { BillingProviderError } from '../billing/provider.js';
 import {
   CheckoutError,
@@ -144,6 +148,55 @@ export async function planSyncStatusController(request: Request, response: Respo
   }
 
   response.json({ provider, currency, plans: await syncStatus(provider, currency) });
+}
+
+/**
+ * Runs reconciliation now, on demand.
+ *
+ * The scheduled reconciler exists so a missed webhook repairs itself within
+ * six hours. This exists for the case where six hours is too long to answer a
+ * question a customer is already asking, such as "I paid an hour ago and my plan
+ * has not changed". Without it, support can only tell somebody to wait.
+ *
+ * A whole-workspace reconciliation is the common case and is a full sweep.
+ * Passing an organization narrows it to that one subscription, which is what
+ * support actually wants, and avoids a provider API call per customer.
+ *
+ * Staff only, on the same credential as plan changes. An endpoint that makes
+ * outbound provider calls on demand is not something a workspace role should
+ * reach.
+ */
+export async function reconcileController(request: Request, response: Response): Promise<void> {
+  const organizationId = typeof request.query.organizationId === 'string' ? request.query.organizationId : undefined;
+
+  if (organizationId) {
+    const subscription = await prisma.subscription.findUnique({
+      where: { organizationId },
+      select: { provider: true, providerSubscriptionId: true },
+    });
+
+    if (!subscription?.providerSubscriptionId || subscription.provider === 'NONE') {
+      response.status(404).json({
+        error: { code: 'NO_SUBSCRIPTION', message: 'That workspace has no provider subscription to reconcile.' },
+      });
+      return;
+    }
+
+    const provider = providerFor(subscription.provider);
+    const applied = await reconcileWithProvider(organizationId, provider);
+
+    response.json({
+      organizationId,
+      matched: applied !== null,
+      applied: applied?.applied ?? false,
+      duplicate: applied?.duplicate ?? false,
+      plan: applied?.plan ?? null,
+      status: applied?.status ?? null,
+    });
+    return;
+  }
+
+  response.json(await runReconciliation());
 }
 
 /* ------------------------------------------------------------------ webhooks */

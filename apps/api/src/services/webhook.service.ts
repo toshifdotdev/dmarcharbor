@@ -45,6 +45,138 @@ export const suspensionWindowHours = 24;
 /** Exponential backoff, capped so a long outage still retries within a day. */
 export const retryDelaysMinutes = [1, 5, 30, 120, 720];
 
+/**
+ * How long a dead endpoint is left suspended before it is probed again.
+ *
+ * Long enough that a customer with a genuinely broken integration is not
+ * hammered, and short enough that somebody who fixes their server overnight is
+ * not left permanently disconnected. Without this an endpoint suspended once
+ * never came back on its own, and only a human looking at a dashboard would
+ * notice, which is the opposite of self healing.
+ */
+export const suspensionProbeHours = 6;
+
+/**
+ * How long a given delivery is left dead before it is requeued.
+ *
+ * The five in-cycle retries cover a blip. This covers the case where the whole
+ * window fell inside an outage: the events that failed during it would otherwise
+ * be lost, and a monitoring product that drops its customer's events during the
+ * customer's own outage is the worst possible time to do it.
+ *
+ * Requeueing is bounded by the endpoint's failure count, which is not reset
+ * here, so a permanently dead endpoint still reaches the suspension threshold
+ * and stops.
+ */
+export const deadDeliveryRequeueHours = 24;
+
+export interface WebhookRepairOutcome {
+  endpointsProbed: number;
+  endpointsRecovered: number;
+  deliveriesRequeued: number;
+  endpointsStillFailing: number;
+}
+
+/**
+ * Repairs two ways a webhook integration dies permanently.
+ *
+ * The first is an endpoint suspended after too many failures. It stays suspended
+ * for ever, so a customer whose server was down overnight never receives
+ * anything again and never finds out, because nothing tells them. This resets
+ * the counter after the probe window, which turns a permanent disconnection into
+ * one trial delivery: if the server is still broken the endpoint climbs back to
+ * suspended, and if it is fixed the customer is reconnected without a human
+ * involved.
+ *
+ * The second is a delivery that used up its retries. It is marked failed and
+ * never looked at again, so the events that failed inside the customer's outage
+ * are simply gone. Requeuing them means a monitoring product stops losing data
+ * exactly when its customer is already in trouble.
+ *
+ * Both are half open transitions: one attempt decides, and the failure counter
+ * is not reset for the delivery path, so a dead endpoint converges on suspended
+ * rather than retrying for ever.
+ */
+export async function repairWebhookEndpoints(now = new Date()): Promise<WebhookRepairOutcome> {
+  const outcome: WebhookRepairOutcome = {
+    endpointsProbed: 0,
+    endpointsRecovered: 0,
+    deliveriesRequeued: 0,
+    endpointsStillFailing: 0,
+  };
+
+  // 1. Probe endpoints whose suspension window has passed.
+  const probeBefore = new Date(now.getTime() - suspensionProbeHours * 60 * 60 * 1000);
+  const due = await prisma.webhookEndpoint.findMany({
+    where: { suspendedAt: { lte: probeBefore } },
+    select: { id: true, organizationId: true, failureCount: true },
+    take: 100,
+  });
+
+  for (const endpoint of due) {
+    // A trial delivery is the test. Only the endpoints that have something to
+    // retry are worth probing, and an endpoint with nothing queued is left
+    // suspended so it does not sit in a half open state with no way to close.
+    const queued = await prisma.webhookDelivery.count({
+      where: { endpointId: endpoint.id, status: { in: ['PENDING', 'SUSPENDED'] } },
+    });
+
+    if (queued === 0) {
+      outcome.endpointsStillFailing += 1;
+      continue;
+    }
+
+    const reopened = await prisma.webhookEndpoint.updateMany({
+      where: { id: endpoint.id, suspendedAt: { lte: probeBefore } },
+      data: { suspendedAt: null, failureCount: Math.floor(endpoint.failureCount / 2) },
+    });
+
+    if (reopened.count !== 1) {
+      continue;
+    }
+
+    outcome.endpointsProbed += 1;
+
+    await prisma.webhookDelivery.updateMany({
+      where: { endpointId: endpoint.id, status: 'SUSPENDED' },
+      data: { status: 'PENDING', claimedAt: null, claimedBy: null, nextAttemptAt: now },
+    });
+
+    await recordAuditEvent({
+      organizationId: endpoint.organizationId,
+      action: 'WEBHOOK_ENDPOINT_PROBED',
+      targetType: 'webhook_endpoint',
+      targetId: endpoint.id,
+      detail: {
+        note: 'Suspension window elapsed, so a trial delivery was queued. One attempt decides whether the endpoint recovers.',
+        previousFailureCount: endpoint.failureCount,
+      },
+    });
+  }
+
+  // 2. Requeue deliveries that died inside a customer outage.
+  const deadBefore = new Date(now.getTime() - deadDeliveryRequeueHours * 60 * 60 * 1000);
+  const requeued = await prisma.webhookDelivery.updateMany({
+    where: {
+      status: 'FAILED',
+      deliveredAt: null,
+      createdAt: { lte: deadBefore },
+      endpoint: { suspendedAt: null },
+    },
+    data: { status: 'PENDING', attempts: 0, nextAttemptAt: now, claimedAt: null, claimedBy: null },
+  });
+
+  outcome.deliveriesRequeued = requeued.count;
+
+  if (requeued.count > 0) {
+    console.info(
+      `[webhooks] requeued ${requeued.count} delivery(ies) that failed more than ${deadDeliveryRequeueHours} hours ago, so events lost in a customer outage are retried rather than dropped`,
+    );
+  }
+
+  return outcome;
+}
+
 export interface RegisteredEndpoint {
   id: string;
   name: string;

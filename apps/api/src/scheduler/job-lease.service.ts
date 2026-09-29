@@ -103,13 +103,81 @@ export async function acquireLease(name: string, leaseMs = defaultLeaseMs): Prom
       }
       released = true;
 
+      // Marked free rather than deleted, because the row's updatedAt is the
+      // durable record of when the job last ran. Deleting it would throw that
+      // away, and a schedule that lives in process memory resets on every
+      // deploy.
+      //
       // Scoped to the holder, so a lease that already expired and was taken by
       // somebody else is not released out from under them.
       await prisma.jobLease
-        .deleteMany({ where: { name, holder } })
+        .updateMany({ where: { name, holder }, data: { expiresAt: new Date() } })
         .catch(() => undefined);
     },
   };
+}
+
+/**
+ * Takes the lease only if the job has not run recently enough to be due.
+ *
+ * This is the whole fix for schedules being lost or bursted by a deploy. The
+ * previous in-memory `lastRunAt` started at zero, so every restart considered
+ * the job due immediately: deploying three times a day meant reconciling three
+ * times a day regardless of a six hour interval, which is a great way to get
+ * rate limited by a payment provider.
+ *
+ * Deciding "is it due" and "claim it" has to be one statement. Two would leave
+ * a window where every instance agreed the job was due and all of them ran it.
+ *
+ * `updatedAt` is written only when the lease is actually taken, so it is the
+ * time the job last started.
+ */
+export async function acquireDueLease(
+  name: string,
+  intervalMs: number,
+  leaseMs = defaultLeaseMs,
+): Promise<LeaseResult> {
+  const holder = currentInstanceId();
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + leaseMs);
+  const dueBefore = new Date(now.getTime() - intervalMs);
+
+  const rows = await prisma.$queryRaw<{ holder: string }[]>`
+    INSERT INTO "job_lease" ("name", "holder", "expiresAt", "updatedAt")
+    VALUES (${name}, ${holder}, ${expiresAt}, ${now})
+    ON CONFLICT ("name") DO UPDATE
+      SET "holder" = EXCLUDED."holder",
+          "expiresAt" = EXCLUDED."expiresAt",
+          "updatedAt" = EXCLUDED."updatedAt"
+      WHERE "job_lease"."expiresAt" < ${now}
+        AND "job_lease"."updatedAt" < ${dueBefore}
+    RETURNING "holder"
+  `;
+
+  if (rows.length !== 1 || rows[0]?.holder !== holder) {
+    return { acquired: false };
+  }
+
+  let released = false;
+
+  return {
+    acquired: true,
+    release: async () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      await prisma.jobLease
+        .updateMany({ where: { name, holder }, data: { expiresAt: new Date() } })
+        .catch(() => undefined);
+    },
+  };
+}
+
+/** When a job last started. Exposed for observability and for tests. */
+export async function lastRunAt(name: string): Promise<Date | null> {
+  const row = await prisma.jobLease.findUnique({ where: { name } });
+  return row?.updatedAt ?? null;
 }
 
 /**
