@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { resolveAlignedSender } from './alignment.service.js';
 import { XMLParser } from 'fast-xml-parser';
 import { normalizeDomain } from '../scanner/domain.js';
 
@@ -180,47 +181,22 @@ function parseAuthResults(value: unknown): ParsedAuthResult[] {
   return [...dkimResults, ...spfResults];
 }
 
-function normaliseOptionalDomain(value: string | undefined): string | undefined {
-  const candidate = value?.trim().toLowerCase().replace(/\.$/, '');
-  if (!candidate) {
-    return undefined;
-  }
-
-  try {
-    return normalizeDomain(candidate);
-  } catch {
-    return undefined;
-  }
-}
-
-export function resolveSenderDomain(
-  policyDomain: string,
-  record: { headerFrom?: string; envelopeFrom?: string; authResults: ParsedAuthResult[] },
-): string | undefined {
-  const aligned = record.authResults.find(
-    (result) => result.domain && normaliseOptionalDomain(result.domain) === policyDomain,
-  );
-
-  if (aligned?.domain) {
-    return normaliseOptionalDomain(aligned.domain);
-  }
-
-  const spfDomain = record.authResults.find((result) => result.type === 'SPF' && result.domain)?.domain;
-  const dkimDomain = record.authResults.find((result) => result.type === 'DKIM' && result.domain)?.domain;
-
-  return (
-    normaliseOptionalDomain(spfDomain) ??
-    normaliseOptionalDomain(dkimDomain) ??
-    normaliseOptionalDomain(record.headerFrom) ??
-    normaliseOptionalDomain(record.envelopeFrom)
-  );
-}
 
 function buildSenderKey(sourceIp: string, senderDomain: string | undefined): string | undefined {
   return senderDomain ? senderDomain : `${sourceIp}|unknown`;
 }
 
-function parseRecords(value: unknown, policyDomain: string): ParsedReportRecord[] {
+/**
+ * `adkim` and `aspf` are carried in because RFC 7489 has the policy domain
+ * declare its own alignment requirement per protocol. A domain published with
+ * `aspf=s` is asking for strict SPF, and quietly ignoring that would weaken a
+ * control the customer deliberately chose.
+ */
+function parseRecords(
+  value: unknown,
+  policyDomain: string,
+  modes: { adkim: string | undefined; aspf: string | undefined },
+): ParsedReportRecord[] {
   const records = asArray(value);
   if (records.length === 0) {
     throw new DmarcReportParseError('The report does not contain any records.');
@@ -241,10 +217,13 @@ function parseRecords(value: unknown, policyDomain: string): ParsedReportRecord[
     const sourceIp = requiredText(row.source_ip, 'record source_ip');
     const authResults = parseAuthResults(record.auth_results);
     const headerFrom = text(identifiers?.header_from);
-    const senderDomain = resolveSenderDomain(policyDomain, {
+    const { senderDomain } = resolveAlignedSender({
+      policyDomain,
       headerFrom,
       envelopeFrom: text(identifiers?.envelope_from),
       authResults,
+      adkim: modes.adkim,
+      aspf: modes.aspf,
     });
 
     return {
@@ -328,6 +307,11 @@ export function parseDmarcReport(xml: string): ParsedDmarcReport {
     throw new DmarcReportParseError(error instanceof Error ? error.message : 'The report has an invalid policy domain.');
   }
 
+  // Read before the records, because each record needs the declared modes to
+  // judge alignment against.
+  const adkim = text(policy.adkim);
+  const aspf = text(policy.aspf);
+
   const metadata = asRecord(feedback.report_metadata);
   const dateRange = asRecord(metadata?.date_range);
   const fractionValue = text(policy.fraction);
@@ -356,6 +340,6 @@ export function parseDmarcReport(xml: string): ParsedDmarcReport {
     policySp: text(policy.sp),
     policyFraction: fraction,
     reportError: text(metadata?.error),
-    records: parseRecords(feedback.record, policyDomain),
+    records: parseRecords(feedback.record, policyDomain, { adkim, aspf }),
   };
 }

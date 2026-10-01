@@ -4,7 +4,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { buildSenderBreakdown, classifySender, senderBreakdownThresholds } from '../src/services/sender-breakdown.service.js';
-import { resolveSenderDomain, parseDmarcReport } from '../src/services/report-parser.service.js';
+import { parseDmarcReport } from '../src/services/report-parser.service.js';
+import { resolveAlignedSender } from '../src/services/alignment.service.js';
 
 let fixtureId = 0;
 const password = 'correct-horse-battery-staple';
@@ -173,7 +174,8 @@ async function setup(policy: string | null = 'none') {
 
 describe('sender identity resolution', () => {
   it('prefers the authentication domain aligned with the policy domain', () => {
-    const resolved = resolveSenderDomain('example.com', {
+    const resolved = resolveAlignedSender({
+      policyDomain: 'example.com',
       headerFrom: 'example.com',
       envelopeFrom: 'newsletter.spam.test',
       authResults: [
@@ -182,30 +184,37 @@ describe('sender identity resolution', () => {
       ],
     });
 
-    expect(resolved).toBe('example.com');
+    expect(resolved.senderDomain).toBe('example.com');
+    expect(resolved.matched).toBe(true);
   });
 
   it('prefers the authentication domain over the claimed header_from when nothing aligns', () => {
-    expect(
-      resolveSenderDomain('example.com', {
-        headerFrom: 'Example.COM',
-        authResults: [{ type: 'SPF', domain: 'spammer.test', scope: 'mfrom', result: 'fail' }],
-      }),
-    ).toBe('spammer.test');
+    const fromSpf = resolveAlignedSender({
+      policyDomain: 'example.com',
+      headerFrom: 'Example.COM',
+      authResults: [{ type: 'SPF', domain: 'spammer.test', scope: 'mfrom', result: 'fail' }],
+    });
 
-    expect(
-      resolveSenderDomain('example.com', {
-        authResults: [{ type: 'SPF', domain: 'portal.other.test', scope: 'mfrom', result: 'fail' }],
-      }),
-    ).toBe('portal.other.test');
+    expect(fromSpf.senderDomain).toBe('spammer.test');
+    // Not aligned, so this is attributed to what authenticated it rather than
+    // what the message claimed, and the caller is told so it can say why.
+    expect(fromSpf.matched).toBe(false);
 
-    expect(
-      resolveSenderDomain('example.com', {
-        headerFrom: 'Example.COM',
-        envelopeFrom: 'mail.example.com',
-        authResults: [],
-      }),
-    ).toBe('example.com');
+    const spfOnly = resolveAlignedSender({
+      policyDomain: 'example.com',
+      authResults: [{ type: 'SPF', domain: 'portal.other.test', scope: 'mfrom', result: 'fail' }],
+    });
+
+    expect(spfOnly.senderDomain).toBe('portal.other.test');
+
+    const fallback = resolveAlignedSender({
+      policyDomain: 'example.com',
+      headerFrom: 'Example.COM',
+      envelopeFrom: 'mail.example.com',
+      authResults: [],
+    });
+
+    expect(fallback.senderDomain).toBe('example.com');
   });
 
   it('writes a sender key onto every parsed record', () => {

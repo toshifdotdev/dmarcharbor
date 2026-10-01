@@ -1631,7 +1631,10 @@ export const openApiDocument = {
         tags: ['Reports'],
         summary: 'Per sending service breakdown',
         description: [
-          'Splits traffic by sending service, which is the source IP combined with the aligned authentication domain.',
+          [
+    'Splits traffic by sending service, which is the source IP combined with the authenticated domain.',
+    'Alignment follows RFC 7489 and honours the policy domain\'s own adkim and aspf tags, so a domain published with aspf=s gets strict SPF matching rather than relaxed.',
+  ].join(' '),
           'A blended pass rate hides a rare but broken sender inside a large healthy one, so each sender is graded on its own failure share.',
           'Grades are clean, degraded, failing, or insufficient-data when there are too few messages to judge.',
           'Senders first seen within the last seven days are flagged as new, which is how a spoofed source or an unexpected new service shows up.',
