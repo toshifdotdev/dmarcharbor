@@ -918,6 +918,21 @@ export const openApiDocument = {
         },
       },
     },
+    '/auth/providers': {
+      get: {
+        tags: ['System'],
+        security: [],
+        summary: 'Which sign-in methods this deployment offers',
+        description: [
+          'Read by the sign-in page, so it takes no authentication and is deliberately mounted ahead of the session middleware.',
+          'Social providers are conditional on an OAuth application being registered for this environment, so the answer differs between a laptop and production. Hardcoding the buttons means either dead buttons in development or missing ones in production.',
+          'Returns only whether each provider is configured. No client id and no authorisation url, nothing that could be turned into a token.',
+        ].join(' '),
+        responses: {
+          200: { description: 'Which of password, google and microsoft are available here.' },
+        },
+      },
+    },
     '/health': {
       get: {
         tags: ['System'],

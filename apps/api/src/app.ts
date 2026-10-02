@@ -1,4 +1,5 @@
 import { toNodeHandler } from 'better-auth/node';
+import { authOptionsRouter } from './routes/auth.routes.js';
 import cors from 'cors';
 import express from 'express';
 import { auth } from './auth/auth.config.js';
@@ -36,7 +37,11 @@ export function createApp(): express.Express {
 
   app.use(requestContext);
   app.use(cors({ origin: env.CORS_ORIGINS, credentials: true }));
-  app.all('/api/auth/*splat', toNodeHandler(auth));
+  // Ahead of the Better Auth handler, which owns /api/auth/* and would otherwise
+// answer this itself. Read by the sign-in page, so it cannot require a session.
+app.use('/api/auth', authOptionsRouter);
+
+app.all('/api/auth/*splat', toNodeHandler(auth));
   app.use('/api', systemRouter);
   app.use('/api', inboundReportRouter);
   app.use('/api', publicReportRouter);
