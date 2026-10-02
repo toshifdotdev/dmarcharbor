@@ -18,9 +18,10 @@
    ========================================================================= */
 
 @theme {
-  --font-sans: system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI",
-    Roboto, sans-serif;
-  --font-display: "Segoe UI Variable Display", "Helvetica Neue", Arial, sans-serif;
+  --font-sans: var(--font-inter), system-ui, -apple-system,
+    "Segoe UI Variable Text", "Segoe UI", Roboto, sans-serif;
+  --font-display: var(--font-inter), system-ui, -apple-system,
+    "Segoe UI Variable Display", "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     monospace;
 
@@ -92,9 +93,9 @@ body::before {
 
 .label {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 600;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--color-ink-3);
 }

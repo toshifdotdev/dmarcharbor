@@ -69,7 +69,7 @@ export function TrendChart({
           </defs>
           <rect x="46" y="12" width="666" height="162" fill="url(#void-hatch)" />
         </svg>
-        <p className="num text-[10.5px]" style={{ color: "var(--color-ink-3)" }}>
+        <p className="num text-[12px]" style={{ color: "var(--color-ink-3)" }}>
           Nothing measured in this window — {missing.length} unmeasured days.
         </p>
       </figure>
@@ -145,7 +145,7 @@ export function TrendChart({
       </svg>
 
       <figcaption
-        className="num flex flex-wrap items-center gap-x-5 gap-y-1 text-[10.5px]"
+        className="num flex flex-wrap items-center gap-x-5 gap-y-1 text-[12px]"
         style={{ color: "var(--color-ink-3)" }}
       >
         <span>

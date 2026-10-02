@@ -26,7 +26,7 @@ export function WorkspaceSwitcher({
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-haspopup="listbox"
-        className="flex items-center gap-2 rounded-[2px] border px-3 py-1.5 text-[12px]"
+        className="flex items-center gap-2 rounded-[2px] border px-3 py-1.5 text-[13.5px]"
         style={{
           borderColor: "var(--color-line-strong)",
           background: "var(--color-surface)",
@@ -59,7 +59,7 @@ export function WorkspaceSwitcher({
                   document.cookie = `harbor.workspace=${w.id}; path=/; max-age=31536000`;
                   router.refresh();
                 }}
-                className="flex w-full items-center justify-between px-3 py-2 text-left text-[12.5px] transition-colors hover:bg-[var(--color-elevate)]"
+                className="flex w-full items-center justify-between px-3 py-2 text-left text-[14px] transition-colors hover:bg-[var(--color-elevate)]"
                 style={{
                   color:
                     w.id === activeWorkspace.id
@@ -69,7 +69,7 @@ export function WorkspaceSwitcher({
               >
                 {w.name}
                 {w.id === activeWorkspace.id ? (
-                  <span className="num text-[10px]" style={{ color: "var(--color-ink-3)" }}>
+                  <span className="num text-[11.5px]" style={{ color: "var(--color-ink-3)" }}>
                     current
                   </span>
                 ) : null}

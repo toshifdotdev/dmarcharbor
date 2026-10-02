@@ -53,7 +53,7 @@ export function SocialButtons() {
           onClick={() => {
             window.location.href = `/api/auth/sign-in/social?provider=${p}`;
           }}
-          className="rounded-[2px] border px-5 py-2.5 text-[13px] font-medium transition-colors"
+          className="rounded-[2px] border px-5 py-2.5 text-[14.5px] font-medium transition-colors"
           style={{
             borderColor: "var(--color-line-strong)",
             background: "var(--color-surface)",

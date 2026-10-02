@@ -106,7 +106,7 @@ export function PortfolioGrid({ rows }: { rows: PortfolioRow[] }) {
         header: "Domain",
         accessorFn: (r) => r.domain.name,
         cell: (info) => (
-          <span className="num text-[12.5px]" style={{ color: "var(--color-ink)" }}>
+          <span className="num text-[14px]" style={{ color: "var(--color-ink)" }}>
             {info.row.original.domain.name}
           </span>
         ),
@@ -122,7 +122,7 @@ export function PortfolioGrid({ rows }: { rows: PortfolioRow[] }) {
             // Signals not yet known. Rule Zero: never a posture, never a pass.
             return (
               <span
-                className="num text-[10px] tracking-[0.12em] uppercase"
+                className="num text-[11.5px] tracking-[0.12em] uppercase"
                 style={{ color: "var(--color-ink-3)" }}
                 title="Measurement signals have not loaded for this domain yet."
               >
@@ -146,7 +146,7 @@ export function PortfolioGrid({ rows }: { rows: PortfolioRow[] }) {
               </span>
             );
           return (
-            <span className="num text-[12px]" style={{ color: "var(--color-ink-2)" }}>
+            <span className="num text-[13.5px]" style={{ color: "var(--color-ink-2)" }}>
               {fmtVolume(s.messageCount)}
             </span>
           );
@@ -166,7 +166,7 @@ export function PortfolioGrid({ rows }: { rows: PortfolioRow[] }) {
             );
           return (
             <span
-              className="num text-[12px]"
+              className="num text-[13.5px]"
               style={{
                 color: s.failedMessages > 0 ? "var(--color-block)" : "var(--color-ink-2)",
               }}
@@ -187,7 +187,7 @@ export function PortfolioGrid({ rows }: { rows: PortfolioRow[] }) {
           );
           const observed = label !== "not observed";
           return (
-            <span className="num text-[11.5px]" style={{ color: observed ? "var(--color-ink-2)" : "var(--color-ink-3)" }}>
+            <span className="num text-[13px]" style={{ color: observed ? "var(--color-ink-2)" : "var(--color-ink-3)" }}>
               {observed ? `p=${label}` : label}
             </span>
           );
@@ -207,7 +207,7 @@ export function PortfolioGrid({ rows }: { rows: PortfolioRow[] }) {
             );
           const days = Math.floor((Date.now() - new Date(at).getTime()) / 86_400_000);
           return (
-            <span className="num text-[11.5px]" style={{ color: "var(--color-ink-2)" }}>
+            <span className="num text-[13px]" style={{ color: "var(--color-ink-2)" }}>
               {days === 0 ? "today" : `${days}d ago`}
             </span>
           );
@@ -264,7 +264,7 @@ export function PortfolioGrid({ rows }: { rows: PortfolioRow[] }) {
                 type="button"
                 onClick={() => setPostureFilter(f.key)}
                 aria-pressed={on}
-                className="rounded-[2px] border px-2.5 py-1 text-[11px] font-medium transition-colors"
+                className="rounded-[2px] border px-3 py-1.5 text-[13px] font-medium transition-colors"
                 style={{
                   borderColor: on ? "var(--color-accent)" : "var(--color-line-strong)",
                   background: on ? "var(--color-accent-soft)" : "transparent",
@@ -279,7 +279,7 @@ export function PortfolioGrid({ rows }: { rows: PortfolioRow[] }) {
             );
           })}
           {counts.pending > 0 ? (
-            <span className="num text-[10px] tracking-[0.12em] uppercase" style={{ color: "var(--color-ink-3)" }}>
+            <span className="num text-[11.5px] tracking-[0.12em] uppercase" style={{ color: "var(--color-ink-3)" }}>
               {counts.pending} signals pending
             </span>
           ) : null}
@@ -291,7 +291,7 @@ export function PortfolioGrid({ rows }: { rows: PortfolioRow[] }) {
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Filter domains or clients…"
           aria-label="Filter domains or clients"
-          className="w-56 rounded-[2px] border px-3 py-1.5 text-[12px] outline-none"
+          className="w-64 rounded-[2px] border px-3.5 py-2 text-[13.5px] outline-none"
           style={{
             background: "var(--color-surface)",
             borderColor: "var(--color-line-strong)",
@@ -302,7 +302,7 @@ export function PortfolioGrid({ rows }: { rows: PortfolioRow[] }) {
         {/* Columns — one popover, so control chrome doesn't outweigh data. */}
         <details className="relative ml-auto">
           <summary
-            className="cursor-pointer list-none rounded-[2px] border px-2.5 py-1.5 text-[11px] font-medium"
+            className="cursor-pointer list-none rounded-[2px] border px-3 py-2 text-[13px] font-medium"
             style={{
               borderColor: "var(--color-line-strong)",
               color: "var(--color-ink-2)",
@@ -322,7 +322,7 @@ export function PortfolioGrid({ rows }: { rows: PortfolioRow[] }) {
               return (
                 <label
                   key={col.id}
-                  className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-[11.5px] hover:bg-[var(--color-elevate)]"
+                  className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-[13px] hover:bg-[var(--color-elevate)]"
                   style={{ color: on ? "var(--color-ink-2)" : "var(--color-ink-3)" }}
                 >
                   <input
@@ -353,7 +353,7 @@ export function PortfolioGrid({ rows }: { rows: PortfolioRow[] }) {
                 {hg.headers.map((h) => (
                   <th
                     key={h.id}
-                    className="label border-b px-3 py-2 text-left"
+                    className="label border-b px-4 py-2.5 text-left"
                     style={{ borderColor: "var(--color-line)" }}
                   >
                     {h.isPlaceholder ? null : (
@@ -404,7 +404,7 @@ export function PortfolioGrid({ rows }: { rows: PortfolioRow[] }) {
                   {row.getVisibleCells().map((cell) => (
                     <td
                       key={cell.id}
-                      className="border-b px-3 py-2 text-[12.5px]"
+                      className="border-b px-4 py-2.5 text-[14px]"
                       style={{
                         borderColor: "rgba(255,255,255,0.055)",
                         color: "var(--color-ink-2)",
@@ -420,7 +420,7 @@ export function PortfolioGrid({ rows }: { rows: PortfolioRow[] }) {
               <tr>
                 <td
                   colSpan={columns.length}
-                  className="px-3 py-10 text-center text-[12.5px]"
+                  className="px-4 py-12 text-center text-[14px]"
                   style={{ color: "var(--color-ink-3)" }}
                 >
                   {rows.length === 0
@@ -433,7 +433,7 @@ export function PortfolioGrid({ rows }: { rows: PortfolioRow[] }) {
         </table>
       </div>
 
-      <p className="num text-[10.5px]" style={{ color: "var(--color-ink-3)" }}>
+      <p className="num text-[12px]" style={{ color: "var(--color-ink-3)" }}>
         {table.getRowModel().rows.length} of {rows.length} domains · sorted by
         what needs action · precedence: never measured → stale → blocking →
         unverified → aligned

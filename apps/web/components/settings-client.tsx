@@ -1,0 +1,593 @@
+"use client";
+
+/**
+ * settings-client.tsx — white label, report mailbox, SSO.
+ *
+ * Logo upload is the three-step flow: request presigned URL (contentType +
+ * byteSize), PUT the file, confirm with the objectKey the API returned. The UI
+ * never constructs or rewrites an objectKey — an objectKey outside this
+ * workspace's prefix is rejected server-side. A typed logo URL is NEVER
+ * rendered anywhere: user-entered URLs are filtered out of client-facing
+ * responses server-side, and rendering one would be a security bug.
+ *
+ * Mailbox: ports 993, 143, 2525 only (the API refuses others). The password is
+ * write-only — it is sent once and never held in component state afterwards.
+ *
+ * SSO: allowedEmailDomains cannot be empty when provisioning is JIT (the API
+ * refuses it), so the constraint is shown BEFORE save. defaultRole offers
+ * analyst / viewer / admin only — never owner, which the API does not accept.
+ * The provider secret is write-only; nothing here expects to read it back.
+ * The callback URL shown to the operator comes from the connection itself.
+ */
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { EntitlementNotice } from "@/components/entitlement-gate";
+import {
+  createSsoConnection,
+  patchBranding,
+  removeReportInbox,
+  removeSsoConnection,
+  setCustomDomain,
+  setReportInbox,
+  uploadLogo,
+  verifyCustomDomain,
+} from "@/lib/ops-client";
+import type {
+  ApiErrorBody,
+  BrandingSettings,
+  ReportInboxSettings,
+  SsoConnectionRow,
+} from "@/lib/types";
+
+const INBOX_PORTS = [993, 143, 2525];
+const SSO_DEFAULT_ROLES = ["analyst", "viewer", "admin"] as const;
+
+// ─── white label ─────────────────────────────────────────────────────────────
+
+export function WhiteLabelForm({
+  organizationId,
+  branding,
+  allowLogoUpload,
+  allowWhiteLabel,
+}: {
+  organizationId: string;
+  branding: BrandingSettings;
+  allowLogoUpload: boolean;
+  allowWhiteLabel: boolean;
+}) {
+  const router = useRouter();
+  const [primary, setPrimary] = useState(branding.brandPrimaryColor ?? "#0a0a0a");
+  const [accent, setAccent] = useState(branding.brandAccentColor ?? "#e6e4dd");
+  const [customDomain, setCustomDomainText] = useState(branding.customDomain ?? "");
+  const [file, setFile] = useState<File | null>(null);
+  const [error, setError] = useState<ApiErrorBody["error"] | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function saveColours() {
+    setBusy(true);
+    setError(null);
+    const res = await patchBranding(organizationId, {
+      brandPrimaryColor: primary,
+      brandAccentColor: accent,
+    });
+    setBusy(false);
+    if (!res.ok) setError(res.error);
+    else {
+      setNote("Brand colours saved.");
+      router.refresh();
+    }
+  }
+
+  async function doUpload() {
+    if (!file) return;
+    setBusy(true);
+    setError(null);
+    setNote(null);
+    const res = await uploadLogo(organizationId, file);
+    setBusy(false);
+    if (!res.ok) setError(res.error);
+    else {
+      setNote("Logo uploaded and confirmed.");
+      setFile(null);
+      router.refresh();
+    }
+  }
+
+  async function saveDomain() {
+    setBusy(true);
+    setError(null);
+    const res = await setCustomDomain(organizationId, customDomain || null);
+    setBusy(false);
+    if (!res.ok) setError(res.error);
+    else {
+      setNote("Custom domain saved. A TXT record must verify before it serves.");
+      router.refresh();
+    }
+  }
+
+  return (
+    <section
+      className="lift flex flex-col gap-4 rounded-[2px] border p-5"
+      style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
+    >
+      <h2 className="text-[16.5px] font-semibold tracking-[-0.012em]">White label</h2>
+
+      {!allowWhiteLabel ? (
+        <EntitlementNotice
+          error={{
+            feature: "branding.whitelabel",
+            message: "White-labelling is not included in this plan.",
+          }}
+        />
+      ) : (
+        <>
+          {error ? (
+            error.code === "FEATURE_NOT_IN_PLAN" ? (
+              <EntitlementNotice error={error} />
+            ) : (
+              <p role="alert" className="text-[14px]" style={{ color: "var(--color-block)" }}>
+                {error.message}
+              </p>
+            )
+          ) : null}
+          {note ? (
+            <p role="status" className="text-[13.5px]" style={{ color: "var(--color-pass)" }}>
+              {note}
+            </p>
+          ) : null}
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Primary colour">
+              <input type="color" value={primary} onChange={(e) => setPrimary(e.target.value)} />
+            </Field>
+            <Field label="Accent colour">
+              <input type="color" value={accent} onChange={(e) => setAccent(e.target.value)} />
+            </Field>
+          </div>
+          <button
+            type="button"
+            onClick={saveColours}
+            disabled={busy}
+            className="self-start rounded-[2px] border px-4 py-2 text-[13.5px] font-semibold"
+            style={{ borderColor: "var(--color-line-strong)", color: "var(--color-ink-2)" }}
+          >
+            Save colours
+          </button>
+
+          <div className="border-t pt-4" style={{ borderColor: "var(--color-line)" }}>
+            <Field label="Client portal logo">
+              {branding.brandLogoUrl ? (
+                <p className="num text-[12.5px]" style={{ color: "var(--color-ink-3)" }}>
+                  a logo is set for this workspace (uploaded object, never a typed URL)
+                </p>
+              ) : (
+                <p className="num text-[12.5px]" style={{ color: "var(--color-ink-3)" }}>
+                  no logo yet
+                </p>
+              )}
+              <input
+                type="file"
+                accept="image/svg+xml,image/png,image/jpeg,image/webp"
+                disabled={!allowLogoUpload}
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              />
+              {!allowLogoUpload ? (
+                <span className="text-[12.5px]" style={{ color: "var(--color-ink-3)" }}>
+                  not available on your current plan
+                </span>
+              ) : (
+                <span className="text-[12.5px]" style={{ color: "var(--color-ink-3)" }}>
+                  SVG, PNG, JPEG or WebP · 256KB maximum · uploaded, never linked
+                </span>
+              )}
+            </Field>
+            {allowLogoUpload && file ? (
+              <button
+                type="button"
+                onClick={doUpload}
+                disabled={busy}
+                className="mt-2 rounded-[2px] px-4 py-2 text-[13.5px] font-semibold"
+                style={{ background: "var(--color-accent)", color: "var(--color-accent-ink)" }}
+              >
+                Upload logo
+              </button>
+            ) : null}
+          </div>
+
+          <div className="border-t pt-4" style={{ borderColor: "var(--color-line)" }}>
+            <Field label="Custom domain">
+              <input
+                type="text"
+                value={customDomain}
+                onChange={(e) => setCustomDomainText(e.target.value)}
+                placeholder="portal.clientbrand.example"
+              />
+            </Field>
+            <div className="mt-2 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={saveDomain}
+                disabled={busy}
+                className="rounded-[2px] border px-4 py-2 text-[13.5px] font-semibold"
+                style={{ borderColor: "var(--color-line-strong)", color: "var(--color-ink-2)" }}
+              >
+                Save domain
+              </button>
+              {branding.customDomain && !branding.customDomainVerifiedAt ? (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const res = await verifyCustomDomain(organizationId);
+                    if (!res.ok) setError(res.error);
+                    else {
+                      setNote("TXT record verified — the custom domain is live.");
+                      router.refresh();
+                    }
+                  }}
+                  className="text-[13px] underline"
+                  style={{ color: "var(--color-unverified)" }}
+                >
+                  verify TXT record
+                </button>
+              ) : null}
+              {branding.customDomainVerifiedAt ? (
+                <span className="num text-[11.5px] tracking-[0.12em] uppercase" style={{ color: "var(--color-pass)" }}>
+                  verified
+                </span>
+              ) : null}
+            </div>
+            <p className="mt-1.5 text-[12.5px]" style={{ color: "var(--color-ink-3)" }}>
+              A custom domain serves only after its TXT record is verified.
+            </p>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+// ─── report mailbox ──────────────────────────────────────────────────────────
+
+export function ReportInboxForm({
+  organizationId,
+  inbox,
+}: {
+  organizationId: string;
+  inbox: ReportInboxSettings;
+}) {
+  const router = useRouter();
+  const [host, setHost] = useState(inbox.host ?? "");
+  const [port, setPort] = useState(993);
+  const [secure, setSecure] = useState(true);
+  const [username, setUsername] = useState(inbox.username ?? "");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<ApiErrorBody["error"] | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    const res = await setReportInbox(organizationId, {
+      host,
+      port,
+      secure,
+      username,
+      password,
+    });
+    setBusy(false);
+    setPassword(""); // write-only: never kept after the round trip
+    if (!res.ok) setError(res.error);
+    else router.refresh();
+  }
+
+  return (
+    <section
+      className="lift flex flex-col gap-4 rounded-[2px] border p-5"
+      style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
+    >
+      <h2 className="text-[16.5px] font-semibold tracking-[-0.012em]">Report mailbox</h2>
+      <p className="text-[13.5px]" style={{ color: "var(--color-ink-2)" }}>
+        One shared mailbox per workspace. Every domain points its rua tag at our
+        reporting address, so no customer ever hands over IMAP credentials.
+      </p>
+
+      {error ? (
+        error.code === "FEATURE_NOT_IN_PLAN" ? (
+          <EntitlementNotice error={error} />
+        ) : (
+          <p role="alert" className="text-[14px]" style={{ color: "var(--color-block)" }}>
+            {error.message}
+          </p>
+        )
+      ) : null}
+
+      {inbox.configured ? (
+        <div
+          className="num flex items-center gap-4 text-[12.5px]"
+          style={{ color: "var(--color-ink-3)" }}
+        >
+          <span>{inbox.username}@{inbox.host}</span>
+          <span>last polled {inbox.lastPolledAt ? new Date(inbox.lastPolledAt).toLocaleDateString("en-GB") : "never"}</span>
+          {inbox.lastError ? (
+            <span style={{ color: "var(--color-fail, var(--color-block))" }}>
+              {inbox.consecutiveFailures} consecutive failures
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
+      <form onSubmit={save} className="grid grid-cols-2 gap-3">
+        <Field label="Host">
+          <input value={host} onChange={(e) => setHost(e.target.value)} required minLength={3} />
+        </Field>
+        <Field label="Port">
+          <select value={port} onChange={(e) => setPort(Number(e.target.value))}>
+            {INBOX_PORTS.map((p) => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Username">
+          <input value={username} onChange={(e) => setUsername(e.target.value)} required minLength={3} />
+        </Field>
+        <Field label="Password">
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required={!inbox.configured}
+            autoComplete="new-password"
+          />
+        </Field>
+        <div className="col-span-2 flex items-center gap-3">
+          <label className="flex items-center gap-2 text-[13.5px]" style={{ color: "var(--color-ink-2)" }}>
+            <input type="checkbox" checked={secure} onChange={(e) => setSecure(e.target.checked)} />
+            TLS
+          </label>
+          <button
+            type="submit"
+            disabled={busy}
+            className="rounded-[2px] px-4 py-2 text-[13.5px] font-semibold"
+            style={{ background: "var(--color-accent)", color: "var(--color-accent-ink)" }}
+          >
+            {inbox.configured ? "Update mailbox" : "Connect mailbox"}
+          </button>
+          {inbox.configured ? (
+            <button
+              type="button"
+              onClick={async () => {
+                await removeReportInbox(organizationId);
+                router.refresh();
+              }}
+              className="text-[12.5px] underline"
+              style={{ color: "var(--color-block)" }}
+            >
+              disconnect
+            </button>
+          ) : null}
+        </div>
+      </form>
+      <p className="text-[12.5px]" style={{ color: "var(--color-ink-3)" }}>
+        Ports 993, 143 and 2525 only — the API refuses others. The password is
+        write-only: it is never returned and never stored in this browser.
+      </p>
+    </section>
+  );
+}
+
+// ─── SSO ─────────────────────────────────────────────────────────────────────
+
+export function SsoSection({
+  organizationId,
+  connections,
+}: {
+  organizationId: string;
+  connections: SsoConnectionRow[];
+}) {
+  const router = useRouter();
+  const [label, setLabel] = useState("");
+  const [protocol, setProtocol] = useState<"SAML" | "OIDC">("SAML");
+  const [issuer, setIssuer] = useState("");
+  const [entryPoint, setEntryPoint] = useState("");
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [provisioning, setProvisioning] = useState<"JIT" | "DISABLED">("JIT");
+  const [domainsText, setDomainsText] = useState("");
+  const [defaultRole, setDefaultRole] = useState<"analyst" | "viewer" | "admin">("analyst");
+  const [error, setError] = useState<ApiErrorBody["error"] | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const allowedEmailDomains = domainsText
+    .split(/[\s,]+/)
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  const jitNeedsDomains = provisioning === "JIT" && allowedEmailDomains.length === 0;
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (jitNeedsDomains) return; // the constraint is shown before save, not after
+    setBusy(true);
+    setError(null);
+    const res = await createSsoConnection(organizationId, {
+      label,
+      protocol,
+      issuer,
+      entryPoint,
+      clientId,
+      clientSecret,
+      provisioning,
+      allowedEmailDomains,
+      defaultRole,
+    });
+    setBusy(false);
+    setClientSecret(""); // write-only: never kept after the round trip
+    if (!res.ok) setError(res.error);
+    else {
+      setLabel("");
+      router.refresh();
+    }
+  }
+
+  return (
+    <section
+      className="lift flex flex-col gap-4 rounded-[2px] border p-5"
+      style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
+    >
+      <h2 className="text-[16.5px] font-semibold tracking-[-0.012em]">Single sign-on</h2>
+
+      {connections.length > 0 ? (
+        <ul className="flex flex-col gap-2">
+          {connections.map((c) => (
+            <li
+              key={c.id}
+              className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b pb-2"
+              style={{ borderColor: "rgba(255,255,255,0.055)" }}
+            >
+              <span className="text-[14px]" style={{ color: "var(--color-ink)" }}>{c.label}</span>
+              <span className="num text-[12px]" style={{ color: "var(--color-ink-3)" }}>
+                {c.protocol} · {c.provisioning.toLowerCase()} · default role {c.defaultRole}
+              </span>
+              {c.callbackUrl ? (
+                <span className="num text-[11.5px]" style={{ color: "var(--color-ink-3)" }}>
+                  callback: {c.callbackUrl}
+                </span>
+              ) : null}
+              <button
+                type="button"
+                onClick={async () => {
+                  await removeSsoConnection(organizationId, c.id);
+                  router.refresh();
+                }}
+                className="ml-auto text-[12.5px] underline"
+                style={{ color: "var(--color-block)" }}
+              >
+                delete
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-[13.5px]" style={{ color: "var(--color-ink-3)" }}>
+          No identity provider connected.
+        </p>
+      )}
+
+      <form onSubmit={save} className="flex flex-col gap-3 border-t pt-4" style={{ borderColor: "var(--color-line)" }}>
+        {error ? (
+          error.code === "FEATURE_NOT_IN_PLAN" ? (
+            <EntitlementNotice error={error} />
+          ) : (
+            <p role="alert" className="text-[14px]" style={{ color: "var(--color-block)" }}>
+              {error.message}
+            </p>
+          )
+        ) : null}
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Label">
+            <input value={label} onChange={(e) => setLabel(e.target.value)} required />
+          </Field>
+          <Field label="Protocol">
+            <select value={protocol} onChange={(e) => setProtocol(e.target.value as "SAML" | "OIDC")}>
+              <option value="SAML">SAML</option>
+              <option value="OIDC">OIDC</option>
+            </select>
+          </Field>
+          <Field label="Issuer">
+            <input value={issuer} onChange={(e) => setIssuer(e.target.value)} required />
+          </Field>
+          <Field label="Entry point (URL)">
+            <input type="url" value={entryPoint} onChange={(e) => setEntryPoint(e.target.value)} required />
+          </Field>
+          <Field label="Client ID">
+            <input value={clientId} onChange={(e) => setClientId(e.target.value)} required />
+          </Field>
+          <Field label="Client secret">
+            <input
+              type="password"
+              value={clientSecret}
+              onChange={(e) => setClientSecret(e.target.value)}
+              required
+              autoComplete="new-password"
+            />
+          </Field>
+          <Field label="Provisioning">
+            <select
+              value={provisioning}
+              onChange={(e) => setProvisioning(e.target.value as "JIT" | "DISABLED")}
+            >
+              <option value="JIT">JIT</option>
+              <option value="DISABLED">Disabled</option>
+            </select>
+          </Field>
+          <Field label="Default role">
+            <select
+              value={defaultRole}
+              onChange={(e) => setDefaultRole(e.target.value as "analyst" | "viewer" | "admin")}
+            >
+              {SSO_DEFAULT_ROLES.map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+          </Field>
+        </div>
+
+        <Field label="Allowed email domains (comma separated)">
+          <input
+            value={domainsText}
+            onChange={(e) => setDomainsText(e.target.value)}
+            placeholder="clientcorp.example, group.clientcorp.example"
+          />
+        </Field>
+
+        {jitNeedsDomains ? (
+          <p role="status" className="text-[13px]" style={{ color: "var(--color-unverified)" }}>
+            JIT provisioning requires at least one allowed email domain — the API
+            refuses the connection without one. Add the domains your identity
+            provider will assert before saving.
+          </p>
+        ) : null}
+
+        <p className="text-[12.5px]" style={{ color: "var(--color-ink-3)" }}>
+          The provider secret is write-only: it is stored server-side and never
+          returned. The callback URL to give your identity provider is shown on
+          the connection after it is created — it comes from the connection
+          itself, never constructed here. Owner is never a default role; the API
+          does not accept it.
+        </p>
+
+        <button
+          type="submit"
+          disabled={busy || jitNeedsDomains}
+          className="self-start rounded-[2px] px-5 py-2.5 text-[14.5px] font-semibold"
+          style={{ background: "var(--color-accent)", color: "var(--color-accent-ink)" }}
+        >
+          {busy ? "Saving…" : "Add SSO connection"}
+        </button>
+      </form>
+    </section>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="flex flex-col gap-1.5">
+      <span className="label">{label}</span>
+      {children}
+      <style>{`
+        label select, label input:not([type="checkbox"]) {
+          background: var(--color-elevate);
+          border: 1px solid var(--color-line-strong);
+          border-radius: 2px;
+          color: var(--color-ink);
+          padding: 7px 10px;
+          font-size: 14px;
+          outline: none;
+        }
+      `}</style>
+    </label>
+  );
+}

@@ -66,12 +66,12 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
       />
 
       {error ? (
-        <p role="alert" className="text-[12.5px]" style={{ color: "var(--color-block)" }}>
+        <p role="alert" className="text-[14px]" style={{ color: "var(--color-block)" }}>
           {error}
         </p>
       ) : null}
       {notice ? (
-        <p role="status" className="text-[12.5px]" style={{ color: "var(--color-unverified)" }}>
+        <p role="status" className="text-[14px]" style={{ color: "var(--color-unverified)" }}>
           {notice}
         </p>
       ) : null}
@@ -79,7 +79,7 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
       <button
         type="submit"
         disabled={busy}
-        className="mt-2 inline-flex items-center justify-center gap-3 rounded-[2px] px-5 py-2.5 text-[13px] font-semibold transition-colors"
+        className="mt-2 inline-flex items-center justify-center gap-3 rounded-[2px] px-5 py-2.5 text-[14.5px] font-semibold transition-colors"
         style={{ background: "var(--color-accent)", color: "var(--color-accent-ink)" }}
       >
         {busy ? <TideLoader label="Working" /> : mode === "sign-in" ? "Sign in" : "Create account"}
@@ -110,7 +110,7 @@ function Field({
         value={value}
         autoComplete={autoComplete}
         onChange={(e) => onChange(e.target.value)}
-        className="rounded-[2px] border px-3 py-2 text-[13.5px] outline-none"
+        className="rounded-[2px] border px-3 py-2 text-[15px] outline-none"
         style={{
           background: "var(--color-surface)",
           borderColor: "var(--color-line-strong)",

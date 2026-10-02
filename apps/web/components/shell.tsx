@@ -37,7 +37,7 @@ export async function Shell({
         <Link href="/" className="flex items-center gap-2.5" style={{ color: "var(--color-accent)" }}>
           <PierMark size={22} />
           <span
-            className="text-[14px] font-semibold tracking-[-0.015em]"
+            className="text-[15.5px] font-semibold tracking-[-0.015em]"
             style={{ color: "var(--color-ink)" }}
           >
             DMARC Harbor
@@ -46,8 +46,10 @@ export async function Shell({
 
         <nav className="flex items-center gap-5">
           <NavLink href="/">Portfolio</NavLink>
-          <NavLink href="/reports">Reports</NavLink>
-          <NavLink href="/trust">Trust</NavLink>
+          <NavLink href="/alerts">Alerts</NavLink>
+          <NavLink href="/digests">Digests</NavLink>
+          <NavLink href="/settings">Settings</NavLink>
+          <NavLink href="/billing">Billing</NavLink>
         </nav>
 
         <div className="ml-auto flex items-center gap-4">
@@ -74,7 +76,7 @@ function NavLink({
   return (
     <Link
       href={href}
-      className="text-[12.5px] font-medium transition-colors"
+      className="text-[14px] font-medium transition-colors"
       style={{ color: "var(--color-ink-2)" }}
     >
       {children}

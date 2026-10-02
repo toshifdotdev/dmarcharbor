@@ -46,7 +46,7 @@ export default async function PortfolioPage() {
           <h1 className="label">Portfolio</h1>
           <Link
             href="/"
-            className="num ml-auto text-[10.5px] tracking-[0.12em] uppercase transition-colors"
+            className="num ml-auto text-[12px] tracking-[0.12em] uppercase transition-colors"
             style={{ color: "var(--color-ink-3)" }}
           >
             refresh ↻
@@ -56,7 +56,7 @@ export default async function PortfolioPage() {
         {loadError ? (
           <div
             role="alert"
-            className="lift rounded-[2px] border px-4 py-3 text-[12.5px]"
+            className="lift rounded-[2px] border px-4 py-3 text-[14px]"
             style={{
               borderColor: "var(--color-line-strong)",
               background: "var(--color-surface)",

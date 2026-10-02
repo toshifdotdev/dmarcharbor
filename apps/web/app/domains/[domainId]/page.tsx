@@ -81,26 +81,26 @@ export default async function DomainPage({
         <div>
           <Link
             href="/"
-            className="num text-[10.5px] tracking-[0.14em] uppercase transition-colors"
+            className="num text-[12px] tracking-[0.14em] uppercase transition-colors"
             style={{ color: "var(--color-ink-3)" }}
           >
             ← Portfolio
           </Link>
           <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
             <h1
-              className="text-[26px] font-semibold tracking-[-0.03em]"
+              className="text-[27.5px] font-semibold tracking-[-0.03em]"
               style={{ fontFamily: "var(--font-display)" }}
             >
               {insights.domain.name}
             </h1>
-            <span className="num text-[11px]" style={{ color: "var(--color-ink-3)" }}>
+            <span className="num text-[12.5px]" style={{ color: "var(--color-ink-3)" }}>
               {clientName}
             </span>
             <span className="ml-auto">
               <PostureBadge posture={resolved.posture} reason={resolved.reason} />
             </span>
           </div>
-          <p className="mt-1.5 max-w-3xl text-[13px]" style={{ color: "var(--color-ink-2)" }}>
+          <p className="mt-1.5 max-w-3xl text-[14.5px]" style={{ color: "var(--color-ink-2)" }}>
             {meta.meaning} <span style={{ color: "var(--color-ink-3)" }}>— {resolved.reason}.</span>
           </p>
         </div>
@@ -138,7 +138,7 @@ export default async function DomainPage({
           style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
         >
           <div className="flex items-baseline justify-between gap-4">
-            <h2 className="text-[15px] font-semibold tracking-[-0.012em]">
+            <h2 className="text-[16.5px] font-semibold tracking-[-0.012em]">
               Observed volume
             </h2>
             <span className="label">last {insights.trends.days} days</span>
@@ -191,12 +191,12 @@ function Stat({
     >
       <div className="label">{label}</div>
       <div
-        className="num mt-1.5 text-[24px] font-semibold"
+        className="num mt-1.5 text-[25.5px] font-semibold"
         style={{ color: tone ?? "var(--color-ink)" }}
       >
         {value}
       </div>
-      <div className="mt-1 text-[11px] leading-relaxed" style={{ color: "var(--color-ink-3)" }}>
+      <div className="mt-1 text-[12.5px] leading-relaxed" style={{ color: "var(--color-ink-3)" }}>
         {note}
       </div>
     </div>
@@ -225,12 +225,12 @@ function SilenceBand({
       style={{ borderColor: "var(--color-unmeasured)", background: "var(--color-surface)" }}
     >
       <span
-        className="num text-[10px] font-semibold tracking-[0.16em] uppercase"
+        className="num text-[11.5px] font-semibold tracking-[0.16em] uppercase"
         style={{ color: "var(--color-unmeasured)" }}
       >
         {posture === "stale" ? "Stale — measured, then quiet" : "Not measured — never"}
       </span>
-      <span className="text-[12.5px]" style={{ color: "var(--color-ink-2)" }}>
+      <span className="text-[14px]" style={{ color: "var(--color-ink-2)" }}>
         {posture === "stale" && lastReportAt
           ? `The feed went quiet ${ageDays} days ago (last report ${new Date(lastReportAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}). The measurements below are history, not current state — silence is not compliance.`
           : "No aggregate report has ever been received for this domain. Nothing below can be read as measured — absence is not compliance."}
@@ -257,14 +257,14 @@ function SendersPanel({
       style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
     >
       <header className="flex items-baseline justify-between gap-3 border-b px-5 py-3.5" style={{ borderColor: "var(--color-line)" }}>
-        <h2 className="text-[15px] font-semibold tracking-[-0.012em]">Senders</h2>
-        <span className="num text-[10.5px]" style={{ color: "var(--color-ink-3)" }}>
+        <h2 className="text-[16.5px] font-semibold tracking-[-0.012em]">Senders</h2>
+        <span className="num text-[12px]" style={{ color: "var(--color-ink-3)" }}>
           {attributed} attributed · {unattributed.length} unattributed
         </span>
       </header>
 
       {senders.length === 0 ? (
-        <p className="px-5 py-8 text-center text-[12.5px]" style={{ color: "var(--color-ink-3)" }}>
+        <p className="px-5 py-8 text-center text-[14px]" style={{ color: "var(--color-ink-3)" }}>
           No senders observed yet.
         </p>
       ) : (
@@ -289,20 +289,20 @@ function SendersPanel({
               return (
                 <tr key={s.senderKey}>
                   <td className="border-b px-5 py-2.5" style={{ borderColor: "rgba(255,255,255,0.055)" }}>
-                    <div className="num text-[12px]" style={{ color: "var(--color-ink)" }}>
+                    <div className="num text-[13.5px]" style={{ color: "var(--color-ink)" }}>
                       {s.senderDomain ?? `${s.sourceIps[0] ?? "unknown"} (no domain)`}
                     </div>
                     {isUnattributed ? (
-                      <div className="num text-[9.5px] tracking-[0.12em] uppercase" style={{ color: "var(--color-unverified)" }}>
+                      <div className="num text-[11px] tracking-[0.12em] uppercase" style={{ color: "var(--color-unverified)" }}>
                         unattributed — authenticating as someone else
                       </div>
                     ) : null}
                   </td>
-                  <td className="num border-b px-5 py-2.5 text-[11.5px]" style={{ borderColor: "rgba(255,255,255,0.055)", color: "var(--color-ink-2)" }}>
+                  <td className="num border-b px-5 py-2.5 text-[13px]" style={{ borderColor: "rgba(255,255,255,0.055)", color: "var(--color-ink-2)" }}>
                     {fmtVolume(s.totalMessages)}
                   </td>
                   <td
-                    className="num border-b px-5 py-2.5 text-[11.5px]"
+                    className="num border-b px-5 py-2.5 text-[13px]"
                     style={{
                       borderColor: "rgba(255,255,255,0.055)",
                       color: s.failedMessages > 0 ? "var(--color-block)" : "var(--color-ink-2)",
@@ -333,7 +333,7 @@ function SenderStatus({ status }: { status: SenderRow["status"] }) {
   const s = map[status];
   return (
     <span
-      className="num text-[10px] font-semibold tracking-[0.12em] uppercase"
+      className="num text-[11.5px] font-semibold tracking-[0.12em] uppercase"
       style={{ color: s.color }}
     >
       {s.label}
@@ -378,7 +378,7 @@ function ReadinessPanel({
       style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
     >
       <header className="border-b px-5 py-3.5" style={{ borderColor: "var(--color-line)" }}>
-        <h2 className="text-[15px] font-semibold tracking-[-0.012em]">Policy posture & readiness</h2>
+        <h2 className="text-[16.5px] font-semibold tracking-[-0.012em]">Policy posture & readiness</h2>
       </header>
 
       <div className="flex items-stretch gap-0 border-b" style={{ borderColor: "var(--color-line)" }}>
@@ -391,17 +391,17 @@ function ReadinessPanel({
               background: r.live ? "var(--color-accent-soft)" : undefined,
             }}
           >
-            <div className="num text-[9.5px] tracking-[0.12em] uppercase" style={{ color: "var(--color-ink-3)" }}>
+            <div className="num text-[11px] tracking-[0.12em] uppercase" style={{ color: "var(--color-ink-3)" }}>
               rung {i}
             </div>
             <div
-              className="num mt-1 text-[11.5px]"
+              className="num mt-1 text-[13px]"
               style={{ color: r.live ? "var(--color-accent)" : "var(--color-ink-3)" }}
             >
               {r.label}
             </div>
             {r.live ? (
-              <div className="num mt-1 text-[9px] tracking-[0.14em] uppercase" style={{ color: "var(--color-accent)" }}>
+              <div className="num mt-1 text-[12px] tracking-[0.14em] uppercase" style={{ color: "var(--color-accent)" }}>
                 published
               </div>
             ) : null}
@@ -427,7 +427,7 @@ function ReadinessPanel({
           {steps.map((s) => (
             <li key={s.id} className="flex items-baseline gap-3">
               <span
-                className="num text-[9px] tracking-[0.14em] uppercase"
+                className="num text-[12px] tracking-[0.14em] uppercase"
                 style={{
                   color:
                     s.status === "done"
@@ -440,7 +440,7 @@ function ReadinessPanel({
               >
                 {s.status}
               </span>
-              <span className="text-[12px]" style={{ color: "var(--color-ink-2)" }}>
+              <span className="text-[13.5px]" style={{ color: "var(--color-ink-2)" }}>
                 {s.title}
               </span>
             </li>
@@ -455,7 +455,7 @@ function ReadinessRow({ k, v }: { k: string; v: string }) {
   return (
     <div className="flex items-baseline justify-between gap-4">
       <dt className="label">{k}</dt>
-      <dd className="num text-[11.5px] text-right" style={{ color: "var(--color-ink-2)" }}>
+      <dd className="num text-[13px] text-right" style={{ color: "var(--color-ink-2)" }}>
         {v}
       </dd>
     </div>
@@ -469,12 +469,12 @@ function ReportsPanel({ reports }: { reports: ReportRow[] }) {
       style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
     >
       <header className="flex items-baseline justify-between gap-3 border-b px-5 py-3.5" style={{ borderColor: "var(--color-line)" }}>
-        <h2 className="text-[15px] font-semibold tracking-[-0.012em]">Aggregate reports</h2>
+        <h2 className="text-[16.5px] font-semibold tracking-[-0.012em]">Aggregate reports</h2>
         <span className="label">{reports.length} most recent</span>
       </header>
 
       {reports.length === 0 ? (
-        <p className="px-5 py-8 text-center text-[12.5px]" style={{ color: "var(--color-ink-3)" }}>
+        <p className="px-5 py-8 text-center text-[14px]" style={{ color: "var(--color-ink-3)" }}>
           No aggregate report has been received for this domain yet. Measurement
           begins when the first reporter sends one.
         </p>
@@ -501,19 +501,19 @@ function ReportsPanel({ reports }: { reports: ReportRow[] }) {
                 .reduce((s, rec) => s + rec.messageCount, 0);
               return (
                 <tr key={r.id}>
-                  <td className="num border-b px-5 py-2.5 text-[11.5px]" style={{ borderColor: "rgba(255,255,255,0.055)", color: "var(--color-ink-2)" }}>
+                  <td className="num border-b px-5 py-2.5 text-[13px]" style={{ borderColor: "rgba(255,255,255,0.055)", color: "var(--color-ink-2)" }}>
                     {r.reportingOrganization ?? "unknown reporter"}
                   </td>
-                  <td className="num border-b px-5 py-2.5 text-[11.5px]" style={{ borderColor: "rgba(255,255,255,0.055)", color: "var(--color-ink-2)" }}>
+                  <td className="num border-b px-5 py-2.5 text-[13px]" style={{ borderColor: "rgba(255,255,255,0.055)", color: "var(--color-ink-2)" }}>
                     {r.dateRangeBegin
                       ? `${new Date(r.dateRangeBegin).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} – ${r.dateRangeEnd ? new Date(r.dateRangeEnd).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "?"}`
                       : "—"}
                   </td>
-                  <td className="num border-b px-5 py-2.5 text-[11.5px]" style={{ borderColor: "rgba(255,255,255,0.055)", color: "var(--color-ink-2)" }}>
+                  <td className="num border-b px-5 py-2.5 text-[13px]" style={{ borderColor: "rgba(255,255,255,0.055)", color: "var(--color-ink-2)" }}>
                     {fmtVolume(messages)}
                   </td>
                   <td
-                    className="num border-b px-5 py-2.5 text-[11.5px]"
+                    className="num border-b px-5 py-2.5 text-[13px]"
                     style={{
                       borderColor: "rgba(255,255,255,0.055)",
                       color: failed > 0 ? "var(--color-block)" : "var(--color-ink-2)",
@@ -521,7 +521,7 @@ function ReportsPanel({ reports }: { reports: ReportRow[] }) {
                   >
                     {fmtVolume(failed)}
                   </td>
-                  <td className="num border-b px-5 py-2.5 text-[11.5px]" style={{ borderColor: "rgba(255,255,255,0.055)", color: "var(--color-ink-3)" }}>
+                  <td className="num border-b px-5 py-2.5 text-[13px]" style={{ borderColor: "rgba(255,255,255,0.055)", color: "var(--color-ink-3)" }}>
                     {r.policyP ? `p=${r.policyP}` : "—"}
                   </td>
                 </tr>

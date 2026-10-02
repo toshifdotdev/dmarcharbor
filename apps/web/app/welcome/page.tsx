@@ -14,12 +14,12 @@ export default async function WelcomePage() {
     <main className="relative z-10 flex min-h-screen flex-col items-center justify-center gap-8 px-6">
       <PierMark size={40} />
       <h1
-        className="text-[24px] font-semibold tracking-[-0.03em]"
+        className="text-[25.5px] font-semibold tracking-[-0.03em]"
         style={{ fontFamily: "var(--font-display)" }}
       >
         Name your workspace
       </h1>
-      <p className="max-w-sm text-center text-[13px]" style={{ color: "var(--color-ink-2)" }}>
+      <p className="max-w-sm text-center text-[14.5px]" style={{ color: "var(--color-ink-2)" }}>
         A workspace holds your clients, their domains, and every measurement
         you collect. Your agency's brand is applied to client-facing surfaces.
       </p>
@@ -53,7 +53,7 @@ function WorkspaceForm() {
           minLength={2}
           maxLength={80}
           placeholder="Northgate Digital"
-          className="rounded-[2px] border px-3 py-2 text-[13.5px] outline-none"
+          className="rounded-[2px] border px-3 py-2 text-[15px] outline-none"
           style={{
             background: "var(--color-surface)",
             borderColor: "var(--color-line-strong)",
@@ -69,7 +69,7 @@ function WorkspaceForm() {
           minLength={2}
           pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
           placeholder="northgate-digital"
-          className="num rounded-[2px] border px-3 py-2 text-[13px] outline-none"
+          className="num rounded-[2px] border px-3 py-2 text-[14.5px] outline-none"
           style={{
             background: "var(--color-surface)",
             borderColor: "var(--color-line-strong)",
@@ -79,7 +79,7 @@ function WorkspaceForm() {
       </label>
       <button
         type="submit"
-        className="mt-2 rounded-[2px] px-5 py-2.5 text-[13px] font-semibold"
+        className="mt-2 rounded-[2px] px-5 py-2.5 text-[14.5px] font-semibold"
         style={{ background: "var(--color-accent)", color: "var(--color-accent-ink)" }}
       >
         Create workspace

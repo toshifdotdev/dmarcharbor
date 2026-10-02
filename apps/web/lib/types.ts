@@ -190,10 +190,196 @@ export interface PageEnvelope<T> {
   nextCursor: string | null;
 }
 
+// ─── operations (Phase 3) ─────────────────────────────────────────────────────
+
+export type EntitlementKey =
+  | "reports.aggregate"
+  | "reports.forensic"
+  | "reports.forensicNamed"
+  | "alerts.email"
+  | "alerts.spoofing"
+  | "rollout.canary"
+  | "sharing.links"
+  | "digests"
+  | "audit.trail"
+  | "portal.client"
+  | "branding.whitelabel"
+  | "api.access"
+  | "auth.sso"
+  | "data.export"
+  | "data.erase"
+  | "trust.center"
+  | "reports.compliancePack"
+  | "reports.inbox"
+  | "branding.logoUpload";
+
+export type QuotaKey = "client" | "activeDomain" | "member";
+
+export interface PlanPriceMinor {
+  monthlyMinor: number;
+  annualMinor: number;
+}
+
+export interface PlanDefinition {
+  tier: string;
+  label: string;
+  descriptor: string;
+  prices: { USD: PlanPriceMinor; INR: PlanPriceMinor };
+  maxClients: number;
+  maxActiveDomains: number;
+  maxMembers: number;
+  dataRetentionDays: number;
+  auditRetentionDays: number;
+  features: Record<EntitlementKey, boolean>;
+}
+
+export interface ResolvedEntitlements {
+  plan: string;
+  label: string;
+  status: "ACTIVE" | "TRIALING" | "PAST_DUE" | "CANCELLED" | "EXPIRED" | "NONE";
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+  maxClients: number;
+  maxActiveDomains: number;
+  maxMembers: number;
+  dataRetentionDays: number;
+  auditRetentionDays: number;
+  features: Partial<Record<EntitlementKey, boolean>>;
+  overrides: Array<{ entitlement: string; enabled: boolean; expiresAt: string | null }>;
+}
+
+export interface BillingStatus {
+  plan: string;
+  status: string;
+  provider: string;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+  priceLabel: string;
+  currency: "USD" | "INR";
+}
+
+export type AlertMetric =
+  | "FAILURE_COUNT"
+  | "FAILURE_RATE"
+  | "SOURCE_IP_VOLUME"
+  | "FORENSIC_FAILURES"
+  | "REPORT_SILENCE"
+  | "NEW_UNAUTHENTICATED_SOURCE";
+
+export type AlertOperator = "GREATER_THAN" | "GREATER_THAN_OR_EQUAL" | "LESS_THAN";
+// NOTE: the live API rejects LESS_THAN_OR_EQUAL and EQUAL with 400 (probed
+// 2026-10-02; the source z.enum agrees). Only the three above are real.
+
+export interface AlertRuleRow {
+  id: string;
+  domainId: string;
+  domain: { id: string; name: string };
+  name: string;
+  metric: AlertMetric;
+  operator: AlertOperator;
+  threshold: number;
+  windowMinutes: number;
+  cooldownMinutes: number;
+  maxReminderLevel: number;
+  enabled: boolean;
+  lastTriggeredAt: string | null;
+  recipients: Array<{ userId: string }>;
+}
+
+export interface AlertEventRow {
+  id: string;
+  ruleId: string;
+  rule: { id: string; name: string };
+  domainId: string;
+  domain: { id: string; name: string };
+  metric: AlertMetric;
+  operator: string;
+  observedValue: number;
+  threshold: number;
+  summary: string;
+  reminderLevel: number;
+  acknowledgedAt: string | null;
+  resolvedAt: string | null;
+  staleAt: string | null;
+  triggeredAt: string;
+}
+
+export interface ReportDigestRow {
+  id: string;
+  domainId: string;
+  domain: { id: string; name: string; client: { id: string; name: string } };
+  frequency: "WEEKLY" | "MONTHLY";
+  sendHourUtc: number;
+  weekday: number;
+  dayOfMonth: number;
+  recipientEmails: string[];
+  includeForensics: boolean;
+  enabled: boolean;
+  lastSentAt: string | null;
+}
+
+export interface WorkspaceMemberRow {
+  id: string;
+  userId: string;
+  role: string;
+  user?: { id: string; name: string; email: string };
+}
+
+export interface BrandingSettings {
+  brandLogoUrl: string | null;
+  brandPrimaryColor: string | null;
+  brandAccentColor: string | null;
+  customDomain: string | null;
+  customDomainVerifiedAt: string | null;
+}
+
+export interface ReportInboxSettings {
+  configured: boolean;
+  enabled: boolean;
+  host: string | null;
+  username: string | null;
+  lastPolledAt: string | null;
+  lastError: string | null;
+  consecutiveFailures: number;
+}
+
+export interface SsoConnectionRow {
+  id: string;
+  label: string;
+  protocol: "SAML" | "OIDC";
+  issuer: string;
+  provisioning: "JIT" | "DISABLED";
+  allowedEmailDomains: string[];
+  defaultRole: "analyst" | "viewer" | "admin";
+  /** The callback URL the customer's identity provider needs. Comes from the
+   *  connection — never constructed in the UI. */
+  callbackUrl?: string;
+}
+
+export interface CheckoutRequest {
+  plan: string;
+  interval: "monthly" | "annual";
+  currency: "USD" | "INR";
+  contact: { name: string; email: string; taxId?: string | null };
+}
+
+export interface CheckoutSummary {
+  checkoutUrl?: string;
+  [key: string]: unknown;
+}
+
 export interface ApiErrorBody {
   error: {
     code?: string;
     message?: string;
+    /** Entitlement key on 402 FEATURE_NOT_IN_PLAN. Routes the upgrade prompt. */
     feature?: string;
+    /** Quota key on 402 PLAN_LIMIT_REACHED. */
+    quota?: string;
+    /** The API's own plan wording on a 402 — quoted, never rebuilt in the UI. */
+    plan?: string;
+    planLabel?: string;
+    requiredIn?: string;
+    upgradeTo?: string;
   };
 }

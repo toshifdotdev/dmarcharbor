@@ -434,6 +434,187 @@ check(
 const shotEmpty = await shot("05-never-reported.png");
 
 console.log("evidence shots:", shotDetail, shotStale, shotEmpty);
+
+// ─── 5. Phase 3: operations screens ─────────────────────────────────────────
+
+// 5a. Alerts: the create form carries ALL NINE fields the API requires, the
+//     silence metric is labelled honestly (its warning appears when the
+//     operator selects REPORT_SILENCE — a conditional deserves to be tested
+//     in its state, not at rest), and only the three operators the live API
+//     accepts are offered (LESS_THAN_OR_EQUAL and EQUAL return 400).
+await navigate(WEB + "/alerts");
+const alertsAudit = await waitForEval(
+  `(() => {
+    const t = document.body.textContent;
+    const selects = [...document.querySelectorAll('select')];
+    const opSelect = selects.find(s => [...s.options].some(o => o.textContent === 'greater than'));
+    return {
+      hasForm: t.includes('New alert rule'),
+      allNine: ['Domain','Rule name','Metric','Operator','Threshold','Window (minutes)','Cooldown (minutes)','Max reminder level','Recipients'].every(f => t.includes(f)),
+      escalationShown: t.includes('escalat'),
+      operators: opSelect ? [...opSelect.options].map(o => o.textContent) : [],
+    };
+  })()`,
+  (a) => a && a.hasForm && a.operators.length > 0,
+);
+// Select REPORT_SILENCE and confirm its honesty note appears in that state.
+await evalJs(`(() => {
+  const sel = [...document.querySelectorAll('select')].find(s => [...s.options].some(o => o.value === 'REPORT_SILENCE'));
+  if (!sel) return 'no-metric-select';
+  sel.value = 'REPORT_SILENCE';
+  sel.dispatchEvent(new Event('change', { bubbles: true }));
+  return 'selected';
+})()`);
+const alertSilenceAudit = await waitForEval(
+  `(() => {
+    const t = document.body.textContent;
+    return { labelled: t.includes('not quiet and not healthy') };
+  })()`,
+  (a) => a && a.labelled,
+);
+const operatorsOk =
+  JSON.stringify(alertsAudit?.operators ?? []) ===
+  JSON.stringify(["greater than", "greater than or equal", "less than"]);
+check(
+  "alerts form carries all nine fields + honest silence metric",
+  Boolean(alertsAudit && alertsAudit.allNine && alertSilenceAudit?.labelled && alertsAudit.escalationShown),
+  JSON.stringify({ nine: alertsAudit?.allNine, silence: alertSilenceAudit?.labelled, escalation: alertsAudit?.escalationShown }),
+);
+check(
+  "alerts offers only the operators the API accepts",
+  operatorsOk,
+  JSON.stringify(alertsAudit?.operators ?? []),
+);
+const shotAlerts = await shot("06-alerts.png");
+
+// 5b. Digests: the dayOfMonth cap is explained BEFORE save, not after. The
+//     note is conditional (it shows when frequency = monthly), so switch the
+//     frequency first — a conditional deserves to be tested in its state.
+await navigate(WEB + "/digests");
+const digestsFormReady = await waitForEval(
+  `(() => {
+    const t = document.body.textContent;
+    return { hasForm: t.includes('New digest'), frequency: t.includes('Frequency') };
+  })()`,
+  (d) => d && d.hasForm,
+);
+await evalJs(`(() => {
+  const sel = [...document.querySelectorAll('select')].find(s => [...s.options].some(o => o.value === 'MONTHLY'));
+  if (sel) { sel.value = 'MONTHLY'; sel.dispatchEvent(new Event('change', { bubbles: true })); }
+  return true;
+})()`);
+const digestsAudit = await waitForEval(
+  `(() => {
+    const t = document.body.textContent;
+    return {
+      capExplained: t.includes('Capped at the 28th on purpose'),
+      forensicGated: t.includes('not available on your current plan') || t.includes('Include forensic evidence'),
+    };
+  })()`,
+  (d) => d && (d.capExplained || d.forensicGated),
+);
+check(
+  "digests explain the dayOfMonth cap before save",
+  Boolean(digestsFormReady && digestsFormReady.hasForm && digestsAudit && digestsAudit.capExplained && digestsAudit.forensicGated),
+  JSON.stringify(digestsAudit),
+);
+const shotDigests = await shot("07-digests.png");
+
+// 5c. Settings: five roles (incl. portal) named in full, free GDPR rights,
+//     mailbox ports, and the SSO 402 routed BY FEATURE KEY — carried on a
+//     data attribute, never as on-screen jargon. innerText, not textContent:
+//     inline RSC script payloads carry API keys and are not visible copy.
+await navigate(WEB + "/settings");
+const settingsAudit = await waitForEval(
+  `(() => {
+    const t = document.body.innerText.toLowerCase();
+    const ssoGate = document.querySelector('[data-feature="auth.sso"]');
+    const logoFormVisible = [...document.querySelectorAll('label')].some(l => l.textContent.includes('Client portal logo'));
+    const typedUrlInput = [...document.querySelectorAll('input')].some(i => /logo/i.test(i.placeholder ?? '') && /http/i.test(i.placeholder ?? ''));
+    return {
+      fiveRoles: ['owner','admin','analyst','viewer','portal'].every(r => t.includes(r)),
+      gdprFree: t.includes('every plan') && t.includes('never will be'),
+      ports: t.includes('993, 143 and 2525'),
+      ssoGate: Boolean(ssoGate),
+      ssoCopyClean: !t.includes('entitlement key'),
+      logoNeverTyped: !typedUrlInput && (logoFormVisible ? (t.includes('never linked') || t.includes('never a typed URL')) : true),
+      logoGateOrForm: logoFormVisible || t.includes('white-labelling is not included in this plan'),
+    };
+  })()`,
+  (s) => s && (s.fiveRoles || s.ssoGate),
+);
+check(
+  "settings: five roles, free GDPR rights, mailbox ports",
+  Boolean(settingsAudit && settingsAudit.fiveRoles && settingsAudit.gdprFree && settingsAudit.ports && settingsAudit.logoNeverTyped && settingsAudit.logoGateOrForm),
+  JSON.stringify(settingsAudit),
+);
+check(
+  "402 routes by feature key (data attribute, no on-screen jargon)",
+  Boolean(settingsAudit && settingsAudit.ssoGate && settingsAudit.ssoCopyClean),
+  `ssoGate=${settingsAudit?.ssoGate} clean=${settingsAudit?.ssoCopyClean}`,
+);
+const shotSettings = await shot("08-settings.png");
+
+// 5d. Billing: renders from the API only — every plan's full feature list,
+//     limits with NO invented usage, money as integers (no float artifacts),
+//     and no raw entitlement keys leaking into the copy.
+await navigate(WEB + "/billing");
+const billingAudit = await waitForEval(
+  `(() => {
+    // innerText = rendered copy only (body.textContent also holds inline RSC
+    // script payloads, where API keys and build numbers legitimately live).
+    // innerText also applies CSS text-transform, so every match is
+    // case-insensitive.
+    const t = document.body.innerText.toLowerCase();
+    return {
+      plans: ['mooring','fairway','harbor','admiralty'].every(p => t.includes(p)),
+      fullFeatureLists: t.includes('everything in') || t.includes('everything mooring carries'),
+      incremental: t.includes('plus'),
+      comparison: t.includes('every capability, by plan'),
+      gdprFree: t.includes('export of personal data') && t.includes('erasure of personal data'),
+      limitsOnly: t.includes('clients · ') && t.includes('active domains'),
+      noJargon: !t.includes('entitlement key') && !t.includes('reports.forensic'),
+      floatArtifacts: (t.match(/\\d+\\.\\d{3,}/g) ?? []),
+      hasUsageBar: !!document.querySelector('[role="progressbar"], progress'),
+    };
+  })()`,
+  (b) => b && b.plans,
+);
+check(
+  "billing shows every plan's full detail (features + comparison)",
+  Boolean(billingAudit && billingAudit.plans && billingAudit.fullFeatureLists && billingAudit.comparison),
+  JSON.stringify({ features: billingAudit?.fullFeatureLists, comparison: billingAudit?.comparison }),
+);
+check(
+  "billing renders limits only — no invented usage, no usage bar, no jargon",
+  Boolean(
+    billingAudit &&
+      billingAudit.limitsOnly &&
+      billingAudit.noJargon &&
+      !billingAudit.hasUsageBar &&
+      billingAudit.floatArtifacts.length === 0,
+  ),
+  JSON.stringify({
+    limits: billingAudit?.limitsOnly,
+    jargon: billingAudit?.noJargon,
+    floats: billingAudit?.floatArtifacts,
+    usageBar: billingAudit?.hasUsageBar,
+  }),
+);
+check(
+  "billing: data export and erasure stated as free on every plan",
+  Boolean(billingAudit && billingAudit.gdprFree),
+  `gdpr=${billingAudit?.gdprFree}`,
+);
+const shotBilling = await shot("09-billing.png");
+
+console.log(
+  "operations shots:",
+  shotAlerts,
+  shotDigests,
+  shotSettings,
+  shotBilling,
+);
 console.log(`\n${results.filter((r) => r.ok).length}/${results.length} checks passed`);
 ws.close();
 chrome.kill();

@@ -13,7 +13,7 @@ export function SignOutButton() {
         router.replace("/sign-in");
         router.refresh();
       }}
-      className="text-[11.5px] tracking-[0.08em] uppercase transition-colors"
+      className="text-[13px] tracking-[0.08em] uppercase transition-colors"
       style={{ color: "var(--color-ink-3)" }}
     >
       Sign out

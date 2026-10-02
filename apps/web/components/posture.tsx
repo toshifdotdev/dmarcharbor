@@ -60,7 +60,7 @@ export function PostureBadge({
     >
       {SHAPE[posture]}
       <span
-        className="num text-[10px] font-semibold tracking-[0.12em] uppercase"
+        className="num text-[11.5px] font-semibold tracking-[0.12em] uppercase"
         style={{ color: TONE[posture] }}
       >
         {meta.label}

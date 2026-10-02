@@ -9,12 +9,12 @@ export default function SignInPage() {
       <div className="flex flex-col items-center gap-4">
         <PierMark size={44} />
         <h1
-          className="text-[26px] font-semibold tracking-[-0.03em]"
+          className="text-[27.5px] font-semibold tracking-[-0.03em]"
           style={{ fontFamily: "var(--font-display)" }}
         >
           DMARC Harbor
         </h1>
-        <p className="max-w-xs text-center text-[13px]" style={{ color: "var(--color-ink-2)" }}>
+        <p className="max-w-xs text-center text-[14.5px]" style={{ color: "var(--color-ink-2)" }}>
           Measurement and evidence about what the world's mail servers think
           of your sending infrastructure.
         </p>
@@ -23,7 +23,7 @@ export default function SignInPage() {
       <AuthForm mode="sign-in" />
       <SocialButtons />
 
-      <p className="text-[12.5px]" style={{ color: "var(--color-ink-3)" }}>
+      <p className="text-[14px]" style={{ color: "var(--color-ink-3)" }}>
         No account yet?{" "}
         <Link href="/sign-up" className="underline" style={{ color: "var(--color-ink-2)" }}>
           Create one
