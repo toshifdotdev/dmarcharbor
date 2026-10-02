@@ -1,3 +1,4 @@
+import { domainSlug } from './domain-slug.js';
 import { prisma } from '../database/prisma.js';
 import { emitEvent } from './webhook.service.js';
 import { sendDomainVerificationEmail } from '../email/mailer.js';
@@ -44,17 +45,31 @@ export async function createDomain(organizationId: string, clientId: string, inp
     return null;
   }
 
+  const name = normalizeDomain(input.name);
+
   return prisma.domain.create({
     data: {
       clientId,
-      name: normalizeDomain(input.name),
+      name,
+      slug: domainSlug(name),
     },
   });
 }
 
-export async function getDomain(organizationId: string, domainId: string) {
+/**
+ * Resolves a domain by either identifier.
+ *
+ * Accepts the slug as well as the cuid so a URL can carry the slug while internal
+ * callers, existing links and webhook payloads keep using the id. Guessing wrong
+ * here would either break every stored id or force a migration of links we do
+ * not control.
+ */
+export async function getDomain(organizationId: string, domainIdOrSlug: string) {
   return prisma.domain.findFirst({
-    where: { id: domainId, client: { organizationId } },
+    where: {
+      client: { organizationId },
+      OR: [{ id: domainIdOrSlug }, { slug: domainIdOrSlug }],
+    },
     include: { client: true },
   });
 }

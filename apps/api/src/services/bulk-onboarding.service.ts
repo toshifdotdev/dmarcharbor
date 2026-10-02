@@ -1,3 +1,4 @@
+import { domainSlug } from './domain-slug.js';
 import { prisma } from '../database/prisma.js';
 import { recordAuditEvent } from './audit.service.js';
 import { EntitlementError, quotaUsage, resolveEntitlements } from './entitlements/entitlement.service.js';
@@ -135,6 +136,7 @@ export async function bulkImportClients(input: {
           create: wanted.map((domain) => ({
             name: domain,
             status: 'PENDING' as const,
+            slug: domainSlug(domain),
           })),
         },
       },
@@ -251,8 +253,8 @@ export async function bulkImportDomains(input: {
     }
 
     const domain = await prisma.domain.create({
-      data: { clientId: client.id, name, status: 'PENDING' },
-      select: { id: true, name: true, verificationToken: true },
+      data: { clientId: client.id, name, status: 'PENDING', slug: domainSlug(name) },
+      select: { id: true, name: true, verificationToken: true, slug: true },
     });
 
     existing.add(name);

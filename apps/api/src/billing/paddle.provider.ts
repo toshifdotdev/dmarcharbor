@@ -212,14 +212,37 @@ export class PaddleBillingProvider implements BillingProvider {
 
     // Direction is decided by tier order rather than by arithmetic on a decimal
     // string, which avoids a rounding mistake deciding who gets charged more.
+    //
+    // The two directions are different operations and cannot share a branch.
+    //
+    // Paddle cannot schedule a plan change. Its ScheduledChangeAction is only
+    // cancel, pause or resume - there is no change_plan - so a downgrade cannot be
+    // delegated and pretending otherwise would typecheck only with a cast.
+    //
+    // An upgrade is applied immediately and the difference is billed now, because
+    // the customer asked for the new plan and expects to be on it now. The
+    // previous code passed 'do_not_bill' for both directions, which handed an
+    // upgrade away free until renewal while our row and Paddle's disagreed about
+    // which plan was live.
+    //
+    // A downgrade is left to us. Nothing is sent to Paddle; the caller records a
+    // pendingPlan and applyDuePendingPlans moves it once the paid period ends.
+    // Same rule as a cancellation: the customer keeps what they paid for.
+    const currentRank = planOrder.indexOf(live.plan);
+    const targetRank = planOrder.indexOf(input.plan);
+    const isUpgrade = currentRank === -1 || targetRank > currentRank;
+
+    if (!isUpgrade) {
+      // Unchanged, and reported as unchanged. The caller stores the request.
+      return { ...live, cancelAtPeriodEnd: false };
+    }
+
     await this.call(() =>
       paddle().subscriptions.update(input.providerSubscriptionId, {
         items: [{ priceId: target.providerPlanId, quantity: 1 }],
-        prorationBillingMode: 'do_not_bill',
+        prorationBillingMode: 'prorated_immediately',
       }),
     );
-
-    void planOrder;
 
     return { ...live, plan: input.plan, cancelAtPeriodEnd: false };
   }
@@ -275,6 +298,11 @@ export class PaddleBillingProvider implements BillingProvider {
    * download invoices and change plan without contacting support.
    */
   async createBillingPortalSession(input: { providerCustomerId: string; returnUrl: string }): Promise<{ url: string }> {
+    // Paddle's billing portal is a page it hosts, and it does not take a return
+    // url. Opening it hands the customer over to Paddle's own site to change their
+    // card, and Paddle sends them back to whatever it has on file rather than
+    // anywhere we choose. Recorded here so the next person does not read the void
+    // as an oversight and assume the parameter is honoured.
     void input.returnUrl;
 
     if (input.providerCustomerId.startsWith('pending:')) {

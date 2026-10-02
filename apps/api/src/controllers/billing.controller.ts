@@ -38,7 +38,13 @@ const planChangeSchema = z.object({
 
 function sendBillingError(response: Response, error: unknown): void {
   if (error instanceof CheckoutError || error instanceof BillingProviderError || error instanceof WebhookRejectedError) {
-    response.status(error.status).json({ error: { code: error.code, message: error.message } });
+    // detail is spread rather than omitted. A refusal like a downgrade that is
+    // over quota carries the specific numbers the customer has to act on, and
+    // serialising only { code, message } left the UI with a paragraph to parse
+    // instead of a table to render.
+    response.status(error.status).json({
+      error: { code: error.code, message: error.message, ...(error.detail ?? {}) },
+    });
     return;
   }
   response.status(500).json({ error: { code: 'INTERNAL', message: 'Billing could not complete that request.' } });

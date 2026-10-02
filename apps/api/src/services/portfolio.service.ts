@@ -4,6 +4,8 @@ import { readinessThresholds, type OnboardingState, type ReadinessLevel } from '
 
 export interface PortfolioDomainRow {
   domainId: string;
+  /** URL identifier, so a link names the domain rather than a primary key. */
+  domainSlug: string;
   domainName: string;
   clientId: string;
   clientName: string;
@@ -53,6 +55,7 @@ export async function getPortfolioOnboarding(organizationId: string, now = new D
     where: { client: { organizationId } },
     select: {
       id: true,
+      slug: true,
       name: true,
       status: true,
       dmarcPolicy: true,
@@ -246,6 +249,7 @@ export async function getPortfolioOnboarding(organizationId: string, now = new D
 
     return {
       domainId: domain.id,
+      domainSlug: domain.slug,
       domainName: domain.name,
       clientId: domain.client.id,
       clientName: domain.client.name,

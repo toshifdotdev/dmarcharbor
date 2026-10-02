@@ -17,6 +17,15 @@ const envSchema = z.object({
   BETTER_AUTH_SECRET: z.string().min(32).default(developmentSecret),
   BETTER_AUTH_URL: z.string().url().default('http://localhost:4000'),
   CORS_ORIGIN: z.string().url().default('http://localhost:5173'),
+  /**
+   * Where the browser application lives, as opposed to where this API lives.
+   *
+   * Payment providers bounce the customer back to a URL we hand them after a
+   * checkout or a card update. Those must point at the web app, not at this API's
+   * own origin, or the customer finishes paying and lands on a JSON endpoint. The
+   * two are separate deployments and separate hosts in production.
+   */
+  APP_URL: z.string().url().default('http://localhost:3100'),
   EMAIL_PROVIDER: z.enum(['console', 'resend']).default('console'),
   EMAIL_FROM: z.string().trim().min(3).default('DMARC Harbor <no-reply@dmarcharbor.com>'),
   RESEND_API_KEY: optionalSecret,

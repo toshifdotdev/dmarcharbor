@@ -24,12 +24,15 @@ import { verifyPaddleSignature } from './paddle.provider.js';
 export class WebhookRejectedError extends Error {
   readonly code: string;
   readonly status: number;
+  /** Structured companion to the message, for screens that render the failure. */
+  readonly detail?: Record<string, unknown>;
 
-  constructor(message: string, code = 'WEBHOOK_REJECTED', status = 400) {
+  constructor(message: string, code = 'WEBHOOK_REJECTED', status = 400, detail?: Record<string, unknown>) {
     super(message);
     this.name = 'WebhookRejectedError';
     this.code = code;
     this.status = status;
+    this.detail = detail;
   }
 }
 

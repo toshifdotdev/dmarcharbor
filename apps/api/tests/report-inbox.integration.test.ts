@@ -92,6 +92,7 @@ async function setup(plan: 'MOORING' | 'FAIRWAY' | 'HARBOR' | 'ADMIRALTY' = 'HAR
   const domain = await prisma.domain.create({
     data: {
       clientId: client.id,
+      slug: `dom-${Math.random().toString(36).slice(2, 10)}`,
       name: `victim-${fixtureId}.test`,
       status: 'VERIFIED',
       verificationToken: `token-${fixtureId}`,

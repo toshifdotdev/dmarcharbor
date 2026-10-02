@@ -1,10 +1,17 @@
-import type { AlertDeliveryStatus, AlertMetric, AlertOperator, Prisma } from '@prisma/client';
+import type {
+  AlertDeliveryKind,
+  AlertDeliveryStatus,
+  AlertMetric,
+  AlertOperator,
+  Prisma,
+} from '@prisma/client';
 import { prisma } from '../database/prisma.js';
 import { env } from '../config/env.js';
 import { sendAuthEmail } from '../email/email.service.js';
 import { createAlertNotifications } from './notification.service.js';
 import { buildSenderBreakdown, possibleSpoofingSources } from './sender-breakdown.service.js';
 import { emitEvent } from './webhook.service.js';
+import { deliverSlackAlert, hasEnabledSlackDestination } from './slack.service.js';
 import { resolveLimit } from '../utils/pagination.js';
 
 const riskByMetric: Record<AlertMetric, 'high' | 'medium'> = {
@@ -479,6 +486,7 @@ export async function evaluateRule(
 async function deliverEvent(
   eventId: string,
   recipientUserIds: string[],
+  organizationId: string,
   organizationName: string,
   domainName: string,
   subject: string,
@@ -519,6 +527,108 @@ async function deliverEvent(
       now,
     });
   }
+
+  // Once per workspace, not once per recipient, because a Slack channel is
+  // shared: three members with email alerts enabled must produce one message in
+  // the channel, not three.
+  await deliverToSlack({
+    eventId,
+    organizationId,
+    domainName,
+    subject,
+    body,
+    risk,
+    kind: 'ALERT',
+    reminderLevel,
+  });
+}
+
+/**
+ * Posts to the workspace Slack channel, if one is configured.
+ *
+ * The recorded row is attributed to the organisation owner rather than to every
+ * recipient. `AlertDelivery` is keyed on the user, and a workspace destination
+ * has no user, so the owner is the honest single actor for "the workspace was
+ * notified". It also means the existing unique key on
+ * (event, user, channel, kind, reminder level) does exactly the job we want:
+ * one Slack row per event per reminder, however many members exist.
+ *
+ * Individual email preferences deliberately do not apply here. Quiet hours are a
+ * statement about waking one person; a channel is read by whoever is awake.
+ */
+async function deliverToSlack(input: {
+  eventId: string;
+  organizationId: string;
+  domainName: string;
+  subject: string;
+  body: string;
+  risk: 'high' | 'medium';
+  kind: AlertDeliveryKind;
+  reminderLevel: number;
+}): Promise<void> {
+  // No channel means no delivery and no row. Checked first so a workspace that
+  // never configured Slack does not accumulate a row per alert forever.
+  if (!(await hasEnabledSlackDestination(input.organizationId))) {
+    return;
+  }
+
+  const owner = await prisma.member.findFirst({
+    where: { organizationId: input.organizationId, role: 'owner' },
+    select: { userId: true },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  if (!owner?.userId) {
+    return;
+  }
+
+  const created = await prisma.alertDelivery.createManyAndReturn({
+    data: [
+      {
+        eventId: input.eventId,
+        userId: owner.userId,
+        channel: 'SLACK',
+        kind: input.kind,
+        status: 'PENDING',
+        reminderLevel: input.reminderLevel,
+      },
+    ],
+    skipDuplicates: true,
+  });
+
+  const delivery = created[0];
+  if (!delivery) {
+    return;
+  }
+
+  const result = await deliverSlackAlert({
+    organizationId: input.organizationId,
+    message: {
+      subject: input.subject,
+      body: input.body,
+      domainName: input.domainName,
+      risk: input.risk,
+    },
+  });
+
+  if (!result.delivered) {
+    // The row is still written when a destination exists but the post failed, so
+    // the reminder level does not advance and re-send on the next tick.
+    await prisma.alertDelivery.update({
+      where: { id: delivery.id },
+      data: {
+        status: result.error ? 'FAILED' : 'SKIPPED_DISABLED',
+        attempts: 1,
+        lastError: result.error ?? null,
+      },
+    });
+    return;
+  }
+
+  await prisma.alertDelivery.update({
+    where: { id: delivery.id },
+    data: { status: 'SENT', attempts: 1, sentAt: new Date() },
+  });
 }
 
 async function deliverToUser(
@@ -836,6 +946,7 @@ async function notifyRecipients(
   return deliverEvent(
     eventId,
     recipientUserIds,
+    rule.organizationId,
     rule.organization.name,
     rule.domain.name,
     escalationSubject(rule, reminderLevel),

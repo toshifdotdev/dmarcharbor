@@ -74,6 +74,7 @@ async function workspaceWithDomain(domainName: string, opts: { verified?: boolea
   const domain = await prisma.domain.create({
     data: {
       clientId: client.id,
+      slug: `dom-${Math.random().toString(36).slice(2, 10)}`,
       name: domainName,
       status: opts.verified === false ? 'PENDING' : 'VERIFIED',
       verifiedAt: opts.verified === false ? null : new Date(),

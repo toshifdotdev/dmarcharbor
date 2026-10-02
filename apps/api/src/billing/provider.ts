@@ -158,12 +158,15 @@ export interface BillingEvent {
 export class BillingProviderError extends Error {
   readonly code: string;
   readonly status: number;
+  /** Structured companion to the message, for screens that render the failure. */
+  readonly detail?: Record<string, unknown>;
 
-  constructor(message: string, code = 'PROVIDER_ERROR', status = 502) {
+  constructor(message: string, code = 'PROVIDER_ERROR', status = 502, detail?: Record<string, unknown>) {
     super(message);
     this.name = 'BillingProviderError';
     this.code = code;
     this.status = status;
+    this.detail = detail;
   }
 }
 

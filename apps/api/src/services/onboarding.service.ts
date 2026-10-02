@@ -253,7 +253,7 @@ export async function assessPolicyReadiness(
 }
 
 export interface OnboardingResult extends OnboardingState_ {
-  domain: { id: string; name: string; status: string; score: number | null; dmarcPolicy: string | null };
+  domain: { id: string; slug: string; name: string; status: string; score: number | null; dmarcPolicy: string | null };
   reporting: {
     publishedPolicy: string | null;
     publishedPct: number;
@@ -271,6 +271,7 @@ export async function getOnboardingState(organizationId: string, domainId: strin
     where: { id: domainId, client: { organizationId } },
     select: {
       id: true,
+      slug: true,
       name: true,
       status: true,
       score: true,
@@ -398,6 +399,7 @@ export async function getOnboardingState(organizationId: string, domainId: strin
   return {
     domain: {
       id: domain.id,
+      slug: domain.slug,
       name: domain.name,
       status: domain.status,
       score: domain.score,

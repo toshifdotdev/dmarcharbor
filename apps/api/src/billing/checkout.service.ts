@@ -1,8 +1,14 @@
-import type { PlanTier } from '@prisma/client';
+import type { BillingInterval as StoredBillingInterval, PlanTier } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
 import { recordAuditEvent } from '../services/audit.service.js';
 import { env } from '../config/env.js';
-import { planCatalog, type BillingCurrency } from '../services/entitlements/plan-catalog.js';
+import {
+  planCatalog,
+  planOrder,
+  type BillingCurrency,
+  type QuotaKey,
+} from '../services/entitlements/plan-catalog.js';
+import { quotaUsage } from '../services/entitlements/entitlement.service.js';
 import type { BillingInterval, ProviderName } from './provider.js';
 import { resolveProviderForCheckout } from './registry.js';
 import { planSyncReport, requireStoredPlan } from './plans.js';
@@ -21,13 +27,42 @@ import { sendPlanChangedEmail, sendSubscriptionCancelledEmail } from '../email/m
 export class CheckoutError extends Error {
   readonly code: string;
   readonly status: number;
+  /**
+   * Structured version of the message, for screens that need to render the
+   * failure rather than print it. A refusal that only exists as prose forces the
+   * UI to either show a paragraph or regex the sentence apart to recover the
+   * numbers the customer needs in order to fix anything.
+   */
+  readonly detail?: Record<string, unknown>;
 
-  constructor(message: string, code = 'CHECKOUT_ERROR', status = 400) {
+  constructor(message: string, code = 'CHECKOUT_ERROR', status = 400, detail?: Record<string, unknown>) {
     super(message);
     this.name = 'CheckoutError';
     this.code = code;
     this.status = status;
+    this.detail = detail;
   }
+}
+
+/**
+ * Position in the ladder, for "is this a move to a smaller plan".
+ *
+ * Compares by position rather than by price. Price arithmetic on two tiers is a
+ * rounding mistake waiting to decide who gets charged more, and the ladder order
+ * is the thing the customer actually chose between.
+ */
+/**
+ * Provider modules spell billing intervals lowercase; the database spells them
+ * uppercase. Casting between them compiles and silently writes the wrong value,
+ * so the conversion is explicit and one-directional.
+ */
+export function toStoredInterval(interval: BillingInterval): StoredBillingInterval {
+  return interval === 'annual' ? 'ANNUAL' : 'MONTHLY';
+}
+
+export function quotaRank(plan: PlanTier): number {
+  const index = planOrder.indexOf(plan);
+  return index === -1 ? 0 : index;
 }
 
 export interface StartCheckoutInput {
@@ -92,8 +127,11 @@ export async function startCheckout(input: StartCheckoutInput): Promise<Checkout
     interval: input.interval,
     currency: input.currency,
     contact: input.contact,
-    successUrl: `${env.BETTER_AUTH_URL}/app/billing?checkout=complete`,
-    cancelUrl: `${env.BETTER_AUTH_URL}/app/billing?checkout=cancelled`,
+    // The web app's host, and its real billing route. These pointed at this API's
+    // own origin and at a path that does not exist, so a customer who finished
+    // paying landed on a 404 and had no way to tell the payment had worked.
+    successUrl: `${env.APP_URL}/billing?checkout=complete`,
+    cancelUrl: `${env.APP_URL}/billing?checkout=cancelled`,
     // Carried through to the webhook so the event can be attributed to a
     // workspace without trusting the payload body.
     reference: input.organizationId,
@@ -127,10 +165,61 @@ export async function startCheckout(input: StartCheckoutInput): Promise<Checkout
 }
 
 /**
+ * What a workspace currently uses against a plan it does not hold.
+ *
+ * Returned as a list rather than a single worst offender so the customer can see
+ * everything they have to remove, instead of fixing one limit, being refused
+ * again, and discovering the next one.
+ */
+export interface PlanOverage {
+  quota: QuotaKey;
+  label: string;
+  used: number;
+  limit: number;
+  by: number;
+}
+
+/**
+ * Counts what the workspace is using right now, measured against the plan being
+ * moved to.
+ *
+ * Three counts, issued together. Sequential would be three round trips inside a
+ * request that is already asking the payment provider to do something, and this
+ * is on the path of every downgrade.
+ */
+async function planOverageFor(
+  organizationId: string,
+  targetPlan: PlanTier,
+): Promise<PlanOverage[]> {
+  const [clients, domains, members] = await Promise.all([
+    quotaUsage(organizationId, 'client', targetPlan),
+    quotaUsage(organizationId, 'activeDomain', targetPlan),
+    quotaUsage(organizationId, 'member', targetPlan),
+  ]);
+
+  const counted: { quota: QuotaKey; label: string; used: number; limit: number }[] = [
+    { quota: 'client', label: 'clients', ...clients },
+    { quota: 'activeDomain', label: 'active domains', ...domains },
+    { quota: 'member', label: 'members', ...members },
+  ];
+
+  return counted
+    .filter((entry) => entry.used > entry.limit)
+    .map((entry): PlanOverage => ({ ...entry, by: entry.used - entry.limit }));
+}
+
+/**
  * Moves a workspace to a different plan, effective at the end of the period
  * already paid for. Deliberately not immediate, and deliberately without
  * proration, because a mid cycle charge nobody asked for is the fastest way to
  * earn a chargeback.
+ *
+ * A downgrade is refused when the workspace is already larger than the plan it is
+ * moving to. Twelve clients on Harbor moving to Fairway, which allows five,
+ * cannot happen by accident: it would leave every one of the twelve running on a
+ * plan that does not include them, and the mismatch would stay invisible because
+ * nothing else reports it. The refusal names the overage so the customer can act
+ * on it, which is the only reason refusing is better than allowing it.
  */
 export async function changePlan(input: {
   organizationId: string;
@@ -161,10 +250,53 @@ export async function changePlan(input: {
     existingProvider: subscription.provider,
   });
 
+  // Only a move to a smaller plan can be over quota. Counting usage for an
+  // upgrade would refuse a purchase, which is the opposite of what we want.
+  if (quotaRank(input.plan) < quotaRank(subscription.plan)) {
+    const overage = await planOverageFor(input.organizationId, input.plan);
+
+    if (overage.length > 0) {
+      const detail = overage
+        .map((entry) => `${entry.label}: ${entry.used} of ${entry.limit} (${entry.by} over)`)
+        .join('; ');
+
+      // Recorded before anything is refused, because "why did my downgrade fail"
+      // is a question about an event that otherwise leaves no trace at all.
+      await recordAuditEvent({
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId ?? undefined,
+        action: 'BILLING_PLAN_CHANGE_REFUSED',
+        targetType: 'subscription',
+        targetId: subscription.providerSubscriptionId,
+        detail: { from: subscription.plan, to: input.plan, overage },
+      });
+
+      throw new CheckoutError(
+        `${planCatalog[input.plan].label} allows ${overage
+          .map((entry) => `${entry.limit} ${entry.label}`)
+          .join(' and ')}, and this workspace has ${detail}. Remove the excess, or keep the current plan.`,
+        'PLAN_CHANGE_OVER_QUOTA',
+        409,
+        { overage, from: subscription.plan, to: input.plan },
+      );
+    }
+  }
+
   await provider.changePlan({
     providerSubscriptionId: subscription.providerSubscriptionId,
     plan: input.plan,
     interval: input.interval,
+  });
+
+  // Recorded only after the provider accepted the change, so our row can never
+  // claim a scheduled change the provider refused. Cleared by applyBillingEvent
+  // when the plan actually moves.
+  await prisma.subscription.update({
+    where: { organizationId: input.organizationId },
+    data: {
+      pendingPlan: input.plan,
+      pendingPlanInterval: toStoredInterval(input.interval),
+    },
   });
 
   // Told at the moment of the request, not when it takes effect, so nobody
@@ -284,10 +416,34 @@ export async function billingStatus(organizationId: string): Promise<{
   cancelAtPeriodEnd: boolean;
   priceLabel: string;
   currency: BillingCurrency;
+  /**
+   * The plan that applies when the paid period ends, or null when nothing is
+   * scheduled. Distinct from `plan`: a workspace can be on Fairway with
+   * Admiralty pending, and a screen showing only one of the two is either
+   * hiding a downgrade or hiding an upgrade.
+   */
+  pendingPlan: { plan: PlanTier; interval: StoredBillingInterval; effectiveAt: string | null } | null;
+  dunningStage: 'NONE' | 'WARNED' | 'WITHDRAWN';
+  /** When a failed payment stops being forgiven. Null when nothing is failing. */
+  graceEnds: string | null;
 }> {
   const organization = await prisma.organization.findUniqueOrThrow({
     where: { id: organizationId },
-    select: { plan: true, subscription: { select: { status: true, provider: true, currentPeriodEnd: true, cancelAtPeriodEnd: true } } },
+    select: {
+      plan: true,
+      subscription: {
+        select: {
+          status: true,
+          provider: true,
+          currentPeriodEnd: true,
+          cancelAtPeriodEnd: true,
+          pendingPlan: true,
+          pendingPlanInterval: true,
+          dunningStage: true,
+          graceEndsAt: true,
+        },
+      },
+    },
   });
 
   const currency: BillingCurrency = organization.subscription?.provider === 'PADDLE' ? 'USD' : 'INR';
@@ -301,6 +457,15 @@ export async function billingStatus(organizationId: string): Promise<{
     cancelAtPeriodEnd: organization.subscription?.cancelAtPeriodEnd ?? false,
     priceLabel: formatLabel(prices.monthlyMinor, currency),
     currency,
+    pendingPlan: organization.subscription?.pendingPlan
+      ? {
+          plan: organization.subscription.pendingPlan,
+          interval: organization.subscription.pendingPlanInterval ?? 'MONTHLY',
+          effectiveAt: organization.subscription.currentPeriodEnd?.toISOString() ?? null,
+        }
+      : null,
+    dunningStage: organization.subscription?.dunningStage ?? 'NONE',
+    graceEnds: organization.subscription?.graceEndsAt?.toISOString() ?? null,
   };
 }
 

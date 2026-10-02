@@ -1,7 +1,7 @@
 import { prisma } from '../database/prisma.js';
 import { recordAuditEvent } from '../services/audit.service.js';
 import { providerFor } from './registry.js';
-import { reconcileWithProvider } from './subscription-state.js';
+import { applyDuePendingPlans, reconcileWithProvider } from './subscription-state.js';
 import { effectivePlan } from '../services/entitlements/plan-catalog.js';
 import { sendPaymentFailedEmail } from '../email/mailer.js';
 
@@ -169,13 +169,18 @@ async function withdrawPlan(organizationId: string, previousPlan: string, reason
  * would have paid and stayed on the free plan, and a customer whose recurring
  * payment stopped would keep paid features indefinitely without anyone noticing.
  */
-export async function runReconciliation(): Promise<ReconcileOutcome> {
+export async function runReconciliation(now = new Date()): Promise<ReconcileOutcome> {
   const subscriptions = await prisma.subscription.findMany({
     where: { provider: { not: 'NONE' }, providerSubscriptionId: { not: null } },
     select: { organizationId: true, provider: true, plan: true, currentPeriodEnd: true },
   });
 
   const outcome: ReconcileOutcome = { examined: subscriptions.length, repaired: 0, unreachable: 0 };
+
+  // Due plan changes first, before the per-subscription reconciliation below, so
+  // a downgrade that came due is applied rather than compared against and
+  // overwritten by the provider's still-old view of the subscription.
+  await applyDuePendingPlans(now);
 
   for (const subscription of subscriptions) {
     let provider;

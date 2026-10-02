@@ -1,5 +1,6 @@
 import type { PlanTier, SubscriptionStatus } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
+import { providerFor } from './registry.js';
 import { recordAuditEvent } from '../services/audit.service.js';
 import { effectivePlan } from '../services/entitlements/plan-catalog.js';
 import { removeLogoOnDowngrade } from '../services/branding.service.js';
@@ -111,6 +112,13 @@ export async function applyBillingEvent(event: BillingEvent): Promise<ApplyEvent
       new Date(),
     );
 
+    // Read before the write below, because that write is the one clearing it.
+    const existing = await tx.subscription.findUnique({
+      where: { organizationId },
+      select: { pendingPlan: true },
+    });
+    const pendingPlan = existing?.pendingPlan ?? null;
+
     await tx.subscription.upsert({
       where: { organizationId },
       create: {
@@ -129,6 +137,13 @@ export async function applyBillingEvent(event: BillingEvent): Promise<ApplyEvent
         ...(event.providerSubscriptionId ? { providerSubscriptionId: event.providerSubscriptionId } : {}),
         ...(event.currentPeriodEnd ? { currentPeriodEnd: event.currentPeriodEnd } : {}),
         cancelAtPeriodEnd: event.cancelAtPeriodEnd,
+        // Cleared only when the plan that arrived is the one that was pending.
+        // Matching on equality rather than clearing unconditionally matters: a
+        // second change requested while the first is still in flight must not be
+        // erased by the first one landing.
+        ...(resolvedPlan === undefined || pendingPlan === null || resolvedPlan === pendingPlan
+          ? {}
+          : { pendingPlan: null, pendingPlanInterval: null }),
       },
     });
 
@@ -262,4 +277,107 @@ export async function reconcileWithProvider(
   }
 
   return applyBillingEvent(event);
+}
+
+/**
+ * Applies plan changes whose paid period has now ended.
+ *
+ * Paddle cannot schedule a plan change at all - its ScheduledChangeAction is
+ * only cancel, pause or resume - so a downgrade there has no provider-side
+ * schedule to wait on. We keep one instead, and this is what applies it.
+ *
+ * It runs for Razorpay subscriptions too, and that is deliberate rather than
+ * redundant: the marker is only cleared when the plan that arrives is the plan
+ * that was pending, so a provider that scheduled the change itself converges on
+ * the same state instead of fighting it.
+ *
+ * Once past the period the change is due whatever the provider believes. Holding
+ * a customer on a plan they cancelled weeks ago because a webhook was lost is
+ * the failure mode the reconciliation job exists to prevent.
+ */
+export async function applyDuePendingPlans(now = new Date()): Promise<{ applied: number }> {
+  const due = await prisma.subscription.findMany({
+    where: {
+      pendingPlan: { not: null },
+      currentPeriodEnd: { not: null, lte: now },
+    },
+    select: {
+      organizationId: true,
+      plan: true,
+      pendingPlan: true,
+      pendingPlanInterval: true,
+      provider: true,
+      providerSubscriptionId: true,
+    },
+  });
+
+  let applied = 0;
+
+  for (const subscription of due) {
+    const targetPlan = subscription.pendingPlan;
+    if (!targetPlan) {
+      continue;
+    }
+
+    const interval = (subscription.pendingPlanInterval ?? 'MONTHLY').toLowerCase() as 'monthly' | 'annual';
+
+    // The provider is told first. If Paddle refuses, our row must not claim the
+    // downgrade happened, because the customer would then be downgraded with
+    // nobody paying for it.
+    let providerAccepted = true;
+    if (subscription.provider !== 'NONE' && subscription.providerSubscriptionId) {
+      try {
+        const provider = providerFor(subscription.provider as 'RAZORPAY' | 'PADDLE');
+        await provider.changePlan({
+          providerSubscriptionId: subscription.providerSubscriptionId,
+          plan: targetPlan,
+          interval,
+        });
+      } catch {
+        providerAccepted = false;
+      }
+    }
+
+    if (!providerAccepted) {
+      await prisma.auditLog.create({
+        data: {
+          organizationId: subscription.organizationId,
+          action: 'SUBSCRIPTION_UPDATED',
+          targetType: 'subscription',
+          targetId: subscription.providerSubscriptionId ?? subscription.organizationId,
+          detail: { event: 'pending_plan_change_failed', from: subscription.plan, to: targetPlan },
+        },
+      });
+      continue;
+    }
+
+    const claim = await prisma.subscription.updateMany({
+      where: { organizationId: subscription.organizationId, pendingPlan: targetPlan },
+      data: { pendingPlan: null, pendingPlanInterval: null },
+    });
+
+    // Zero means another instance applied it first, or the request was replaced.
+    if (claim.count === 0) {
+      continue;
+    }
+
+    await prisma.organization.update({
+      where: { id: subscription.organizationId },
+      data: { plan: targetPlan },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        organizationId: subscription.organizationId,
+        action: 'SUBSCRIPTION_UPDATED',
+        targetType: 'subscription',
+        targetId: subscription.providerSubscriptionId ?? subscription.organizationId,
+        detail: { event: 'pending_plan_applied', from: subscription.plan, to: targetPlan },
+      },
+    });
+
+    applied += 1;
+  }
+
+  return { applied };
 }

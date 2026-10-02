@@ -90,6 +90,7 @@ async function setup() {
   const domain = await prisma.domain.create({
     data: {
       clientId: client.id,
+      slug: `dom-${Math.random().toString(36).slice(2, 10)}`,
       name: `scale-${fixtureId}.test`,
       status: 'VERIFIED',
       verifiedAt: new Date(),

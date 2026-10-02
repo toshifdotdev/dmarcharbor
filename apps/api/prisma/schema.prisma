@@ -117,6 +117,7 @@ model Organization {
   idempotencyRecords    IdempotencyRecord[]
   billingEvents         BillingEvent[]
   reportInbox           ReportInbox?
+  slackDestination      SlackDestination?
   ssoConnections        SsoConnection[]
   webhookEndpoints      WebhookEndpoint[]
 
@@ -185,6 +186,14 @@ model Client {
 
 model Domain {
   id                     String                @id @default(cuid())
+  /// Stable, human-readable identifier for this domain, used in URLs.
+  ///
+  /// The cuid was ending up in the address bar, in links customers paste into
+  /// Slack, and in support emails, where it reads as an error even when nothing
+  /// is wrong. A slug makes the URL name the thing it is about. Unique across
+  /// the whole table rather than per client, so /domains/<slug> resolves without
+  /// the client in the path.
+  slug                   String                @unique
   clientId               String
   client                 Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
   name                   String
@@ -606,6 +615,7 @@ enum AlertOperator {
 
 enum AlertChannel {
   EMAIL
+  SLACK
 }
 
 enum AlertDeliveryKind {
@@ -646,6 +656,18 @@ model Subscription {
   /// because withdrawing left the status alone and never advanced the period, so
   /// the customer was warned and emailed again on every daily run, for ever.
   dunningStage           DunningStage       @default(NONE)
+  /// The plan that will apply when the paid period ends.
+  ///
+  /// A plan change is not immediate, so without somewhere to record the request
+  /// the workspace's own plan and the provider's subscription disagree and nobody
+  /// can see it. The customer used to find out by losing a feature, which is the
+  /// worst way to be told.
+  pendingPlan            PlanTier?
+  pendingPlanInterval    BillingInterval?
+  /// When a failed payment stops being forgiven and the workspace is withdrawn.
+  /// Null when no payment is failing. Exposed so the grace period can be stated
+  /// as a duration instead of leaving the customer to guess how long they have.
+  graceEndsAt            DateTime?
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt
 
@@ -928,6 +950,37 @@ model ReportInbox {
   @@map("report_inbox")
 }
 
+/// One Slack channel per workspace, not per user.
+///
+/// A Slack channel is shared by everybody in it, so an individual email
+/// preference cannot sensibly gate it: turning off your own email must not
+/// silence the channel your team reads, and switching your own email on must not
+/// start posting there. The workspace decides once, via `enabled`.
+///
+/// The webhook URL is a credential, not a setting. Anyone holding it can post to
+/// the channel, so it is encrypted at rest and never returned in full.
+model SlackDestination {
+  id                  String    @id @default(cuid())
+  organizationId      String    @unique
+  organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// Channel name for display only, e.g. "dmarc-alerts". Slack resolves the
+  /// destination from the webhook URL, so this is never used to route anything.
+  channelLabel        String?
+  encryptedWebhookUrl String
+  enabled             Boolean   @default(true)
+  /// Set while an instance is delivering, so a fleet does not post the same
+  /// alert to the same channel several times at once.
+  deliveryClaimedAt   DateTime?
+  lastDeliveredAt     DateTime?
+  consecutiveFailures Int       @default(0)
+  lastError           String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([enabled])
+  @@map("slack_destination")
+}
+
 /// A signed compliance pack issued for one client.
 ///
 /// The PDF is not stored. Its SHA-256 is, because the hash is the claim and the
@@ -1171,6 +1224,7 @@ enum AuditAction {
   SUBSCRIPTION_UPDATED
   BILLING_CHECKOUT_STARTED
   BILLING_PLAN_CHANGE_REQUESTED
+  BILLING_PLAN_CHANGE_REFUSED
   BILLING_CANCELLED
   BILLING_RESUMED
   TRUST_CENTER_CREATED

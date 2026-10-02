@@ -933,6 +933,52 @@ export const openApiDocument = {
         },
       },
     },
+    '/workspaces/{organizationId}/slack-destination': {
+      get: {
+        tags: ['Settings'],
+        summary: 'Read the workspace Slack destination',
+        description: [
+          'One destination per workspace rather than per user, because a Slack channel is shared by everyone in it.',
+          'The webhook URL is a credential: anyone holding it can post to the channel. It is stored encrypted and returned masked, never in full.',
+          'Returns null when no destination is configured.',
+        ].join(' '),
+        responses: { 200: { description: 'The masked destination, or null.' } },
+      },
+      put: {
+        tags: ['Settings'],
+        summary: 'Configure the workspace Slack destination',
+        description: [
+          'Accepts a Slack incoming-webhook URL and validates it before storing: https only, host must be exactly hooks.slack.com, no explicit port, no embedded credentials, and the path must look like an incoming webhook.',
+          'The host check is an exact match rather than a suffix match, because a suffix check accepts a host the customer controls and turns this into a request forwarder.',
+          'Replaces any existing destination and clears its failure count, since a new webhook is a fresh start.',
+        ].join(' '),
+        responses: {
+          200: { description: 'The saved destination, masked.' },
+          400: { description: 'The webhook URL was refused.' },
+        },
+      },
+      patch: {
+        tags: ['Settings'],
+        summary: 'Enable or disable the Slack destination',
+        description: [
+          'Turning this off stops new posts and keeps the stored webhook, so the channel can be re-enabled without pasting it again.',
+          'Disabling is not a rotation. To invalidate a webhook that may have leaked, delete the destination and create a new one in Slack.',
+        ].join(' '),
+        responses: {
+          204: { description: 'Updated.' },
+          404: { description: 'No destination is configured.' },
+        },
+      },
+      delete: {
+        tags: ['Settings'],
+        summary: 'Remove the Slack destination',
+        description: [
+          'Stops alerts reaching the channel and discards the stored webhook URL.',
+          'The webhook stays valid in Slack until it is deleted there, so removing it here is not the same as revoking it.',
+        ].join(' '),
+        responses: { 204: { description: 'Removed.' } },
+      },
+    },
     '/health': {
       get: {
         tags: ['System'],
