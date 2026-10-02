@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DMARC Harbor — Pricing · The Statement, above the fold</title>
+<!--
+  TEMPLATE ONLY — nothing here is wired to the app or billing.
+  Plan names, prices, limits and features shown are SAMPLE values taken from
+  docs/BILLING.md (2026-10-01). The live page must render everything from the
+  API (GET /api/workspaces/{id}/entitlements + plan catalog) — never hardcode.
+  THE FIX FOR 07-THE-STATEMENT: keep its typography-as-the-design, but put ALL
+  FOUR PRICES IN THE FIRST SCREEN. The old Statement stacked one plan per
+  screen-height, so a visitor scrolled to compare. Here the four tabular
+  figures sit in one row below a compact hero — comparison without scrolling —
+  and the prose moves below, where scrolling is fine.
+-->
+<style>
+  :root {
+    --bg: #0a0a0a; --surface: #101010;
+    --line: rgba(255,255,255,0.08); --line-strong: rgba(255,255,255,0.17);
+    --ink: #f2f2f0; --ink-2: #a0a09c; --ink-3: #8a8a85;
+    --accent: #e6e4dd; --accent-ink: #0a0a0a; --accent-soft: rgba(230,228,221,0.10);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, sans-serif;
+    font-size: 15px; line-height: 1.65; -webkit-font-smoothing: antialiased;
+    position: relative;
+  }
+  body::before {
+    content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0.035;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .page { position: relative; z-index: 1; }
+  a { color: inherit; text-decoration: none; }
+  .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-3); }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 11px 20px; border-radius: 2px; font-size: 13px; font-weight: 600;
+    border: 1px solid transparent; cursor: pointer; white-space: nowrap;
+    transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+  }
+  .btn-primary { background: var(--accent); color: var(--accent-ink); }
+  .btn-primary:hover { background: transparent; color: var(--ink); border-color: var(--accent); }
+  .btn-ghost { background: transparent; color: var(--ink-2); border-color: var(--line-strong); }
+  .btn-ghost:hover { color: var(--ink); border-color: var(--accent); }
+
+  /* ── compact header + hero: together ~230px, so the prices land above
+        the fold on any laptop viewport ─────────────────────────────── */
+  header {
+    display: flex; align-items: center; gap: 26px;
+    max-width: 1180px; margin: 0 auto; padding: 18px 24px; border-bottom: 1px solid var(--line);
+  }
+  .brand { display: flex; align-items: center; gap: 11px; }
+  .brand svg { color: var(--accent); }
+  .brand-name { font-size: 15.5px; font-weight: 600; letter-spacing: -0.015em; }
+  nav { display: flex; gap: 22px; margin-left: 12px; }
+  nav a { font-size: 13px; color: var(--ink-2); }
+  nav a:hover, nav a.here { color: var(--ink); }
+  .head-right { margin-left: auto; display: flex; align-items: center; gap: 18px; }
+  .signin { font-size: 13px; color: var(--ink-2); }
+  .signin:hover { color: var(--ink); }
+
+  .hero {
+    max-width: 1180px; margin: 0 auto; padding: 34px 24px 0;
+    display: flex; align-items: baseline; gap: 40px; flex-wrap: wrap;
+  }
+  .hero h1 {
+    font-family: "Segoe UI Variable Display", "Helvetica Neue", Arial, sans-serif;
+    font-size: 34px; font-weight: 600; letter-spacing: -0.032em; line-height: 1.15;
+    margin-top: 10px; max-width: 30ch;
+  }
+  .hero h1 em { font-style: normal; color: var(--ink-2); }
+  .hero .hero-note {
+    flex: 1 1 320px; color: var(--ink-2); font-size: 13.5px; line-height: 1.7;
+    max-width: 44ch; padding-top: 8px;
+  }
+  .hero .hero-note strong { color: var(--ink); font-weight: 600; }
+
+  /* ── the four figures, one row, first screen ───────────────────── */
+  .row-wrap { max-width: 1180px; margin: 0 auto; padding: 30px 24px 0; }
+  .row {
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+    border-top: 1px solid var(--line-strong);
+  }
+  .plan {
+    padding: 26px 22px 24px 0; border-bottom: 1px solid var(--line-strong);
+    display: flex; flex-direction: column;
+  }
+  .plan + .plan { padding-left: 22px; border-left: 1px solid var(--line); }
+  .plan.rec {
+    background: var(--surface); box-shadow: inset 0 1px 0 rgba(255,255,255,0.045), inset 2px 0 0 var(--accent);
+    padding-left: 22px;
+  }
+  .plan .vessel {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 9.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-3);
+    line-height: 1.6;
+  }
+  .plan .pname {
+    font-family: "Segoe UI Variable Display", "Helvetica Neue", Arial, sans-serif;
+    font-size: 21px; font-weight: 600; letter-spacing: -0.022em; margin-top: 5px;
+  }
+  .plan .rec-tag {
+    display: inline-block; margin-left: 8px; vertical-align: 3px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 8.5px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--accent-ink); background: var(--accent); padding: 2px 7px; border-radius: 2px;
+  }
+
+  .figure {
+    font-family: "Segoe UI Variable Display", "Helvetica Neue", Arial, sans-serif;
+    font-variant-numeric: tabular-nums;
+    font-size: 84px; font-weight: 600; letter-spacing: -0.045em; line-height: 1;
+    margin-top: 18px; display: flex; align-items: baseline;
+  }
+  .figure .cur { font-size: 32px; color: var(--ink-2); letter-spacing: -0.02em; margin-right: 2px; }
+  .figure .zero { color: var(--ink-2); }
+  .fig-foot { margin-top: 10px; display: flex; flex-direction: column; gap: 3px; }
+  .fig-foot span {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums; font-size: 11px; color: var(--ink-3);
+  }
+  .fig-foot span b { color: var(--ink-2); font-weight: 500; }
+
+  .plan .btn { margin-top: 18px; width: 100%; }
+
+  .includes { list-style: none; margin-top: 18px; display: flex; flex-direction: column; gap: 7px; }
+  .includes li {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px; color: var(--ink-2); line-height: 1.5;
+    padding-left: 15px; position: relative;
+  }
+  .includes li::before { content: "→"; position: absolute; left: 0; color: var(--ink-3); }
+
+  /* ── below the fold: what the price never changes ──────────────── */
+  .closing { max-width: 1180px; margin: 0 auto; padding: 64px 24px 40px; }
+  .closing h2 {
+    font-family: "Segoe UI Variable Display", "Helvetica Neue", Arial, sans-serif;
+    font-size: 26px; font-weight: 600; letter-spacing: -0.03em; max-width: 32ch;
+  }
+  .closing p { margin-top: 14px; max-width: 64ch; color: var(--ink-2); font-size: 14px; line-height: 1.75; }
+  .closing .figs { margin-top: 30px; display: flex; gap: 52px; flex-wrap: wrap; }
+  .closing .fig .label { margin-bottom: 6px; }
+  .closing .fig .v {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums; font-size: 21px; font-weight: 600; letter-spacing: -0.01em;
+  }
+
+  .states {
+    max-width: 1180px; margin: 26px auto 0; padding: 0 24px;
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  .state {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase;
+    border: 1px solid currentColor; border-radius: 2px; padding: 2.5px 9px;
+  }
+  .state .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+  .s-pass { color: #86b76a; } .s-warn { color: #cbb05a; } .s-fail { color: #cf6a5e; } .s-unknown { color: #8b8b86; }
+  .states .note { margin-left: auto; font-family: ui-monospace, monospace; font-size: 11px; color: var(--ink-3); }
+
+  footer {
+    border-top: 1px solid var(--line); padding: 24px 24px 56px; max-width: 1180px; margin: 40px auto 0;
+    display: flex; gap: 20px; flex-wrap: wrap; align-items: baseline; font-size: 12px; color: var(--ink-3);
+  }
+  footer .spacer { margin-left: auto; }
+  footer a:hover { color: var(--ink-2); }
+
+  @media (max-width: 1020px) {
+    .row { grid-template-columns: repeat(2, 1fr); }
+    .plan:nth-child(odd) { padding-left: 0; border-left: none; }
+    .plan.rec { padding-left: 22px; }
+    .figure { font-size: 68px; }
+    nav { display: none; }
+  }
+  @media (max-width: 640px) {
+    .row { grid-template-columns: 1fr; }
+    .plan + .plan { padding-left: 0; border-left: none; }
+    .plan.rec { padding-left: 22px; }
+    .hero h1 { font-size: 27px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <a class="brand" href="#">
+      <svg width="25" height="25" viewBox="0 0 512 512" fill="none">
+        <rect x="120" y="88" width="84" height="336" rx="18" fill="currentColor"/>
+        <rect x="308" y="88" width="84" height="336" rx="18" fill="currentColor"/>
+        <path d="M162 252 C 196 206, 236 206, 256 252 C 276 298, 316 298, 350 252" stroke="currentColor" stroke-width="44" stroke-linecap="round"/>
+      </svg>
+      <span class="brand-name">DMARC Harbor</span>
+    </a>
+    <nav>
+      <a href="#">Product</a><a href="#">Trust Center</a><a href="#" class="here">Pricing</a><a href="#">Docs</a>
+    </nav>
+    <div class="head-right">
+      <a class="signin" href="#">Sign in</a>
+      <a class="btn btn-primary" href="#" style="padding:9px 17px;">Start free</a>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div>
+      <div class="label">Pricing</div>
+      <h1>The prices, before the prose. <em>We moved them up.</em></h1>
+    </div>
+    <div class="hero-note">
+      Monolith owns no hue and no ornament — so the figures are the design, and
+      <strong>all four of them are on this screen</strong>. Compare at a glance; the words
+      about what they buy are below, where scrolling is fine.
+    </div>
+  </section>
+
+  <section class="row-wrap">
+    <div class="row">
+
+      <div class="plan">
+        <div class="vessel">A moored dinghy</div>
+        <div class="pname">Mooring</div>
+        <div class="figure"><span class="cur">$</span><span class="zero">0</span></div>
+        <div class="fig-foot">
+          <span><b>₹0</b> in INR</span>
+          <span>always · no card</span>
+        </div>
+        <a class="btn btn-ghost" href="#">Start free</a>
+        <ul class="includes">
+          <li>Reports & verification</li>
+          <li>Alerting</li>
+          <li>Hashed recipients</li>
+        </ul>
+      </div>
+
+      <div class="plan">
+        <div class="vessel">A coastal trader</div>
+        <div class="pname">Fairway</div>
+        <div class="figure"><span class="cur">$</span>19</div>
+        <div class="fig-foot">
+          <span><b>₹1,599</b> in INR · per month</span>
+          <span>$190 / ₹15,990 per year</span>
+        </div>
+        <a class="btn btn-ghost" href="#">Choose Fairway</a>
+        <ul class="includes">
+          <li>Everything in Mooring</li>
+          <li>Alert rules & digests</li>
+          <li>API keys</li>
+        </ul>
+      </div>
+
+      <div class="plan rec">
+        <div class="vessel">A merchant vessel</div>
+        <div class="pname">Harbor<span class="rec-tag">most sail here</span></div>
+        <div class="figure"><span class="cur">$</span>79</div>
+        <div class="fig-foot">
+          <span><b>₹6,599</b> in INR · per month</span>
+          <span>$790 / ₹65,990 per year</span>
+        </div>
+        <a class="btn btn-primary" href="#">Choose Harbor</a>
+        <ul class="includes">
+          <li>Everything in Fairway</li>
+          <li>White-label client layer</li>
+          <li>Trust Center & packs</li>
+        </ul>
+      </div>
+
+      <div class="plan">
+        <div class="vessel">The flagship</div>
+        <div class="pname">Admiralty</div>
+        <div class="figure"><span class="cur">$</span>249</div>
+        <div class="fig-foot">
+          <span><b>₹20,999</b> in INR · per month</span>
+          <span>$2,490 / ₹209,990 per year</span>
+        </div>
+        <a class="btn btn-ghost" href="#">Choose Admiralty</a>
+        <ul class="includes">
+          <li>Everything in Harbor</li>
+          <li>SSO — SAML & OIDC</li>
+          <li>Named-recipient mode</li>
+        </ul>
+      </div>
+
+    </div>
+  </section>
+
+  <section class="closing">
+    <h2>What the price never changes.</h2>
+    <p>
+      Higher plans carry more. They do not parse better, encrypt harder, or expire forensic data
+      more slowly — named recipients expire in seven days on every plan, including the flagship.
+      That is the whole product, at any price.
+    </p>
+    <div class="figs">
+      <div class="fig"><div class="label">Annual passage</div><div class="v">10 months → 12</div></div>
+      <div class="fig"><div class="label">₹ payments</div><div class="v">Razorpay</div></div>
+      <div class="fig"><div class="label">Everything else</div><div class="v">Paddle</div></div>
+      <div class="fig"><div class="label">Deleted on downgrade</div><div class="v">Nothing</div></div>
+    </div>
+  </section>
+
+  <div class="states">
+    <span class="state s-pass"><span class="dot"></span>Pass</span>
+    <span class="state s-warn"><span class="dot"></span>Warn</span>
+    <span class="state s-fail"><span class="dot"></span>Fail</span>
+    <span class="state s-unknown"><span class="dot"></span>Unknown</span>
+    <span class="note">Unknown never renders as a pass — at any price.</span>
+  </div>
+
+  <footer>
+    <span>Sample template — the live page renders plans from the API.</span>
+    <span class="spacer"></span>
+    <a href="#">Compare all features</a>
+    <a href="#">Terms</a><a href="#">Privacy</a><a href="#">DPA</a><a href="#">Security</a>
+  </footer>
+
+</div>
+</body>
+</html>
