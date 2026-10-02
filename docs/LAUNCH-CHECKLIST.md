@@ -249,6 +249,52 @@ misleading message.
 - Surface `used` and `limit` in the entitlement payload so the UI can show it.
 - Add a `pendingPlan` column so a scheduled change is visible before it happens.
 
+### 12. Collecting reports from rua=https endpoints
+
+Before the first customer on Google Workspace, Microsoft 365 or Yahoo asks why
+they have no data.
+
+**The parser used to be wrong here, and being wrong was destructive.** It kept
+only the `mailto:` targets out of the `rua` tag and discarded the rest, so
+
+```
+rua=https://reports.example.com/v1/x    parsed to the same thing as no rua
+```
+
+The scanner then reported *Aggregate reporting is not configured* and
+recommended *Add a rua=mailto: reporting address*. A customer believing that
+repoints a DNS record that was already correct, to fix a problem we invented.
+Every major report organisation publishes over HTTPS by default, so this was the
+common case. It is fixed: `hasAggregateReporting` counts either transport and
+`canCollectAggregateReports` counts only mailto, and the scanner now says the
+reports are going somewhere we cannot read and to leave the record alone.
+
+**Fixing the parser removed the false alarm and left the real gap.** Those
+domains now get an accurate answer and no data. That is the correct trade, and
+it is still the largest gap in the product.
+
+- The credentials are **not in DNS**. A report organisation issues a URL plus a
+  username and password from its admin console, so there is nothing to
+  discover. Someone has to paste them in, which makes this a settings screen and
+  not a scan.
+- Store the password encrypted, return it masked, never log it. Same handling
+  as the IMAP mailbox password.
+- Only `https`. The target comes from DNS, so fetching it over `http` means
+  trusting XML that anyone on the path can rewrite.
+- **A `rua=https` endpoint serves reports for many domains.** Unlike IMAP, where
+  a fetch is attributed to one configured mailbox, one of these URLs returns
+  every report its owner publishes. It must therefore be filtered to domains we
+  have verified ownership of before ingest, or it becomes a way to read other
+  customers' failure data by pointing a domain at a shared endpoint. The filter
+  already exists in `ingestDmarcReport`; the poller must go through it, not
+  around it.
+- Reuse the job lease. Several workspaces pointing at the same report
+  organisation must not burst the same endpoint on boot.
+- Expect gzip and `application/gzip`, and reports larger than any single message
+  we have handled.
+- Until this ships, the UI must keep saying *we are not collecting these yet* and
+  must never say reports will be delivered for a web-only `rua`.
+
 ---
 
 ## Part 2 — Can run in parallel
