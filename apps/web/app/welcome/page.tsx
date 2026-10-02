@@ -1,0 +1,89 @@
+import { redirect } from "next/navigation";
+import { listWorkspaces } from "@/lib/api";
+import { PierMark } from "@/components/mark";
+
+/**
+ * No workspace yet is an onboarding step, not an error. Creating one here is
+ * the same POST /api/workspaces the API documents — no invented endpoints.
+ */
+export default async function WelcomePage() {
+  const workspaces = await listWorkspaces();
+  if (workspaces.length > 0) redirect("/");
+
+  return (
+    <main className="relative z-10 flex min-h-screen flex-col items-center justify-center gap-8 px-6">
+      <PierMark size={40} />
+      <h1
+        className="text-[24px] font-semibold tracking-[-0.03em]"
+        style={{ fontFamily: "var(--font-display)" }}
+      >
+        Name your workspace
+      </h1>
+      <p className="max-w-sm text-center text-[13px]" style={{ color: "var(--color-ink-2)" }}>
+        A workspace holds your clients, their domains, and every measurement
+        you collect. Your agency's brand is applied to client-facing surfaces.
+      </p>
+      <WorkspaceForm />
+    </main>
+  );
+}
+
+function WorkspaceForm() {
+  return (
+    <form
+      action={async (formData: FormData) => {
+        "use server";
+        const name = String(formData.get("name") ?? "").trim();
+        const slug = String(formData.get("slug") ?? "").trim();
+        if (name.length < 2 || slug.length < 2) return;
+
+        const { createWorkspace } = await import("@/lib/api-writes");
+        const { listWorkspaces: lw } = await import("@/lib/api");
+        await createWorkspace({ name, slug });
+        const after = await lw();
+        redirect(after.length > 0 ? "/" : "/welcome");
+      }}
+      className="flex w-full max-w-sm flex-col gap-4"
+    >
+      <label className="flex flex-col gap-1.5">
+        <span className="label">Workspace name</span>
+        <input
+          name="name"
+          required
+          minLength={2}
+          maxLength={80}
+          placeholder="Northgate Digital"
+          className="rounded-[2px] border px-3 py-2 text-[13.5px] outline-none"
+          style={{
+            background: "var(--color-surface)",
+            borderColor: "var(--color-line-strong)",
+            color: "var(--color-ink)",
+          }}
+        />
+      </label>
+      <label className="flex flex-col gap-1.5">
+        <span className="label">Slug</span>
+        <input
+          name="slug"
+          required
+          minLength={2}
+          pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
+          placeholder="northgate-digital"
+          className="num rounded-[2px] border px-3 py-2 text-[13px] outline-none"
+          style={{
+            background: "var(--color-surface)",
+            borderColor: "var(--color-line-strong)",
+            color: "var(--color-ink)",
+          }}
+        />
+      </label>
+      <button
+        type="submit"
+        className="mt-2 rounded-[2px] px-5 py-2.5 text-[13px] font-semibold"
+        style={{ background: "var(--color-accent)", color: "var(--color-accent-ink)" }}
+      >
+        Create workspace
+      </button>
+    </form>
+  );
+}
