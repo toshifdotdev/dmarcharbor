@@ -1,6 +1,6 @@
 import { prisma } from '../database/prisma.js';
 import { sendAuthEmail } from '../email/email.service.js';
-import { readDmarcRecord } from '../scanner/dmarc-tags.js';
+import { canCollectAggregateReports, hasAggregateReporting, readDmarcRecord } from '../scanner/dmarc-tags.js';
 import { getDomainInsights } from './report-intelligence.service.js';
 import { assessPolicyReadiness } from './onboarding.service.js';
 import { resolveLimit } from '../utils/pagination.js';
@@ -192,8 +192,20 @@ export async function buildDigestContent(
     );
   }
 
-  if (!tags.aggregateTargets.length) {
+  // Two different situations that the previous single check called the same
+  // thing. A rua=mailto: address is the normal case and needs no comment; a
+  // rua=https: address means reports are published somewhere we cannot read, and
+  // telling the customer "no rua= address" when one is plainly present is worse
+  // than saying nothing.
+  if (!hasAggregateReporting(tags)) {
     lines.push('', 'Warning: this domain has no rua= address, so reports cannot arrive.');
+  } else if (!canCollectAggregateReports(tags)) {
+    lines.push(
+      '',
+      'Note: this domain publishes reports to a web endpoint rather than a mailbox.',
+      'Reports are being sent, but DMARC Harbor does not read them from there yet,',
+      'so the figures in this summary may be incomplete.',
+    );
   }
 
   const subject = `[DMARC Harbor] ${domain.name} DMARC summary`;

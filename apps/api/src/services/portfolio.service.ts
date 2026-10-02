@@ -1,5 +1,5 @@
 import { prisma } from '../database/prisma.js';
-import { readDmarcRecord } from '../scanner/dmarc-tags.js';
+import { hasAggregateReporting, readDmarcRecord } from '../scanner/dmarc-tags.js';
 import { readinessThresholds, type OnboardingState, type ReadinessLevel } from './onboarding.service.js';
 
 export interface PortfolioDomainRow {
@@ -169,7 +169,7 @@ export async function getPortfolioOnboarding(organizationId: string, now = new D
   const rows: PortfolioDomainRow[] = domains.map((domain) => {
     const verified = domain.status === 'VERIFIED';
     const tags = readDmarcRecord(domain.dmarcRecord);
-    const aggregateConfigured = tags.aggregateTargets.length > 0;
+    const aggregateConfigured = hasAggregateReporting(tags);
     const forensicConfigured = tags.forensicTargets.length > 0;
     const dmarcPublished = tags.tags.v?.toLowerCase() === 'dmarc1';
     const reportCount = reportCountByDomain.get(domain.id) ?? 0;

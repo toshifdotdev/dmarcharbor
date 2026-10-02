@@ -1,5 +1,5 @@
 import { systemDnsReader } from './dns.js';
-import { readDmarcRecord } from './dmarc-tags.js';
+import { hasAggregateReporting, readDmarcRecord } from './dmarc-tags.js';
 import { normalizeDomain } from './domain.js';
 import { budgetDkimCandidates, dkimCandidates } from './dkim-discovery.js';
 import { calculateScore } from '../services/score.service.js';
@@ -38,6 +38,8 @@ export function parseDmarcRecords(records: string[][]): DmarcResult {
       tags: {},
       hasAggregateReports: false,
       hasForensicReports: false,
+      aggregateMailtoTargets: [],
+      aggregateWebTargets: [],
     };
   }
 
@@ -51,18 +53,27 @@ export function parseDmarcRecords(records: string[][]): DmarcResult {
       record,
       policy,
       tags,
-      hasAggregateReports: readDmarcRecord(record).aggregateTargets.length > 0,
-      hasForensicReports: readDmarcRecord(record).forensicTargets.length > 0,
+      hasAggregateReports: false,
+      hasForensicReports: false,
+      aggregateMailtoTargets: [],
+      aggregateWebTargets: [],
     };
   }
+
+  const dmarcTags = readDmarcRecord(record);
 
   return {
     status: 'found',
     record,
     policy,
     tags,
-    hasAggregateReports: readDmarcRecord(record).aggregateTargets.length > 0,
-    hasForensicReports: readDmarcRecord(record).forensicTargets.length > 0,
+    // Either transport counts. Reports published to a web endpoint are reports
+    // the domain is receiving, and reporting them as absent is what previously
+    // led us to recommend repointing DNS that was already correct.
+    hasAggregateReports: hasAggregateReporting(dmarcTags),
+    hasForensicReports: dmarcTags.forensicTargets.length > 0,
+    aggregateMailtoTargets: dmarcTags.aggregateMailtoTargets,
+    aggregateWebTargets: dmarcTags.aggregateWebTargets,
   };
 }
 
@@ -200,6 +211,19 @@ function buildIssues(dmarc: DmarcResult, spf: SpfResult, dkim: DkimResult, mx: M
         message: 'You will not receive a regular summary of sources trying to send as your domain.',
         recommendation: 'Add a rua=mailto: reporting address after choosing a report destination.',
       });
+    } else if (dmarc.aggregateWebTargets.length > 0 && dmarc.aggregateMailtoTargets.length === 0) {
+      // The domain is receiving reports. They are going somewhere we cannot
+      // read, so the honest report is that we are not collecting them, not that
+      // reporting is missing. Saying the latter invites the customer to change a
+      // record that is already correct.
+      addIssue(issues, {
+        severity: 'warning',
+        code: 'dmarc_aggregate_reports_not_collected',
+        title: 'Your reports are published somewhere we cannot read yet',
+        message: `Aggregate reports for this domain are published to ${dmarc.aggregateWebTargets.length} web endpoint${dmarc.aggregateWebTargets.length === 1 ? '' : 's'} instead of a mailbox, so this domain will show no report data until collection is set up.`,
+        recommendation:
+          'Leave the rua record as it is. DMARC Harbor can also read reports from a rua=mailto: address if you would rather not wait.',
+      });
     }
   }
 
@@ -283,6 +307,8 @@ function errorResult(domain: string, message: string): ScanResult {
     tags: {},
     hasAggregateReports: false,
     hasForensicReports: false,
+    aggregateMailtoTargets: [],
+    aggregateWebTargets: [],
     error: message,
   };
   const emptySpf: SpfResult = { status: 'error', valid: false, lookupCount: 0, error: message };

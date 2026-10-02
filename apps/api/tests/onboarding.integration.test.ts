@@ -515,3 +515,54 @@ describe('client-facing report share', () => {
     expect(response.status).toBe(404);
   });
 });
+
+describe('web-published aggregate reporting', () => {
+  beforeAll(resetDatabase);
+
+  it('does not promise delivery for a rua=https record', async () => {
+    const { agent, organizationId, domainId } = await createWorkspace({
+      verify: true,
+      dmarcRecord: 'v=DMARC1; p=reject; rua=https://reports.example.com/v1/abc',
+    });
+
+    const response = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/onboarding`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.reporting.aggregateConfigured).toBe(true);
+
+    const reporting = response.body.steps.find((step: { id: string }) => step.id === 'aggregate_reporting');
+
+    // Configured is true, but "so reports will be delivered" was the sentence
+    // that told a customer with working reporting that nothing was arriving.
+    expect(reporting.detail).not.toMatch(/will be delivered/i);
+    expect(reporting.detail).toMatch(/web endpoint/i);
+    expect(reporting.status).not.toBe('done');
+  });
+
+  it('does not let readiness look reachable while nothing can arrive', async () => {
+    const { agent, organizationId, domainId } = await createWorkspace({
+      verify: true,
+      dmarcRecord: 'v=DMARC1; p=none; rua=https://reports.example.com/v1/abc',
+    });
+
+    const response = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/onboarding`);
+    const firstReport = response.body.steps.find((step: { id: string }) => step.id === 'reports_flowing');
+    const tighten = response.body.steps.find((step: { id: string }) => step.id === 'policy_tightened');
+
+    expect(firstReport.status).toBe('blocked');
+    expect(tighten.status).toBe('blocked');
+  });
+
+  it('still promises delivery for a rua=mailto record', async () => {
+    const { agent, organizationId, domainId } = await createWorkspace({
+      verify: true,
+      dmarcRecord: 'v=DMARC1; p=reject; rua=mailto:agg@reports.dmarcharbor.com',
+    });
+
+    const response = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/onboarding`);
+    const reporting = response.body.steps.find((step: { id: string }) => step.id === 'aggregate_reporting');
+
+    expect(reporting.status).toBe('done');
+    expect(reporting.detail).toMatch(/will be delivered/i);
+  });
+});

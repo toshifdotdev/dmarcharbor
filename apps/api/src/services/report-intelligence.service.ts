@@ -1,5 +1,5 @@
 import { prisma } from '../database/prisma.js';
-import { readDmarcRecord } from '../scanner/dmarc-tags.js';
+import { hasAggregateReporting, readDmarcRecord } from '../scanner/dmarc-tags.js';
 import { buildSenderBreakdown, type SenderBreakdownRow } from './sender-breakdown.service.js';
 
 const maxScannedRecords = 5_000;
@@ -319,7 +319,7 @@ export async function getDomainInsights(
       : [];
 
   const tags = readDmarcRecord(domain.dmarcRecord);
-  const aggregateConfigured = tags.aggregateTargets.length > 0;
+  const aggregateConfigured = hasAggregateReporting(tags);
   const forensicConfigured = tags.forensicTargets.length > 0;
 
   return {

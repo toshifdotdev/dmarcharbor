@@ -15,7 +15,8 @@ describe('DMARC record tags', () => {
     const parsed = readDmarcRecord(record);
 
     expect(parsed.tags.p).toBe('reject');
-    expect(parsed.aggregateTargets).toEqual(['agg@reports.dmarcharbor.com']);
+    expect(parsed.aggregateMailtoTargets).toEqual(['agg@reports.dmarcharbor.com']);
+    expect(parsed.aggregateWebTargets).toEqual([]);
     expect(parsed.forensicTargets).toEqual(['forensics@reports.dmarcharbor.com']);
   });
 

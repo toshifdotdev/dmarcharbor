@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { prisma } from '../database/prisma.js';
-import { readDmarcRecord } from '../scanner/dmarc-tags.js';
+import { hasAggregateReporting, readDmarcRecord } from '../scanner/dmarc-tags.js';
 import { getDomainInsights } from './report-intelligence.service.js';
 import { resolveLimit } from '../utils/pagination.js';
 import { assessPolicyReadiness } from './onboarding.service.js';
@@ -161,7 +161,7 @@ export async function getPublicReport(token: string, now = new Date()): Promise<
     expiresAt: share.expiresAt.toISOString(),
     policy: {
       published: domain.dmarcPolicy,
-      reportingConfigured: tags.aggregateTargets.length > 0,
+      reportingConfigured: hasAggregateReporting(tags),
       recommended: readiness.ready ? readiness.level : 'none',
     },
     health: {

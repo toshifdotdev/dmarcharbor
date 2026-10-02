@@ -1,6 +1,6 @@
 import { prisma } from '../database/prisma.js';
 import { env } from '../config/env.js';
-import { readDmarcRecord } from '../scanner/dmarc-tags.js';
+import { canCollectAggregateReports, hasAggregateReporting, readDmarcRecord } from '../scanner/dmarc-tags.js';
 import { getDomainInsights, type DomainInsights } from './report-intelligence.service.js';
 import { newSenderBlockers, senderBlockers } from './sender-breakdown.service.js';
 import { normalizePct, pctNotes, readPct, recommendPctStep, type PctRecommendation } from './dmarc-rollout.service.js';
@@ -290,7 +290,13 @@ export async function getOnboardingState(organizationId: string, domainId: strin
   const tags = readDmarcRecord(domain.dmarcRecord);
   const verified = domain.status === 'VERIFIED';
   const dmarcPublished = tags.tags.v?.toLowerCase() === 'dmarc1';
-  const aggregateConfigured = tags.aggregateTargets.length > 0;
+  const aggregateConfigured = hasAggregateReporting(tags);
+  // Reporting is configured and reporting reaches us are different facts. A
+  // rua=https: record configures reporting we cannot read, and telling the
+  // customer on this screen that "reports will be delivered" would be the same
+  // false claim the scanner used to make.
+  const aggregateCollectable = canCollectAggregateReports(tags);
+  const aggregateWebOnly = aggregateConfigured && !aggregateCollectable;
   const forensicConfigured = tags.forensicTargets.length > 0;
   const reportsReceived = (insights?.aggregate.reportCount ?? 0) > 0;
   const openAlerts = readiness.openAlerts + readiness.staleAlerts;
@@ -319,18 +325,32 @@ export async function getOnboardingState(organizationId: string, domainId: strin
     {
       id: 'aggregate_reporting',
       title: 'Receive aggregate reports',
-      status: !verified ? 'blocked' : !dmarcPublished ? 'blocked' : aggregateConfigured ? 'done' : 'pending',
-      detail: aggregateConfigured
-        ? 'The record includes a rua= address, so reports will be delivered.'
-        : 'The record has no rua= tag, so no reports will arrive.',
+      status: !verified
+        ? 'blocked'
+        : !dmarcPublished
+          ? 'blocked'
+          : aggregateCollectable
+            ? 'done'
+            : 'pending',
+      detail: aggregateCollectable
+        ? 'The record includes a rua=mailto: address, so reports will be delivered to DMARC Harbor.'
+        : aggregateWebOnly
+          ? 'This domain publishes reports to a web endpoint rather than a mailbox. DMARC Harbor does not read reports from there yet, so nothing will arrive for this domain until that is arranged.'
+          : 'The record has no rua= tag, so no reports will arrive.',
     },
     {
       id: 'reports_flowing',
       title: 'Receive first report',
-      status: !verified || !aggregateConfigured ? 'blocked' : reportsReceived ? 'done' : 'pending',
+      status: !verified || !aggregateCollectable
+        ? 'blocked'
+        : reportsReceived
+          ? 'done'
+          : 'pending',
       detail: reportsReceived
         ? `${insights?.aggregate.reportCount} aggregate report(s) received.`
-        : 'Reports usually arrive within 24 to 48 hours of publishing the record.',
+        : aggregateWebOnly
+          ? 'Waiting cannot help until reports are published somewhere DMARC Harbor can read them.'
+          : 'Reports usually arrive within 24 to 48 hours of publishing the record.',
     },
     {
       id: 'forensic_optional',
@@ -345,7 +365,7 @@ export async function getOnboardingState(organizationId: string, domainId: strin
     {
       id: 'policy_tightened',
       title: 'Tighten the policy',
-      status: !verified || !aggregateConfigured ? 'blocked' : readiness.ready ? 'done' : 'pending',
+      status: !verified || !aggregateCollectable ? 'blocked' : readiness.ready ? 'done' : 'pending',
       detail: readiness.ready
         ? `Ready to move to p=${readiness.level}.`
         : readiness.blockers[0] ?? 'Keep p=none until the readiness checks pass.',
@@ -353,7 +373,7 @@ export async function getOnboardingState(organizationId: string, domainId: strin
     {
       id: 'canary_rollout',
       title: 'Roll out in stages',
-      status: !verified || !aggregateConfigured ? 'blocked' : rolloutPolicy === 'none' ? 'blocked' : rollout.advancing ? 'pending' : 'done',
+      status: !verified || !aggregateCollectable ? 'blocked' : rolloutPolicy === 'none' ? 'blocked' : rollout.advancing ? 'pending' : 'done',
       detail:
         rolloutPolicy === 'none'
           ? 'Once p is above none, use pct to apply the policy to a small share of mail first.'
@@ -367,8 +387,8 @@ export async function getOnboardingState(organizationId: string, domainId: strin
     ? 'AWAITING_VERIFICATION'
     : !dmarcPublished
       ? 'AWAITING_DMARC_RECORD'
-      : !aggregateConfigured
-        ? 'AWAITING_DMARC_RECORD'
+      : aggregateWebOnly
+        ? 'AWAITING_REPORTS'
         : !reportsReceived
           ? 'AWAITING_REPORTS'
           : openAlerts > 0

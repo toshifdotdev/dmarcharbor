@@ -26,6 +26,18 @@ export interface DmarcResult {
   tags: Record<string, string>;
   hasAggregateReports: boolean;
   hasForensicReports: boolean;
+  /**
+   * Where reports are published as mail, which we can receive.
+   */
+  aggregateMailtoTargets: string[];
+  /**
+   * Where reports are published over HTTP, which we cannot yet receive.
+   *
+   * Reported rather than dropped: a domain publishing only to a web endpoint is
+   * a domain whose reports we are not getting, and that has to be visible rather
+   * than inferred from an absent mailto address.
+   */
+  aggregateWebTargets: string[];
   error?: string;
 }
 
