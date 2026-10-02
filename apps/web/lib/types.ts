@@ -163,6 +163,105 @@ export interface OnboardingState {
     detail: string;
   }>;
   readiness: PolicyReadiness;
+  domain: {
+    id: string;
+    name: string;
+    status: string;
+    score: number | null;
+    dmarcPolicy: string | null;
+  };
+  reporting: {
+    publishedPolicy: string | null;
+    publishedPct: number;
+    /**
+     * Configured is NOT collectable. A rua=https record configures reporting
+     * we cannot read; the aggregate_reporting step's status/detail carries that
+     * distinction, and the UI must render it — never claim delivery for a
+     * record whose reports go to a web endpoint (issue code
+     * dmarc_aggregate_reports_not_collected).
+     */
+    aggregateConfigured: boolean;
+    forensicConfigured: boolean;
+    collectionEnabled: boolean;
+    identityRetentionEnabled: boolean;
+  };
+  rollout: PctRecommendation;
+  /** The API's own generated record — rendered verbatim, never assembled
+   *  client-side, so pct, ruf and notes stay consistent with what the backend
+   *  verifies. */
+  suggestedRecord: DmarcRecordDraft;
+  recommendedPolicy: "none" | "quarantine" | "reject";
+}
+
+export interface PctRecommendation {
+  currentPct: number;
+  recommendedPct: number;
+  advancing: boolean;
+  reason: string;
+  skippedSteps: number;
+}
+
+export interface DmarcRecordDraft {
+  host: string;
+  type: "TXT";
+  value: string;
+  policy: "none" | "quarantine" | "reject";
+  pct: number;
+  aggregateAddress: string;
+  forensicAddress: string | null;
+  notes: string[];
+}
+
+/** POST /api/workspaces/{id}/domains/{domainId}/verify — runs the live DNS
+ *  lookup and returns both the record to publish and the lookup outcome.
+ *  `status: PENDING` is a normal propagation state, never an error. */
+export interface VerifyDomainResult {
+  domain: DomainRow;
+  verification: {
+    verified: boolean;
+    lookupStatus: string;
+    error?: string;
+    host: string;
+    type: "TXT";
+    value: string;
+    status: "VERIFIED" | "FAILED" | "PENDING";
+  };
+}
+
+// ─── report shares (Phase 5) ─────────────────────────────────────────────────
+
+export interface CreatedShare {
+  id: string;
+  token: string;
+  /** The existing public surface, e.g. /api/reports/share/<token> — linked,
+   *  never rebuilt. */
+  url: string;
+  expiresAt: string;
+  includeForensics: boolean;
+  includeSources: boolean;
+}
+
+export interface ReportShareRow {
+  id: string;
+  token: string;
+  expiresAt: string;
+  revokedAt: string | null;
+  lastViewedAt: string | null;
+  viewCount: number;
+  includeForensics: boolean;
+  includeSources: boolean;
+  createdAt: string;
+  domain: { id: string; name: string };
+  client: { id: string; name: string };
+}
+
+/** GET /api/auth/providers — the contract for federated sign-in. A provider is
+ *  true only when BOTH its client id and secret exist, so half-finished OAuth
+ *  config correctly renders no button. */
+export interface AuthProviders {
+  password: boolean;
+  google: boolean;
+  microsoft: boolean;
 }
 
 export interface ReportRow {

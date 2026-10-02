@@ -12,7 +12,7 @@
  * absent: no user can reach them and no screen needs them.
  */
 
-import type { ApiErrorBody } from "./types";
+import type { ApiErrorBody, VerifyDomainResult } from "./types";
 
 export type OpsResult<T> =
   | { ok: true; data: T }
@@ -225,6 +225,52 @@ export const createSsoConnection = (orgId: string, body: SsoCreateBody) =>
 
 export const removeSsoConnection = (orgId: string, connectionId: string) =>
   call(wsPath(orgId, `/sso-connections/${connectionId}`), { method: "DELETE" });
+
+// ─── onboarding funnel (Phase 5) ─────────────────────────────────────────────
+
+export const createClient = (
+  orgId: string,
+  body: { name: string; slug: string },
+) =>
+  call<{ id: string; name: string; slug: string }>(wsPath(orgId, "/clients"), {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const createDomain = (
+  orgId: string,
+  clientId: string,
+  body: { name: string },
+) =>
+  call<{ id: string; name: string }>(
+    wsPath(orgId, `/clients/${clientId}/domains`),
+    { method: "POST", body: JSON.stringify(body) },
+  );
+
+/** Live DNS ownership lookup. PENDING is a normal propagation answer. */
+export const verifyDomain = (orgId: string, domainId: string) =>
+  call<VerifyDomainResult>(wsPath(orgId, `/domains/${domainId}/verify`), {
+    method: "POST",
+  });
+
+// ─── report shares (Phase 5) ─────────────────────────────────────────────────
+
+export const createReportShare = (
+  orgId: string,
+  body: {
+    domainId: string;
+    includeForensics: boolean;
+    includeSources: boolean;
+    expiresInDays?: number;
+  },
+) =>
+  call<{ id: string; token: string; url: string; expiresAt: string }>(
+    wsPath(orgId, "/report-shares"),
+    { method: "POST", body: JSON.stringify(body) },
+  );
+
+export const revokeReportShare = (orgId: string, shareId: string) =>
+  call<void>(wsPath(orgId, `/report-shares/${shareId}`), { method: "DELETE" });
 
 // ─── billing ─────────────────────────────────────────────────────────────────
 

@@ -21,11 +21,15 @@ import type {
   BrandingSettings,
   CheckoutRequest,
   CheckoutSummary,
+  CreatedShare,
+  DomainRow,
   PlanDefinition,
   ReportDigestRow,
   ReportInboxSettings,
+  ReportShareRow,
   ResolvedEntitlements,
   SsoConnectionRow,
+  VerifyDomainResult,
   WorkspaceMemberRow,
   PageEnvelope,
 } from "./types";
@@ -409,6 +413,78 @@ export function deleteSsoConnection(
 ): Promise<void> {
   return opsFetch<void>(
     `/api/workspaces/${organizationId}/sso-connections/${connectionId}`,
+    { method: "DELETE" },
+  );
+}
+
+// ─── onboarding funnel (Phase 5) ─────────────────────────────────────────────
+
+export function createClient(
+  organizationId: string,
+  body: { name: string; slug: string },
+): Promise<{ id: string; name: string; slug: string }> {
+  return opsFetch(`/api/workspaces/${organizationId}/clients`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function createDomain(
+  organizationId: string,
+  clientId: string,
+  body: { name: string },
+): Promise<DomainRow> {
+  return opsFetch<DomainRow>(
+    `/api/workspaces/${organizationId}/clients/${clientId}/domains`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
+/** Runs the live DNS ownership lookup and returns the TXT record to publish.
+ *  A lookup that finds nothing answers PENDING — propagation time is a normal
+ *  state, never an error. */
+export function verifyDomain(
+  organizationId: string,
+  domainId: string,
+): Promise<VerifyDomainResult> {
+  return opsFetch<VerifyDomainResult>(
+    `/api/workspaces/${organizationId}/domains/${domainId}/verify`,
+    { method: "POST" },
+  );
+}
+
+// ─── report shares (Phase 5) ─────────────────────────────────────────────────
+
+export function listReportShares(
+  organizationId: string,
+  limit = 50,
+): Promise<PageEnvelope<ReportShareRow>> {
+  return opsFetch<PageEnvelope<ReportShareRow>>(
+    `/api/workspaces/${organizationId}/report-shares?limit=${limit}`,
+  );
+}
+
+export function createReportShare(
+  organizationId: string,
+  body: {
+    domainId: string;
+    includeForensics: boolean;
+    includeSources: boolean;
+    expiresInDays?: number;
+  },
+): Promise<CreatedShare> {
+  return opsFetch<CreatedShare>(
+    `/api/workspaces/${organizationId}/report-shares`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
+export function revokeReportShare(
+  organizationId: string,
+  shareId: string,
+): Promise<void> {
+  return opsFetch<void>(
+    `/api/workspaces/${organizationId}/report-shares/${shareId}`,
     { method: "DELETE" },
   );
 }

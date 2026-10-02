@@ -4,34 +4,38 @@
  * social-buttons.tsx — federated sign-in, rendered only for providers that are
  * actually live.
  *
- * The button set is driven by GET /api/auth/providers (returning e.g.
- * { google: false, microsoft: false }), never hardcoded: a build that shows
- * dead buttons is a build that lies. Until that endpoint lands it returns 404,
- * which is treated as "no live providers" — the buttons stay hidden.
+ * GET /api/auth/providers is the contract (added in commit 0209345): it
+ * returns { password, google, microsoft } as booleans, and a provider is true
+ * only when BOTH its client id and secret exist — so half-finished OAuth
+ * config correctly renders no button. The earlier "404 means no providers"
+ * fallback is gone: the endpoint exists now. A request that fails outright
+ * still renders nothing, because a broken lookup must never surface as a
+ * broken form.
  */
 
 import { useEffect, useState } from "react";
+import type { AuthProviders } from "@/lib/types";
 
-type ProviderName = "google" | "microsoft";
-
-const PROVIDER_META: Record<ProviderName, string> = {
+const PROVIDER_META: Record<"google" | "microsoft", string> = {
   google: "Continue with Google",
   microsoft: "Continue with Microsoft",
 };
 
 export function SocialButtons() {
-  const [live, setLive] = useState<ProviderName[]>([]);
+  const [live, setLive] = useState<Array<"google" | "microsoft">>([]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const res = await fetch("/api/auth/providers", { credentials: "include" });
-        if (!res.ok) return; // endpoint not live yet (404) — no buttons
-        const body = (await res.json()) as Record<string, boolean>;
+        if (!res.ok) return;
+        const body = (await res.json()) as Partial<AuthProviders>;
         if (cancelled) return;
         setLive(
-          (Object.keys(PROVIDER_META) as ProviderName[]).filter((p) => body[p] === true),
+          (Object.keys(PROVIDER_META) as Array<"google" | "microsoft">).filter(
+            (p) => body[p] === true,
+          ),
         );
       } catch {
         // Discovery failing must never surface as a broken form.
@@ -53,7 +57,8 @@ export function SocialButtons() {
           onClick={() => {
             window.location.href = `/api/auth/sign-in/social?provider=${p}`;
           }}
-          className="rounded-[2px] border px-5 py-2.5 text-[14.5px] font-medium transition-colors"
+          data-provider={p}
+          className="rounded-[2px] border px-5 py-2.5 text-[13px] font-medium transition-colors"
           style={{
             borderColor: "var(--color-line-strong)",
             background: "var(--color-surface)",

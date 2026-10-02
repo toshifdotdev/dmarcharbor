@@ -46,6 +46,7 @@ export async function Shell({
 
         <nav className="flex items-center gap-5">
           <NavLink href="/">Portfolio</NavLink>
+          <NavLink href="/clients">Clients</NavLink>
           <NavLink href="/alerts">Alerts</NavLink>
           <NavLink href="/digests">Digests</NavLink>
           <NavLink href="/settings">Settings</NavLink>

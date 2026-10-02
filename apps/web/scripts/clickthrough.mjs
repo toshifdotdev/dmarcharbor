@@ -154,13 +154,18 @@ await evalJs(`
 await evalJs("document.querySelector('button[type=submit]').click(); 'clicked'");
 
 // the form redirects to / on success; poll for the portfolio actually being
-// visible (Next dev compiles the page on first hit, which can take a while)
+// visible (Next dev compiles the page on first hit, and the portfolio's signal
+// fan-out can be slow on first load)
 for (let i = 0; i < 240; i++) {
   const state = await evalJs(
     `({ path: location.pathname, rows: document.querySelectorAll('tbody tr').length, err: (document.querySelector('[role=alert]')?.textContent ?? '').trim() })`,
   );
   if (state.path === "/" && state.rows > 0) break;
-  if (state.err) {
+  // A form error is an alert while STILL on /sign-in. An alert at "/" is the
+  // portfolio's own transient load state (slow signals), not the form — keep
+  // polling until rows land; the final check below reports honestly if they
+  // never do.
+  if (state.err && state.path !== "/") {
     check("sign-in navigates to portfolio", false, `form error: ${state.err}`);
     process.exit(1);
   }
@@ -783,6 +788,184 @@ if (portalDomainHref) {
 const shotPortalDomain = await shot("13-portal-domain.png");
 
 console.log("phase 4 shots:", shotTrust, shotVerify, shotPortal, shotPortalDomain);
+
+// ─── 5. Phase 5: the onboarding funnel ────────────────────────────────────────
+
+// 5a. A client and a domain, created end to end through the real UI forms
+//     (React controlled inputs, real submits) — the workspace → client →
+//     domain hierarchy the product is built on.
+await navigate(WEB + "/clients");
+await waitForEval(
+  `!!document.querySelector('[data-testid="create-client"]')`,
+  (v) => v === true,
+);
+const stamp = await evalJs(`String(Date.now())`);
+const clientName = `Funnel Check ${stamp}`;
+const funnelSlug = `funnel-check-${stamp}`;
+const funnelDomain = `funnel-${stamp}.example`;
+
+// Fill the form the way the browser does: native setter + input event.
+const fillInput = async (selector, value) =>
+  evalJs(`(() => {
+    const el = document.querySelector(${JSON.stringify(selector)});
+    if (!el) return 'missing';
+    const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    set.call(el, ${JSON.stringify(value)});
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    return 'filled';
+  })()`);
+
+await fillInput('[data-testid="client-name"]', clientName);
+await fillInput('[data-testid="client-slug"]', funnelSlug);
+// Click, then watch: repeated clicks only land while the button is enabled, and
+// the form disables itself after a successful create.
+for (let i = 0; i < 40; i++) {
+  await evalJs(`(() => { const b = document.querySelector('[data-testid="create-client"]'); if (b && !b.disabled) b.click(); return true; })()`);
+  const appeared = await evalJs(`document.body.innerText.includes(${JSON.stringify(clientName)})`);
+  if (appeared) break;
+  await new Promise((res) => setTimeout(res, 400));
+}
+check(
+  "onboarding funnel: client created through the UI",
+  await evalJs(`document.body.innerText.includes(${JSON.stringify(clientName)})`),
+  clientName,
+);
+
+await fillInput('[data-testid="domain-name"]', funnelDomain);
+for (let i = 0; i < 40; i++) {
+  await evalJs(`(() => { const b = document.querySelector('[data-testid="add-domain"]'); if (b && !b.disabled) b.click(); return true; })()`);
+  const ready = await evalJs(`!!document.querySelector('[data-testid="continue-setup"]')`);
+  if (ready) break;
+  await new Promise((res) => setTimeout(res, 400));
+}
+const funnelHref = await evalJs(
+  `document.querySelector('[data-testid="continue-setup"]')?.getAttribute('href') ?? ''`,
+);
+check(
+  "onboarding funnel: domain attached to the client through the UI",
+  Boolean(funnelHref && funnelHref.includes("/onboarding/")),
+  funnelHref || "no continue-setup link",
+);
+const shotClients = await shot("14-clients.png");
+
+// 5b. Onboarding: the ownership record comes from the verify response, and a
+//     domain whose DNS is not published yet shows PENDING — waiting, never
+//     failed. DNS propagation time is a normal state by contract.
+if (funnelHref) {
+  await navigate(WEB + funnelHref);
+  await waitForEval(`!!document.querySelector('[data-testid="verify-domain"]')`, (v) => v === true);
+  for (let i = 0; i < 20; i++) {
+    await evalJs(`(() => { const b = document.querySelector('[data-testid="verify-domain"]'); if (b && !b.disabled) b.click(); return true; })()`);
+    const done = await evalJs(`!!document.querySelector('[data-verify-status]')`);
+    if (done) break;
+    await new Promise((res) => setTimeout(res, 500));
+  }
+  const pendingAudit = await waitForEval(
+    `(() => {
+      const t = document.body.innerText.toLowerCase();
+      return {
+        pending: !!document.querySelector('[data-verify-status="pending"]'),
+        failed: !!document.querySelector('[data-verify-status="failed"]'),
+        verified: !!document.querySelector('[data-verify-status="verified"]'),
+        waitingCopy: t.includes('waiting for dns') || t.includes('not visible yet'),
+        ownershipRecord: t.includes('dmarc-harbor-verification='),
+        suggestedRecord: !!document.querySelector('[data-testid="suggested-record"]'),
+      };
+    })()`,
+    (a) => a && (a.pending || a.failed || a.verified),
+  );
+  check(
+    "unpublished DNS shows as pending, never as failed",
+    Boolean(
+      pendingAudit &&
+        pendingAudit.pending &&
+        !pendingAudit.failed &&
+        pendingAudit.waitingCopy &&
+        pendingAudit.ownershipRecord,
+    ),
+    JSON.stringify(pendingAudit),
+  );
+  check(
+    "onboarding renders the API's own DMARC record (never assembled client-side)",
+    Boolean(pendingAudit && pendingAudit.suggestedRecord),
+    funnelHref,
+  );
+
+  // The rua=https honesty: step copy is the API's verbatim wording. For a
+  // domain with no record published the aggregate step must say so — never
+  // "will be delivered", and never "done".
+  const stepsAudit = await waitForEval(
+    `(() => {
+      const step = document.querySelector('[data-step="aggregate_reporting"]');
+      const detail = step ? step.textContent.toLowerCase() : '';
+      return {
+        present: Boolean(step),
+        notDone: step ? step.getAttribute('data-step-status') !== 'done' : true,
+        apiWording: detail.includes('no rua') || detail.includes('web endpoint') || detail.includes('rua=mailto'),
+        noInventedDelivery: !detail.includes('will be delivered'),
+      };
+    })()`,
+    (s) => s && s.present,
+  );
+  check(
+    "onboarding steps use the API's verbatim copy (configured ≠ collectable)",
+    Boolean(stepsAudit && stepsAudit.present && stepsAudit.notDone && stepsAudit.apiWording && stepsAudit.noInventedDelivery),
+    JSON.stringify(stepsAudit),
+  );
+  const shotOnboarding = await shot("15-onboarding.png");
+
+  // 5c. Shares: create through the UI, link to the EXISTING public surface
+  //      (/api/reports/share/:token — never rebuilt here), then revoke.
+  // ONE click per attempt: repeated clicks while router.refresh() is in flight
+  // can land on stale nodes and create duplicate shares (this machine's dev
+  // API answers in seconds, not milliseconds).
+  for (let i = 0; i < 40; i++) {
+    await evalJs(`(() => { const b = document.querySelector('[data-testid="create-share"]'); if (b && !b.disabled) b.click(); return true; })()`);
+    const ready = await evalJs(`!!document.querySelector('[data-testid="share-link"]')`);
+    if (ready) break;
+    await new Promise((res) => setTimeout(res, 700));
+  }
+  const shareAudit = await waitForEval(
+    `(() => {
+      const link = document.querySelector('[data-testid="share-link"]');
+      const href = link ? link.getAttribute('href') : '';
+      return { href, onExistingSurface: href.includes('/api/reports/share/') };
+    })()`,
+    (a) => a && a.href !== "",
+  );
+  check(
+    "share links use the existing public share surface",
+    Boolean(shareAudit && shareAudit.onExistingSurface),
+    JSON.stringify(shareAudit),
+  );
+
+  // One revoke click, then wait for the row state to show it — the DELETE and
+  // the re-render both take seconds on this box; a click storm races
+  // router.refresh() and the check can read the page before it repaints.
+  for (let i = 0; i < 40; i++) {
+    if (i === 0) {
+      await evalJs(`(() => { const b = document.querySelector('[data-testid="revoke-share"]'); if (b) b.click(); return true; })()`);
+    }
+    const revoked = await evalJs(`document.body.innerText.toLowerCase().includes('revoked')`);
+    if (revoked) break;
+    await new Promise((res) => setTimeout(res, 700));
+  }
+  check(
+    "share links can be revoked",
+    await evalJs(`document.body.innerText.toLowerCase().includes('revoked')`),
+    funnelHref,
+  );
+  const shotShares = await shot("16-shares.png");
+  console.log("phase 5 shots:", shotClients, shotOnboarding, shotShares);
+} else {
+  check("unpublished DNS shows as pending, never as failed", false, "no domain created");
+  check("onboarding renders the API's own DMARC record (never assembled client-side)", false, "no domain created");
+  check("onboarding steps use the API's verbatim copy (configured ≠ collectable)", false, "no domain created");
+  check("share links use the existing public share surface", false, "no domain created");
+  check("share links can be revoked", false, "no domain created");
+  console.log("phase 5 shots:", shotClients);
+}
+
 console.log(`\n${results.filter((r) => r.ok).length}/${results.length} checks passed`);
 ws.close();
 chrome.kill();
