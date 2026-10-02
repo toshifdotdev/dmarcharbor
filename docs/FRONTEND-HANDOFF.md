@@ -57,7 +57,7 @@ special case. A user who arrived through SSO is an ordinary session.
 
 ## API surface
 
-`GET /api/openapi.json` is generated from the code and is the contract. Read it.
+`GET /api/docs/openapi.json` is generated from the code and is the contract. Read it. (The path was previously given wrong as `/api/openapi.json`.)
 Every route is documented there, including why it behaves the way it does.
 
 Start here:

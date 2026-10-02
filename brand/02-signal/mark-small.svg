@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Signal">
-
-  <g stroke-linecap="round">
-    <path d="M14 46V34" stroke="#137A9B" stroke-width="11"/>
-    <path d="M32 46V24" stroke="#0E4A66" stroke-width="11"/>
-    <path d="M50 46V13" stroke="#F2A33C" stroke-width="11"/>
-  </g>
-
-</svg>

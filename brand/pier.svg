@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>DMARC Harbor — The Pier</title>
+  <!-- The Pier: an H for Harbor built as a pier — two pilings standing in water,
+       the crossbar drawn as the waterline running between them.
+       Single colour: inherits currentColor (bone on ink, ink on bone). -->
+  <rect x="120" y="88" width="84" height="336" rx="18" fill="currentColor"/>
+  <rect x="308" y="88" width="84" height="336" rx="18" fill="currentColor"/>
+  <path d="M162 252 C 196 206, 236 206, 256 252 C 276 298, 316 298, 350 252" fill="none" stroke="currentColor" stroke-width="44" stroke-linecap="round"/>
+</svg>

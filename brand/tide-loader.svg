@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <title>DMARC Harbor — Tide loader</title>
+  <!-- The Tide: the loading state of the brand. Three water strokes flowing past
+       each other — the same wave language as The Pier's crossbar.
+       Single colour: inherits currentColor. Honours prefers-reduced-motion. -->
+  <style>
+    .tide-1 { animation: tide 1.2s ease-in-out infinite; }
+    .tide-2 { animation: tide 1.2s ease-in-out infinite 0.15s; }
+    .tide-3 { animation: tide 1.2s ease-in-out infinite 0.3s; }
+    @keyframes tide {
+      0%, 100% { transform: translateX(0); }
+      50% { transform: translateX(14px); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .tide-1, .tide-2, .tide-3 { animation: none; }
+    }
+  </style>
+  <g fill="none" stroke="currentColor" stroke-width="11" stroke-linecap="round">
+    <path class="tide-1" d="M18 34 C 32 22, 46 22, 60 34 C 74 46, 88 46, 102 34"/>
+    <path class="tide-2" d="M18 62 C 32 50, 46 50, 60 62 C 74 74, 88 74, 102 62"/>
+    <path class="tide-3" d="M18 90 C 32 78, 46 78, 60 90 C 74 102, 88 102, 102 90"/>
+  </g>
+</svg>
