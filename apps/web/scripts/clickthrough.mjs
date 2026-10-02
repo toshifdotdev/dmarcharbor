@@ -615,6 +615,174 @@ console.log(
   shotSettings,
   shotBilling,
 );
+
+// ─── 6. Phase 4: the public artefacts and the client portal ──────────────────
+
+// 6a. First mint the artefacts the way an operator would — through the real
+//     API paths, while still signed in: publish a client Trust Center link and
+//     issue a compliance pack (whose reference and digest the verifier will
+//     check end to end).
+const artefacts = await evalJs(`(async () => {
+  const ws = await (await fetch('/api/workspaces', { credentials: 'include' })).json();
+  const orgId = ws[0].id;
+  const clients = await (await fetch('/api/workspaces/' + orgId + '/clients', { credentials: 'include' })).json();
+  const clientId = clients[0].id;
+  const trust = await (await fetch('/api/workspaces/' + orgId + '/clients/' + clientId + '/trust-center', {
+    method: 'POST', credentials: 'include',
+  })).json();
+  const pack = await fetch('/api/workspaces/' + orgId + '/clients/' + clientId + '/compliance-packs', {
+    method: 'POST', credentials: 'include',
+  });
+  return {
+    orgId,
+    clientId,
+    slug: trust.slug ?? '',
+    packReference: pack.headers.get('x-dmarc-pack-reference') ?? '',
+    packSha: pack.headers.get('x-dmarc-pack-sha256') ?? '',
+    packStatus: pack.status,
+  };
+})()`);
+const trustSlug = artefacts?.slug ?? "";
+
+// The Trust Center and verifier are PUBLIC: cookies are cleared so a signed-out
+// auditor must be able to read both. Same for the verifier.
+await cdp("Network.clearBrowserCookies");
+await navigate(WEB + `/trust/${trustSlug}`);
+const trustAudit = await waitForEval(
+  `(() => {
+    const t = document.body.innerText.toLowerCase();
+    return {
+      rendered: t.includes('trust center') || t.includes('what we hold'),
+      noAuthWall: !t.includes('sign in to') && !t.includes('create an account'),
+      noConsoleChrome: !t.includes('portfolio') || t.includes('trust center'),
+      dataHeld: t.includes('what is held'),
+      subProcessors: t.includes('sub-processors'),
+      gdprFree: t.includes('not a paid feature'),
+    };
+  })()`,
+  (a) => a && (a.rendered || a.noAuthWall),
+);
+check(
+  "Trust Center loads signed-out (public by contract)",
+  Boolean(trustAudit && trustAudit.rendered && trustAudit.noAuthWall && trustAudit.dataHeld),
+  JSON.stringify(trustAudit),
+);
+const shotTrust = await shot("10-trust-center.png");
+
+await navigate(WEB + (artefacts?.packReference ? `/verify?reference=${artefacts.packReference}` : "/verify"));
+const verifyAudit = await waitForEval(
+  `(() => {
+    const t = document.body.innerText.toLowerCase();
+    return {
+      rendered: t.includes('compliance pack') && t.includes('sha-256'),
+      form: !!document.querySelector('#pack-reference'),
+      noAuthWall: !t.includes('sign in to'),
+      // End-to-end: the issued pack's digest must appear on the public page.
+      digestShown: ${JSON.stringify((artefacts?.packSha ?? "").toLowerCase())} ? t.includes(${JSON.stringify((artefacts?.packSha ?? "").toLowerCase())}) : true,
+      referenceShown: ${JSON.stringify(artefacts?.packReference ?? "")} ? t.includes(${JSON.stringify(artefacts?.packReference ?? "").toLowerCase()}) : true,
+    };
+  })()`,
+  (v) => v && v.rendered,
+);
+check(
+  "compliance verifier loads signed-out and matches the issued digest",
+  Boolean(verifyAudit && verifyAudit.rendered && verifyAudit.form && verifyAudit.noAuthWall && verifyAudit.digestShown && verifyAudit.referenceShown),
+  JSON.stringify(verifyAudit),
+);
+const shotVerify = await shot("11-compliance-verify.png");
+
+// 6b. The client portal. A contact's view needs a real grant, so mint one
+//     through the same POST /portal-access path an operator uses, then read the
+//     portal as that account. The boundary check is what matters: forensic
+//     data must never render — the only permitted mention of "forensic" is the
+//     disclaimer that it is NOT part of this portal.
+await navigate(WEB + "/sign-in");
+await evalJs(`(() => {
+  const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+  const email = document.querySelector('input[type="email"]');
+  const pass = document.querySelector('input[type="password"]');
+  set.call(email, 'sam@northgate.test');
+  email.dispatchEvent(new Event('input', { bubbles: true }));
+  set.call(pass, 'harbor-test-2026');
+  pass.dispatchEvent(new Event('input', { bubbles: true }));
+  document.querySelector('button[type=submit]').click();
+  return 'submitted';
+})()`);
+await waitForEval("document.querySelectorAll('tbody tr').length", (n) => n > 0);
+
+// Grant this account portal access to the first client — the real endpoint,
+// the real body ({ email, displayName }), exactly as an operator would.
+const grant = await evalJs(`(async () => {
+  const ws = await (await fetch('/api/workspaces', { credentials: 'include' })).json();
+  const orgId = ws[0].id;
+  const clients = await (await fetch('/api/workspaces/' + orgId + '/clients', { credentials: 'include' })).json();
+  const res = await fetch('/api/workspaces/' + orgId + '/clients/' + clients[0].id + '/portal-access', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ email: 'sam@northgate.test', displayName: 'Sam Morgan' }),
+  });
+  return { status: res.status };
+})()`);
+
+await navigate(WEB + "/portal");
+const portalAudit = await waitForEval(
+  `(() => {
+    const t = document.body.innerText.toLowerCase();
+    // "forensic" may appear ONLY in the boundary disclaimer.
+    const forensicMentions = t.includes('forensic');
+    const forensicOnlyInDisclaimer = forensicMentions ? t.includes('not part of this portal') : true;
+    return {
+      rendered: t.includes('your domains') || t.includes('client reports'),
+      denied: t.includes('no client report yet'),
+      measurementOnly: t.includes('observed') || t.includes('what the world'),
+      noForensicData: !t.includes('retained identities') && !t.includes('affected recipients') && !t.includes('named recipients') && forensicOnlyInDisclaimer,
+      gdprNote: t.includes('export and erasure') || t.includes('no cost'),
+    };
+  })()`,
+  (p) => p && (p.rendered || p.denied),
+);
+check(
+  "client portal renders measurement without forensic leakage",
+  Boolean(
+    portalAudit &&
+      portalAudit.rendered &&
+      portalAudit.measurementOnly &&
+      portalAudit.noForensicData &&
+      portalAudit.gdprNote,
+  ),
+  `grant=${grant?.status} ${JSON.stringify(portalAudit)}`,
+);
+const shotPortal = await shot("12-client-portal.png");
+
+// The portal's domain view carries the same boundary.
+const portalDomainHref = await evalJs(
+  `[...document.querySelectorAll('a')].map(a => a.getAttribute('href')).find(h => h && h.startsWith('/portal/domain/')) ?? ''`,
+);
+if (portalDomainHref) {
+  await navigate(WEB + portalDomainHref);
+  const domainAudit = await waitForEval(
+    `(() => {
+      const t = document.body.innerText.toLowerCase();
+      const forensicMentions = t.includes('forensic');
+      return {
+        rendered: t.includes('what was observed') || t.includes('who is sending'),
+        noForensicData: !t.includes('retained identities') && !t.includes('affected recipients') && !t.includes('named recipients') && (forensicMentions ? t.includes('not part of this portal') : true),
+      };
+    })()`,
+    (d) => d && d.rendered,
+  );
+  check(
+    "portal domain view holds the forensic boundary",
+    Boolean(domainAudit && domainAudit.rendered && domainAudit.noForensicData),
+    JSON.stringify(domainAudit),
+  );
+} else {
+  check("portal domain view holds the forensic boundary", false, "no domain link on portal");
+}
+const shotPortalDomain = await shot("13-portal-domain.png");
+
+console.log("phase 4 shots:", shotTrust, shotVerify, shotPortal, shotPortalDomain);
 console.log(`\n${results.filter((r) => r.ok).length}/${results.length} checks passed`);
 ws.close();
 chrome.kill();

@@ -100,6 +100,52 @@ body::before {
   color: var(--color-ink-3);
 }
 
+/* Monolith Light — docs/DESIGN-SYSTEM.md. The public artefacts (Trust Center,
+   compliance verifier) and print surfaces wear this: bone inverts to ink and
+   the system still owns no hue. Every state colour clears AA on paper. */
+[data-surface="light"] {
+  --bg: #f6f5f0;
+  --surface: #fffef9;
+  --raised: #f0eee6;
+  --elevate: #fffef9;
+
+  --line: rgba(20, 20, 18, 0.1);
+  --line-strong: rgba(20, 20, 18, 0.22);
+
+  --ink: #141412;
+  --ink-2: #55544e;
+  --ink-3: #6b6a62;
+
+  --accent: #141412;
+  --accent-ink: #f6f5f0;
+  --accent-soft: rgba(20, 20, 18, 0.06);
+
+  --color-pass: #456e2f;
+  --color-pass-soft: rgba(69, 110, 47, 0.12);
+  --color-unverified: #7d6210;
+  --color-unverified-soft: rgba(125, 98, 16, 0.12);
+  --color-block: #ad4236;
+  --color-block-soft: rgba(173, 66, 54, 0.12);
+  --color-unmeasured: #67665e;
+  --color-unmeasured-soft: rgba(103, 102, 94, 0.12);
+}
+
+[data-surface="light"] .lift {
+  box-shadow: 0 1px 2px rgba(20, 20, 18, 0.05);
+}
+
+/* The legal artefact: a document, not a dashboard. Serif headings, mono for
+   digests and references, wide rules. */
+.artefact {
+  font-family: Georgia, "Times New Roman", serif;
+  letter-spacing: -0.005em;
+}
+.artefact h1,
+.artefact h2 {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 600;
+}
+
 .num {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;

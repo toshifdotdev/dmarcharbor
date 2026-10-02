@@ -368,6 +368,156 @@ export interface CheckoutSummary {
   [key: string]: unknown;
 }
 
+// ─── public artefacts (Phase 4) ──────────────────────────────────────────────
+
+/** GET /api/trust/{slug} — served unauthenticated to auditors. */
+export interface TrustCenterPayload {
+  generatedAt: string;
+  client: { name: string; domains: string[] };
+  provider: { workspaceName: string };
+  statement: {
+    isolation: string;
+    coveredByTests: string;
+    lawEnforcementRequests: string;
+  };
+  dataHeld: { category: string; description: string; containsPersonalData: boolean }[];
+  access: { role: string; canRead: string }[];
+  retention: { data: string; audit: string; deletionWindow: string };
+  residency: { region: string; hosting: string };
+  subProcessors: { name: string; purpose: string; data: string }[];
+  rights: { export: string; erasure: string };
+  erasures: { scope: string; completedAt: string; recordCount: number }[];
+}
+
+/** GET /api/compliance-packs/verify?reference= — the published fingerprint
+ *  only: never the document, never a client name. */
+export interface CompliancePackRecord {
+  reference: string;
+  sha256: string;
+  byteSize: number;
+  pageCount: number;
+  asOf: string;
+  createdAt: string;
+  supersededAt: string | null;
+  documentVersion: string;
+}
+
+/** GET /api/workspaces/{id}/clients/{clientId}/trust-center */
+export interface TrustSlugStatus {
+  url: string | null;
+  slug: string | null;
+}
+
+/** POST /api/workspaces/{id}/clients/{clientId}/compliance-packs → PDF bytes
+ *  streamed with the digest in X-DMARC-Pack-Sha256. */
+export interface IssuedPackMeta {
+  reference: string;
+  sha256: string;
+  byteSize: number;
+  pageCount: number;
+  asOf: string;
+  documentVersion: string;
+}
+
+// ─── client portal (Phase 4) ─────────────────────────────────────────────────
+
+/** GET /api/portal — the contact's view. Verified domains only. NEVER
+ *  forensic data: portal contacts are outside that boundary by contract. */
+export interface PortalGrantSummary {
+  id: string;
+  clientId: string;
+  clientName: string;
+  email: string;
+  displayName: string | null;
+  active: boolean;
+  bound: boolean;
+}
+
+export interface PortalOverview {
+  workspace: { name: string };
+  branding: PortalBranding;
+  grants: PortalGrantSummary[];
+  clients: Array<{
+    id: string;
+    name: string;
+    createdAt: string;
+    domains: Array<{
+      id: string;
+      name: string;
+      status: string;
+      score: number | null;
+      dmarcPolicy: string | null;
+      verifiedAt: string | null;
+      lastScanAt: string | null;
+    }>;
+  }>;
+  totals: { clients: number; domains: number; reports: number };
+  lastReportAt: string | null;
+}
+
+/** GET /api/portal/domains/{domainId} */
+export interface PortalDomainDetail {
+  domain: {
+    id: string;
+    name: string;
+    status: string;
+    score: number | null;
+    dmarcPolicy: string | null;
+    dmarcRecord: string | null;
+    verifiedAt: string | null;
+    lastScanAt: string | null;
+    client: { id: string; name: string };
+  };
+  aggregate: {
+    reportCount: number;
+    recordCount: number;
+    messageCount: number;
+    failedMessages: number;
+    spfPassRate: number | null;
+    dkimPassRate: number | null;
+    lastReportAt: string | null;
+    messageWindow: { begin: string | null; end: string | null };
+  } | null;
+  senders: Array<{
+    senderKey: string;
+    senderDomain: string | null;
+    sourceIps: string[];
+    failingSourceIps: string[];
+    totalMessages: number;
+    failedMessages: number;
+    failureSharePercent: number;
+    hasEnoughSignal: boolean;
+    status: "clean" | "degraded" | "failing" | "insufficient-data";
+    firstSeenAt: string;
+    lastSeenAt: string;
+    isNew: boolean;
+    dkimPassMessages: number;
+    spfPassMessages: number;
+  }>;
+  possibleSpoofingSources: Array<{
+    senderKey: string;
+    senderDomain: string | null;
+    totalMessages: number;
+    failedMessages: number;
+    sourceIps: string[];
+  }>;
+}
+
+/** GET /api/portal/branding — resolved server-side (ResolvedBranding); the
+ *  response is what a contact may see. A user-typed logo URL never appears
+ *  here (filtered server-side); rendering one would be a security bug. */
+export interface PortalBranding {
+  /** The agency name shown to their clients. */
+  workspaceName: string;
+  logoUrl: string | null;
+  primaryColor: string | null;
+  accentColor: string | null;
+  customDomain: string | null;
+  customDomainVerified: boolean;
+  /** True only when the portal should present the agency brand. */
+  branded: boolean;
+}
+
 export interface ApiErrorBody {
   error: {
     code?: string;
