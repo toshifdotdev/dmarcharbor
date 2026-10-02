@@ -38,6 +38,87 @@ describe('DMARC and SPF parsing', () => {
   });
 });
 
+describe('DKIM discovery through the scanner', () => {
+  const KEY = 'v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQ==';
+
+  it('finds a selector the SPF record named, even one no convention list would have guessed', async () => {
+    // The whole point. A customer on Salesforce publishes sfi, sfs1 and sfs2.
+    // The old fixed list contained none of them, so this reported "no DKIM" on a
+    // domain with three working keys.
+    const reader = createReader(
+      {
+        '_dmarc.mail.test': [['v=DMARC1; p=none']],
+        'mail.test': [['v=spf1 include:_spf.salesforce.com ~all']],
+        '_domainkey.sfs1.mail.test': [[KEY]],
+        '_domainkey.sfs2.mail.test': [[KEY]],
+      },
+      [{ exchange: 'mx1.mail.test', priority: 10 }],
+    );
+
+    const result = await scanDomain('mail.test', reader);
+
+    expect(result.dkim.status).toBe('found');
+    expect(result.dkim.selectors.sort()).toEqual(['sfs1', 'sfs2']);
+    expect(result.dkim.records.sfs1).toBe(KEY);
+    expect(result.dkim.discoveredVia?.sfs1).toBe('spf:_spf.salesforce.com');
+  });
+
+  it('attributes a conventionally found selector to the convention', async () => {
+    const reader = createReader(
+      {
+        '_dmarc.mail.test': [['v=DMARC1; p=none']],
+        'mail.test': [['v=spf1 ip4:1.2.3.4 ~all']],
+        '_domainkey.google.mail.test': [[KEY]],
+      },
+      [{ exchange: 'mx1.mail.test', priority: 10 }],
+    );
+
+    const result = await scanDomain('mail.test', reader);
+
+    expect(result.dkim.status).toBe('found');
+    expect(result.dkim.discoveredVia?.google).toBe('convention');
+  });
+
+  it('reports honestly when a custom selector is not named anywhere we can see', async () => {
+    // mail2026 was never guessable and is not in the SPF record. Reporting
+    // "missing" is the truthful answer, and the message has to say so rather
+    // than implying we checked everything.
+    const reader = createReader(
+      {
+        '_dmarc.mail.test': [['v=DMARC1; p=none']],
+        'mail.test': [['v=spf1 ip4:1.2.3.4 ~all']],
+        '_domainkey.mail2026.mail.test': [[KEY]],
+      },
+      [{ exchange: 'mx1.mail.test', priority: 10 }],
+    );
+
+    const result = await scanDomain('mail.test', reader);
+
+    // Still missed, and that is the known limit of DNS-only discovery. The point
+    // is that we say we checked a bounded set rather than claiming certainty.
+    expect(result.dkim.status).toBe('missing');
+    expect(result.dkim.checkedSelectors.length).toBeGreaterThan(0);
+    const issue = result.issues.find((entry) => entry.code === 'dkim_missing');
+    expect(issue?.message).toContain('selectors checked');
+  });
+
+  it('does not claim an error when the lookups simply found nothing', async () => {
+    const reader = createReader(
+      {
+        '_dmarc.mail.test': [['v=DMARC1; p=none']],
+        'mail.test': [['v=spf1 ip4:1.2.3.4 ~all']],
+      },
+      [{ exchange: 'mx1.mail.test', priority: 10 }],
+    );
+
+    const result = await scanDomain('mail.test', reader);
+
+    // A scan that ran and found nothing is a more useful answer than one that
+    // could not run, and they are different states.
+    expect(result.dkim.status).toBe('missing');
+  });
+});
+
 describe('scanDomain', () => {
   it('returns a useful preview without making a live DNS call', async () => {
     const reader = createReader(

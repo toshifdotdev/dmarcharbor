@@ -1,6 +1,7 @@
 import { systemDnsReader } from './dns.js';
 import { readDmarcRecord } from './dmarc-tags.js';
 import { normalizeDomain } from './domain.js';
+import { budgetDkimCandidates, dkimCandidates } from './dkim-discovery.js';
 import { calculateScore } from '../services/score.service.js';
 import type {
   DkimResult,
@@ -13,21 +14,6 @@ import type {
   ScanStatus,
   SpfResult,
 } from './types.js';
-
-const DKIM_SELECTORS = [
-  'default',
-  'google',
-  'selector1',
-  'selector2',
-  'k1',
-  's1',
-  's2',
-  'resend',
-  'sendgrid',
-  'mailgun',
-  'postmark',
-  'amazonses',
-];
 
 function joinRecords(records: string[][]): string[] {
   return records.map((chunks) => chunks.join('').trim()).filter(Boolean);
@@ -108,9 +94,23 @@ export function parseSpfRecords(records: string[][]): SpfResult {
   };
 }
 
-async function scanDkim(domain: string, reader: DnsReader): Promise<DkimResult> {
+/**
+ * Probes for DKIM keys, using the SPF record to decide which labels are worth
+ * trying rather than guessing a fixed dozen.
+ *
+ * The SPF record is passed in rather than re-fetched, because the caller already
+ * has it and a second lookup for the same name would be pure waste.
+ */
+async function scanDkim(domain: string, spf: SpfResult, reader: DnsReader): Promise<DkimResult> {
+  const { selected, skipped } = budgetDkimCandidates(dkimCandidates(spf.record));
+  const discoveredVia: Record<string, string> = {};
+
+  for (const candidate of selected) {
+    discoveredVia[candidate.selector] = candidate.source;
+  }
+
   const lookups = await Promise.all(
-    DKIM_SELECTORS.map(async (selector) => {
+    selected.map(async ({ selector }) => {
       const result = await reader.resolveTxt(`_domainkey.${selector}.${domain}`);
       return { selector, result };
     }),
@@ -132,20 +132,29 @@ async function scanDkim(domain: string, reader: DnsReader): Promise<DkimResult> 
   }
 
   const selectors = Object.keys(records);
+  const skippedSelectors = skipped.map((candidate) => candidate.selector);
+
   if (selectors.length > 0) {
     return {
       status: 'found',
       selectors,
-      checkedSelectors: [...DKIM_SELECTORS],
+      checkedSelectors: selected.map((candidate) => candidate.selector),
       records,
+      discoveredVia,
+      ...(skippedSelectors.length > 0 ? { skippedSelectors } : {}),
     };
   }
 
+  // Nothing found. Only reported as an error when every lookup actually failed,
+  // because a scan that ran and found nothing is a different, and more useful,
+  // answer than a scan that could not run.
   return {
-    status: hadError ? 'error' : 'missing',
+    status: hadError && selected.length > 0 ? 'error' : 'missing',
     selectors: [],
-    checkedSelectors: [...DKIM_SELECTORS],
+    checkedSelectors: selected.map((candidate) => candidate.selector),
     records,
+    discoveredVia,
+    ...(skippedSelectors.length > 0 ? { skippedSelectors } : {}),
     error: hadError ? 'One or more DKIM lookups failed.' : undefined,
   };
 }
@@ -224,8 +233,8 @@ function buildIssues(dmarc: DmarcResult, spf: SpfResult, dkim: DkimResult, mx: M
     addIssue(issues, {
       severity: 'warning',
       code: 'dkim_missing',
-      title: 'No common DKIM selector found',
-      message: 'The scan did not find DKIM public keys for the selectors it checked.',
+      title: 'No DKIM key found',
+      message: `No DKIM public key was found at any of the ${dkim.checkedSelectors.length} selectors checked, derived from the SPF record and standard provider conventions. A custom selector not named in SPF would not appear here.`,
       recommendation: 'Confirm each email provider has a DKIM selector and public key in DNS.',
     });
   } else if (dkim.status === 'error') {
@@ -280,7 +289,7 @@ function errorResult(domain: string, message: string): ScanResult {
   const emptyDkim: DkimResult = {
     status: 'error',
     selectors: [],
-    checkedSelectors: [...DKIM_SELECTORS],
+    checkedSelectors: [],
     records: {},
     error: message,
   };
@@ -320,7 +329,7 @@ export async function scanDomain(input: string, reader: DnsReader = systemDnsRea
 
     const dmarc = parseDmarcRecords(dmarcLookup.value ?? []);
     const spf = parseSpfRecords(spfLookup.value ?? []);
-    const dkim = await scanDkim(domain, reader);
+    const dkim = await scanDkim(domain, spf, reader);
     const mx: MxResult = mxLookup.status === 'found'
       ? { status: 'found', records: mxLookup.value ?? [] }
       : { status: mxLookup.status, records: [], error: mxLookup.error };
@@ -345,4 +354,3 @@ export async function scanDomain(input: string, reader: DnsReader = systemDnsRea
   }
 }
 
-export { DKIM_SELECTORS };

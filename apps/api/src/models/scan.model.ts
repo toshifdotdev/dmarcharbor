@@ -42,6 +42,22 @@ export interface DkimResult {
   selectors: string[];
   checkedSelectors: string[];
   records: Record<string, string>;
+  /**
+   * Why each selector was probed.
+   *
+   * "found a key" is not debuggable on its own. Knowing a selector came from an
+   * SPF include rather than from a convention tells support whether to trust the
+   * answer and where to look next, which is the difference between a five minute
+   * answer and a support ticket.
+   */
+  discoveredVia?: Record<string, string>;
+  /**
+   * Candidates the lookup budget excluded.
+   *
+   * Surfaced rather than silently dropped, because "we checked 25 and gave up"
+   * is a materially different claim from "we checked everything".
+   */
+  skippedSelectors?: string[];
   error?: string;
 }
 
