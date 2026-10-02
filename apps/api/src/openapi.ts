@@ -979,6 +979,29 @@ export const openApiDocument = {
         responses: { 204: { description: 'Removed.' } },
       },
     },
+    '/workspaces/{organizationId}/billing/currency': {
+      get: {
+        tags: ['Billing'],
+        summary: 'Read the currency this workspace is quoted and billed in',
+        description: [
+          'Reports whether the currency can still change, so the settings screen can disable the control and explain why rather than accepting a value and failing.',
+          'The currency is not a display preference: INR routes to Razorpay and USD to Paddle, so changing it after a payment means migrating a live subscription between two processors.',
+        ].join(' '),
+        responses: { 200: { description: 'preferredCurrency, whether it is locked, and why.' } },
+      },
+      patch: {
+        tags: ['Billing'],
+        summary: 'Change the currency used by future checkouts',
+        description: [
+          'Accepted only before the workspace has a payment. Default is INR because Razorpay is the processor money can actually be taken with today.',
+          'Returns 409 CURRENCY_LOCKED once a subscription exists.',
+        ].join(' '),
+        responses: {
+          200: { description: 'The new preference.' },
+          409: { description: 'A payment exists, so the currency is fixed.' },
+        },
+      },
+    },
     '/health': {
       get: {
         tags: ['System'],

@@ -92,6 +92,18 @@ model Organization {
   createdAt             DateTime
   metadata              String?
   plan                  PlanTier              @default(MOORING)
+  /// Which currency this workspace should be quoted and billed in.
+  ///
+  /// INR goes to Razorpay and USD to Paddle, so this is effectively the choice of
+  /// payment processor rather than a display preference. It can change freely
+  /// until a paid subscription exists, because that is the point at which moving
+  /// means migrating a live subscription between two processors - which is a
+  /// customer-facing risk, not a settings change.
+  ///
+  /// Defaults to INR because Razorpay is the processor we can actually take money
+  /// with today, and a customer who reaches a checkout that returns 503 has
+  /// already been lost. Flip this to USD the day Paddle is live; it is a default.
+  preferredCurrency     BillingCurrency       @default(INR)
   brandLogoUrl          String?
   brandPrimaryColor     String?
   brandAccentColor      String?

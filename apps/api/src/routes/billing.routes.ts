@@ -3,6 +3,8 @@ import { requireSession } from '../middleware/auth.middleware.js';
 import { requireStaff } from '../middleware/staff.middleware.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
 import {
+  billingCurrencyController,
+  setBillingCurrencyController,
   billingPortalController,
   billingStatusController,
   cancelSubscriptionController,
@@ -27,6 +29,20 @@ export const billingRouter = Router();
  */
 billingRouter.post('/webhooks/razorpay', razorpayWebhookController);
 billingRouter.post('/webhooks/paddle', paddleWebhookController);
+
+billingRouter.get(
+  '/workspaces/:organizationId/billing/currency',
+  requireSession,
+  requireOrganizationPermission('organization', 'read'),
+  billingCurrencyController,
+);
+
+billingRouter.patch(
+  '/workspaces/:organizationId/billing/currency',
+  requireSession,
+  requireOrganizationPermission('organization', 'update'),
+  setBillingCurrencyController,
+);
 
 billingRouter.get(
   '/workspaces/:organizationId/billing',
@@ -68,6 +84,8 @@ billingRouter.post(
   '/workspaces/:organizationId/billing/portal',
   requireSession,
   requireOrganizationPermission('billing', 'update'),
+  billingCurrencyController,
+  setBillingCurrencyController,
   billingPortalController,
 );
 

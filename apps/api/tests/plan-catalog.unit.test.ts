@@ -202,16 +202,16 @@ describe('plan catalog integrity', () => {
 
   it('renders a price the way a customer would expect to read it', () => {
     expect(formatPrice('MOORING', 'USD', 'monthly')).toBe('Free');
-    expect(formatPrice('FAIRWAY', 'USD', 'monthly')).toBe('$19');
-    expect(formatPrice('HARBOR', 'USD', 'monthly')).toBe('$79');
-    expect(formatPrice('ADMIRALTY', 'USD', 'annual')).toBe('$2,490');
-    expect(formatPrice('FAIRWAY', 'INR', 'monthly')).toBe('\u20b91,599');
-    expect(formatPrice('HARBOR', 'INR', 'annual')).toBe('\u20b965,990');
+    expect(formatPrice('FAIRWAY', 'USD', 'monthly')).toBe('$29');
+    expect(formatPrice('HARBOR', 'USD', 'monthly')).toBe('$149');
+    expect(formatPrice('ADMIRALTY', 'USD', 'annual')).toBe('$3,990');
+    expect(formatPrice('FAIRWAY', 'INR', 'monthly')).toBe('\u20b92,499');
+    expect(formatPrice('HARBOR', 'INR', 'annual')).toBe('\u20b91,24,990');
   });
 
   it('shows a rough rupee figure for a dollar price without using it to charge', () => {
     const usd = formatPriceWithConversion('HARBOR', 'USD', 'monthly');
-    expect(usd.primary).toBe('$79');
+    expect(usd.primary).toBe('$149');
     expect(usd.secondary).toContain('\u20b9');
 
     const inr = formatPriceWithConversion('HARBOR', 'INR', 'monthly');

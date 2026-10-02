@@ -43,13 +43,13 @@ describe('plan catalog', () => {
   });
 
   it('prices the agreed ladder', () => {
-    expect(planCatalog.FAIRWAY.prices.USD.monthlyMinor).toBe(1900);
-    expect(planCatalog.HARBOR.prices.USD.monthlyMinor).toBe(7900);
-    expect(planCatalog.ADMIRALTY.prices.USD.monthlyMinor).toBe(24900);
+    expect(planCatalog.FAIRWAY.prices.USD.monthlyMinor).toBe(2900);
+    expect(planCatalog.HARBOR.prices.USD.monthlyMinor).toBe(14900);
+    expect(planCatalog.ADMIRALTY.prices.USD.monthlyMinor).toBe(39900);
 
-    expect(planCatalog.FAIRWAY.prices.INR.monthlyMinor).toBe(159900);
-    expect(planCatalog.HARBOR.prices.INR.monthlyMinor).toBe(659900);
-    expect(planCatalog.ADMIRALTY.prices.INR.monthlyMinor).toBe(2099900);
+    expect(planCatalog.FAIRWAY.prices.INR.monthlyMinor).toBe(249900);
+    expect(planCatalog.HARBOR.prices.INR.monthlyMinor).toBe(1249900);
+    expect(planCatalog.ADMIRALTY.prices.INR.monthlyMinor).toBe(3399900);
   });
 
   it('offers a roughly 17 percent annual discount on paid plans', () => {

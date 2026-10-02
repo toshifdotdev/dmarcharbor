@@ -9,7 +9,9 @@ import { BillingProviderError } from '../billing/provider.js';
 import {
   CheckoutError,
   billingPortalUrl,
+  billingCurrencyPreference,
   billingStatus,
+  setBillingCurrencyPreference,
   cancelSubscription,
   changePlan,
   resumeSubscription,
@@ -118,6 +120,33 @@ export async function resumeSubscriptionController(request: Request, response: R
   try {
     await resumeSubscription({ organizationId: response.locals.organizationId, actorUserId: response.locals.session?.user?.id });
     response.json({ status: 'active' });
+  } catch (error) {
+    sendBillingError(response, error);
+  }
+}
+
+export async function billingCurrencyController(request: Request, response: Response): Promise<void> {
+  try {
+    response.json(await billingCurrencyPreference(response.locals.organizationId));
+  } catch (error) {
+    sendBillingError(response, error);
+  }
+}
+
+export async function setBillingCurrencyController(request: Request, response: Response): Promise<void> {
+  const parsed = z.object({ currency: z.enum(['USD', 'INR']) }).safeParse(request.body);
+  if (!parsed.success) {
+    response.status(400).json({ error: { code: 'INVALID_REQUEST', message: 'Choose a currency.' } });
+    return;
+  }
+
+  try {
+    response.json(
+      await setBillingCurrencyPreference({
+        organizationId: response.locals.organizationId,
+        currency: parsed.data.currency,
+      }),
+    );
   } catch (error) {
     sendBillingError(response, error);
   }

@@ -70,7 +70,12 @@ export interface StartCheckoutInput {
   actorUserId?: string | null;
   plan: PlanTier;
   interval: BillingInterval;
-  currency: BillingCurrency;
+  /**
+   * Optional. When omitted the workspace's stored preference decides, so a
+   * currency toggle that forgets to send it on one form cannot silently quote the
+   * wrong one.
+   */
+  currency?: BillingCurrency;
   contact: { name: string; email: string; taxId?: string | null };
   provider?: Exclude<ProviderName, 'NONE'>;
 }
@@ -107,8 +112,17 @@ export async function startCheckout(input: StartCheckoutInput): Promise<Checkout
     }
   }
 
+  // The stored preference decides when the request does not carry one, so a form
+  // that omits the field cannot quote a different currency from the one the
+  // workspace chose and then be charged in the other.
+  const preference = await prisma.organization.findUnique({
+    where: { id: input.organizationId },
+    select: { preferredCurrency: true },
+  });
+  const currency = input.currency ?? preference?.preferredCurrency ?? 'INR';
+
   const provider = resolveProviderForCheckout({
-    currency: input.currency,
+    currency,
     existingProvider: existing?.provider ?? null,
   });
 
@@ -118,14 +132,14 @@ export async function startCheckout(input: StartCheckoutInput): Promise<Checkout
     provider: provider.name,
     tier: input.plan,
     interval: input.interval,
-    currency: input.currency,
+    currency,
   });
 
   const session = await provider.createCheckout({
     organizationId: input.organizationId,
     plan: input.plan,
     interval: input.interval,
-    currency: input.currency,
+    currency,
     contact: input.contact,
     // The web app's host, and its real billing route. These pointed at this API's
     // own origin and at a path that does not exist, so a customer who finished
@@ -135,6 +149,13 @@ export async function startCheckout(input: StartCheckoutInput): Promise<Checkout
     // Carried through to the webhook so the event can be attributed to a
     // workspace without trusting the payload body.
     reference: input.organizationId,
+  });
+
+  // Written after the provider accepted, so the stored preference always matches a
+  // currency we were actually able to charge in.
+  await prisma.organization.update({
+    where: { id: input.organizationId },
+    data: { preferredCurrency: currency },
   });
 
   await recordAuditEvent({
@@ -147,7 +168,7 @@ export async function startCheckout(input: StartCheckoutInput): Promise<Checkout
       provider: provider.name,
       plan: input.plan,
       interval: input.interval,
-      currency: input.currency,
+      currency,
       priceMinor: plan.priceMinor,
     },
   });
@@ -158,9 +179,11 @@ export async function startCheckout(input: StartCheckoutInput): Promise<Checkout
     provider: provider.name,
     plan: input.plan,
     interval: input.interval,
-    currency: input.currency,
+    // The currency actually charged, which is not necessarily the one requested -
+    // the workspace's stored preference wins when the request omits one.
+    currency,
     priceMinor: plan.priceMinor,
-    priceLabel: formatLabel(plan.priceMinor, input.currency),
+    priceLabel: formatLabel(plan.priceMinor, currency),
   };
 }
 
@@ -482,4 +505,70 @@ function formatLabel(minor: number, currency: BillingCurrency): string {
   return currency === 'INR'
     ? `\u20b9${new Intl.NumberFormat('en-IN').format(major)}`
     : `$${new Intl.NumberFormat('en-US').format(major)}`;
+}
+
+/**
+ * Reads the currency a workspace is quoted in, and whether it can still change.
+ *
+ * `locked` is reported rather than enforced only on write, so the settings screen
+ * can disable the control and say why instead of accepting a value and failing.
+ */
+export async function billingCurrencyPreference(organizationId: string): Promise<{
+  preferredCurrency: BillingCurrency;
+  locked: boolean;
+  reason: string | null;
+}> {
+  const [organization, subscription] = await Promise.all([
+    prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { preferredCurrency: true },
+    }),
+    prisma.subscription.findUnique({
+      where: { organizationId },
+      select: { provider: true, providerSubscriptionId: true, status: true },
+    }),
+  ]);
+
+  const paid = Boolean(
+    subscription?.providerSubscriptionId && subscription.provider !== 'NONE' && subscription.status !== 'CANCELLED',
+  );
+
+  return {
+    preferredCurrency: organization?.preferredCurrency ?? 'INR',
+    locked: paid,
+    reason: paid
+      ? 'Changing currency means moving this subscription to a different payment processor, so it is fixed once a payment exists.'
+      : null,
+  };
+}
+
+/**
+ * Sets the currency a future checkout will use.
+ *
+ * Refused once a payment exists. The currency is not a display preference: INR
+ * routes to Razorpay and USD to Paddle, so changing it means migrating a live
+ * subscription between two processors. That is a customer-facing migration with
+ * its own failure modes, and offering it as a settings toggle would imply it is
+ * as reversible as changing a spelling.
+ */
+export async function setBillingCurrencyPreference(input: {
+  organizationId: string;
+  currency: BillingCurrency;
+}): Promise<{ preferredCurrency: BillingCurrency; locked: boolean; reason: string | null }> {
+  const current = await billingCurrencyPreference(input.organizationId);
+
+  if (current.locked) {
+    throw new CheckoutError(
+      current.reason ?? 'The currency cannot be changed once a payment exists.',
+      'CURRENCY_LOCKED',
+      409,
+    );
+  }
+
+  await prisma.organization.update({
+    where: { id: input.organizationId },
+    data: { preferredCurrency: input.currency },
+  });
+
+  return { ...current, preferredCurrency: input.currency };
 }
