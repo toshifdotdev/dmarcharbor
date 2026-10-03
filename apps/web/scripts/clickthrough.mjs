@@ -2337,23 +2337,26 @@ check(
 // The currency toggle: INR is the DEFAULT and says so, both currencies stay
 // visible (honest about both), and the control is live. Once locked it must
 // disable itself and show the API's reason field — never parse a message.
+// LAUNCH STATE: only INR is purchasable (USD routes to Paddle, not live), so
+// the group collapses to a single chip — no USD tab, no "INR is the default"
+// note beside it. A one-option toggle with a note says "you have a choice"
+// when the API would refuse the checkout.
 const currencyAudit = await waitForEval(
   `(() => {
-    const t = document.body.textContent.toLowerCase();
     const toggle = document.querySelector('[data-testid="pricing-currency"]');
     return {
       toggleRendered: !!toggle,
-      defaultVisible: t.includes('inr is the default'),
-      bothCurrencies: t.includes('inr') && t.includes('usd'),
-      inrSelected: !!document.querySelector('[data-testid="pricing-currency-INR"][aria-pressed="true"]'),
+      collapsedSingleChip: !!document.querySelector('[data-testid="pricing-currency-INR"]'),
+      noUsdTab: !document.querySelector('[data-testid="pricing-currency-USD"]'),
+      noFalseChoiceNote: !document.body.textContent.toLowerCase().includes('inr is the default'),
     };
   })()`,
   (c) => c && c.toggleRendered,
   10000,
 );
 check(
-  "pricing currency toggle: INR default visible, both currencies honest",
-  Boolean(currencyAudit && currencyAudit.toggleRendered && currencyAudit.defaultVisible && currencyAudit.bothCurrencies && currencyAudit.inrSelected),
+  "pricing currency group collapses at launch: one purchasable chip, no false choice",
+  Boolean(currencyAudit && currencyAudit.toggleRendered && currencyAudit.collapsedSingleChip && currencyAudit.noUsdTab && currencyAudit.noFalseChoiceNote),
   JSON.stringify(currencyAudit),
 );
 

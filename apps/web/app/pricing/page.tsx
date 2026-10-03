@@ -37,18 +37,15 @@ function soldKeys(plans: PlanDefinition[]): string[] {
   return [...keys].sort((a, b) => a.localeCompare(b));
 }
 
-/** The currencies that can actually be CHARGED — a priced currency, meaning
- *  some plan above free carries a non-zero price in it. This is the launch
- *  state's own truth: USD exists in the catalog but Paddle does not, so USD is
- *  not purchasable and must not read as a choice. When GET /api/capabilities
- *  lands, its currencies list replaces this derivation — the owner's call. */
-function purchasableCurrencies(plans: PlanDefinition[]): Array<"INR" | "USD"> {
-  const out: Array<"INR" | "USD"> = [];
-  for (const code of ["INR", "USD"] as const) {
-    const priced = plans.some((p) => p.prices[code].monthlyMinor > 0 || p.prices[code].annualMinor > 0);
-    if (priced) out.push(code);
-  }
-  return out.length > 0 ? out : ["INR"];
+/** The currencies that can actually be CHARGED. The catalog carries both USD
+ *  and INR prices, but the catalog is not what a checkout can complete: at
+ *  launch INR routes to Razorpay (live) and USD to Paddle (not approved), so a
+ *  USD price on the page would promise a checkout the API refuses — worse than
+ *  showing no USD at all. This is the launch state's own truth, not an edge
+ *  case; when GET /api/capabilities lands (its owner's call), its `currencies`
+ *  list replaces this and the tab appears with no frontend release. */
+function purchasableCurrencies(): Array<"INR" | "USD"> {
+  return ["INR"];
 }
 
 export default async function PricingPage({
@@ -146,7 +143,7 @@ export default async function PricingPage({
             reason={preference?.reason ?? null}
             persistable={Boolean(organizationId)}
             organizationId={organizationId}
-            availableCurrencies={purchasableCurrencies(ordered)}
+            availableCurrencies={purchasableCurrencies()}
           />
         </div>
       </section>
