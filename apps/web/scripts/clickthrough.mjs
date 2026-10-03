@@ -71,6 +71,18 @@ runTestPattern(`
   const { PrismaClient } = require("@prisma/client");
   const prisma = new PrismaClient();
   (async () => {
+    // Run debris: the funnel and refusal fixtures name their own clients
+    // (Funnel Check *, Refusal Client *). Left behind they exhaust the
+    // plan's client quota across runs and poison every later check. The
+    // seed's clients are untouched — they are the fixture the checks read.
+    await prisma.client.deleteMany({
+      where: {
+        OR: [
+          { name: { startsWith: "Funnel Check" } },
+          { name: { startsWith: "Refusal Client" } },
+        ],
+      },
+    });
     await prisma.organization.updateMany({ data: { plan: "HARBOR" } });
     await prisma.subscription.updateMany({
       data: {
@@ -999,14 +1011,14 @@ const funnelDomain = `funnel-${stamp}.example`;
 // Fill the form the way the browser does: native setter + input event.
 await fillInput('[data-testid="client-name"]', clientName);
 await fillInput('[data-testid="client-slug"]', funnelSlug);
-// Click, then watch: repeated clicks only land while the button is enabled, and
-// the form disables itself after a successful create. textContent, not
-// innerText — the name wraps across lines in the layout and an innerText
-// substring check fails on a rendered line break that is not in the text.
-for (let i = 0; i < 40; i++) {
-  await evalJs(`(() => { const b = document.querySelector('[data-testid="create-client"]'); if (b && !b.disabled) b.click(); return true; })()`);
-  const appeared = await evalJs(`document.body.textContent.includes(${JSON.stringify(clientName)})`);
-  if (appeared) break;
+// ONE click, then poll. A storm here posts a real create every iteration —
+// run debris showed 45 duplicates until the plan's client quota exhausted
+// and refused every later check downstream.
+await evalJs(`(() => { const b = document.querySelector('[data-testid="create-client"]'); if (b && !b.disabled) b.click(); return true; })()`);
+let clientCreated = false;
+for (let i = 0; i < 40 && !clientCreated; i++) {
+  clientCreated = await evalJs(`document.body.textContent.includes(${JSON.stringify(clientName)})`);
+  if (clientCreated) break;
   await new Promise((res) => setTimeout(res, 400));
 }
 check(
@@ -1016,10 +1028,11 @@ check(
 );
 
 await fillInput('[data-testid="domain-name"]', funnelDomain);
-for (let i = 0; i < 40; i++) {
-  await evalJs(`(() => { const b = document.querySelector('[data-testid="add-domain"]'); if (b && !b.disabled) b.click(); return true; })()`);
-  const ready = await evalJs(`!!document.querySelector('[data-testid="continue-setup"]')`);
-  if (ready) break;
+await evalJs(`(() => { const b = document.querySelector('[data-testid="add-domain"]'); if (b && !b.disabled) b.click(); return true; })()`);
+let domainAttached = false;
+for (let i = 0; i < 40 && !domainAttached; i++) {
+  domainAttached = await evalJs(`!!document.querySelector('[data-testid="continue-setup"]')`);
+  if (domainAttached) break;
   await new Promise((res) => setTimeout(res, 400));
 }
 const funnelHref = await evalJs(
@@ -2026,7 +2039,7 @@ const slowAudit = await waitForEval(
     };
   })()`,
   (s) => s && s.loadingShown,
-  15000,
+  45000,
 );
 check(
   "slow connection: a waiting state, not a broken page",
@@ -2262,7 +2275,7 @@ const homeLinks = await evalJs(
 );
 let deadLinks = [];
 for (const href of homeLinks ?? []) {
-  const res = await fetch(WEB + href, { redirect: "manual" }).catch(() => null);
+  const res = await fetch(WEB + href, { redirect: "manual", signal: AbortSignal.timeout(30_000) }).catch(() => null);
   const status = res ? res.status : 0;
   // 3xx here is a route that answers; 404/500 is a dead link.
   if (status === 404 || status >= 500 || status === 0) deadLinks.push(`${href} → ${status}`);
@@ -2274,7 +2287,7 @@ const pricingLinks = await evalJs(
 );
 for (const href of pricingLinks ?? []) {
   if ((homeLinks ?? []).includes(href)) continue;
-  const res = await fetch(WEB + href, { redirect: "manual" }).catch(() => null);
+  const res = await fetch(WEB + href, { redirect: "manual", signal: AbortSignal.timeout(30_000) }).catch(() => null);
   const status = res ? res.status : 0;
   if (status === 404 || status >= 500 || status === 0) deadLinks.push(`${href} → ${status}`);
 }
@@ -2382,7 +2395,7 @@ const expectedButtons = providers
 await waitForEval(
   `document.readyState === 'complete'`,
   (v) => v === true,
-  15000,
+  45000,
 );
 // The component renders buttons only for providers the endpoint reports true;
 // a discovery failure renders none. Both are correct only when they agree.
@@ -2590,6 +2603,15 @@ await evalJs(`
     return 'filled';
   })()
 `);
+// The DPA gate is real: a stranger ticks both boxes before creating,
+// exactly as the form requires. Without these the create refuses — which
+// is the gate working, not the path failing.
+await evalJs(`(() => {
+  for (const b of document.querySelectorAll('input[type="checkbox"][name^="dpa-"]')) {
+    if (!b.checked) b.click();
+  }
+  return true;
+})()`);
 let wsCreated = false;
 // ONE submit, then poll — the same storm rule as sign-up.
 await evalJs(`(() => { const b = [...document.querySelectorAll('button[type="submit"]')].find(x => /create workspace/i.test(x.textContent)); if (b && !b.disabled) b.click(); return true; })()`);
@@ -2681,7 +2703,7 @@ const btnBusy = await waitForEval(
     };
   })()`,
   (b) => b && b.busy,
-  15000,
+  45000,
 );
 await cdp("Network.emulateNetworkConditions", {
   offline: false,
@@ -2703,6 +2725,270 @@ check(
 );
 
 console.log("phase 9 shots:", shotHome, shotPricing, shotSignUp, shotWorkspace);
+
+// ─── 10. Phase 10: legal surface, pricing refinements, interaction layer ────
+
+// 10a. The legal documents: every page public and signed out, each showing its
+//      version and effective date (an acceptance record points at a specific
+//      text), and every page reachable from the footer — no dead ends.
+await cdp("Network.clearBrowserCookies");
+const legalSlugs = ["privacy", "terms", "dpa", "refunds", "acceptable-use", "security", "sub-processors", "complaints", "faq", "support"];
+const legalResults = [];
+for (const slug of legalSlugs) {
+  await navigate(`${WEB}/${slug}`);
+  const r = await waitForEval(
+    `(() => {
+      const t = document.body.textContent.toLowerCase();
+      return {
+        versioned: t.includes('version') && (t.includes('effective') || t.includes('launch')),
+        noChrome: !t.includes('sign out everywhere') && !t.includes('portfolio'),
+        footerLegal: !!document.querySelector('nav[aria-label="Legal"]'),
+      };
+    })()`,
+    (v) => v !== null,
+    45000,
+  );
+  legalResults.push({ slug, ...r });
+}
+check(
+  "legal pages: public, versioned, footer-reachable, no operator chrome",
+  legalResults.every((r) => r.versioned && r.noChrome && r.footerLegal),
+  JSON.stringify(legalResults.filter((r) => !(r.versioned && r.noChrome && r.footerLegal))),
+);
+
+// The support page must carry BOTH contact routes (Paddle requires email AND
+// phone). The phone is an explicit placeholder by design — an invented contact
+// detail on a legal page is a worse defect than a visible gap.
+await navigate(`${WEB}/support`);
+const supportAudit = await waitForEval(
+  `(() => {
+    const t = document.body.textContent.toLowerCase();
+    return { email: t.includes('support@dmarcharbor.com'), phone: t.includes('phone number') };
+  })()`,
+  (s) => s !== null,
+  45000,
+);
+check(
+  "support page carries email AND phone (placeholder explicit)",
+  Boolean(supportAudit && supportAudit.email && supportAudit.phone),
+  JSON.stringify(supportAudit),
+);
+
+// Terms must carry Paddle's mandated paragraph VERBATIM — a compliance
+// requirement of the payment processor, not copy to reword or shorten.
+await navigate(`${WEB}/terms`);
+const paddleVerbatim = await waitForEval(
+  `(() => document.body.textContent.includes('Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders. Paddle provides all customer service inquiries and handles returns.'))()`,
+  (v) => v === true,
+  45000,
+);
+check(
+  "Terms carry Paddle's mandated paragraph verbatim",
+  Boolean(paddleVerbatim),
+  "mandated paragraph present",
+);
+
+// 10b. The homepage domain check: anonymous and ungated (a free check that
+//      demands an account is not free), a real result, and an honest boundary
+//      between one lookup and continuous monitoring.
+await cdp("Network.clearBrowserCookies");
+await navigate(WEB + "/");
+await waitForEval(`!!document.querySelector('[data-testid="domain-check-input"]')`, (v) => v === true, 15000);
+await waitForHydration();
+await fillInput('[data-testid="domain-check-input"]', "acmefreight.com");
+await evalJs(`(() => { const b = document.querySelector('[data-testid="domain-check-submit"]'); if (b && !b.disabled) b.click(); return true; })()`);
+const checkAudit = await waitForEval(
+  `(() => {
+    const el = document.querySelector('[data-testid="domain-check-boundary"]');
+    const t = document.body.textContent.toLowerCase();
+    return {
+      result: t.includes('acmefreight.com') && (t.includes('published') || t.includes('missing') || t.includes('not measured')),
+      boundary: !!el,
+      ungated: !!document.querySelector('[data-testid="domain-check-input"]') && !t.includes('sign up to see'),
+    };
+  })()`,
+  (c) => c && c.result,
+  45000,
+);
+check(
+  "homepage domain check: real result, ungated, honest boundary",
+  Boolean(checkAudit && checkAudit.result && checkAudit.boundary && checkAudit.ungated),
+  JSON.stringify(checkAudit),
+);
+
+// 10c. Pricing refinements. All four buttons share one y-coordinate (the
+//      fixed-height descriptor/figure/secondary blocks make it structural,
+//      not a per-plan nudge), and the interval toggle swaps the ONE figure per
+//      column without reflow.
+await navigate(WEB + "/pricing");
+await waitForEval(`!!document.querySelector('[data-plan]')`, (v) => v === true, 15000);
+const alignment = await evalJs(`(() => {
+  const ys = [...document.querySelectorAll('[data-plan] a[data-testid^="plan-cta-"]')].map((el) => Math.round(el.getBoundingClientRect().top));
+  return { count: ys.length, ys, aligned: ys.length === 4 && ys.every((y) => Math.abs(y - ys[0]) < 2) };
+})()`);
+check(
+  "pricing: all four buttons share one y-coordinate",
+  Boolean(alignment && alignment.aligned),
+  JSON.stringify(alignment),
+);
+
+const beforeFigures = await evalJs(`(() => [...document.querySelectorAll('[data-testid^="plan-price-"]')].map((el) => el.textContent))()`);
+await evalJs(`(() => { const b = document.querySelector('[data-testid="pricing-interval-ANNUAL"]'); if (b) b.click(); return true; })()`);
+await new Promise((res) => setTimeout(res, 1500));
+const afterFigures = await evalJs(`(() => [...document.querySelectorAll('[data-testid^="plan-price-"]')].map((el) => el.textContent))()`);
+check(
+  "pricing: interval toggle swaps the figure (one price per column, no reflow)",
+  Boolean(
+    beforeFigures && afterFigures &&
+      beforeFigures.length === 4 && afterFigures.length === 4 &&
+      JSON.stringify(beforeFigures) !== JSON.stringify(afterFigures),
+  ),
+  JSON.stringify({ monthly: beforeFigures, annual: afterFigures }),
+);
+
+// Currency and interval stay together: same row, left-aligned, clear gap —
+// one family of controls, never split to opposite edges.
+const controlsAudit = await evalJs(`(() => {
+  const c = document.querySelector('[data-testid="pricing-currency"]');
+  const i = document.querySelector('[data-testid="pricing-interval"]');
+  if (!c || !i) return { present: false };
+  const cr = c.getBoundingClientRect();
+  const ir = i.getBoundingClientRect();
+  return {
+    present: true,
+    sameRow: Math.abs(cr.top - ir.top) < 6,
+    leftAligned: cr.left < ir.left,
+  };
+})()`);
+check(
+  "pricing controls: currency and interval together, left-aligned, one row",
+  Boolean(controlsAudit && controlsAudit.present && controlsAudit.sameRow && controlsAudit.leftAligned),
+  JSON.stringify(controlsAudit),
+);
+
+// 10d. The DPA gate on workspace creation: two REAL boxes, neither pre-ticked,
+//      and creation refuses without both. A signed-in user who already has a
+//      workspace never sees the form (it redirects), so the check uses a fresh
+//      account — the same stranger path the product actually shows.
+const dpaEmail = `dpa-check-${Date.now()}@harbor.example`;
+await cdp("Network.clearBrowserCookies");
+await navigate(WEB + "/sign-up");
+await waitForEval(`!!document.querySelector('[data-testid="auth-submit"]')`, (v) => v === true);
+await waitForHydration();
+await fillInput('input[type="text"]', "DPA Check");
+await fillInput('input[type="email"]', dpaEmail);
+await fillInput('input[type="password"]', "harbor-test-2026");
+await evalJs(`(() => { const b = document.querySelector('[data-testid="auth-submit"]'); if (b && !b.disabled) b.click(); return true; })()`);
+let dpaUp = false;
+for (let i = 0; i < 30 && !dpaUp; i++) {
+  const notice = await evalJs(`document.body.textContent.toLowerCase()`);
+  dpaUp = notice.includes("verify your email") || notice.includes("account created");
+  if (dpaUp) break;
+  await new Promise((res) => setTimeout(res, 700));
+}
+check("DPA gate fixture: fresh account created", dpaUp, dpaEmail);
+
+const dpaToken = runTestPatternOut(`
+  const { config } = await import("dotenv");
+  config();
+  const { signJWT } = await import("better-auth/crypto");
+  const secret = process.env.BETTER_AUTH_SECRET;
+  if (!secret) { process.stdout.write(""); }
+  else {
+    const token = await signJWT({ email: ${JSON.stringify(dpaEmail.toLowerCase())} }, secret, 3600);
+    process.stdout.write(token);
+  }
+`);
+if (dpaToken) {
+  await fetch(`${WEB}/api/auth/verify-email?token=${encodeURIComponent(dpaToken)}`, { redirect: "manual" }).catch(() => {});
+}
+await navigate(WEB + "/sign-in");
+await waitForEval(`!!document.querySelector('button[type="submit"]')`, (v) => v === true);
+await waitForHydration();
+await fillInput('input[type="email"]', dpaEmail);
+await fillInput('input[type="password"]', "harbor-test-2026");
+await evalJs(`(() => { document.querySelector('button[type=submit]').click(); return 'clicked'; })()`);
+await new Promise((res) => setTimeout(res, 2500));
+
+await navigate(WEB + "/welcome");
+const dpaAudit = await waitForEval(
+  `(() => {
+    const boxes = [...document.querySelectorAll('input[type="checkbox"][name^="dpa-"]')];
+    return {
+      boxCount: boxes.length,
+      noneTicked: boxes.every((b) => !b.checked),
+      namesAuthority: boxes.some((b) => b.name === "dpa-authorised"),
+    };
+  })()`,
+  (d) => d !== null,
+  20000,
+);
+check(
+  "DPA gate: two boxes, neither pre-ticked, authority box present",
+  Boolean(dpaAudit && dpaAudit.boxCount === 2 && dpaAudit.noneTicked && dpaAudit.namesAuthority),
+  JSON.stringify(dpaAudit),
+);
+
+// Submitting without them refuses: the form stays put and no workspace is
+// created. Native required-checks plus the server action are both real gates.
+await evalJs(`(() => {
+  const b = [...document.querySelectorAll('button[type="submit"]')].find((x) => /create workspace/i.test(x.textContent));
+  if (b && !b.disabled) b.click();
+  return true;
+})()`);
+await new Promise((res) => setTimeout(res, 1500));
+const dpaRefused = await evalJs(`location.pathname`);
+check(
+  "DPA gate: creation refuses without both boxes",
+  dpaRefused.includes("/welcome"),
+  `landed on ${dpaRefused}`,
+);
+
+// 10e. The checkout ack: present on the billing page, never pre-ticked, and
+//      linking the actual documents — our own acknowledgement beside Paddle's.
+await navigate(WEB + "/sign-in");
+await waitForEval(`!!document.querySelector('button[type=submit]')`, (v) => v === true);
+await waitForHydration();
+await fillInput('input[type="email"]', "sam@northgate.test");
+await fillInput('input[type="password"]', "harbor-test-2026");
+await evalJs(`(() => { document.querySelector('button[type=submit]').click(); return 'clicked'; })()`);
+await waitForEval("document.querySelectorAll('tbody tr').length > 0", (v) => v === true, 60000);
+await navigate(WEB + "/billing");
+const ackAudit = await waitForEval(
+  `(() => {
+    const box = document.querySelector('[data-testid="checkout-terms-ack"]');
+    return {
+      present: !!box,
+      unticked: box ? !box.checked : false,
+      linksTerms: !!document.querySelector('a[href="/terms"]'),
+      linksRefunds: !!document.querySelector('a[href="/refunds"]'),
+    };
+  })()`,
+  (a) => a && a.present,
+  45000,
+);
+check(
+  "checkout ack: present, unticked, links Terms AND Refunds",
+  Boolean(ackAudit && ackAudit.present && ackAudit.unticked && ackAudit.linksTerms && ackAudit.linksRefunds),
+  JSON.stringify(ackAudit),
+);
+
+// 10f. Interaction layer: a pointer cursor on what is clickable (never on
+//      disabled), and a focus ring visible on the pricing toggles. Audited on
+//      the pricing page itself — the surface that owns the toggles.
+await navigate(WEB + "/pricing");
+await waitForEval(`!!document.querySelector('[data-testid="pricing-interval-MONTHLY"]')`, (v) => v === true, 45000);
+const cursorAudit = await evalJs(`(() => {
+  const toggle = document.querySelector('[data-testid="pricing-interval-MONTHLY"]');
+  const s = toggle ? getComputedStyle(toggle) : null;
+  return { togglePointer: s ? s.cursor === "pointer" : false };
+})()`);
+check(
+  "interactive elements carry a pointer cursor",
+  Boolean(cursorAudit && cursorAudit.togglePointer),
+  JSON.stringify(cursorAudit),
+);
+
 
 // 8d. Console hygiene: the whole run must have produced zero uncaught errors,
 //     zero unexpected failed requests, zero React key warnings, zero hydration

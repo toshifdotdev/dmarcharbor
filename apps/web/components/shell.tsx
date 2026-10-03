@@ -12,6 +12,7 @@ import { redirect } from "next/navigation";
 import type { WorkspaceSummary } from "@/lib/types";
 import { readHostBrand } from "@/lib/host-brand";
 import { PierMark } from "@/components/mark";
+import { LEGAL_FOOTER_LINKS } from "@/components/marketing";
 import { SignOutButton } from "@/components/sign-out";
 import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 
@@ -98,6 +99,21 @@ export async function Shell({
       </header>
 
       <main className="mx-auto w-full max-w-[1400px] flex-1 px-6 py-6">{children}</main>
+
+      {/* The legal surface, reachable from every screen — signed in or out.
+          A footer that omits them is why nothing used to be reachable at all. */}
+      <footer
+        className="border-t px-6 py-4"
+        style={{ borderColor: "var(--color-line)" }}
+      >
+        <nav aria-label="Legal" className="mx-auto flex w-full max-w-[1400px] flex-wrap items-baseline gap-x-5 gap-y-2 text-[11.5px]">
+          {LEGAL_FOOTER_LINKS.map(([href, label]) => (
+            <Link key={href} href={href} style={{ color: "var(--color-ink-3)" }}>
+              {label}
+            </Link>
+          ))}
+        </nav>
+      </footer>
     </div>
   );
 }

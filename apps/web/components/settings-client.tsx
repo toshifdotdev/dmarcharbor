@@ -594,7 +594,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
           color: var(--color-ink);
           padding: 7px 10px;
           font-size: 14px;
-          outline: none;
+          outline: revert;
         }
       `}</style>
     </label>

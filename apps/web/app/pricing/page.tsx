@@ -5,14 +5,14 @@ import { featureLabel } from "@/lib/feature-label";
 import { readHostBrand } from "@/lib/host-brand";
 import { pickActiveWorkspace } from "@/lib/session";
 import { listWorkspaces } from "@/lib/api";
-import type { PlanDefinition } from "@/lib/types";
+import type { PlanDefinition, PlanPriceMinor } from "@/lib/types";
 import {
   HostUnverifiedBanner,
   MarketingFooter,
   MarketingHeader,
   brandName,
 } from "@/components/marketing";
-import { PricingCurrencyToggle } from "@/components/pricing-currency";
+import { PricingControls, type PricingCurrency, type PricingInterval } from "@/components/pricing-controls";
 
 /**
  * pricing.tsx route — "The Statement refit" (pricing-lab/15-the-statement-refit,
@@ -37,10 +37,24 @@ function soldKeys(plans: PlanDefinition[]): string[] {
   return [...keys].sort((a, b) => a.localeCompare(b));
 }
 
+/** The currencies that can actually be CHARGED — a priced currency, meaning
+ *  some plan above free carries a non-zero price in it. This is the launch
+ *  state's own truth: USD exists in the catalog but Paddle does not, so USD is
+ *  not purchasable and must not read as a choice. When GET /api/capabilities
+ *  lands, its currencies list replaces this derivation — the owner's call. */
+function purchasableCurrencies(plans: PlanDefinition[]): Array<"INR" | "USD"> {
+  const out: Array<"INR" | "USD"> = [];
+  for (const code of ["INR", "USD"] as const) {
+    const priced = plans.some((p) => p.prices[code].monthlyMinor > 0 || p.prices[code].annualMinor > 0);
+    if (priced) out.push(code);
+  }
+  return out.length > 0 ? out : ["INR"];
+}
+
 export default async function PricingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ currency?: string }>;
+  searchParams: Promise<{ currency?: string; interval?: string }>;
 }) {
   const brand = await readHostBrand();
   const name = brandName(brand);
@@ -62,10 +76,14 @@ export default async function PricingPage({
   } catch {
     // Signed out: display only, nothing to persist.
   }
-  const { currency: wanted } = await searchParams;
-  const currency: "USD" | "INR" =
+  const { currency: wanted, interval: wantedInterval } = await searchParams;
+  const currency: PricingCurrency =
     preference?.preferredCurrency ??
       (wanted === "USD" || wanted === "INR" ? wanted : "INR");
+  // Monthly is the honest default: it is the number a reader compares, and
+  // annual is the discount they opt into — never the reverse.
+  const interval: PricingInterval =
+    wantedInterval === "annual" ? "annual" : "monthly";
 
   if (!catalog) {
     return (
@@ -121,12 +139,14 @@ export default async function PricingPage({
           every plan.
         </p>
         <div className="w-full">
-          <PricingCurrencyToggle
+          <PricingControls
             currency={currency}
+            interval={interval}
             locked={preference?.locked ?? false}
             reason={preference?.reason ?? null}
             persistable={Boolean(organizationId)}
             organizationId={organizationId}
+            availableCurrencies={purchasableCurrencies(ordered)}
           />
         </div>
       </section>
@@ -157,9 +177,16 @@ export default async function PricingPage({
                   paddingLeft: rec ? 20 : undefined,
                 }}
               >
-                <div className="num text-[9.5px] uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-3)" }}>
+                {/* Descriptor: the API sentence, sentence case, and a
+                    FIXED height — two lines at any column width — so the
+                    figure and button below land on the same line in every
+                    column whatever the copy does. */}
+                <p
+                  className="min-h-[2.9em] text-[13px] leading-[1.45]"
+                  style={{ color: "var(--color-ink-3)" }}
+                >
                   {plan.descriptor}
-                </div>
+                </p>
                 <h2 className="mt-1.5 text-[21px] font-semibold tracking-[-0.022em]" style={{ fontFamily: "var(--font-display)" }}>
                   {plan.label}
                   {rec ? (
@@ -172,36 +199,59 @@ export default async function PricingPage({
                   ) : null}
                 </h2>
 
-                {/* The figure: monthly price in the quoted currency, tabular. */}
+                {/* ONE figure for the selected interval, in the quoted
+                    currency — and only that one. Tabular figures, so $0, $29,
+                    $149 and $399 occupy consistent widths and the columns
+                    align against something. The symbol sits ON the digits'
+                    baseline at one sizing rule for both glyphs (57% of digit
+                    height, tight tracking) — $ and ₹ read as one system. */}
                 <div
-                  className="mt-4 flex items-baseline text-[64px] font-semibold leading-none tracking-[-0.045em]"
+                  className="mt-4 flex min-h-[56px] items-baseline text-[56px] font-semibold leading-none tracking-[-0.02em]"
                   style={{ fontFamily: "var(--font-display)", fontVariantNumeric: "tabular-nums" }}
                 >
-                  <span className="text-[26px]" style={{ color: "var(--color-ink-2)" }}>
+                  <span className="text-[0.57em]" style={{ color: "var(--color-ink-2)", letterSpacing: "0" }}>
                     {currency === "USD" ? "$" : "₹"}
                   </span>
-                  <span>{Math.trunc(lead.monthlyMinor / 100)}</span>
-                  {lead.monthlyMinor % 100 !== 0 ? (
-                    <span className="text-[26px]" style={{ color: "var(--color-ink-2)" }}>
-                      .{String(lead.monthlyMinor % 100).padStart(2, "0")}
+                  <span data-testid={`plan-price-${plan.tier}`}>{shownMajor(lead, interval)}</span>
+                  {shownFraction(lead, interval) ? (
+                    <span className="text-[0.57em]" style={{ color: "var(--color-ink-2)", letterSpacing: "0" }}>
+                      .{shownFraction(lead, interval)}
                     </span>
                   ) : null}
                 </div>
 
-                <div className="num mt-2.5 flex flex-col gap-0.5 text-[11px]" style={{ color: "var(--color-ink-3)" }}>
-                  <span>
-                    <b style={{ color: "var(--color-ink-2)", fontWeight: 500 }}>
-                      {formatMinor(other.monthlyMinor, otherCode)}
-                    </b>{" "}
-                    in {otherCode}{lead.monthlyMinor === 0 ? " · always · no card" : " · per month"}
-                  </span>
-                  {lead.annualMinor > 0 ? (
-                    <span>
-                      {formatMinor(lead.annualMinor, currency)} / {formatMinor(other.annualMinor, otherCode)} per year
-                    </span>
-                  ) : null}
+                {/* Secondary lines — the cadence and the local-currency
+                    equivalent, the second most important text on the page: a
+                    readable size and weight, lifted off the background.
+                    FIXED height (three lines) regardless of how many render,
+                    so the button row is identical across columns. */}
+                <div
+                  className="num mt-2.5 flex min-h-[60px] flex-col gap-1 text-[12.5px]"
+                  style={{ color: "var(--color-ink-2)" }}
+                >
+                  {lead.monthlyMinor === 0 && lead.annualMinor === 0 ? (
+                    // Free says ONE thing, not three restatements of zero.
+                    <span style={{ fontWeight: 500 }}>Free — no card, ever.</span>
+                  ) : (
+                    <>
+                      <span style={{ fontWeight: 500 }}>
+                        {formatMinor(shownMinor(lead, interval), currency)} per {interval === "monthly" ? "month" : "year"}
+                      </span>
+                      {/* Short form: the equivalent, not a sentence that
+                          competes with the figure. */}
+                      <span style={{ color: "var(--color-ink-3)" }}>
+                        ≈ {formatMinor(shownMinor(other, interval), otherCode)}
+                      </span>
+                      {/* Annual states the saving as a saving — the reader
+                          never does the ten-for-twelve arithmetic. */}
+                      {interval === "annual" ? (
+                        <span style={{ color: "var(--color-pass)" }}>
+                          10 months for 12 — save 2 months
+                        </span>
+                      ) : null}
+                    </>
+                  )}
                 </div>
-
                 <Link
                   href="/sign-up"
                   data-testid={`plan-cta-${plan.tier}`}
@@ -342,7 +392,20 @@ export default async function PricingPage({
   );
 }
 
-/** The keys this plan adds over the rung below — the incremental view. */
+/** The price of the SELECTED interval, as one figure. */
+function shownMinor(price: PlanPriceMinor, interval: PricingInterval): number {
+  return interval === "monthly" ? price.monthlyMinor : price.annualMinor;
+}
+
+function shownMajor(price: PlanPriceMinor, interval: PricingInterval): number {
+  return Math.trunc(shownMinor(price, interval) / 100);
+}
+
+function shownFraction(price: PlanPriceMinor, interval: PricingInterval): string {
+  const rest = shownMinor(price, interval) % 100;
+  return rest === 0 ? "" : String(rest).padStart(2, "0");
+}
+
 function incrementalKeys(plan: PlanDefinition, previous: PlanDefinition | null): string[] {
   return Object.entries(plan.features)
     .filter(([k, on]) => on && (!previous || previous.features[k as keyof PlanDefinition["features"]] !== true))

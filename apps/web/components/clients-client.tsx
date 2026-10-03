@@ -232,7 +232,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
           color: var(--color-ink);
           padding: 8px 11px;
           font-size: 14px;
-          outline: none;
+          outline: revert;
           width: 100%;
         }
       `}</style>

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PierMark } from "@/components/mark";
+import { DomainCheck } from "@/components/domain-check";
 import { readHostBrand, type HostBrand } from "@/lib/host-brand";
 
 /**
@@ -45,6 +46,21 @@ export function HostUnverifiedBanner() {
 export function brandName(brand: HostBrand): string {
   return brand.state === "verified" ? brand.workspaceName : "DMARC Harbor";
 }
+
+/** The legal surface, one row in every footer — the reason nothing used to be
+ *  reachable at all was that no footer existed. */
+export const LEGAL_FOOTER_LINKS: Array<[string, string]> = [
+  ["/privacy", "Privacy"],
+  ["/terms", "Terms"],
+  ["/dpa", "DPA"],
+  ["/refunds", "Refunds"],
+  ["/acceptable-use", "Acceptable use"],
+  ["/security", "Security"],
+  ["/sub-processors", "Sub-processors"],
+  ["/complaints", "Complaints"],
+  ["/faq", "FAQ"],
+  ["/support", "Support"],
+];
 
 export function MarketingHeader({
   brand,
@@ -92,23 +108,37 @@ export function MarketingHeader({
 export function MarketingFooter({ brand }: { brand: HostBrand }) {
   return (
     <footer
-      className="mx-auto mt-14 flex w-full max-w-[1180px] flex-wrap items-baseline gap-x-6 gap-y-2 border-t px-6 py-6 pb-14 text-[12px]"
+      className="mx-auto mt-14 w-full max-w-[1180px] border-t px-6 py-6 pb-14"
       style={{ borderColor: "var(--color-line)", color: "var(--color-ink-3)" }}
     >
-      <span>{brandName(brand)} — measurement and evidence about email authentication.</span>
-      <span className="ml-auto" />
-      <Link href="/pricing" className="hover:opacity-80" style={{ color: "var(--color-ink-2)" }}>
-        Pricing
-      </Link>
-      <Link href="/verify" className="hover:opacity-80" style={{ color: "var(--color-ink-2)" }}>
-        Public fingerprint verifier
-      </Link>
-      <Link href="/sign-in" className="hover:opacity-80" style={{ color: "var(--color-ink-2)" }}>
-        Sign in
-      </Link>
-      <Link href="/sign-up" className="hover:opacity-80" style={{ color: "var(--color-ink-2)" }}>
-        Start free
-      </Link>
+      <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2 text-[12px]">
+        <span>{brandName(brand)} — measurement and evidence about email authentication.</span>
+        <span className="ml-auto" />
+        <Link href="/pricing" className="hover:opacity-80" style={{ color: "var(--color-ink-2)" }}>
+          Pricing
+        </Link>
+        <Link href="/verify" className="hover:opacity-80" style={{ color: "var(--color-ink-2)" }}>
+          Public fingerprint verifier
+        </Link>
+        <Link href="/sign-in" className="hover:opacity-80" style={{ color: "var(--color-ink-2)" }}>
+          Sign in
+        </Link>
+        <Link href="/sign-up" className="hover:opacity-80" style={{ color: "var(--color-ink-2)" }}>
+          Start free
+        </Link>
+      </div>
+      {/* The legal surface, reachable from every screen — a footer that omits
+          them is why nothing used to be reachable at all. */}
+      <nav
+        aria-label="Legal"
+        className="mt-3 flex flex-wrap items-baseline gap-x-5 gap-y-2 text-[11.5px]"
+      >
+        {LEGAL_FOOTER_LINKS.map(([href, label]) => (
+          <Link key={href} href={href} className="hover:opacity-80" style={{ color: "var(--color-ink-3)" }}>
+            {label}
+          </Link>
+        ))}
+      </nav>
     </footer>
   );
 }
@@ -176,6 +206,13 @@ export async function MarketingHome() {
         >
           Sign in
         </Link>
+      </section>
+
+      {/* The free check: anonymous, ungated, and honest about what it is not.
+          It sits directly under the first screen because it is the fastest way
+          for a stranger to see the product working on their own domain. */}
+      <section className="mx-auto mt-10 w-full max-w-[1180px] px-6">
+        <DomainCheck />
       </section>
 
       {/* What it does — the real surfaces, described as behaviour. */}

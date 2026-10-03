@@ -58,6 +58,10 @@ export function PlanPicker({
   const [busyPlan, setBusyPlan] = useState<string | null>(null);
   const [error, setError] = useState<ApiErrorBody["error"] | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  // The Terms/Refund acknowledgement gates the PAID checkout only: it is
+  // our own rendered acceptance, so the buyer sees our documents and not
+  // only Paddle's hosted page. Never pre-ticked.
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   const byTier = new Map(plans.map((p) => [p.tier, p]));
   const ordered = order
@@ -127,6 +131,16 @@ export function PlanPicker({
       return;
     }
 
+    // The paid path needs the Terms/Refund acceptance — real control, real
+    // gate. The free plan and plan changes above are not purchases.
+    if (!termsAccepted) {
+      setBusyPlan(null);
+      setError({
+        message:
+          "Please accept the Terms of Service and Refund Policy below before checking out.",
+      });
+      return;
+    }
     const res = await startCheckout(organizationId, {
       plan: plan.tier,
       interval,
@@ -171,6 +185,33 @@ export function PlanPicker({
           {currencySymbol(currency)} {currency} · prices from the plan catalog, never guessed
         </span>
       </div>
+
+      {/* The paid checkout needs the buyer's own acceptance of OUR documents
+          before Paddle's hosted page shows its own. Real control, never
+          pre-ticked — a pre-ticked box is worse than no box. */}
+      <label
+        className="flex items-start gap-2.5 rounded-[2px] border px-4 py-3 text-[13px] leading-[1.6]"
+        style={{ borderColor: "var(--color-line-strong)", color: "var(--color-ink-2)" }}
+      >
+        <input
+          type="checkbox"
+          checked={termsAccepted}
+          onChange={(e) => setTermsAccepted(e.target.checked)}
+          data-testid="checkout-terms-ack"
+          className="mt-1"
+        />
+        <span>
+          I have read and accept the{" "}
+          <a href="/terms" target="_blank" rel="noreferrer" className="underline" style={{ color: "var(--color-ink)" }}>
+            Terms of Service
+          </a>
+          {" "}and the{" "}
+          <a href="/refunds" target="_blank" rel="noreferrer" className="underline" style={{ color: "var(--color-ink)" }}>
+            Refund Policy
+          </a>
+          .
+        </span>
+      </label>
 
       {error ? (
         <div

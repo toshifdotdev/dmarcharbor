@@ -4,6 +4,7 @@ import {
   getPlanCatalog,
   getWorkspaceEntitlements,
 } from "@/lib/api-ops";
+import Link from "next/link";
 import { getMe } from "@/lib/api-phase7";
 import { resolveActiveWorkspace } from "@/lib/session";
 import { featureLabel } from "@/lib/feature-label";
@@ -54,7 +55,17 @@ export default async function BillingPage() {
           <h1 className="label">Billing</h1>
           <p className="mt-1.5 text-[15.5px]" style={{ color: "var(--color-ink-2)" }}>
             Everything each plan carries, in full — so the choice is made on
-            facts, not on a sales call.
+            facts, not on a sales call.{" "}
+            {/* The refund question arises HERE, not in a footer nobody reads
+                mid-decision — so the policy is linked here. */}
+            <Link
+              href="/refunds"
+              className="underline"
+              style={{ color: "var(--color-ink)" }}
+            >
+              Refund policy
+            </Link>
+            .
           </p>
         </header>
 

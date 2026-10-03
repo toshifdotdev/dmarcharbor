@@ -174,6 +174,18 @@ body::before {
   );
 }
 
+/* Interaction layer: a clickable element says so before it is reached.
+   Keyed to the elements themselves — never a wrapper, so the hand does not
+   light up around the control. A DISABLED control gets not-allowed instead:
+   a hand cursor on something that cannot be clicked is a promise not kept. */
+a[href], button:not(:disabled), select:not(:disabled), summary, label:has(input[type="checkbox"]), label:has(input[type="radio"]), [role="button"]:not([aria-disabled="true"]), [role="tab"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+:where(button, select, input, [role="button"], [role="tab"]):disabled,
+:where([aria-disabled="true"]) {
+  cursor: not-allowed;
+}
+
 :focus-visible {
   outline: 1px solid var(--color-accent);
   outline-offset: 2px;
