@@ -19,7 +19,7 @@ export default async function ClientsPage() {
   if (!active) return null;
 
   // Three states, never two: a failed load must not render as "no clients
-  // yet" — that is a lie that costs someone an afternoon. Loading is a real
+  // yet": that is a lie that costs someone an afternoon. Loading is a real
   // Suspense boundary below; empty says what to do next.
   const [entitlements, clients, failed] = await Promise.all([
     getWorkspaceEntitlements(active.id).catch(() => null),
@@ -40,7 +40,7 @@ export default async function ClientsPage() {
           <h1 className="label">Clients</h1>
           <p className="mt-1.5 text-[14px]" style={{ color: "var(--color-ink-2)" }}>
             Every company you monitor, with its domains and where each one
-            stands. Create a client first — domains live inside it.
+            stands. Create a client first: domains live inside it.
           </p>
         </header>
 
@@ -67,7 +67,7 @@ export default async function ClientsPage() {
               </h2>
             </header>
             {failed ? (
-              // A failed load is not "no clients yet" — that is a lie.
+              // A failed load is not "no clients yet": that is a lie.
               <div className="p-5">
                 <ErrorState
                   what="the client list"
@@ -79,7 +79,7 @@ export default async function ClientsPage() {
               <div className="p-5">
                 <EmptyState
                   title="No clients yet"
-                  description="Create the first one on the left — every domain you monitor lives inside a client, and the portfolio fills in as reports arrive."
+                  description="Create the first one on the left: every domain you monitor lives inside a client, and the portfolio fills in as reports arrive."
                 />
               </div>
             ) : (

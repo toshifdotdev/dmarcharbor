@@ -66,9 +66,9 @@ export function ExportPanel({
         </h2>
         <p className="mt-2 text-[13px] leading-relaxed" style={{ color: "var(--color-ink-2)" }}>
           An export is <strong style={{ color: "var(--color-ink)" }}>prepared, then
-          made available</strong> — it is not an instant download. Once it is ready
+          made available</strong>: it is not an instant download. Once it is ready
           its link works for {linkDays} days, then expires. Available on{" "}
-          <strong style={{ color: "var(--color-ink)" }}>every plan at no cost</strong> —
+          <strong style={{ color: "var(--color-ink)" }}>every plan at no cost</strong>:
           export of personal data is a right, not a paid feature.
         </p>
 

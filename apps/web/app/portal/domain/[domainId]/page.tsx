@@ -121,7 +121,7 @@ export default async function PortalDomainPage({
             }}
           >
             The feed for this domain went quiet {ageDays} days ago. The figures
-            below are history, not current state — silence is not compliance.
+            below are history, not current state: silence is not compliance.
           </p>
         ) : null}
 
@@ -136,7 +136,7 @@ export default async function PortalDomainPage({
             }}
           >
             No aggregate report has been received for this domain yet. Nothing
-            below can be read as measured — absence is not compliance.
+            below can be read as measured: absence is not compliance.
           </p>
         ) : null}
 
@@ -236,7 +236,7 @@ export default async function PortalDomainPage({
               <ul className="mt-2 flex flex-col gap-1">
                 {detail.possibleSpoofingSources.map((s) => (
                   <li key={s.senderKey} className="text-[12.5px]" style={{ color: "var(--ink-2)" }}>
-                    {s.senderDomain ?? s.sourceIps[0] ?? "unknown"} —{" "}
+                    {s.senderDomain ?? s.sourceIps[0] ?? "unknown"} :{" "}
                     {s.failedMessages.toLocaleString("en-US")} of{" "}
                     {s.totalMessages.toLocaleString("en-US")} messages failed authentication
                   </li>
@@ -244,7 +244,7 @@ export default async function PortalDomainPage({
               </ul>
               <p className="mt-2 text-[11.5px]" style={{ color: "var(--ink-3)" }}>
                 This is an observation of traffic claiming to be your domain. Ask
-                your provider about it — the platform measures, it does not block.
+                your provider about it: the platform measures, it does not block.
               </p>
             </div>
           ) : null}

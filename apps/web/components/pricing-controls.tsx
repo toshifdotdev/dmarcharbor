@@ -69,7 +69,7 @@ export function PricingControls({
     setBusy(false);
     if (!res.ok) {
       if (res.error.code === "CURRENCY_LOCKED") {
-        // A payment exists — the toggle is stale. Re-read the preference so the
+        // A payment exists: the toggle is stale. Re-read the preference so the
         // reason field renders and the control disables itself.
         router.refresh();
         return;
@@ -113,7 +113,7 @@ export function PricingControls({
           </div>
         ) : (
           // The collapsed state: one currency is purchasable, so this is an
-          // indicator, not a choice — no aria-pressed on a span that is not a
+          // indicator, not a choice: no aria-pressed on a span that is not a
           // toggle. The chip says what you will be charged in, full stop.
           <div data-testid="pricing-currency" className="flex items-center gap-2">
             <span

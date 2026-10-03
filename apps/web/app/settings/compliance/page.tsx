@@ -57,7 +57,7 @@ export default async function ComplianceSettingsPage({
 
         {clients.length === 0 ? (
           <p className="text-[13.5px]" style={{ color: "var(--color-ink-3)" }}>
-            Create a client first — packs are issued per client.{" "}
+            Create a client first: packs are issued per client.{" "}
             <Link href="/clients" className="underline" style={{ color: "var(--color-ink)" }}>
               Open clients
             </Link>
@@ -117,13 +117,13 @@ export default async function ComplianceSettingsPage({
               data-feature="trust.center"
             >
               <h2 className="text-[16px] font-semibold tracking-[-0.012em]">
-                Trust Center{selected ? ` — ${selected.name}` : ""}
+                Trust Center{selected ? `: ${selected.name}` : ""}
               </h2>
               {allowTrust ? (
                 <p className="mt-2 text-[13px]" style={{ color: "var(--color-ink-2)" }}>
                   The Trust Center is published per client from the client
                   workspace. Issuing a link gives {selected?.name} an
-                  unguessable public address an auditor opens with no account —
+                  unguessable public address an auditor opens with no account:
                   withdrawing the link takes the page down immediately.
                 </p>
               ) : (

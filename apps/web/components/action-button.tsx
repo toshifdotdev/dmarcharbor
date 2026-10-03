@@ -65,7 +65,7 @@ export function ActionButton({
         ...variantStyle,
         ...style,
         // Both states occupy one cell: width never changes, and the visible
-        // state is centred by the grid — not by the label's leftover space.
+        // state is centred by the grid: not by the label's leftover space.
         display: "inline-grid",
         gridTemplateAreas: '"stack"',
         placeItems: "center",

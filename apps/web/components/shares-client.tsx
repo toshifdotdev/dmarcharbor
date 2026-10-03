@@ -58,7 +58,7 @@ export function ShareForm({
     setBusy(false);
     if (!res.ok) setError(res.error);
     else {
-      // The API returns the existing public path — link to it, never rebuild.
+      // The API returns the existing public path: link to it, never rebuild.
       setCreated(res.data.url);
       router.refresh();
     }
@@ -73,7 +73,7 @@ export function ShareForm({
         4 · Share the report
       </h2>
       <p className="mt-1.5 text-[13px]" style={{ color: "var(--color-ink-2)" }}>
-        A share link lets anyone holding it read this domain's report — useful
+        A share link lets anyone holding it read this domain's report: useful
         for sending evidence to your client's IT contact.
       </p>
 
@@ -125,7 +125,7 @@ export function ShareForm({
             include forensic evidence
             {includeForensics ? (
               <span style={{ color: "var(--color-unverified)" }}>
-                {" "}— this share will expose failure detail
+                {" "}(this share will expose failure detail)
               </span>
             ) : null}
           </label>

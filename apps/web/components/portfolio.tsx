@@ -72,7 +72,7 @@ export function PortfolioGrid({ rows }: { rows: PortfolioRow[] }) {
   const [hidden, setHidden] = useState<Set<string>>(new Set());
 
   // Counts answer "what needs me today" and ARE the filters. Counted over the
-  // full fleet, never over the query-filtered view — a chip's number is a fact
+  // full fleet, never over the query-filtered view: a chip's number is a fact
   // about the portfolio.
   const counts = useMemo(() => {
     const c: Record<Posture, number> = {

@@ -27,7 +27,7 @@ export const PADDLE_ORDER_PROCESS_PARAGRAPH =
 /** The legal entity name. Supplied by the business, never invented here — an
  *  invented entity on a legal page is a worse defect than a visible
  *  placeholder. */
-export const LEGAL_ENTITY_PLACEHOLDER = "[legal entity name — supplied by the business before launch]";
+export const LEGAL_ENTITY_PLACEHOLDER = "[legal entity name: supplied by the business before launch]";
 
 export interface LegalDoc {
   slug: string;
@@ -146,7 +146,7 @@ export const LEGAL_DOCS: LegalDoc[] = [
         heading: "How to complain",
         paragraphs: [
           "Write to complaints@dmarcharbor.com with what happened, when, and what you would like done. We acknowledge within two working days and answer within fifteen.",
-          `If you paid through Paddle, you can also raise a complaint through Paddle's own dispute process — Paddle is the Merchant of Record for those orders.`,
+          `If you paid through Paddle, you can also raise a complaint through Paddle's own dispute process: Paddle is the Merchant of Record for those orders.`,
         ],
       },
     ],
@@ -163,7 +163,7 @@ export function legalBody(doc: LegalDoc): { kind: "file" | "placeholder"; text: 
       const text = readFileSync(join(process.cwd(), "..", "..", "docs", doc.sourceFile), "utf8");
       return { kind: "file", text };
     } catch {
-      // The file has not landed yet — fall through to the placeholder.
+      // The file has not landed yet: fall through to the placeholder.
     }
   }
   return {

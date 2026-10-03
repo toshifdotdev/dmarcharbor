@@ -178,7 +178,7 @@ export function DigestForm({
           Include forensic evidence
           {!allowForensics ? (
             <span style={{ color: "var(--color-ink-3)" }}>
-              {" "}— not available on your current plan
+              {" "}(not available on your current plan)
             </span>
           ) : null}
         </span>

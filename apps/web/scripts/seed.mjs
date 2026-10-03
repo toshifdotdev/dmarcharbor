@@ -10,10 +10,10 @@ import { join } from "node:path";
 
 const API = process.env.API_BASE ?? "http://localhost:4000";
 
-const WORKSPACE = { name: "Northgate Digital", slug: "northgate-digital" };
+const WORKSPACE = { name: "Example Agency", slug: "example-agency" };
 const ACCOUNT = {
   name: "Sam Morgan",
-  email: "sam@northgate.test",
+  email: "sam@example.test",
   password: "harbor-test-2026",
 };
 
@@ -199,22 +199,22 @@ log("plan headroom", "subscription HARBOR via test pattern");
 
 const CLIENTS = [
   {
-    name: "Acme Freight",
-    slug: "acme-freight",
-    domains: ["acmefreight.com", "portal.acmefreight.com"],
+    name: "Example Freight",
+    slug: "example-freight",
+    domains: ["example.com", "portal.example.com"],
   },
-  { name: "Northgate HR", slug: "northgate-hr", domains: ["northgate-hr.co.uk"] },
+  { name: "Example HR", slug: "example-hr", domains: ["hr.example"] },
   {
-    name: "Brightline Studio",
-    slug: "brightline",
-    domains: ["brightline.io", "mail.brightline.io"],
+    name: "Example Studio",
+    slug: "example-studio",
+    domains: ["example.org", "mail.example.org"],
   },
-  { name: "Harbor Clinic", slug: "harbor-clinic", domains: ["harborclinic.org"] },
-  { name: "Meridian Legal", slug: "meridian-legal", domains: ["meridianlaw.com"] },
+  { name: "Example Clinic", slug: "example-clinic", domains: ["clinic.example"] },
+  { name: "Example Legal", slug: "example-legal", domains: ["legal.example"] },
   {
-    name: "Sable Logistics",
-    slug: "sable-logistics",
-    domains: ["sablelogistics.com", "go.sablelogistics.com"],
+    name: "Example Logistics",
+    slug: "example-logistics",
+    domains: ["example.net", "go.example.net"],
   },
 ];
 
@@ -274,15 +274,15 @@ await prisma2.$disconnect();
 
 // ─── 4. aggregate reports → four postures ────────────────────────────────────
 //
-//   acmefreight.com         → block       (failures observed)
-//   portal.acmefreight.com  → unverified  (unattributed sender, 60% of volume)
-//   go.sablelogistics.com   → unverified  (unattributed sender, 55% of volume)
-//   northgate-hr.co.uk      → pass        (clean, fresh)
-//   brightline.io           → pass        (clean, fresh)
-//   meridianlaw.com         → pass        (clean, fresh)
-//   sablelogistics.com      → pass        (clean, fresh)
-//   mail.brightline.io      → unmeasured  (feed stale — reports 12 days old)
-//   harborclinic.org        → unmeasured  (never reported)
+//   example.com         → block       (failures observed)
+//   portal.example.com  → unverified  (unattributed sender, 60% of volume)
+//   go.example.net   → unverified  (unattributed sender, 55% of volume)
+//   example.net      → pass        (clean, fresh)
+//   example.org           → pass        (clean, fresh)
+//   legal.example         → pass        (clean, fresh)
+//   example.net      → pass        (clean, fresh)
+//   mail.example.org      → unmeasured  (feed stale — reports 12 days old)
+//   clinic.example        → unmeasured  (never reported)
 
 function aggregateXml({ domain, records, begin, end, reportId }) {
   const recs = records
@@ -339,19 +339,19 @@ function aggregateXml({ domain, records, begin, end, reportId }) {
 const day = (offset) => Math.floor((Date.now() - offset * 86_400_000) / 1000);
 
 const HISTORIES = {
-  "acmefreight.com": [
+  "example.com": [
     { offset: 1, fail: 120 },
     { offset: 2, fail: 40 },
     { offset: 3, fail: 0 },
   ],
-  "portal.acmefreight.com": [{ offset: 1, unattr: 0.6 }],
-  "northgate-hr.co.uk": [{ offset: 1 }, { offset: 2 }],
-  "brightline.io": [{ offset: 1 }],
-  "mail.brightline.io": [{ offset: 12 }, { offset: 13 }],
-  "harborclinic.org": [],
-  "meridianlaw.com": [{ offset: 1 }],
-  "sablelogistics.com": [{ offset: 1 }],
-  "go.sablelogistics.com": [{ offset: 1, unattr: 0.55 }],
+  "portal.example.com": [{ offset: 1, unattr: 0.6 }],
+  "hr.example": [{ offset: 1 }, { offset: 2 }],
+  "example.org": [{ offset: 1 }],
+  "mail.example.org": [{ offset: 12 }, { offset: 13 }],
+  "clinic.example": [],
+  "legal.example": [{ offset: 1 }],
+  "example.net": [{ offset: 1 }],
+  "go.example.net": [{ offset: 1, unattr: 0.55 }],
 };
 
 let ingested = 0;
@@ -409,11 +409,11 @@ log("reports ingested", String(ingested));
 // reporters stopped sending.
 const p2 = new PrismaClient();
 await p2.dmarcReport.updateMany({
-  where: { domain: { name: "mail.brightline.io" } },
+  where: { domain: { name: "mail.example.org" } },
   data: { receivedAt: new Date(Date.now() - 12 * 86_400_000) },
 });
 await p2.$disconnect();
-log("stale feed backdated", "mail.brightline.io → 12 days");
+log("stale feed backdated", "mail.example.org → 12 days");
 
 log("done", `sign in at http://localhost:3100/sign-in as ${ACCOUNT.email}`);
 log("password", ACCOUNT.password);

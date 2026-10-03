@@ -82,7 +82,7 @@ export default async function PortalPage() {
           What the world's mail servers say about your domains.
         </h1>
         <p className="mt-4 text-[15px] leading-relaxed" style={{ color: "var(--ink-2)" }}>
-          Measurement and evidence only — this portal shows what was observed,
+          Measurement and evidence only: this portal shows what was observed,
           and never claims to block, filter or control anything.
         </p>
 

@@ -18,7 +18,7 @@ cd apps/web && npm run dev                              # web on :3100
 | | |
 |---|---|
 | URL | http://localhost:3100/sign-in |
-| Email | `sam@northgate.test` |
+| Email | `sam@example.test` |
 | Password | `harbor-test-2026` |
 
 Regenerate the seeded account and data at any time:

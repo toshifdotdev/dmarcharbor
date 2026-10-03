@@ -34,7 +34,7 @@ function ProviderLogo({ provider }: { provider: "google" | "microsoft" }) {
           <path fill="#EA4335" d="M24 10.75c3.23 0 6.13 1.11 8.41 3.29l6.31-6.31C34.91 4.18 29.93 2 24 2 15.4 2 7.96 6.93 4.34 14.12l7.35 5.7c1.73-5.2 6.58-9.07 12.31-9.07z"/>
         </g>
       ) : (
-        // Microsoft: four squares, two by two, brand gap — the standard mark.
+        // Microsoft: four squares, two by two, brand gap: the standard mark.
         <g transform="scale(2)">
           <rect width="10" height="10" x="1" y="1" fill="#F25022"/>
           <rect width="10" height="10" x="13" y="1" fill="#7FBA00"/>
@@ -81,7 +81,7 @@ export function SocialButtons() {
           type="button"
           onClick={async () => {
             // better-auth's /sign-in/social is POST-only and answers with the
-            // provider's redirect URL — a GET navigation would 405. The button
+            // provider's redirect URL: a GET navigation would 405. The button
             // POSTs and follows the URL the endpoint returns.
             try {
               const res = await fetch("/api/auth/sign-in/social", {

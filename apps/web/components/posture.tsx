@@ -26,7 +26,7 @@ const SHAPE: Record<Posture, ReactElement> = {
       style={{ borderColor: "var(--color-unverified)" }}
     />
   ),
-  // Stale = measured once, now quiet: half-filled, half-hatched — it visibly
+  // Stale = measured once, now quiet: half-filled, half-hatched: it visibly
   // contains both facts. Not measured (below) is hatched only: nothing exists.
   stale: (
     <span className="block size-2 rounded-[1px] overflow-hidden" style={{ border: "1px solid var(--color-unmeasured)" }}>

@@ -108,7 +108,7 @@ export function ErrorState({
         Could not load
       </p>
       <p className="mt-2 text-[14px]" style={{ color: "var(--color-ink)" }}>
-        {what} did not load — the measurement API did not answer in time.
+        {what} did not load: the measurement API did not answer in time.
       </p>
       {detail ? (
         <p className="mt-1.5 text-[12.5px]" style={{ color: "var(--color-ink-2)" }}>
@@ -116,7 +116,7 @@ export function ErrorState({
         </p>
       ) : null}
       <p className="mt-1.5 text-[12px]" style={{ color: "var(--color-ink-3)" }}>
-        This is not the same as having no data — the request simply failed.
+        This is not the same as having no data: the request simply failed.
         Nothing was deleted or hidden.
       </p>
       <button

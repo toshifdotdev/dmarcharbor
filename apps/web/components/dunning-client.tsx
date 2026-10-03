@@ -39,7 +39,7 @@ export function DunningPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // NONE | WARNED | WITHDRAWN — the API's final enum. Any value other than
+  // NONE | WARNED | WITHDRAWN: the API's final enum. Any value other than
   // NONE means payment recovery is running, and that is what decides whether
   // this panel shows.
   const inRecovery = status === "PAST_DUE" || stage === "WARNED" || stage === "WITHDRAWN";
@@ -77,7 +77,7 @@ export function DunningPanel({
         <div>
           <div className="label">What still works</div>
           <p className="mt-1 text-[13px]" style={{ color: "var(--color-ink-2)" }}>
-            Everything. Your workspace keeps running during the grace period —
+            Everything. Your workspace keeps running during the grace period:
             monitoring, alerts and reports are all still on.
           </p>
         </div>
@@ -90,7 +90,7 @@ export function DunningPanel({
                 <span className="num">
                   {grace.toLocaleDateString("en-GB", { day: "numeric", month: "long" })}
                 </span>
-                {daysLeft !== null ? ` — ${daysLeft} day${daysLeft === 1 ? "" : "s"} left` : ""}
+                {daysLeft !== null ? `: ${daysLeft} day${daysLeft === 1 ? "" : "s"} left` : ""}
               </>
             ) : (
               <span style={{ color: "var(--color-ink-3)" }}>
@@ -126,7 +126,7 @@ export function DunningPanel({
           className="num text-[11px]"
           style={{ color: "var(--color-ink-3)" }}
           data-testid="retry-coming"
-          title="A one-click charge retry is not available yet — the card itself has to be updated for a retry to succeed."
+          title="A one-click charge retry is not available yet: the card itself has to be updated for a retry to succeed."
         >
           one-click payment retry: coming soon
         </span>

@@ -30,7 +30,7 @@ export default async function MailboxSettingsPage() {
           <h1 className="label">Settings · Report mailbox</h1>
           <p className="mt-1.5 max-w-3xl text-[14px]" style={{ color: "var(--color-ink-2)" }}>
             One shared mailbox per workspace. Every domain points its rua tag at
-            our reporting address — so no customer ever hands over IMAP
+            our reporting address: so no customer ever hands over IMAP
             credentials.
           </p>
         </header>
@@ -56,14 +56,14 @@ export default async function MailboxSettingsPage() {
             If one of your domains publishes its reports to a web endpoint
             (common with Google, Microsoft and Yahoo) rather than a mailbox, its
             DMARC record is <strong style={{ color: "var(--color-ink)" }}>correctly
-            configured</strong> — but this platform cannot read those reports yet,
+            configured</strong>: but this platform cannot read those reports yet,
             so that domain will show no report data. Fixing it means pointing the
             domain's <span className="num">rua=</span> tag at a mailbox collected
             here. The domain's setup screen says so too, and links back to this
             section.
           </p>
           <p className="mt-2 text-[12px]" style={{ color: "var(--color-ink-3)" }}>
-            Leave the record as it is until you are ready — a domain showing
+            Leave the record as it is until you are ready: a domain showing
             "not collecting yet" is not a broken domain.
           </p>
         </section>

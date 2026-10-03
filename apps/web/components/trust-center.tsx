@@ -132,7 +132,7 @@ export function TrustCenterView({ payload }: { payload: TrustCenterPayload }) {
               <ul className="mt-2 flex flex-col gap-1.5">
                 {payload.erasures.map((e, i) => (
                   <li key={`${e.scope}-${i}`} className="text-[13px]" style={{ color: "var(--ink-2)" }}>
-                    {e.scope} — {e.recordCount} record{e.recordCount === 1 ? "" : "s"} removed{" "}
+                    {e.scope}: {e.recordCount} record{e.recordCount === 1 ? "" : "s"} removed{" "}
                     {new Date(e.completedAt).toLocaleDateString("en-GB")}
                   </li>
                 ))}
@@ -200,7 +200,7 @@ export function TrustCenterView({ payload }: { payload: TrustCenterPayload }) {
         <footer className="mt-14 border-t pt-6" style={{ borderColor: "var(--line-strong)" }}>
           <p className="num text-[10.5px] leading-relaxed" style={{ color: "var(--ink-3)" }}>
             Every claim on this page is served by the platform itself at the
-            address you are reading, and generated from the live record — not
+            address you are reading, and generated from the live record: not
             from marketing copy. To prove a compliance pack issued by{" "}
             {payload.provider.workspaceName}, use the published SHA-256 digest
             and the compliance verifier.

@@ -44,7 +44,7 @@ export function ErasurePanel({
   const [busy, setBusy] = useState(false);
 
   // The pending state survives a reload: the server's request list carries the
-  // row, so a pending request is pending on every render — not only in the
+  // row, so a pending request is pending on every render: not only in the
   // moment it was created. A grace period nobody can see is not a grace period.
   const pendingRequest = created
     ? { id: created.id, purgeAfter: created.purgeAfter }
@@ -95,7 +95,7 @@ export function ErasurePanel({
         </h2>
         <p className="mt-2 text-[13px] leading-relaxed" style={{ color: "var(--color-ink-2)" }}>
           An erasure request removes personal data belonging to the people whose
-          mail passed through your clients' domains — recipient identifiers,
+          mail passed through your clients' domains: recipient identifiers,
           addresses, forensic evidence. Once executed it{" "}
           <strong style={{ color: "var(--color-ink)" }}>cannot be undone</strong>, and
           the platform keeps only what it must (anonymised audit evidence and the
@@ -103,7 +103,7 @@ export function ErasurePanel({
         </p>
         <p className="mt-2 text-[13px]" style={{ color: "var(--color-ink-2)" }}>
           A request enters a <strong style={{ color: "var(--color-ink)" }}>grace
-          period</strong> before anything is deleted — you can cancel it while it
+          period</strong> before anything is deleted: you can cancel it while it
           is pending. Export your data first if you need a copy.
         </p>
         <p className="mt-2 text-[12px]" style={{ color: "var(--color-ink-3)" }}>
@@ -120,7 +120,7 @@ export function ErasurePanel({
           data-testid="erasure-preview"
         >
           <h2 className="text-[16px] font-semibold tracking-[-0.012em]">
-            What a request would do — {preview.scopeLabel}
+            What a request would do: {preview.scopeLabel}
           </h2>
           <div className="mt-3 flex flex-wrap gap-x-8 gap-y-2">
             <Stat label="Personal data records" value={preview.totals.personalDataRecords} tone="var(--color-block)" />
@@ -146,7 +146,7 @@ export function ErasurePanel({
                   {a.action}
                 </span>
                 <span className="text-[12.5px]" style={{ color: "var(--color-ink-2)" }}>
-                  {a.label} — {a.count} record{a.count === 1 ? "" : "s"} · {a.reason}
+                  {a.label}: {a.count} record{a.count === 1 ? "" : "s"} · {a.reason}
                 </span>
               </li>
             ))}
@@ -169,7 +169,7 @@ export function ErasurePanel({
             <strong style={{ color: "var(--color-ink)" }}>
               {new Date(pendingRequest.purgeAfter).toLocaleString("en-GB")}
             </strong>{" "}
-            — you can cancel it until then, below.
+           : you can cancel it until then, below.
           </p>
         </section>
       ) : null}
@@ -248,7 +248,7 @@ export function ErasurePanel({
 
           <div>
             <div className="label">
-              Type ERASE to confirm — this cannot be undone
+              Type ERASE to confirm: this cannot be undone
             </div>
             <input
               value={confirmWord}

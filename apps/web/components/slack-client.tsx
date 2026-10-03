@@ -96,7 +96,7 @@ export function SlackForm({
             ) : null}
             <p className="mt-1.5 text-[12px]" style={{ color: "var(--color-ink-3)" }}>
               Alerts raised by your rules are not reaching Slack. Paste a fresh
-              webhook URL below — the old one may have been revoked in Slack.
+              webhook URL below: the old one may have been revoked in Slack.
             </p>
           </div>
         ) : (
@@ -115,7 +115,7 @@ export function SlackForm({
               Last delivered{" "}
               {destination.lastDeliveredAt
                 ? new Date(destination.lastDeliveredAt).toLocaleString("en-GB")
-                : "— nothing delivered yet"}
+                : "(nothing delivered yet)"}
               {destination.channelLabel ? ` to ${destination.channelLabel}` : ""}.
             </p>
           </div>
@@ -132,7 +132,7 @@ export function SlackForm({
 
         <p className="mt-2 text-[13px] leading-relaxed" style={{ color: "var(--color-ink-2)" }}>
           This delivers <strong style={{ color: "var(--color-ink)" }}>the same
-          alerts your email rules already raise</strong> into a Slack channel —
+          alerts your email rules already raise</strong> into a Slack channel,
           where your team already watches. It needs no extra plan.
         </p>
 
@@ -153,7 +153,7 @@ export function SlackForm({
           <p className="mt-3 text-[12.5px] leading-relaxed" style={{ color: "var(--color-unverified)" }}>
             <strong>Treat that URL like a password.</strong> Anyone who has it can
             post to that channel, so paste it only somewhere you trust. You can
-            revoke it at any time in the same Slack screen — and if you do, paste
+            revoke it at any time in the same Slack screen: and if you do, paste
             a fresh one here.
           </p>
         </div>
@@ -166,7 +166,7 @@ export function SlackForm({
             style={{ color: "var(--color-block)" }}
           >
             {error.code === "INVALID_WEBHOOK_URL"
-              ? "That doesn't look like a Slack webhook URL. It should start with https://hooks.slack.com/services/ — copy the full Webhook URL from the Incoming Webhooks screen in Slack and paste it here."
+              ? "That doesn't look like a Slack webhook URL. It should start with https://hooks.slack.com/services/: copy the full Webhook URL from the Incoming Webhooks screen in Slack and paste it here."
               : error.message}
           </p>
         ) : null}
@@ -187,8 +187,8 @@ export function SlackForm({
                 <span className="num" data-testid="slack-masked">
                   {destination.maskedUrl}
                 </span>
-                . The full URL is stored securely and cannot be shown again —
-                to change it, paste a new one below.
+                . The full URL is stored securely and cannot be shown again. To
+                change it, paste a new one below.
               </p>
             ) : (
               <p className="mt-1 text-[12px]" style={{ color: "var(--color-ink-3)" }}>

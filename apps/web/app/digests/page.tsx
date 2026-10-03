@@ -16,7 +16,7 @@ export default async function DigestsPage() {
 
   const [clients, digests] = await Promise.all([
     // Three states, never two: a failed load must never render as "no digests
-    // yet" — that is a lie that costs someone an afternoon.
+    // yet": that is a lie that costs someone an afternoon.
     listClients(active.id).catch(() => null),
     listReportDigests(active.id).catch(() => null),
   ]);
@@ -69,7 +69,7 @@ export default async function DigestsPage() {
                   <div className="p-5">
                     <EmptyState
                       title="No digests scheduled yet"
-                      description="A digest is a recurring report summary sent to your client's contacts under your brand. Create the first one on the left — weekly or monthly, with the recipient list you choose."
+                      description="A digest is a recurring report summary sent to your client's contacts under your brand. Create the first one on the left: weekly or monthly, with the recipient list you choose."
                     />
                   </div>
                 ) : (

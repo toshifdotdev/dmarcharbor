@@ -29,7 +29,7 @@ export default async function ExportSettingsPage() {
         <header>
           <h1 className="label">Settings · Data export</h1>
           <p className="mt-1.5 max-w-3xl text-[14px]" style={{ color: "var(--color-ink-2)" }}>
-            Request a copy of the data held in this workspace — for yourself or
+            Request a copy of the data held in this workspace: for yourself or
             for a client's data-subject request. Free on every plan, always.
           </p>
         </header>

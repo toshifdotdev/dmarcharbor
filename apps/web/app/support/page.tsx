@@ -84,7 +84,7 @@ export default async function SupportPage() {
             className="mt-3 text-[13.5px] leading-[1.8]"
             style={{ color: "var(--color-unverified)" }}
           >
-            [phone number — supplied by the business before launch]
+            [phone number: supplied by the business before launch]
           </p>
           <p className="mt-2 text-[13px] leading-[1.8]" style={{ color: "var(--color-ink-2)" }}>
             Phone support hours are published with the number. Email support runs

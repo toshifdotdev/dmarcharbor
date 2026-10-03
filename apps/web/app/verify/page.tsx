@@ -43,7 +43,7 @@ export default async function VerifyPage({
           <p className="mt-4 text-[15px] leading-relaxed" style={{ color: "var(--ink-2)" }}>
             Every compliance pack we issue is published as a SHA-256 digest of
             the exact bytes. A copy you hold is genuine when its digest matches
-            the one recorded here — that is the whole test, and it needs no
+            the one recorded here: that is the whole test, and it needs no
             account.
           </p>
         </header>
@@ -64,7 +64,7 @@ export default async function VerifyPage({
             </p>
             <p className="mt-2 text-[14px]" style={{ color: "var(--ink-2)" }}>
               No issued pack carries this reference. Check the reference printed
-              in the document — it appears on the cover page — and try again.
+              in the document: it appears on the cover page: and try again.
               A pack whose link was withdrawn also answers this way, by design.
             </p>
           </div>
@@ -86,7 +86,7 @@ export default async function VerifyPage({
             </p>
             <p className="mt-2 text-[14px]" style={{ color: "var(--ink-2)" }}>
               This reference is recorded. Compare the digest below against the
-              SHA-256 of the PDF you hold — a match means the bytes are exactly
+              SHA-256 of the PDF you hold: a match means the bytes are exactly
               what we issued.
             </p>
             <ul className="mt-5 flex flex-col gap-4">
@@ -134,7 +134,7 @@ export default async function VerifyPage({
             </ul>
             <p className="mt-5 text-[12px]" style={{ color: "var(--ink-3)" }}>
               This page answers only about a fingerprint. It never serves the
-              document and never names a client — verification and confidentiality
+              document and never names a client: verification and confidentiality
               are different jobs, and this one is deliberately the former.
             </p>
           </div>

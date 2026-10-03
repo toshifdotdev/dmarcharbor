@@ -342,7 +342,7 @@ for (let attempt = 0; attempt < 4 && !signedIn; attempt++) {
   await navigate(`${WEB}/sign-in`);
   await waitForEval(`!!document.querySelector('button[type=submit]')`, (v) => v === true);
   await waitForHydration();
-  await fillInput('input[type="email"]', "sam@northgate.test");
+  await fillInput('input[type="email"]', "sam@example.test");
   await fillInput('input[type="password"]', "harbor-test-2026");
   await evalJs("document.querySelector('button[type=submit]').click(); 'clicked'");
 
@@ -426,7 +426,7 @@ const policyAudit = await evalJs(`
     const out = {};
     for (const tr of rows) {
       const t = tr.textContent;
-      for (const d of ['acmefreight.com', 'harborclinic.org']) {
+      for (const d of ['example.com', 'clinic.example']) {
         if (t.includes(d)) out[d] = (t.match(/p=(none|quarantine|reject)/) ?? ['not-observed'])[0];
       }
     }
@@ -435,7 +435,7 @@ const policyAudit = await evalJs(`
 `);
 check(
   "policy column is evidence-based (Bug 2)",
-  policyAudit["acmefreight.com"] === "p=none" && policyAudit["harborclinic.org"] === "not-observed",
+  policyAudit["example.com"] === "p=none" && policyAudit["clinic.example"] === "not-observed",
   JSON.stringify(policyAudit),
 );
 const shotPortfolio = await shot("02-portfolio.png");
@@ -448,9 +448,9 @@ const silenceAudit = await evalJs(`
     const out = [];
     for (const tr of rows) {
       const text = tr.textContent;
-      if (text.includes('harborclinic.org') || text.includes('mail.brightline.io')) {
+      if (text.includes('clinic.example') || text.includes('mail.example.org')) {
         out.push({
-          domain: text.includes('harborclinic.org') ? 'harborclinic.org' : 'mail.brightline.io',
+          domain: text.includes('clinic.example') ? 'clinic.example' : 'mail.example.org',
           hasAligned: text.includes('Aligned'),
           hasStale: text.includes('Stale'),
           hasNotMeasured: text.includes('Not measured'),
@@ -463,10 +463,10 @@ const silenceAudit = await evalJs(`
 const byDomain = Object.fromEntries(silenceAudit.map((r) => [r.domain, r]));
 const ruleZero =
   silenceAudit.length === 2 &&
-  byDomain["mail.brightline.io"]?.hasStale === true &&
-  byDomain["mail.brightline.io"]?.hasNotMeasured === false &&
-  byDomain["harborclinic.org"]?.hasNotMeasured === true &&
-  byDomain["harborclinic.org"]?.hasStale === false &&
+  byDomain["mail.example.org"]?.hasStale === true &&
+  byDomain["mail.example.org"]?.hasNotMeasured === false &&
+  byDomain["clinic.example"]?.hasNotMeasured === true &&
+  byDomain["clinic.example"]?.hasStale === false &&
   silenceAudit.every((r) => !r.hasAligned);
 check(
   "Rule Zero: stale and never-measured read as different facts, neither is a pass",
@@ -567,10 +567,10 @@ const shotDetail = await shot("03-domain-detail.png");
 await navigate(WEB + "/");
 await waitForEval("document.querySelectorAll('tbody tr').length", (n) => n > 0);
 const staleId = await evalJs(
-  `([...document.querySelectorAll('tbody tr')].find(tr => tr.textContent.includes('mail.brightline.io'))?.dataset.domainId ?? '')`,
+  `([...document.querySelectorAll('tbody tr')].find(tr => tr.textContent.includes('mail.example.org'))?.dataset.domainId ?? '')`,
 );
 if (!staleId) {
-  check("stale feed shows blackout, not health", false, "portfolio row for mail.brightline.io not found");
+  check("stale feed shows blackout, not health", false, "portfolio row for mail.example.org not found");
   process.exit(1);
 }
 const stalePath = `/domains/${staleId}`;
@@ -603,7 +603,7 @@ const shotStale = await shot("04-stale-blackout.png");
 await navigate(WEB + "/");
 await waitForEval("document.querySelectorAll('tbody tr').length", (n) => n > 0);
 const emptyId = await evalJs(
-  `([...document.querySelectorAll('tbody tr')].find(tr => tr.textContent.includes('harborclinic.org'))?.dataset.domainId ?? '')`,
+  `([...document.querySelectorAll('tbody tr')].find(tr => tr.textContent.includes('clinic.example'))?.dataset.domainId ?? '')`,
 );
 const emptyPath = `/domains/${emptyId}`;
 await navigate(WEB + emptyPath);
@@ -913,7 +913,7 @@ const shotVerify = await shot("11-compliance-verify.png");
 //     disclaimer that it is NOT part of this portal.
 await navigate(WEB + "/sign-in");
 await waitForHydration();
-await fillInput('input[type="email"]', "sam@northgate.test");
+await fillInput('input[type="email"]', "sam@example.test");
 await fillInput('input[type="password"]', "harbor-test-2026");
 await evalJs(`(() => { document.querySelector('button[type=submit]').click(); return 'submitted'; })()`);
 await waitForEval("document.querySelectorAll('tbody tr').length", (n) => n > 0);
@@ -928,7 +928,7 @@ const grant = await evalJs(`(async () => {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ email: 'sam@northgate.test', displayName: 'Sam Morgan' }),
+    body: JSON.stringify({ email: 'sam@example.test', displayName: 'Sam Morgan' }),
   });
   return { status: res.status };
 })()`);
@@ -1943,7 +1943,7 @@ if (shareToken?.token) {
       return {
         rendered: t.includes('what the world') || t.includes('observed'),
         noConsoleChrome: !t.includes('sign out everywhere') && !t.includes('slack alerts'),
-        domainShown: t.includes('acmefreight.com'),
+        domainShown: t.includes('example.com'),
         scopedCopy: t.includes('nothing else'),
       };
     })()`,
@@ -1962,7 +1962,7 @@ if (shareToken?.token) {
   await navigate(WEB + "/sign-in");
   await waitForEval(`!!document.querySelector('button[type="submit"]')`, (v) => v === true);
   await waitForHydration();
-  await fillInput('input[type="email"]', "sam@northgate.test");
+  await fillInput('input[type="email"]', "sam@example.test");
   await fillInput('input[type="password"]', "harbor-test-2026");
   await evalJs(`(() => { document.querySelector('button[type=submit]').click(); return 'submitted'; })()`);
   let reSignedIn = false;
@@ -2014,7 +2014,7 @@ if (shareToken?.token) {
 await navigate(WEB + "/sign-in");
 await waitForEval(`!!document.querySelector('button[type="submit"]')`, (v) => v === true);
 await waitForHydration();
-await fillInput('input[type="email"]', "sam@northgate.test");
+await fillInput('input[type="email"]', "sam@example.test");
 await fillInput('input[type="password"]', "harbor-test-2026");
 await evalJs(`(() => { document.querySelector('button[type=submit]').click(); return 'submitted'; })()`);
 await waitForEval("document.querySelectorAll('tbody tr').length > 0", (v) => v === true, 60000);
@@ -2193,7 +2193,7 @@ const hostAudit = await waitForEval(
     return {
       host: location.host,
       brandedAttr: document.querySelector('[data-host-brand]')?.getAttribute('data-host-brand') ?? '',
-      brandName: t.includes('northgate digital'),
+      brandName: t.includes('example agency'),
       colorApplied: style ? style.textContent.includes('2266dd') : false,
       notDefault: !t.includes('dmarc harbor'),
     };
@@ -2226,7 +2226,7 @@ const unverifiedAudit = await waitForEval(
       banner: !!document.querySelector('[data-testid="host-unverified"]'),
       hostState: document.querySelector('[data-host-brand]')?.getAttribute('data-host-brand') ?? '',
       saysPlainly: t.includes('not verified yet') || t.includes('record is not verified'),
-      notBranded: !t.includes('northgate digital'),
+      notBranded: !t.includes('example agency'),
     };
   })()`,
   (u) => u && (u.banner || u.notBranded),
@@ -2798,19 +2798,25 @@ await cdp("Network.clearBrowserCookies");
 await navigate(WEB + "/");
 await waitForEval(`!!document.querySelector('[data-testid="domain-check-input"]')`, (v) => v === true, 15000);
 await waitForHydration();
-await fillInput('[data-testid="domain-check-input"]', "acmefreight.com");
+await fillInput('[data-testid="domain-check-input"]', "example.com");
 await evalJs(`(() => { const b = document.querySelector('[data-testid="domain-check-submit"]'); if (b && !b.disabled) b.click(); return true; })()`);
+// The audit reads INSIDE the domain-check region: the homepage itself now
+// carries example.com (the DNS lookup) and the word "published" in prose, so
+// a body-wide scan would "pass" before any result rendered. A check that can
+// pass without the thing it checks is not a check.
 const checkAudit = await waitForEval(
   `(() => {
-    const el = document.querySelector('[data-testid="domain-check-boundary"]');
-    const t = document.body.textContent.toLowerCase();
+    const region = document.querySelector('[data-testid="domain-check"]');
+    if (!region) return { result: false, boundary: false, ungated: false };
+    const el = region.querySelector('[data-testid="domain-check-boundary"]');
+    const t = region.textContent.toLowerCase();
     return {
-      result: t.includes('acmefreight.com') && (t.includes('published') || t.includes('missing') || t.includes('not measured')),
+      result: t.includes('example.com') && (t.includes('published') || t.includes('missing') || t.includes('not measured')),
       boundary: !!el,
-      ungated: !!document.querySelector('[data-testid="domain-check-input"]') && !t.includes('sign up to see'),
+      ungated: !!region.querySelector('[data-testid="domain-check-input"]') && !t.includes('sign up to see'),
     };
   })()`,
-  (c) => c && c.result,
+  (c) => c && c.result && c.boundary,
   45000,
 );
 check(
@@ -2822,23 +2828,49 @@ check(
 // 10c. Pricing refinements. All four buttons share one y-coordinate (the
 //      fixed-height descriptor/figure/secondary blocks make it structural,
 //      not a per-plan nudge), and the interval toggle swaps the ONE figure per
-//      column without reflow.
+//      column without reflow. The alignment is re-measured AFTER the toggle
+//      too: the monthly state's fixed block hid the real defect (the annual
+//      state's third secondary line overflowed its minimum and pushed three
+//      buttons down), so a single measurement proves nothing about the state
+//      the copy changed into.
+const ctaYs = () =>
+  `[...document.querySelectorAll('[data-plan] a[data-testid^="plan-cta-"]')].map((el) => Math.round(el.getBoundingClientRect().top))`;
 await navigate(WEB + "/pricing");
 await waitForEval(`!!document.querySelector('[data-plan]')`, (v) => v === true, 15000);
 const alignment = await evalJs(`(() => {
-  const ys = [...document.querySelectorAll('[data-plan] a[data-testid^="plan-cta-"]')].map((el) => Math.round(el.getBoundingClientRect().top));
+  const ys = ${ctaYs()};
   return { count: ys.length, ys, aligned: ys.length === 4 && ys.every((y) => Math.abs(y - ys[0]) < 2) };
 })()`);
 check(
-  "pricing: all four buttons share one y-coordinate",
+  "pricing: all four buttons share one y-coordinate (monthly)",
   Boolean(alignment && alignment.aligned),
   JSON.stringify(alignment),
 );
 
 const beforeFigures = await evalJs(`(() => [...document.querySelectorAll('[data-testid^="plan-price-"]')].map((el) => el.textContent))()`);
+// The toggle's handler attaches at hydration: a click before that is a no-op
+// and reads as "the figure did not swap" when the product is fine. Never
+// click a React control cold. Then POLL for the swap: the click navigates
+// through the server (searchParams re-render), so a fixed sleep is a coin
+// flip on a busy machine — the run-28/29 flakes proved that. A check that
+// times out here is a real failure; a check that merely waited was flaky.
+await waitForHydration();
 await evalJs(`(() => { const b = document.querySelector('[data-testid="pricing-interval-ANNUAL"]'); if (b) b.click(); return true; })()`);
-await new Promise((res) => setTimeout(res, 1500));
-const afterFigures = await evalJs(`(() => [...document.querySelectorAll('[data-testid^="plan-price-"]')].map((el) => el.textContent))()`);
+const beforeKey = JSON.stringify(beforeFigures);
+const afterFigures = await waitForEval(
+  `(() => [...document.querySelectorAll('[data-testid^="plan-price-"]')].map((el) => el.textContent))()`,
+  (f) => Array.isArray(f) && f.length === 4 && JSON.stringify(f) !== beforeKey,
+  20000,
+);
+const alignmentAnnual = await evalJs(`(() => {
+  const ys = ${ctaYs()};
+  return { count: ys.length, ys, aligned: ys.length === 4 && ys.every((y) => Math.abs(y - ys[0]) < 2) };
+})()`);
+check(
+  "pricing: all four buttons share one y-coordinate (annual state too)",
+  Boolean(alignmentAnnual && alignmentAnnual.aligned),
+  JSON.stringify(alignmentAnnual),
+);
 check(
   "pricing: interval toggle swaps the figure (one price per column, no reflow)",
   Boolean(
@@ -2952,7 +2984,7 @@ check(
 await navigate(WEB + "/sign-in");
 await waitForEval(`!!document.querySelector('button[type=submit]')`, (v) => v === true);
 await waitForHydration();
-await fillInput('input[type="email"]', "sam@northgate.test");
+await fillInput('input[type="email"]', "sam@example.test");
 await fillInput('input[type="password"]', "harbor-test-2026");
 await evalJs(`(() => { document.querySelector('button[type=submit]').click(); return 'clicked'; })()`);
 await waitForEval("document.querySelectorAll('tbody tr').length > 0", (v) => v === true, 60000);

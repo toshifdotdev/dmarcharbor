@@ -84,9 +84,9 @@ Bulk endpoints always return per-item results, never a single pass or fail:
   "created": 38,
   "failed": 1,
   "planBlocked": 11,
-  "clients": [ { "index": 0, "clientId": "...", "name": "Acme Corp", "slug": "acme",
-                 "domains": [ { "domainId": "...", "name": "acme.com",
-                                 "verificationHost": "_dmarc-harbor-verification.acme.com",
+  "clients": [ { "index": 0, "clientId": "...", "name": "Example Client", "slug": "acme",
+                 "domains": [ { "domainId": "...", "name": "example.com",
+                                 "verificationHost": "_dmarc-harbor-verification.example.com",
                                  "verificationValue": "dmarc-harbor-verification=<uuid>" } ] } ],
   "failures": [ { "index": 12, "name": "Duff Co", "reason": "A client with the slug \"duff-co\" already exists." } ],
   "planLimitRejections": [ { "index": 20, "name": "Zeta Ltd",
@@ -143,7 +143,7 @@ software only ever receives.
 POST /api/workspaces/{id}/webhooks
 {
   "name": "HaloPSA production",
-  "url": "https://halopsa.yourdomain.com/hooks/dmarc",
+  "url": "https://halopsa.example.com/hooks/dmarc",
   "events": ["domain.verified", "alert.triggered"]
 }
 ```
@@ -174,7 +174,7 @@ it is left off by default.
   "id": "evt_a1b2c3",
   "type": "domain.verified",
   "createdAt": "2026-09-27T14:32:00.000Z",
-  "data": { "domainId": "d1", "domainName": "acme.com", "clientId": "c1",
+  "data": { "domainId": "d1", "domainName": "example.com", "clientId": "c1",
             "verifiedAt": "2026-09-27T14:32:00.000Z" }
 }
 ```

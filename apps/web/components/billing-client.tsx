@@ -69,7 +69,7 @@ export function PlanPicker({
     .filter((p): p is PlanDefinition => Boolean(p));
 
   // Every feature key any plan claims, grouped, with the fullest plan that
-  // carries each — so the comparison answers "what do I gain at each rung"
+  // carries each: so the comparison answers "what do I gain at each rung"
   // without the reader cross-referencing four columns of ticks.
   const featureGroups = useMemo(() => {
     const groups = new Map<string, Set<string>>();
@@ -111,7 +111,7 @@ export function PlanPicker({
       // (provider-side schedule_change_at: cycle_end), so the copy says what
       // the product does: nothing is lost today, the new plan applies when the
       // period ends. "Immediate upgrade" is not something the API can deliver
-      // for an active subscription today — claiming it would earn the
+      // for an active subscription today: claiming it would earn the
       // chargeback the wording exists to prevent.
       const res = await changeBillingPlan(organizationId, {
         plan: plan.tier,
@@ -124,14 +124,14 @@ export function PlanPicker({
         setNote(
           scheduled === "cancelling"
             ? "Cancellation scheduled. Your workspace keeps everything it has until the period you already paid for ends."
-            : `Plan change scheduled. Your current plan stays as it is until your current period ends, then ${plan.label} applies — you keep what you paid for until then.`,
+            : `Plan change scheduled. Your current plan stays as it is until your current period ends, then ${plan.label} applies: you keep what you paid for until then.`,
         );
         router.refresh();
       }
       return;
     }
 
-    // The paid path needs the Terms/Refund acceptance — real control, real
+    // The paid path needs the Terms/Refund acceptance: real control, real
     // gate. The free plan and plan changes above are not purchases.
     if (!termsAccepted) {
       setBusyPlan(null);
@@ -247,7 +247,7 @@ export function PlanPicker({
                   </span>
                   <span style={{ color: "var(--color-block)" }}>{o.by} over</span>
                   <span style={{ color: "var(--color-ink-3)" }}>
-                    — remove {o.by} {o.label === "members" ? "member" : o.label.replace(/s$/, "")}
+                   : remove {o.by} {o.label === "members" ? "member" : o.label.replace(/s$/, "")}
                     {o.by === 1 ? "" : "s"} to move to this plan
                   </span>
                 </li>
@@ -257,7 +257,7 @@ export function PlanPicker({
           {error.overage && error.overage.length > 0 ? (
             <p className="text-[12px]" style={{ color: "var(--color-ink-3)" }}>
               A downgrade takes effect at the end of the period you have already
-              paid for — nothing is lost today. Your current plan stays as it is
+              paid for: nothing is lost today. Your current plan stays as it is
               until you remove the excess or choose to keep it.
             </p>
           ) : null}
@@ -278,6 +278,7 @@ export function PlanPicker({
         {ordered.map((plan, idx) => {
           const price = plan.prices[currency];
           const minor = interval === "monthly" ? price.monthlyMinor : price.annualMinor;
+          const isFree = price.monthlyMinor === 0 && price.annualMinor === 0;
           const isCurrent = plan.tier === currentPlan;
           const previous = idx > 0 ? ordered[idx - 1] : null;
           const carried = Object.entries(plan.features)
@@ -328,10 +329,18 @@ export function PlanPicker({
                     / {interval === "monthly" ? "month" : "year"}
                   </span>
                 </div>
-                <div className="num mt-1 text-[13px]" style={{ color: "var(--color-ink-3)" }}>
-                  {formatMinor(price.monthlyMinor, currency)} monthly ·{" "}
-                  {formatMinor(price.annualMinor, currency)} annual
-                </div>
+                {isFree ? (
+                  // Free says ONE thing. The zero is already the figure above;
+                  // restating it twice says nothing a third time.
+                  <div className="num mt-1 text-[13px] font-medium" style={{ color: "var(--color-ink)" }}>
+                    Free. No card, ever.
+                  </div>
+                ) : (
+                  <div className="num mt-1 text-[13px]" style={{ color: "var(--color-ink-3)" }}>
+                    {formatMinor(price.monthlyMinor, currency)} monthly ·{" "}
+                    {formatMinor(price.annualMinor, currency)} annual
+                  </div>
+                )}
 
                 <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-1.5">
                   <Limit label="Clients" value={plan.maxClients} />
@@ -425,7 +434,7 @@ export function PlanPicker({
               // The group name is the key: it is unique per group and it is
               // what identifies the row to React. Groups are filtered by plan,
               // so an index key would make React reuse the wrong rows when the
-              // plan changes — a comparison table whose rows do not match the
+              // plan changes: a comparison table whose rows do not match the
               // plan on screen.
               <Fragment key={group}>
                 <tr>

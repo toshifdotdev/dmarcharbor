@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { PierMark } from "@/components/mark";
 import { DomainCheck } from "@/components/domain-check";
+import { DnsResolution } from "@/components/dns-resolution";
+import { PostureBadge } from "@/components/posture";
+import { POSTURE_META, type Posture } from "@/lib/posture";
 import { readHostBrand, type HostBrand } from "@/lib/host-brand";
 
 /**
@@ -33,7 +36,7 @@ export function HostUnverifiedBanner() {
       }}
     >
       <p className="num text-[11px]" style={{ color: "var(--color-unverified)" }}>
-        This custom domain is pointed here but its record is not verified yet —
+        This custom domain is pointed here but its record is not verified yet:
         the default brand is shown instead of yours. Verify the TXT record to
         serve your branding from this address.
       </p>
@@ -112,7 +115,7 @@ export function MarketingFooter({ brand }: { brand: HostBrand }) {
       style={{ borderColor: "var(--color-line)", color: "var(--color-ink-3)" }}
     >
       <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2 text-[12px]">
-        <span>{brandName(brand)} — measurement and evidence about email authentication.</span>
+        <span>{brandName(brand)}: measurement and evidence about email authentication.</span>
         <span className="ml-auto" />
         <Link href="/pricing" className="hover:opacity-80" style={{ color: "var(--color-ink-2)" }}>
           Pricing
@@ -152,67 +155,152 @@ export async function MarketingHome() {
       {brand.state === "unverified" ? <HostUnverifiedBanner /> : null}
       <MarketingHeader brand={brand} />
 
-      {/* First screen: what it does and who it is for. Plainly. */}
-      <section className="mx-auto flex w-full max-w-[1180px] flex-wrap items-baseline gap-x-12 gap-y-6 px-6 pt-14">
-        <div className="max-w-[34ch]">
-          <div className="label">DMARC monitoring for client domains</div>
-          <h1
-            className="mt-3 text-[40px] font-semibold leading-[1.12] tracking-[-0.032em]"
-            style={{ fontFamily: "var(--font-display)" }}
-            data-testid="home-headline"
-          >
-            DMARC reports for MSPs managing client domains.
-          </h1>
-        </div>
-        <div className="max-w-[46ch] flex-1 text-[14.5px] leading-[1.75]" style={{ color: "var(--color-ink-2)" }}>
-          <p>
-            <strong style={{ color: "var(--color-ink)" }}>{name}</strong> collects the
-            aggregate and forensic DMARC reports the domains your clients own
-            already publish, measures whether their email authentication holds
-            up, and turns the result into evidence you can hand over: a report
-            share link, a compliance pack with a published fingerprint, a client
-            portal in your brand.
-          </p>
-          <p className="mt-3">
-            It measures and proves. It never edits anyone’s DNS and never
-            sends mail as your clients — nothing here takes control of a
-            customer’s infrastructure.
-          </p>
+      {/* First screen: what it does and who it is for, with the free check as
+          the hero action. The hook belongs above the fold: the strongest thing
+          a stranger can do here is check their own domain, so that is the
+          primary action and the account CTA is the secondary one. */}
+      <section className="mx-auto w-full max-w-[1180px] px-6 pt-12">
+        <div className="grid grid-cols-1 gap-x-12 gap-y-9 lg:grid-cols-[1.02fr_0.98fr]">
+          <div>
+            <div className="label">DMARC monitoring for client domains</div>
+            <h1
+              className="mt-3 text-[40px] font-semibold leading-[1.12] tracking-[-0.032em]"
+              style={{ fontFamily: "var(--font-display)" }}
+              data-testid="home-headline"
+            >
+              DMARC reports for MSPs managing client domains.
+            </h1>
+            <div className="mt-5 max-w-[52ch] text-[14.5px] leading-[1.75]" style={{ color: "var(--color-ink-2)" }}>
+              <p>
+                <strong style={{ color: "var(--color-ink)" }}>{name}</strong> collects the
+                aggregate and forensic DMARC reports the domains your clients own
+                already publish, measures whether their email authentication holds
+                up, and turns the result into evidence you can hand over: a report
+                share link, a compliance pack with a published fingerprint, a client
+                portal in your brand.
+              </p>
+              <p className="mt-3">
+                It measures and proves. It never edits anyone’s DNS and never
+                sends mail as your clients: nothing here takes control of a
+                customer’s infrastructure.
+              </p>
+            </div>
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              <Link
+                href="/sign-up"
+                data-testid="home-start"
+                className="rounded-[2px] border px-5 py-2.5 text-[13.5px] font-semibold"
+                style={{ borderColor: "var(--color-line-strong)", color: "var(--color-ink-2)" }}
+              >
+                Start free
+              </Link>
+              <Link
+                href="/pricing"
+                data-testid="home-pricing"
+                className="rounded-[2px] border px-5 py-2.5 text-[13.5px] font-semibold"
+                style={{ borderColor: "var(--color-line-strong)", color: "var(--color-ink-2)" }}
+              >
+                See pricing
+              </Link>
+              <Link
+                href="/sign-in"
+                data-testid="home-signin"
+                className="text-[13.5px] underline"
+                style={{ color: "var(--color-ink-2)" }}
+              >
+                Sign in
+              </Link>
+            </div>
+          </div>
+
+          {/* The free check: anonymous, ungated, and honest about what it is
+              not. In the hero, because it is the fastest way for a stranger to
+              see the product working on their own domain. */}
+          <div className="lg:pt-2">
+            <DomainCheck compact />
+          </div>
         </div>
       </section>
 
-      <section className="mx-auto mt-9 flex w-full max-w-[1180px] flex-wrap items-center gap-4 px-6">
-        <Link
-          href="/sign-up"
-          data-testid="home-start"
-          className="rounded-[2px] px-5 py-2.5 text-[13.5px] font-semibold"
-          style={{ background: "var(--color-accent)", color: "var(--color-accent-ink)" }}
-        >
-          Start free
-        </Link>
-        <Link
-          href="/pricing"
-          data-testid="home-pricing"
-          className="rounded-[2px] border px-5 py-2.5 text-[13.5px] font-semibold"
-          style={{ borderColor: "var(--color-line-strong)", color: "var(--color-ink-2)" }}
-        >
-          See pricing
-        </Link>
-        <Link
-          href="/sign-in"
-          data-testid="home-signin"
-          className="text-[13.5px] underline"
-          style={{ color: "var(--color-ink-2)" }}
-        >
-          Sign in
-        </Link>
+      {/* The lookup, end to end: the one animation here, and the things it
+          finds. SVG and CSS only, played once, reduced-motion aware. */}
+      <section className="mx-auto mt-16 w-full max-w-[1180px] px-6">
+        <h2 className="text-[23px] font-semibold tracking-[-0.028em]" style={{ fontFamily: "var(--font-display)" }}>
+          One lookup, end to end
+        </h2>
+        <div className="mt-6 grid grid-cols-1 gap-x-10 gap-y-8 lg:grid-cols-2">
+          <DnsResolution />
+          <div>
+            <h3 className="text-[15px] font-semibold tracking-[-0.012em]" style={{ color: "var(--color-ink)" }}>
+              What it catches
+            </h3>
+            <dl className="mt-3 flex flex-col gap-3.5">
+              <Fact
+                title="SPF failures"
+                body="A sending source that is no longer authorised, or a lookup limit that broke the record. Both show up as mail failing alignment."
+              />
+              <Fact
+                title="DKIM breaks"
+                body="A selector that stopped signing after a migration, or a key nobody rotated. The signature is missing and the report says so."
+              />
+              <Fact
+                title="New senders"
+                body="A source seen for the first time on a client domain: a new tool the client forgot to mention, or someone testing the fence."
+              />
+              <Fact
+                title="Spoofing attempts"
+                body="Traffic claiming a client’s domain that never authenticated. Volume and recurrence are tracked, so one attempt and a campaign read differently."
+              />
+            </dl>
+          </div>
+        </div>
       </section>
 
-      {/* The free check: anonymous, ungated, and honest about what it is not.
-          It sits directly under the first screen because it is the fastest way
-          for a stranger to see the product working on their own domain. */}
-      <section className="mx-auto mt-10 w-full max-w-[1180px] px-6">
-        <DomainCheck />
+      {/* A worked example: a real result's shape, domain redacted. */}
+      <section className="mx-auto mt-16 w-full max-w-[1180px] px-6">
+        <h2 className="text-[23px] font-semibold tracking-[-0.028em]" style={{ fontFamily: "var(--font-display)" }}>
+          What a result looks like
+        </h2>
+        <div className="mt-6 grid grid-cols-1 gap-x-10 gap-y-8 lg:grid-cols-2">
+          <ScanExample />
+          <div className="max-w-[52ch] text-[14px] leading-[1.75]" style={{ color: "var(--color-ink-2)" }}>
+            <p>
+              Every row says one of three things: published, missing, or not
+              measured. The third state is the one most tools hide. A record
+              nobody has read yet is an unknown, never a pass.
+            </p>
+            <p className="mt-3">
+              The verdict line is derived from the same measurements the
+              portfolio keeps, so the free check and the product never disagree
+              about a domain.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* The five postures: the core idea of the product. */}
+      <section className="mx-auto mt-16 w-full max-w-[1180px] px-6">
+        <h2 className="text-[23px] font-semibold tracking-[-0.028em]" style={{ fontFamily: "var(--font-display)" }}>
+          The five postures
+        </h2>
+        <p className="mt-3 max-w-[68ch] text-[14px] leading-[1.75]" style={{ color: "var(--color-ink-2)" }}>
+          Every domain reads as exactly one of these, and the word is chosen
+          from measured report data. Absence of data is not compliance: a domain
+          that has never reported is not a passing domain.
+        </p>
+        <ul className="mt-6 grid grid-cols-1 gap-x-10 gap-y-5 sm:grid-cols-2">
+          {(Object.keys(POSTURE_META) as Posture[]).map((key) => (
+            <li key={key} className="flex flex-col gap-1.5">
+              <PostureBadge posture={key} />
+              <p className="max-w-[46ch] text-[13px] leading-[1.7]" style={{ color: "var(--color-ink-2)" }}>
+                {POSTURE_META[key].meaning}
+              </p>
+              <p className="num text-[11px] uppercase tracking-[0.13em]" style={{ color: "var(--color-ink-3)" }}>
+                Action: {POSTURE_META[key].action}
+              </p>
+            </li>
+          ))}
+        </ul>
       </section>
 
       {/* What it does — the real surfaces, described as behaviour. */}
@@ -223,11 +311,11 @@ export async function MarketingHome() {
         <div className="mt-6 grid grid-cols-1 gap-x-10 gap-y-7 sm:grid-cols-2">
           <Fact
             title="Posture, measured per domain"
-            body="Each domain reads as aligned, blocking, unverified or not measured — derived from real report data, never asserted. A domain with no reports yet says so; it never renders as a pass. A signal that has gone stale says that instead."
+            body="Each domain reads as aligned, blocking, unverified or not measured: derived from real report data, never asserted. A domain with no reports yet says so; it never renders as a pass. A signal that has gone stale says that instead."
           />
           <Fact
             title="Reports, collected two ways"
-            body="Aggregate and forensic reports arrive from the rua and ruf tags domains already publish. When a provider will only email them, point the domain at the shared report mailbox instead — no customer ever hands over their own IMAP credentials."
+            body="Aggregate and forensic reports arrive from the rua and ruf tags domains already publish. When a provider will only email them, point the domain at the shared report mailbox instead: no customer ever hands over their own IMAP credentials."
           />
           <Fact
             title="Evidence, ready to hand over"
@@ -235,12 +323,12 @@ export async function MarketingHome() {
           />
           <Fact
             title="Alerts and digests"
-            body="Rules for spoofing attempts and volume spikes, delivered by email or to a Slack channel, plus scheduled client digests. Failure to deliver is surfaced — a quiet alert channel is never a working one."
+            body="Rules for spoofing attempts and volume spikes, delivered by email or to a Slack channel, plus scheduled client digests. Failure to deliver is surfaced: a quiet alert channel is never a working one."
           />
         </div>
       </section>
 
-      {/* Who it is for. */}
+      {/* Who it is for, and what an MSP actually does with it. */}
       <section className="mx-auto mt-16 w-full max-w-[1180px] px-6">
         <h2 className="text-[23px] font-semibold tracking-[-0.028em]" style={{ fontFamily: "var(--font-display)" }}>
           Who it is for
@@ -251,8 +339,22 @@ export async function MarketingHome() {
           domains; your team gets roles with real boundaries, and each client
           can get a read-only portal in your brand rather than a PDF you
           assemble by hand. If you only monitor your own domains, it works for
-          that too — the portfolio is the same either way.
+          that too: the portfolio is the same either way.
         </p>
+        <div className="mt-7 grid grid-cols-1 gap-x-10 gap-y-7 sm:grid-cols-3">
+          <Fact
+            title="Monday: the portfolio"
+            body="Open the workspace and read posture across every client domain at once. Blocking and unverified sort to the top, so the week starts with the two lists that actually need a human."
+          />
+          <Fact
+            title="Wednesday: the evidence"
+            body="A client or their auditor asks what their mail authentication actually did. Issue a compliance pack with a published fingerprint, or hand over a share link you can revoke: no screenshots, no spreadsheet built by hand."
+          />
+          <Fact
+            title="Whenever something moves"
+            body="A spoofing campaign or a volume spike fires an alert to email or Slack, and scheduled digests go out on their own. Failure to deliver is surfaced, so a quiet channel is never mistaken for a working one."
+          />
+        </div>
       </section>
 
       {/* How it works. */}
@@ -269,12 +371,12 @@ export async function MarketingHome() {
           <Step
             n={2}
             title="Publish the records"
-            body="The record values come from us verbatim — nothing is assembled in the browser. Re-check as often as you like while DNS propagates; waiting is a normal state here, not an error."
+            body="The record values come from us verbatim: nothing is assembled in the browser. Re-check as often as you like while DNS propagates; waiting is a normal state here, not an error."
           />
           <Step
             n={3}
             title="Reports arrive"
-            body="Usually within 24 to 48 hours of publishing, the portfolio fills in with measured posture, volumes and sources — and the evidence artefacts become available."
+            body="Usually within 24 to 48 hours of publishing, the portfolio fills in with measured posture, volumes and sources: and the evidence artefacts become available."
           />
         </ol>
       </section>
@@ -290,7 +392,7 @@ export async function MarketingHome() {
           </h2>
           <p className="mt-3 max-w-[62ch] text-[14px] leading-[1.75]" style={{ color: "var(--color-ink-2)" }}>
             The free plan needs no card. Data export and erasure are available on
-            every plan — they are rights, not upsells.
+            every plan: they are rights, not upsells.
           </p>
           <div className="mt-6 flex flex-wrap items-center gap-4">
             <Link
@@ -308,6 +410,62 @@ export async function MarketingHome() {
       </section>
 
       <MarketingFooter brand={brand} />
+    </div>
+  );
+}
+
+/** The shape of a real scan result, with a redacted domain: the pattern the
+ *  free check produces, shown before anyone types. RFC 2606 reserved domains
+ *  only: an example must never be a real company. */
+function ScanExample() {
+  const rows: Array<[string, boolean | null, string]> = [
+    ["DMARC", true, "p=quarantine. Mail that fails alignment is filtered to spam or held."],
+    ["SPF", true, "Published and valid."],
+    ["DKIM", false, "No selector found."],
+  ];
+  return (
+    <div
+      className="rounded-[2px] border px-5 py-4"
+      style={{ borderColor: "var(--color-line-strong)", background: "var(--color-surface)" }}
+      data-testid="scan-example"
+    >
+      <div className="flex flex-wrap items-baseline gap-x-4">
+        <span className="num text-[13px]" style={{ color: "var(--color-ink)" }}>
+          your-client.example
+        </span>
+        <span className="num text-[11px] uppercase tracking-[0.12em]" style={{ color: "var(--color-unverified)" }}>
+          needs attention
+        </span>
+      </div>
+      <div className="mt-3">
+        {rows.map(([label, found, detail]) => (
+          <div
+            key={label}
+            className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-b py-2"
+            style={{ borderColor: "var(--color-line)" }}
+          >
+            <span className="num w-[84px] shrink-0 text-[11px] uppercase tracking-[0.12em]" style={{ color: "var(--color-ink-3)" }}>
+              {label}
+            </span>
+            <span
+              className="num text-[11px] uppercase tracking-[0.12em]"
+              style={{
+                color:
+                  found === true
+                    ? "var(--color-pass)"
+                    : found === false
+                      ? "var(--color-unverified)"
+                      : "var(--color-unmeasured)",
+              }}
+            >
+              {found === true ? "published" : found === false ? "missing" : "not measured"}
+            </span>
+            <span className="flex-1 text-[12.5px]" style={{ color: "var(--color-ink-2)" }}>
+              {detail}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

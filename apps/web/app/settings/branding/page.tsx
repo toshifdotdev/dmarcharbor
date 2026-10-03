@@ -32,7 +32,7 @@ export default async function BrandingSettingsPage() {
         <header>
           <h1 className="label">Settings · White label</h1>
           <p className="mt-1.5 max-w-3xl text-[14px]" style={{ color: "var(--color-ink-2)" }}>
-            Client-facing pages in your brand, not ours — the portal, the
+            Client-facing pages in your brand, not ours: the portal, the
             digests, the report shares.
           </p>
         </header>
@@ -53,7 +53,7 @@ export default async function BrandingSettingsPage() {
                   </p>
                   <p className="mt-1.5 text-[13px]" style={{ color: "var(--color-ink-2)" }}>
                     <span className="num">{branding.customDomain}</span> verified{" "}
-                    {new Date(branding.customDomainVerifiedAt).toLocaleDateString("en-GB")} —
+                    {new Date(branding.customDomainVerifiedAt).toLocaleDateString("en-GB")}:
                     client-facing pages are being served under your brand there.
                   </p>
                 </div>

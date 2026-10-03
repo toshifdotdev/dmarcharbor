@@ -30,7 +30,7 @@ export default async function SsoSettingsPage() {
           <h1 className="label">Settings · Single sign-on</h1>
           <p className="mt-1.5 max-w-3xl text-[14px]" style={{ color: "var(--color-ink-2)" }}>
             Let your team sign in through your own identity provider. A
-            connection is gated on its allowlist of verified email domains —
+            connection is gated on its allowlist of verified email domains:
             only people whose addresses match can sign in through it.
           </p>
         </header>

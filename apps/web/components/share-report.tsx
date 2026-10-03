@@ -35,7 +35,7 @@ export function ShareReportView({ report }: { report: PublicShareReport }) {
         </h1>
         <p className="mt-4 text-[14.5px] leading-relaxed" style={{ color: "var(--ink-2)" }}>
           Prepared for {sharedFor.client} by the team monitoring this domain.
-          Measurement and evidence only — this report describes what was
+          Measurement and evidence only: this report describes what was
           observed and claims no control over delivery.
         </p>
         <p className="num mt-3 text-[11px]" style={{ color: "var(--color-unmeasured)" }}>
@@ -56,7 +56,7 @@ export function ShareReportView({ report }: { report: PublicShareReport }) {
           }}
         >
           <strong style={{ color: "var(--ink)" }}>Not measured.</strong> No
-          aggregate report has been received for this domain yet — absence of
+          aggregate report has been received for this domain yet: absence of
           data is not compliance, and nothing below should be read as health.
         </p>
       ) : stale ? (
@@ -72,7 +72,7 @@ export function ShareReportView({ report }: { report: PublicShareReport }) {
         >
           <strong style={{ color: "var(--ink)" }}>The feed went quiet{" "}
           {reporting.daysSinceLastReport} days ago.</strong> The figures below are
-          history, not current state — silence is not compliance.
+          history, not current state: silence is not compliance.
         </p>
       ) : null}
 
@@ -256,7 +256,7 @@ export function ShareReportView({ report }: { report: PublicShareReport }) {
           contains aggregate evidence only{forensic && forensic.included ? " plus the failure evidence shared with it" : ""}.
           The link expires on {new Date(report.expiresAt).toLocaleDateString("en-GB")} and
           can be withdrawn at any time by the team that shared it. Questions
-          about what any of this means go to {sharedFor.client}'s IT provider —
+          about what any of this means go to {sharedFor.client}'s IT provider:
           this document measures, it does not control.
         </p>
       </footer>

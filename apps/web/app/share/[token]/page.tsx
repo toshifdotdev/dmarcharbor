@@ -19,8 +19,8 @@ export default async function SharePage({
 }) {
   const { token } = await params;
 
-  // Any outcome that is not a report — revoked, expired, never existed, or a
-  // fetch failure — renders the SAME message below. That is deliberate: the
+  // Any outcome that is not a report: revoked, expired, never existed, or a
+  // fetch failure: renders the SAME message below. That is deliberate: the
   // page must not let a token be probed for what it used to be.
   const report = await getPublicShareReport(token).catch(() => null);
 
@@ -46,7 +46,7 @@ export default async function SharePage({
             This report is no longer available.
           </h1>
           <p className="mt-3 text-[14px]" style={{ color: "var(--ink-2)" }}>
-            The link has expired or was withdrawn by the team that shared it —
+            The link has expired or was withdrawn by the team that shared it,
             and a withdrawn link is never re-served. Ask whoever sent it for a
             current link.
           </p>

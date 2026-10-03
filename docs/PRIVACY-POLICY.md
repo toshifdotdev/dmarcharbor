@@ -1,11 +1,11 @@
-# DMARC Harbor — Privacy Policy
+# DMARC Harbor: Privacy Policy
 
 **Status:** draft for legal review. Effective date to be set at launch.
 **Applies to:** the DMARC Harbor API and the dmarcharbor.com service.
 
 > **Reviewer note:** this document describes what the software actually does. The
 > technical statements are derived from the running configuration, not from
-> marketing. Items marked **TBD** are decisions not yet made — they must be
+> marketing. Items marked **TBD** are decisions not yet made: they must be
 > filled in before this is published, and a privacy policy that guesses is worse
 > than no privacy policy.
 
@@ -51,7 +51,7 @@ owner explicitly turns this on**, which requires confirming a legal basis. When
 enabled, those values are encrypted with AES-256-GCM before storage.
 
 ### Payment data
-**TBD** — we do not store card numbers. Payment is handled by a payment
+**TBD**: we do not store card numbers. Payment is handled by a payment
 processor acting as the merchant of record. See the Sub-processors list.
 
 ## 3. Why we collect it
@@ -60,7 +60,7 @@ processor acting as the merchant of record. See the Sub-processors list.
 |---|---|
 | Providing the DMARC monitoring service you pay for | Contract |
 | Sending service alerts, digests and share links | Contract |
-| Verifying domain ownership by DNS | Legitimate interest — prevents someone monitoring a domain they do not own |
+| Verifying domain ownership by DNS | Legitimate interest: prevents someone monitoring a domain they do not own |
 | Detecting and investigating spoofing | Legitimate interest |
 | Storing forensic evidence you requested | Consent, per domain, with a legal basis confirmed |
 | Billing and accounting records | Legal obligation |
@@ -84,7 +84,7 @@ processor acting as the merchant of record. See the Sub-processors list.
 | Sessions | Until sign out, revocation, or expiry (7 days default) |
 | Export job records | 7 days |
 | Erasure certificates | 3 years |
-| Invoices and payment records | **As long as tax law requires** — typically 6 to 8 years |
+| Invoices and payment records | **As long as tax law requires**: typically 6 to 8 years |
 
 **Named personal data expires in 7 days regardless of plan.** No plan extends it.
 This is deliberately much shorter than evidence retention.
@@ -113,8 +113,8 @@ replacing a sub-processor.
 
 You have the right to:
 
-- **Access** your data — export it as JSON or CSV, at any time, on any plan including free
-- **Erase** your data — delete a client, a domain, or the whole workspace
+- **Access** your data: export it as JSON or CSV, at any time, on any plan including free
+- **Erase** your data: delete a client, a domain, or the whole workspace
 - **Correct** inaccurate data
 - **Object** to processing based on legitimate interest
 - **Export** it in a portable format
@@ -142,7 +142,7 @@ so it can be cancelled if it was a mistake.
 
 ## 9. International transfers
 
-**TBD** — our hosting region is not yet finalised. This section must state the
+**TBD**: our hosting region is not yet finalised. This section must state the
 region and the transfer mechanism, such as Standard Contractual Clauses, before
 publication.
 

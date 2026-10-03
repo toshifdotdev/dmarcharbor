@@ -125,7 +125,7 @@ async function PortfolioData({ organizationId }: { organizationId: string }) {
     return (
       <EmptyState
         title="Add your first client to start measuring"
-        description="A client is a company whose domains you monitor. Create one, add its domains, and the portfolio fills in as reports arrive — usually within 24 to 48 hours of publishing the DMARC record."
+        description="A client is a company whose domains you monitor. Create one, add its domains, and the portfolio fills in as reports arrive: usually within 24 to 48 hours of publishing the DMARC record."
         action={{ label: "Create a client", href: "/clients" }}
       />
     );

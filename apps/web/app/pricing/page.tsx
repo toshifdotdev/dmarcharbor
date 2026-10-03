@@ -78,7 +78,7 @@ export default async function PricingPage({
     preference?.preferredCurrency ??
       (wanted === "USD" || wanted === "INR" ? wanted : "INR");
   // Monthly is the honest default: it is the number a reader compares, and
-  // annual is the discount they opt into — never the reverse.
+  // annual is the discount they opt into: never the reverse.
   const interval: PricingInterval =
     wantedInterval === "annual" ? "annual" : "monthly";
 
@@ -92,7 +92,7 @@ export default async function PricingPage({
             Pricing
           </h1>
           <p role="alert" className="mt-4 max-w-[62ch] text-[14px]" style={{ color: "var(--color-ink-2)" }}>
-            The plan catalog did not load. Nothing is being hidden — the
+            The plan catalog did not load. Nothing is being hidden: the
             request failed. Try again in a moment.
           </p>
         </section>
@@ -107,7 +107,7 @@ export default async function PricingPage({
 
   const keys = soldKeys(ordered);
   // The recommended rung is the one most of the ladder's feature growth lands
-  // on — derived, never named in code.
+  // on: derived, never named in code.
   const recommended =
     ordered.length > 2
       ? ordered.reduce((best, p, i) =>
@@ -129,10 +129,10 @@ export default async function PricingPage({
           </h1>
         </div>
         <p className="max-w-[46ch] flex-1 text-[13.5px] leading-[1.7]" style={{ color: "var(--color-ink-2)" }}>
-          All of them are on this screen. Monthly in {currency === "INR" ? "INR and USD" : "USD and INR"}, annual where
+          All of them are on this screen. Monthly in {purchasableCurrencies().length > 1 ? "INR and USD" : currency === "INR" ? "INR" : "USD"}, annual where
           it saves you two months. The words about what each plan buys are
           below, where scrolling is fine. <strong style={{ color: "var(--color-ink)" }}>
-          {name}</strong> never prices data portability or erasure — those are on
+          {name}</strong> never prices data portability or erasure: those are on
           every plan.
         </p>
         <div className="w-full">
@@ -152,7 +152,7 @@ export default async function PricingPage({
       <section className="mx-auto w-full max-w-[1180px] px-6 pt-7">
         <div className="grid grid-cols-1 border-t sm:grid-cols-2 xl:grid-cols-4" style={{ borderColor: "var(--color-line-strong)" }}>
           {ordered.map((plan, idx) => {
-            // The headline figure is the currency the visitor is quoted — the
+            // The headline figure is the currency the visitor is quoted: the
             // same value a checkout will send. The other currency stays visible
             // underneath: the page is honest about both, never one behind a
             // toggle a visitor did not find.
@@ -202,16 +202,27 @@ export default async function PricingPage({
                     align against something. The symbol sits ON the digits'
                     baseline at one sizing rule for both glyphs (57% of digit
                     height, tight tracking) — $ and ₹ read as one system. */}
+                {/* ONE figure for the selected interval, in the quoted
+                    currency. Tabular figures, so $0, $29, $149 and $399
+                    occupy consistent widths and the columns align against
+                    something. The symbol sits ON the digits' baseline at one
+                    optical size: the dollar renders at 57% of digit height,
+                    the rupee at 52% because its ascender runs taller and the
+                    same em would make it look the larger glyph. Both are
+                    baseline-aligned by the row's items-baseline, never
+                    raised. */}
                 <div
                   className="mt-4 flex min-h-[56px] items-baseline text-[56px] font-semibold leading-none tracking-[-0.02em]"
                   style={{ fontFamily: "var(--font-display)", fontVariantNumeric: "tabular-nums" }}
                 >
-                  <span className="text-[0.57em]" style={{ color: "var(--color-ink-2)", letterSpacing: "0" }}>
+                  <span
+                    style={{ color: "var(--color-ink-2)", letterSpacing: "0", fontSize: currency === "USD" ? "0.57em" : "0.52em", lineHeight: 1 }}
+                  >
                     {currency === "USD" ? "$" : "₹"}
                   </span>
                   <span data-testid={`plan-price-${plan.tier}`}>{shownMajor(lead, interval)}</span>
                   {shownFraction(lead, interval) ? (
-                    <span className="text-[0.57em]" style={{ color: "var(--color-ink-2)", letterSpacing: "0" }}>
+                    <span style={{ color: "var(--color-ink-2)", letterSpacing: "0", fontSize: "0.57em", lineHeight: 1 }}>
                       .{shownFraction(lead, interval)}
                     </span>
                   ) : null}
@@ -220,30 +231,31 @@ export default async function PricingPage({
                 {/* Secondary lines — the cadence and the local-currency
                     equivalent, the second most important text on the page: a
                     readable size and weight, lifted off the background.
-                    FIXED height (three lines) regardless of how many render,
-                    so the button row is identical across columns. */}
+                    FIXED height sized to the tallest state (three lines: the
+                    annual saving is the third) rather than the shortest, so
+                    nothing overflows the block and pushes the button down. */}
                 <div
-                  className="num mt-2.5 flex min-h-[60px] flex-col gap-1 text-[12.5px]"
+                  className="num mt-2.5 flex min-h-[68px] flex-col gap-1 text-[13.5px] leading-[1.45]"
                   style={{ color: "var(--color-ink-2)" }}
                 >
                   {lead.monthlyMinor === 0 && lead.annualMinor === 0 ? (
                     // Free says ONE thing, not three restatements of zero.
-                    <span style={{ fontWeight: 500 }}>Free — no card, ever.</span>
+                    <span style={{ fontWeight: 500, color: "var(--color-ink)" }}>Free. No card, ever.</span>
                   ) : (
                     <>
-                      <span style={{ fontWeight: 500 }}>
+                      <span style={{ fontWeight: 500, color: "var(--color-ink)" }}>
                         {formatMinor(shownMinor(lead, interval), currency)} per {interval === "monthly" ? "month" : "year"}
                       </span>
                       {/* Short form: the equivalent, not a sentence that
                           competes with the figure. */}
-                      <span style={{ color: "var(--color-ink-3)" }}>
+                      <span style={{ color: "var(--color-ink-2)" }}>
                         ≈ {formatMinor(shownMinor(other, interval), otherCode)}
                       </span>
                       {/* Annual states the saving as a saving — the reader
                           never does the ten-for-twelve arithmetic. */}
                       {interval === "annual" ? (
-                        <span style={{ color: "var(--color-pass)" }}>
-                          10 months for 12 — save 2 months
+                        <span style={{ color: "var(--color-pass)", fontWeight: 500 }}>
+                          10 months for 12: save 2 months
                         </span>
                       ) : null}
                     </>
@@ -255,7 +267,7 @@ export default async function PricingPage({
                   className="mt-4 w-full rounded-[2px] px-4 py-2.5 text-center text-[13px] font-semibold"
                   style={
                     rec
-                      ? { background: "var(--color-accent)", color: "var(--color-accent-ink)" }
+                      ? { background: "var(--color-accent)", color: "var(--color-accent-ink)", border: "1px solid var(--color-accent)" }
                       : { border: "1px solid var(--color-line-strong)", color: "var(--color-ink-2)" }
                   }
                 >
@@ -295,7 +307,7 @@ export default async function PricingPage({
           Higher plans carry more. They do not parse better, encrypt harder, or
           expire personal data more slowly. Data export and erasure are free on
           every plan because they are rights, not features. Unknown states never
-          render as a pass — at any price.
+          render as a pass: at any price.
         </p>
         <dl className="mt-7 flex flex-wrap gap-x-13 gap-y-5">
           <Fig label="Annual passage" value="10 months → 12" />
@@ -312,7 +324,7 @@ export default async function PricingPage({
         <StateChip color="var(--color-unverified)" label="Unverified" />
         <StateChip color="var(--color-unmeasured)" label="Not measured" />
         <span className="num ml-auto text-[11px]" style={{ color: "var(--color-ink-3)" }}>
-          Unknown never renders as a pass — at any price.
+          Unknown never renders as a pass: at any price.
         </span>
       </section>
 
@@ -366,7 +378,7 @@ export default async function PricingPage({
           </h2>
           <p className="mt-3 max-w-[62ch] text-[14px] leading-[1.75]" style={{ color: "var(--color-ink-2)" }}>
             One account, one workspace. Add clients and domains once you are in,
-            and move up a rung when the portfolio asks for it — a plan change
+            and move up a rung when the portfolio asks for it: a plan change
             never deletes anything, in either direction.
           </p>
           <div className="mt-5 flex flex-wrap items-center gap-4">

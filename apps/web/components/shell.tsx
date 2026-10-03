@@ -53,7 +53,7 @@ export async function Shell({
           }}
         >
           <p className="num text-[11px]" style={{ color: "var(--color-unverified)" }}>
-            This custom domain is pointed here but its record is not verified yet —
+            This custom domain is pointed here but its record is not verified yet:
             the default brand is shown instead of yours. Verify the TXT record to
             serve your branding from this address.
           </p>

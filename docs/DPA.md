@@ -228,7 +228,7 @@ description, not a guarantee, and is not a substitute for a compliance audit.
 
 ### Availability and recovery
 - Liveness and readiness probes separate process health from dependency health
-- **TBD** — the production hosting platform, backup schedule and recovery time
+- **TBD**: the production hosting platform, backup schedule and recovery time
   objective are not yet finalised, and must be stated here before signature
 
 ### Secure development
@@ -264,7 +264,7 @@ records that demonstrate compliance.
 
 ## 11. Governing law
 
-**TBD** — to be completed. Note that processing governed by UK or EU GDPR must
+**TBD**: to be completed. Note that processing governed by UK or EU GDPR must
 name a law and forum capable of satisfying those regulations.
 
 ---

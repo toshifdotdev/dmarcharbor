@@ -45,8 +45,8 @@ export function CompliancePackPanel({
       setError(res.error);
     } else {
       const pack = res.data;
-      // Hand the PDF to the browser as a download, and keep the fingerprint —
-      // the claim — in the page where it can be copied into an email.
+      // Hand the PDF to the browser as a download, and keep the fingerprint:
+      // the claim: in the page where it can be copied into an email.
       const url = URL.createObjectURL(pack.bytes);
       const a = document.createElement("a");
       a.href = url;
@@ -81,10 +81,10 @@ export function CompliancePackPanel({
             className="num text-[11px] font-semibold tracking-[0.12em] uppercase"
             style={{ color: "var(--color-ink)" }}
           >
-            Pack issued — the fingerprint is the claim
+            Pack issued: the fingerprint is the claim
           </p>
           <p className="mt-2 text-[13px]" style={{ color: "var(--color-ink-2)" }}>
-            The PDF downloads automatically. Send this fingerprint with it —
+            The PDF downloads automatically. Send this fingerprint with it:
             a recipient proves their copy is genuine by hashing the file and
             comparing, at{" "}
             <a href="/verify" className="underline" style={{ color: "var(--color-ink)" }}>
@@ -121,11 +121,11 @@ export function CompliancePackPanel({
         style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
       >
         <h2 className="text-[16.5px] font-semibold tracking-[-0.012em]">
-          Compliance packs{clientName ? ` — ${clientName}` : ""}
+          Compliance packs{clientName ? `: ${clientName}` : ""}
         </h2>
         <p className="mt-2 text-[13px]" style={{ color: "var(--color-ink-2)" }}>
           The PDF is generated from measured report data as of today. Its
-          SHA-256 fingerprint is published with it — the file is the record,
+          SHA-256 fingerprint is published with it: the file is the record,
           the fingerprint is the claim you can stand behind.
         </p>
 

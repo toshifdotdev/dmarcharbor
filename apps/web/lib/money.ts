@@ -12,7 +12,7 @@ export function formatMinor(
   opts: { withSymbol?: boolean } = {},
 ): string {
   const symbol = currency === "USD" ? "$" : "₹";
-  // Integer division and modulo — the minor unit never becomes a float.
+  // Integer division and modulo: the minor unit never becomes a float.
   const major = Math.trunc(minor / 100);
   const rest = Math.abs(minor % 100);
   const grouped = major.toLocaleString("en-US");

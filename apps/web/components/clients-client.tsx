@@ -89,7 +89,7 @@ export function CreateClientForm({ organizationId }: { organizationId: string })
             required
             minLength={2}
             maxLength={100}
-            placeholder="Acme Freight"
+            placeholder="Example Freight"
             data-testid="client-name"
           />
         </Field>
@@ -104,7 +104,7 @@ export function CreateClientForm({ organizationId }: { organizationId: string })
             minLength={2}
             pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
             title="lowercase letters, numbers and hyphens"
-            placeholder="acme-freight"
+            placeholder="example-freight"
             data-testid="client-slug"
           />
         </Field>
@@ -201,7 +201,7 @@ export function AddDomainForm({
               onChange={(e) => setName(e.target.value)}
               required
               minLength={3}
-              placeholder="acmefreight.com"
+              placeholder="example.com"
               data-testid="domain-name"
             />
           </Field>

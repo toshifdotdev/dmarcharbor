@@ -21,7 +21,7 @@ export const metadata: Metadata = {
     template: "%s · DMARC Harbor",
   },
   description:
-    "DMARC email-authentication monitoring for MSPs and IT agencies. Measurement and evidence — never control.",
+    "DMARC email-authentication monitoring for MSPs and IT agencies. Measurement and evidence: never control.",
 };
 
 // Every route in this app renders per request: the session cookie picks the

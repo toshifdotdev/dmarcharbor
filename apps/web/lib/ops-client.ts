@@ -56,7 +56,7 @@ async function call<T>(
             };
       // A refusal like PLAN_CHANGE_OVER_QUOTA carries structured numbers. The
       // wire format is final and FLAT: overage/from/to live directly on the
-      // error object ({ error: { code, message, overage, from, to } }) — no
+      // error object ({ error: { code, message, overage, from, to } }): no
       // nested detail, so the rows land where the controller puts them.
       return {
         ok: false,
@@ -209,7 +209,7 @@ export async function uploadLogo(
   }
 
   // Step 3: confirm with the objectKey the API itself returned. The UI never
-  // constructs or rewrites one — an objectKey outside this workspace's prefix
+  // constructs or rewrites one: an objectKey outside this workspace's prefix
   // is rejected server-side.
   return call(wsPath(orgId, "/branding/logo/confirm"), {
     method: "POST",

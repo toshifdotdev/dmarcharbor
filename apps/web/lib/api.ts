@@ -162,7 +162,7 @@ export async function getAllDomainSignals(
       try {
         out.set(job.id, await getDomainSignals(organizationId, job.id, job.name));
       } catch {
-        // A row whose signals cannot load stays "signals unavailable" — it is
+        // A row whose signals cannot load stays "signals unavailable": it is
         // never resolved into a posture. Rule Zero.
         out.set(job.id, null);
       }

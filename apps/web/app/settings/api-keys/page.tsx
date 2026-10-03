@@ -22,7 +22,7 @@ export default async function ApiKeysSettingsPage() {
           <h1 className="label">Settings · API keys</h1>
           <p className="mt-1.5 max-w-3xl text-[14px]" style={{ color: "var(--color-ink-2)" }}>
             Keys for the public API. A key is shown once at creation and never
-            again — the platform stores only its hash.
+            again: the platform stores only its hash.
           </p>
         </header>
         <SettingsNav current="api-keys" />

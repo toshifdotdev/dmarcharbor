@@ -44,9 +44,9 @@ interface ScanResult {
 }
 
 const POLICY_MEANING: Record<ScanResult["dmarc"]["policy"], string> = {
-  reject: "Mail that fails alignment is refused by receivers — the strongest policy.",
-  quarantine: "Mail that fails alignment is filtered to spam or held — enforcement without rejection.",
-  none: "Mail that fails alignment is only reported. Nothing is enforced yet — this is monitoring, not protection.",
+  reject: "Mail that fails alignment is refused by receivers: the strongest policy.",
+  quarantine: "Mail that fails alignment is filtered to spam or held: enforcement without rejection.",
+  none: "Mail that fails alignment is only reported. Nothing is enforced yet: this is monitoring, not protection.",
   unknown: "No policy is published, so receivers decide on their own.",
 };
 
@@ -76,7 +76,7 @@ function RecordRow({ label, found, detail }: { label: string; found: boolean | n
   );
 }
 
-export function DomainCheck() {
+export function DomainCheck({ compact = false }: { compact?: boolean } = {}) {
   const [domain, setDomain] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ScanResult | null>(null);
@@ -98,7 +98,7 @@ export function DomainCheck() {
         body: JSON.stringify({ domain: wanted }),
       });
       if (res.status === 429) {
-        // The endpoint is rate limited on purpose — this is a pause, not a
+        // The endpoint is rate limited on purpose: this is a pause, not a
         // failure, and must never read as one.
         setRateLimited(true);
         return;
@@ -123,26 +123,35 @@ export function DomainCheck() {
   }
 
   return (
-    <section className="mt-14 w-full" data-testid="domain-check">
+    <section className={compact ? "w-full" : "mt-14 w-full"} data-testid="domain-check">
       <div
         className="rounded-[2px] border px-6 py-6"
         style={{ borderColor: "var(--color-line-strong)", background: "var(--color-surface)" }}
       >
-        <h2 className="text-[19px] font-semibold tracking-[-0.02em]" style={{ fontFamily: "var(--font-display)" }}>
-          Check one domain, now
-        </h2>
-        <p className="mt-2 max-w-[62ch] text-[13.5px] leading-[1.75]" style={{ color: "var(--color-ink-2)" }}>
-          No account, no email, no card. We look up the published records and
-          tell you what the world's mail servers see — the same reading the
-          product starts from.
-        </p>
+        {!compact ? (
+          <>
+            <h2 className="text-[19px] font-semibold tracking-[-0.02em]" style={{ fontFamily: "var(--font-display)" }}>
+              Check one domain, now
+            </h2>
+            <p className="mt-2 max-w-[62ch] text-[13.5px] leading-[1.75]" style={{ color: "var(--color-ink-2)" }}>
+              No account, no email, no card. We look up the published records and
+              tell you what the world's mail servers see: the same reading the
+              product starts from.
+            </p>
+          </>
+        ) : (
+          <p className="max-w-[62ch] text-[13.5px] leading-[1.75]" style={{ color: "var(--color-ink-2)" }}>
+            No account, no email, no card. We look up the published records and
+            tell you what the world's mail servers see.
+          </p>
+        )}
 
         <form onSubmit={run} className="mt-4 flex flex-wrap items-center gap-3">
           <input
             type="text"
             value={domain}
             onChange={(e) => setDomain(e.target.value)}
-            placeholder="acmefreight.com"
+            placeholder="example.com"
             aria-label="Domain to check"
             data-testid="domain-check-input"
             className="min-w-[260px] flex-1 rounded-[2px] border px-3 py-2.5 text-[14px]"
@@ -169,7 +178,7 @@ export function DomainCheck() {
 
         {rateLimited ? (
           <p role="status" className="mt-3 text-[13px]" style={{ color: "var(--color-unverified)" }}>
-            Too many lookups — try again shortly. The lookup service is shared
+            Too many lookups: try again shortly. The lookup service is shared
             and rate limited, which is why this check stays free.
           </p>
         ) : null}
@@ -213,7 +222,7 @@ export function DomainCheck() {
                 found={result.dmarc.status === "found" ? true : result.dmarc.status === "missing" ? false : null}
                 detail={
                   result.dmarc.status === "found"
-                    ? `p=${result.dmarc.policy} — ${POLICY_MEANING[result.dmarc.policy]}`
+                    ? `p=${result.dmarc.policy}: ${POLICY_MEANING[result.dmarc.policy]}`
                     : result.dmarc.status === "missing"
                       ? "No DMARC policy is published, so receivers decide on their own."
                       : "This lookup could not read the DMARC record."
@@ -272,8 +281,8 @@ export function DomainCheck() {
               data-testid="domain-check-boundary"
             >
               This is one lookup at one moment. DMARC Harbor watches a whole book
-              of client domains continuously — posture per domain as reports
-              arrive, alerting, shareable evidence and a client portal — which is
+              of client domains continuously: posture per domain as reports
+              arrive, alerting, shareable evidence and a client portal: which is
               the difference between checking a domain and being responsible for
               it.{" "}
               <Link href="/sign-up" className="underline" style={{ color: "var(--color-ink)" }}>

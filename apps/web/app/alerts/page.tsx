@@ -23,7 +23,7 @@ export default async function AlertsPage() {
 
   const [clients, rules, events] = await Promise.all([
     // Three states, never two: a failed load must never render as "no alerts
-    // yet" — that is a lie that costs someone an afternoon.
+    // yet": that is a lie that costs someone an afternoon.
     listClients(active.id).catch(() => null),
     listAlertRules(active.id).catch(() => null),
     listAlertEvents(active.id).catch(() => null),
@@ -44,7 +44,7 @@ export default async function AlertsPage() {
           <h1 className="label">Alerts</h1>
           <p className="mt-1.5 text-[14.5px]" style={{ color: "var(--color-ink-2)" }}>
             Observed conditions worth waking someone for. An unacknowledged
-            event escalates and rolls up to the workspace owner — the level is
+            event escalates and rolls up to the workspace owner: the level is
             always shown.
           </p>
         </header>
@@ -91,7 +91,7 @@ export default async function AlertsPage() {
                   <div className="p-5">
                     <EmptyState
                       title="No alert rules yet"
-                      description="Rules watch a measured condition and wake someone when it crosses the line — a failed-message count, a report that stopped arriving, a source nobody recognised. Add the first rule on the left."
+                      description="Rules watch a measured condition and wake someone when it crosses the line: a failed-message count, a report that stopped arriving, a source nobody recognised. Add the first rule on the left."
                     />
                   </div>
                 ) : (
@@ -141,7 +141,7 @@ export default async function AlertsPage() {
                 <div className="p-5">
                   <EmptyState
                     title="No alert events"
-                    description="When a rule fires, the event appears here and escalates until it is acknowledged. Silence here is only meaningful once a rule exists — until then nothing is watching."
+                    description="When a rule fires, the event appears here and escalates until it is acknowledged. Silence here is only meaningful once a rule exists: until then nothing is watching."
                   />
                 </div>
               ) : (

@@ -19,7 +19,7 @@ const SECTIONS: Array<{ key: string; href: string; label: string; blurb: string 
     key: "sessions",
     href: "/settings/sessions",
     label: "Sessions",
-    blurb: "every signed-in device — revoke anything you do not recognise",
+    blurb: "every signed-in device: revoke anything you do not recognise",
   },
   {
     key: "slack",
@@ -49,13 +49,13 @@ const SECTIONS: Array<{ key: string; href: string; label: string; blurb: string 
     key: "export",
     href: "/settings/export",
     label: "Data export",
-    blurb: "request a copy of the data held here — free on every plan",
+    blurb: "request a copy of the data held here: free on every plan",
   },
   {
     key: "erasure",
     href: "/settings/erasure",
     label: "Erasure",
-    blurb: "irreversibly erase personal data — free on every plan",
+    blurb: "irreversibly erase personal data: free on every plan",
   },
   {
     key: "compliance",

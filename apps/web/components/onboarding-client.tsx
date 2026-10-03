@@ -174,7 +174,7 @@ function LookupStatus({
     );
   }
 
-  // PENDING — the normal propagation state. Not an error, never styled as one.
+  // PENDING: the normal propagation state. Not an error, never styled as one.
   return (
     <div
       role="status"
@@ -188,9 +188,9 @@ function LookupStatus({
       <p className="text-[13px]" style={{ color: "var(--color-ink-2)" }}>
         <strong style={{ color: "var(--color-unverified)" }}>Waiting for DNS.</strong>{" "}
         The record is not visible yet
-        {published ? " — even though you have published it" : ""}. That is
+        {published ? ": even though you have published it" : ""}. That is
         normal: DNS changes take minutes to a few hours to propagate. Re-check
-        as often as you like — nothing here is an error.
+        as often as you like: nothing here is an error.
       </p>
     </div>
   );

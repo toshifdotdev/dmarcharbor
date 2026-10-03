@@ -37,7 +37,7 @@ const METRICS: Array<{ key: string; label: string; note?: string }> = [
   {
     key: "REPORT_SILENCE",
     label: "Report silence",
-    note: "a feed that stopped is not quiet and not healthy — this rule names the silence",
+    note: "a feed that stopped is not quiet and not healthy: this rule names the silence",
   },
   { key: "NEW_UNAUTHENTICATED_SOURCE", label: "New unauthenticated source" },
 ];
@@ -131,7 +131,7 @@ export function AlertRuleForm({
             required
             minLength={3}
             maxLength={100}
-            placeholder="Reject spike on acmefreight.com"
+            placeholder="Reject spike on example.com"
           />
         </Field>
         <Field label="Metric">

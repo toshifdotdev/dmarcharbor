@@ -36,19 +36,19 @@ export const POSTURE_META: Record<
     label: "Blocking",
     action: "Investigate",
     meaning:
-      "Observed traffic failed alignment while a rejecting policy is live — mail is being denied.",
+      "Observed traffic failed alignment while a rejecting policy is live: mail is being denied.",
   },
   unverified: {
     label: "Unverified",
     action: "Attribute",
     meaning:
-      "Traffic is seen but senders are not attributed. Not a pass — an open question.",
+      "Traffic is seen but senders are not attributed. Not a pass: an open question.",
   },
   stale: {
     label: "Stale",
     action: "Recheck",
     meaning:
-      "Measured once, then the feed went quiet. The window has aged out — past measurements are shown, not current health.",
+      "Measured once, then the feed went quiet. The window has aged out: past measurements are shown, not current health.",
   },
   unmeasured: {
     label: "Not measured",
@@ -76,8 +76,8 @@ export function resolvePosture(s: DomainSignals): ResolvedPosture {
   // 1. Never measured outranks everything: nothing was ever observed.
   if (s.messageCount === 0) {
     return s.reportCount === 0
-      ? { posture: "unmeasured", reason: "never measured — no aggregate reports received" }
-      : { posture: "unmeasured", reason: "never measured — reports received, but no messages in them" };
+      ? { posture: "unmeasured", reason: "never measured: no aggregate reports received" }
+      : { posture: "unmeasured", reason: "never measured: reports received, but no messages in them" };
   }
 
   // 2. Stale outranks blocking: a feed that went quiet cannot be read as
@@ -86,7 +86,7 @@ export function resolvePosture(s: DomainSignals): ResolvedPosture {
   if (ageDays > STALE_AFTER_DAYS) {
     return {
       posture: "stale",
-      reason: `measured, then quiet — ${fmtVolume(s.messageCount)} messages, last report ${Math.floor(ageDays)} days ago`,
+      reason: `measured, then quiet: ${fmtVolume(s.messageCount)} messages, last report ${Math.floor(ageDays)} days ago`,
     };
   }
 

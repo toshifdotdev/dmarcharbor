@@ -58,7 +58,7 @@ export function ApiKeysPanel({
   function toggleScope(s: "read" | "write") {
     setScopes((prev) => {
       if (prev.includes(s)) {
-        // A key with no scope is meaningless — the last one cannot come off.
+        // A key with no scope is meaningless: the last one cannot come off.
         return prev.length === 1 ? prev : prev.filter((x) => x !== s);
       }
       return [...prev, s];
@@ -83,7 +83,7 @@ export function ApiKeysPanel({
             className="num text-[11px] font-semibold tracking-[0.12em] uppercase"
             style={{ color: "var(--color-ink)" }}
           >
-            Copy this key now — it is shown once
+            Copy this key now: it is shown once
           </p>
           <p
             className="num mt-2.5 break-all rounded-[2px] border px-3 py-2.5 text-[12.5px]"
@@ -96,7 +96,7 @@ export function ApiKeysPanel({
             {issued.key}
           </p>
           <p className="mt-2.5 text-[12.5px]" style={{ color: "var(--color-ink-2)" }}>
-            This key cannot be retrieved again — the platform stores only a hash
+            This key cannot be retrieved again: the platform stores only a hash
             of it. If you lose it, revoke the key and issue a new one. Scope:{" "}
             <span className="num">{issued.scopes.join(", ")}</span>, expires{" "}
             {new Date(issued.expiresAt).toLocaleDateString("en-GB")}.
@@ -118,8 +118,8 @@ export function ApiKeysPanel({
       >
         <h2 className="text-[16.5px] font-semibold tracking-[-0.012em]">Issue a key</h2>
         <p className="mt-2 text-[13px]" style={{ color: "var(--color-ink-2)" }}>
-          The key is shown once, at creation. Everything else — the name, the
-          scopes, the expiry — can be read here at any time.
+          The key is shown once, at creation. Everything else: the name, the
+          scopes, the expiry: can be read here at any time.
         </p>
 
         {error ? (

@@ -50,7 +50,7 @@ SSO is now built and sets **the same cookie**, so nothing downstream needs a
 special case. A user who arrived through SSO is an ordinary session.
 
 - `GET /api/sso/{connectionId}` — public. Returns the workspace name and
-  protocol. Use it to show "Sign in to Northgate Digital" so a person about to
+  protocol. Use it to show "Sign in to Example Agency" so a person about to
   enter a work password can see they are in the right place.
 - `GET /api/sso/{connectionId}/start` — begins the flow, redirects.
 - Callback sets the cookie and redirects to `/portal`.

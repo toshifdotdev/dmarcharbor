@@ -29,7 +29,7 @@ export default async function BillingPage() {
   const billing = await getBillingStatus(active.id).catch(() => null);
   const currencyPref = await getBillingCurrency(active.id).catch(() => null);
   // The checkout contact is the signed-in account. Read here (server-only
-  // module) and passed down — the API validates name and email, so an empty
+  // module) and passed down: the API validates name and email, so an empty
   // contact is a guaranteed 400.
   const me = await getMe().catch(() => null);
   const account =
@@ -44,7 +44,7 @@ export default async function BillingPage() {
   const currency = currencyPref?.preferredCurrency ?? "INR";
 
   // The plan catalog owns plan NAMES. A pending plan arrives as a tier enum
-  // (FAIRWAY), and a customer-facing row reads Fairway — never the enum.
+  // (FAIRWAY), and a customer-facing row reads Fairway: never the enum.
   const planLabel = (tier: string) =>
     catalog?.plans.find((p) => p.tier === tier)?.label ?? tier;
 
@@ -54,7 +54,7 @@ export default async function BillingPage() {
         <header>
           <h1 className="label">Billing</h1>
           <p className="mt-1.5 text-[15.5px]" style={{ color: "var(--color-ink-2)" }}>
-            Everything each plan carries, in full — so the choice is made on
+            Everything each plan carries, in full: so the choice is made on
             facts, not on a sales call.{" "}
             {/* The refund question arises HERE, not in a footer nobody reads
                 mid-decision — so the policy is linked here. */}
@@ -203,7 +203,7 @@ export default async function BillingPage() {
           />
         ) : (
           <p role="alert" className="text-[15px]" style={{ color: "var(--color-block)" }}>
-            The plan catalog could not be loaded — prices are never guessed here.
+            The plan catalog could not be loaded: prices are never guessed here.
           </p>
         )}
 
@@ -216,15 +216,15 @@ export default async function BillingPage() {
           </h2>
           <ul className="mt-3 flex flex-col gap-2">
             <li className="text-[15px]" style={{ color: "var(--color-ink-2)" }}>
-              <strong style={{ color: "var(--color-ink)" }}>Export of personal data</strong> —
+              <strong style={{ color: "var(--color-ink)" }}>Export of personal data</strong>:
               available on every plan. It is not a paid feature.
             </li>
             <li className="text-[15px]" style={{ color: "var(--color-ink-2)" }}>
-              <strong style={{ color: "var(--color-ink)" }}>Erasure of personal data</strong> —
+              <strong style={{ color: "var(--color-ink)" }}>Erasure of personal data</strong>:
               available on every plan. It is not a paid feature.
             </li>
             <li className="text-[15px]" style={{ color: "var(--color-ink-2)" }}>
-              <strong style={{ color: "var(--color-ink)" }}>The same measurement engine</strong> —
+              <strong style={{ color: "var(--color-ink)" }}>The same measurement engine</strong>:
               a larger plan carries more cargo; it never parses better.
             </li>
           </ul>

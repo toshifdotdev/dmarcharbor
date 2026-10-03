@@ -115,7 +115,7 @@ export function WhiteLabelForm({
     setBusy(false);
     if (!res.ok) setError(res.error);
     else {
-      setNote("TXT record verified — the custom domain is live.");
+      setNote("TXT record verified: the custom domain is live.");
       router.refresh();
     }
   }
@@ -370,7 +370,7 @@ export function ReportInboxForm({
         </div>
       </form>
       <p className="text-[12.5px]" style={{ color: "var(--color-ink-3)" }}>
-        Ports 993, 143 and 2525 only — the API refuses others. The password is
+        Ports 993, 143 and 2525 only: the API refuses others. The password is
         write-only: it is never returned and never stored in this browser.
       </p>
     </section>
@@ -554,7 +554,7 @@ export function SsoSection({
 
         {jitNeedsDomains ? (
           <p role="status" className="text-[13px]" style={{ color: "var(--color-unverified)" }}>
-            JIT provisioning requires at least one allowed email domain — the API
+            JIT provisioning requires at least one allowed email domain: the API
             refuses the connection without one. Add the domains your identity
             provider will assert before saving.
           </p>
@@ -563,7 +563,7 @@ export function SsoSection({
         <p className="text-[12.5px]" style={{ color: "var(--color-ink-3)" }}>
           The provider secret is write-only: it is stored server-side and never
           returned. The callback URL to give your identity provider is shown on
-          the connection after it is created — it comes from the connection
+          the connection after it is created: it comes from the connection
           itself, never constructed here. Owner is never a default role; the API
           does not accept it.
         </p>

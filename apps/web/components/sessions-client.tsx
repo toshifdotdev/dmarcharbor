@@ -72,7 +72,7 @@ export function SessionsPanel({ sessions }: { sessions: SessionRow[] }) {
           {sessions.length} signed-in session{sessions.length === 1 ? "" : "s"}
         </h2>
         <p className="text-[12.5px]" style={{ color: "var(--color-ink-3)" }}>
-          device and network for each — revoke anything you do not recognise
+          device and network for each: revoke anything you do not recognise
         </p>
         <div className="ml-auto flex items-center gap-3">
           {others.length > 0 ? (
@@ -116,7 +116,7 @@ export function SessionsPanel({ sessions }: { sessions: SessionRow[] }) {
         >
           <p className="text-[13px]" style={{ color: "var(--color-ink-2)" }}>
             This signs out <strong style={{ color: "var(--color-ink)" }}>every session,
-            including this one</strong> — you will be returned to the sign-in
+            including this one</strong>: you will be returned to the sign-in
             screen. Use it when you believe the account itself is compromised:
             a compromised account must be able to sign itself out. To keep this
             device signed in, use "Sign out everywhere else".
@@ -136,7 +136,7 @@ export function SessionsPanel({ sessions }: { sessions: SessionRow[] }) {
               className="rounded-[2px] px-4 py-2 text-[12.5px] font-semibold"
               style={{ background: "var(--color-block)", color: "#fff" }}
             >
-              Yes — sign out everywhere, including this device
+              Yes: sign out everywhere, including this device
             </button>
             <button
               type="button"
@@ -190,7 +190,7 @@ export function SessionsPanel({ sessions }: { sessions: SessionRow[] }) {
               </div>
             </div>
             {!s.current ? (
-              // Revoking a session signs a device out — destructive, so it
+              // Revoking a session signs a device out: destructive, so it
               // arms first and names what it does rather than firing on one
               // keystroke beside harmless chrome.
               <ConfirmAction

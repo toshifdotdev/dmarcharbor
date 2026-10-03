@@ -1,4 +1,4 @@
-# DMARC Harbor — Sub-processors
+# DMARC Harbor: Sub-processors
 
 GDPR Article 28(2) requires us to inform you of the sub-processors we use to
 process your data, and to give you notice before adding or replacing one.
@@ -14,11 +14,11 @@ work in good faith to resolve it, including discussing alternatives.
 
 | Provider | What it does | Data it touches | Region |
 |---|---|---|---|
-| **Resend** | Transactional and alert email | Your users' email addresses, names, and notification content. Alert content may include domain names, sender sources and counts | **TBD** — confirm before publication |
+| **Resend** | Transactional and alert email | Your users' email addresses, names, and notification content. Alert content may include domain names, sender sources and counts | **TBD**: confirm before publication |
 | **Cloudflare** | Email routing and the report ingress Worker | Raw DMARC report messages in transit only. The Worker forwards them and does not store them | Global edge |
-| **Managed PostgreSQL provider** | Primary database | All stored data | **TBD** — hosting not finalised |
+| **Managed PostgreSQL provider** | Primary database | All stored data | **TBD**: hosting not finalised |
 | **Google and Microsoft** (optional sign-in) | Federated sign-in | Name, email address, and provider identifier. Only if you enable social sign-in | Provider's region |
-| **Payment processor** | Subscription billing | Your company name, billing contact email, plan and amount. **Not your DMARC data** | **TBD** — not yet selected |
+| **Payment processor** | Subscription billing | Your company name, billing contact email, plan and amount. **Not your DMARC data** | **TBD**: not yet selected |
 
 ## Not a sub-processor
 

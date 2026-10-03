@@ -27,7 +27,7 @@ export default async function ErasureSettingsPage() {
         <header>
           <h1 className="label">Settings · Erasure</h1>
           <p className="mt-1.5 max-w-3xl text-[14px]" style={{ color: "var(--color-ink-2)" }}>
-            Erase personal data irreversibly — a data-subject right, free on
+            Erase personal data irreversibly: a data-subject right, free on
             every plan. The preview below is exactly what a request would do,
             before anything happens.
           </p>

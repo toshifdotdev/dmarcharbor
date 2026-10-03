@@ -101,7 +101,7 @@ export default async function DomainPage({
             </span>
           </div>
           <p className="mt-1.5 max-w-3xl text-[14.5px]" style={{ color: "var(--color-ink-2)" }}>
-            {meta.meaning} <span style={{ color: "var(--color-ink-3)" }}>— {resolved.reason}.</span>
+            {meta.meaning} <span style={{ color: "var(--color-ink-3)" }}>{resolved.reason}.</span>
           </p>
         </div>
 
@@ -228,12 +228,12 @@ function SilenceBand({
         className="num text-[11.5px] font-semibold tracking-[0.16em] uppercase"
         style={{ color: "var(--color-unmeasured)" }}
       >
-        {posture === "stale" ? "Stale — measured, then quiet" : "Not measured — never"}
+        {posture === "stale" ? "Stale: measured, then quiet" : "Not measured: never"}
       </span>
       <span className="text-[14px]" style={{ color: "var(--color-ink-2)" }}>
         {posture === "stale" && lastReportAt
-          ? `The feed went quiet ${ageDays} days ago (last report ${new Date(lastReportAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}). The measurements below are history, not current state — silence is not compliance.`
-          : "No aggregate report has ever been received for this domain. Nothing below can be read as measured — absence is not compliance."}
+          ? `The feed went quiet ${ageDays} days ago (last report ${new Date(lastReportAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}). The measurements below are history, not current state: silence is not compliance.`
+          : "No aggregate report has ever been received for this domain. Nothing below can be read as measured: absence is not compliance."}
       </span>
     </div>
   );
@@ -294,7 +294,7 @@ function SendersPanel({
                     </div>
                     {isUnattributed ? (
                       <div className="num text-[11px] tracking-[0.12em] uppercase" style={{ color: "var(--color-unverified)" }}>
-                        unattributed — authenticating as someone else
+                        unattributed: authenticating as someone else
                       </div>
                     ) : null}
                   </td>
@@ -358,7 +358,7 @@ function ReadinessPanel({
 }) {
   // The "published" rung is chosen from OBSERVED evidence. readiness.currentPolicy
   // derives from the DNS-scan field (domain.dmarcPolicy), which is empty for any
-  // domain never scanned — asserting "no record" against evidence that reports a
+  // domain never scanned: asserting "no record" against evidence that reports a
   // real p= value is exactly the lie Bug 2 was about.
   const observed = observedPolicy.toLowerCase();
   const rungs: Array<{ key: string; label: string; live: boolean }> = [
@@ -418,7 +418,7 @@ function ReadinessPanel({
         <ReadinessRow k="Senders" v={`${readiness.failingSenders} failing of ${readiness.observedSenders} observed`} />
         <ReadinessRow
           k="Next step"
-          v={readiness.ready ? `ready for p=${readiness.level}` : `not ready — ${readiness.blockers.length ? readiness.blockers.join("; ") : "keep observing"}`}
+          v={readiness.ready ? `ready for p=${readiness.level}` : `not ready: ${readiness.blockers.length ? readiness.blockers.join("; ") : "keep observing"}`}
         />
       </dl>
 

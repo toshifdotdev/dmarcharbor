@@ -68,7 +68,7 @@ function WorkspaceForm() {
           required
           minLength={2}
           maxLength={80}
-          placeholder="Northgate Digital"
+          placeholder="Example Agency"
           className="rounded-[2px] border px-3 py-2 text-[15px] outline-none"
           style={{
             background: "var(--color-surface)",
@@ -84,7 +84,7 @@ function WorkspaceForm() {
           required
           minLength={2}
           pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
-          placeholder="northgate-digital"
+          placeholder="example-agency"
           className="num rounded-[2px] border px-3 py-2 text-[14.5px] outline-none"
           style={{
             background: "var(--color-surface)",

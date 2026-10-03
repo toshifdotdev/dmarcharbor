@@ -23,7 +23,7 @@ export default async function SettingsPage() {
         <header>
           <h1 className="label">Settings</h1>
           <p className="mt-1.5 max-w-3xl text-[14px]" style={{ color: "var(--color-ink-2)" }}>
-            Each capability has its own section. Pick the one you came for —
+            Each capability has its own section. Pick the one you came for:
             every section explains itself and saves on its own.
           </p>
         </header>

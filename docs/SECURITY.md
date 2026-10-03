@@ -1,4 +1,4 @@
-# DMARC Harbor — Security Overview
+# DMARC Harbor: Security Overview
 
 A plain-language summary for customers, prospects and their security teams. No
 legal language, no claim we have not implemented.
@@ -18,14 +18,14 @@ every DMARC tool stores that address in plain text.
 `ps1:7f3a9c2e...`. It cannot be reversed into an email address. It is not your
 recipients' personal data, and it is not ours to hold.
 
-If you need the real address — to chase a specific delivery problem, for example —
-you switch named mode on for that domain. That switch requires you to confirm a
-legal basis, encrypts the values with AES-256-GCM, and **expires them after 7 days
-regardless of plan.** No tier of our product extends that.
+If you need the real address (to chase a specific delivery problem, for
+example) you switch named mode on for that domain. That switch requires you to
+confirm a legal basis, encrypts the values with AES-256-GCM, and **expires them
+after 7 days regardless of plan.** No tier of our product extends that.
 
 **You can switch named mode off at any time**, which permanently destroys the
-encrypted values. We keep the surrounding evidence — which sender failed, how
-many messages, when — because that contains no recipient data.
+encrypted values. We keep the surrounding evidence: which sender failed, how
+many messages, when. That contains no recipient data.
 
 ## Access control
 
@@ -48,8 +48,8 @@ is paying for.
 
 - Email must be verified before sign-in
 - Sessions last 7 days
-- **You can see every device you're signed in on** — device, location, when it
-  started — and end any of them
+- **You can see every device you're signed in on**: device, location, when it
+  started, and end any of them
 - **You can sign out everything else** in one click, or everything including your
   current device
 - **Changing your password always signs out every other device.** This is enforced
@@ -111,7 +111,7 @@ A data export never includes:
 - Session tokens
 - OAuth tokens
 
-These are not your data to download — they are *the means by which the download is
+These are not your data to download: they are *the means by which the download is
 authorised*. Exporting them would hand over the ability to impersonate the account.
 You still get the device, address and expiry of each session so you can see where
 you are signed in.
@@ -158,7 +158,7 @@ is not worth reading:
 
 We would like to hear about security problems.
 
-**TBD** — security contact address and safe disclosure channel to be set before
+**TBD**: security contact address and safe disclosure channel to be set before
 launch. We will acknowledge reports within 3 business days.
 
 ## Documents

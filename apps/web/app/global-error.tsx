@@ -39,7 +39,7 @@ export default function GlobalError({ reset }: { error: Error; reset: () => void
           The app failed to render this page.
         </h1>
         <p style={{ maxWidth: 420, textAlign: "center", fontSize: 14, color: "#a0a09c", margin: 0 }}>
-          Nothing was deleted or hidden — this request failed. Try again, and if
+          Nothing was deleted or hidden: this request failed. Try again, and if
           it persists, the address below is the safe way back in.
         </p>
         <div style={{ display: "flex", gap: 14, alignItems: "center" }}>

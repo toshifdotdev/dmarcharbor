@@ -70,7 +70,7 @@ export function TrendChart({
           <rect x="46" y="12" width="666" height="162" fill="url(#void-hatch)" />
         </svg>
         <p className="num text-[12px]" style={{ color: "var(--color-ink-3)" }}>
-          Nothing measured in this window — {missing.length} unmeasured days.
+          Nothing measured in this window: {missing.length} unmeasured days.
         </p>
       </figure>
     );
