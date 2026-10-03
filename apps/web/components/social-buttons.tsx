@@ -54,8 +54,25 @@ export function SocialButtons() {
         <button
           key={p}
           type="button"
-          onClick={() => {
-            window.location.href = `/api/auth/sign-in/social?provider=${p}`;
+          onClick={async () => {
+            // better-auth's /sign-in/social is POST-only and answers with the
+            // provider's redirect URL — a GET navigation would 405. The button
+            // POSTs and follows the URL the endpoint returns.
+            try {
+              const res = await fetch("/api/auth/sign-in/social", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ provider: p }),
+              });
+              if (!res.ok) return;
+              const body = (await res.json()) as { url?: string; redirect?: boolean };
+              if (typeof body.url === "string" && body.url.startsWith("https://")) {
+                window.location.href = body.url;
+              }
+            } catch {
+              // A failed discovery must never surface as a broken form.
+            }
           }}
           data-provider={p}
           className="rounded-[2px] border px-5 py-2.5 text-[13px] font-medium transition-colors"

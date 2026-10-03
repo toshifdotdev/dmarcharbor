@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { signIn, signUp } from "@/lib/auth-client";
-import { TideLoader } from "@/components/posture";
+import { ActionButton } from "@/components/action-button";
 
 export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
   const router = useRouter();
@@ -76,14 +76,16 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
         </p>
       ) : null}
 
-      <button
+      {/* The one loading-state button: width is stable across states and the
+          spinner is centred in it (see components/action-button.tsx). */}
+      <ActionButton
         type="submit"
-        disabled={busy}
-        className="mt-2 inline-flex items-center justify-center gap-3 rounded-[2px] px-5 py-2.5 text-[14.5px] font-semibold transition-colors"
-        style={{ background: "var(--color-accent)", color: "var(--color-accent-ink)" }}
-      >
-        {busy ? <TideLoader label="Working" /> : mode === "sign-in" ? "Sign in" : "Create account"}
-      </button>
+        label={mode === "sign-in" ? "Sign in" : "Create account"}
+        loadingLabel="Signing in"
+        busy={busy}
+        testId="auth-submit"
+        style={{ marginTop: 8 }}
+      />
     </form>
   );
 }

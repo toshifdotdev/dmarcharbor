@@ -4,6 +4,8 @@ import { getWorkspaceEntitlements } from "@/lib/api-ops";
 import { resolveActiveWorkspace } from "@/lib/session";
 import { Shell } from "@/components/shell";
 import { UpgradePrompt } from "@/components/upgrade-gate";
+import { EmptyState, ErrorState } from "@/components/data-states";
+import { onboardingHref } from "@/lib/route-hrefs";
 import { AddDomainForm, CreateClientForm } from "@/components/clients-client";
 
 /**
@@ -16,14 +18,20 @@ export default async function ClientsPage() {
   const { workspaces, active } = await resolveActiveWorkspace();
   if (!active) return null;
 
-  const entitlements = await getWorkspaceEntitlements(active.id).catch(() => null);
-  const clients = await listClients(active.id).catch(() => []);
+  // Three states, never two: a failed load must not render as "no clients
+  // yet" — that is a lie that costs someone an afternoon. Loading is a real
+  // Suspense boundary below; empty says what to do next.
+  const [entitlements, clients, failed] = await Promise.all([
+    getWorkspaceEntitlements(active.id).catch(() => null),
+    listClients(active.id).catch(() => null),
+    Promise.resolve(null),
+  ]).then(([e, c]) => [e, c, c === null] as const);
 
   // A 402 on the create path arrives as a feature-keyed error from the API;
   // when the plan has no client quota the form surfaces it on submit. This
   // pre-check only sets the honest context line above the form.
   const atClientLimit =
-    entitlements !== null && clients.length >= entitlements.maxClients;
+    entitlements !== null && clients !== null && clients.length >= entitlements.maxClients;
 
   return (
     <Shell workspaces={workspaces} activeWorkspace={active}>
@@ -40,7 +48,7 @@ export default async function ClientsPage() {
           <UpgradePrompt
             error={{
               feature: "client",
-              message: `This plan covers ${entitlements.maxClients} client${entitlements.maxClients === 1 ? "" : "s"}, and this workspace has ${clients.length}.`,
+              message: `This plan covers ${entitlements.maxClients} client${entitlements.maxClients === 1 ? "" : "s"}, and this workspace has ${clients ? clients.length : 0}.`,
             }}
             context="The client list is at its plan limit. Plan options show what each step up carries."
           />
@@ -55,16 +63,28 @@ export default async function ClientsPage() {
           >
             <header className="border-b px-5 py-3.5" style={{ borderColor: "var(--color-line)" }}>
               <h2 className="text-[16px] font-semibold tracking-[-0.012em]">
-                Your clients ({clients.length})
+                Your clients{clients ? ` (${clients.length})` : ""}
               </h2>
             </header>
-            {clients.length === 0 ? (
-              <p className="px-5 py-10 text-center text-[13.5px]" style={{ color: "var(--color-ink-3)" }}>
-                No clients yet. Create the first one to start adding domains.
-              </p>
+            {failed ? (
+              // A failed load is not "no clients yet" — that is a lie.
+              <div className="p-5">
+                <ErrorState
+                  what="the client list"
+                  detail="This is a connection or API problem, not an empty workspace."
+                />
+              </div>
+            ) : clients && clients.length === 0 ? (
+              // A first run, not an absence.
+              <div className="p-5">
+                <EmptyState
+                  title="No clients yet"
+                  description="Create the first one on the left — every domain you monitor lives inside a client, and the portfolio fills in as reports arrive."
+                />
+              </div>
             ) : (
               <ul>
-                {clients.map((c) => (
+                {(clients ?? []).map((c) => (
                   <li
                     key={c.id}
                     className="border-b px-5 py-3.5"
@@ -89,7 +109,7 @@ export default async function ClientsPage() {
                         {c.domains.map((d) => (
                           <li key={d.id}>
                             <Link
-                              href={`/onboarding/${d.id}`}
+                              href={onboardingHref(d.id)}
                               className="num inline-block rounded-[2px] border px-2.5 py-1 text-[11.5px]"
                               style={{
                                 borderColor: "var(--color-line-strong)",
@@ -114,7 +134,7 @@ export default async function ClientsPage() {
           </section>
         </div>
 
-        {clients.length > 0 ? (
+        {clients && clients.length > 0 ? (
           <AddDomainForm
             organizationId={active.id}
             clientId={clients[clients.length - 1].id}

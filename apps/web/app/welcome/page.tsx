@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { listWorkspaces } from "@/lib/api";
+import { ApiError, listWorkspaces } from "@/lib/api";
 import { PierMark } from "@/components/mark";
 
 /**
@@ -7,7 +7,17 @@ import { PierMark } from "@/components/mark";
  * the same POST /api/workspaces the API documents — no invented endpoints.
  */
 export default async function WelcomePage() {
-  const workspaces = await listWorkspaces();
+  // Only signed-in newcomers name a workspace; a 401 here is a stranger at
+  // the door, not an error page (this route used to crash on the throw).
+  let workspaces;
+  try {
+    workspaces = await listWorkspaces();
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+      redirect("/sign-in");
+    }
+    throw error;
+  }
   if (workspaces.length > 0) redirect("/");
 
   return (

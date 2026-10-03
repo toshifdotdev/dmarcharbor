@@ -1,9 +1,9 @@
 import { listClients } from "@/lib/api";
 import { getWorkspaceEntitlements, listReportDigests } from "@/lib/api-ops";
 import { resolveActiveWorkspace } from "@/lib/session";
-import type { ReportDigestRow } from "@/lib/types";
 import { Shell } from "@/components/shell";
 import { UpgradePrompt } from "@/components/upgrade-gate";
+import { EmptyState, ErrorState } from "@/components/data-states";
 import { DigestActions, DigestForm } from "@/components/digests-client";
 
 export default async function DigestsPage() {
@@ -15,14 +15,15 @@ export default async function DigestsPage() {
   const allowForensics = entitlements?.features["reports.forensic"] === true;
 
   const [clients, digests] = await Promise.all([
-    listClients(active.id).catch(() => []),
-    listReportDigests(active.id).catch(() => ({
-      items: [] as ReportDigestRow[],
-      hasMore: false,
-      nextCursor: null,
-    })),
+    // Three states, never two: a failed load must never render as "no digests
+    // yet" — that is a lie that costs someone an afternoon.
+    listClients(active.id).catch(() => null),
+    listReportDigests(active.id).catch(() => null),
   ]);
-  const domains = clients.flatMap((c) => c.domains.map((d) => ({ id: d.id, name: d.name })));
+  const loadFailed = clients === null || digests === null;
+  const clientRows = clients ?? [];
+  const digestRows = digests ? digests.items : [];
+  const domains = clientRows.flatMap((c) => c.domains.map((d) => ({ id: d.id, name: d.name })));
 
   return (
     <Shell workspaces={workspaces} activeWorkspace={active}>
@@ -60,13 +61,20 @@ export default async function DigestsPage() {
                 <header className="border-b px-5 py-3.5" style={{ borderColor: "var(--color-line)" }}>
                   <h2 className="text-[16.5px] font-semibold tracking-[-0.012em]">Scheduled</h2>
                 </header>
-                {digests.items.length === 0 ? (
-                  <p className="px-5 py-8 text-center text-[14px]" style={{ color: "var(--color-ink-3)" }}>
-                    No digests scheduled yet.
-                  </p>
+                {loadFailed ? (
+                  <div className="p-5">
+                    <ErrorState what="the scheduled digests" detail="This is a connection or API problem, not an empty schedule." />
+                  </div>
+                ) : digestRows.length === 0 ? (
+                  <div className="p-5">
+                    <EmptyState
+                      title="No digests scheduled yet"
+                      description="A digest is a recurring report summary sent to your client's contacts under your brand. Create the first one on the left — weekly or monthly, with the recipient list you choose."
+                    />
+                  </div>
                 ) : (
                   <ul>
-                    {digests.items.map((d) => (
+                    {digestRows.map((d) => (
                       <li
                         key={d.id}
                         className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b px-5 py-3"

@@ -10,10 +10,12 @@
  * offered where the plan and role permit it.
  */
 
+import { ActionButton } from "@/components/action-button";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { EntitlementNotice } from "@/components/entitlement-gate";
 import { createReportShare, revokeReportShare } from "@/lib/ops-client";
+import { ConfirmAction } from "@/components/confirm-action";
 import type { ApiErrorBody, ReportShareRow } from "@/lib/types";
 
 const EXPIRY_CHOICES = [
@@ -150,15 +152,13 @@ export function ShareForm({
           </label>
         </div>
 
-        <button
+        <ActionButton
           type="submit"
-          disabled={busy}
-          className="self-start rounded-[2px] px-5 py-2.5 text-[13.5px] font-semibold"
-          style={{ background: "var(--color-accent)", color: "var(--color-accent-ink)" }}
-          data-testid="create-share"
-        >
-          {busy ? "Creating…" : "Create share link"}
-        </button>
+          label={"Create share link"}
+          loadingLabel={"Creating…"}
+          busy={busy}
+          testId="create-share"
+        />
       </form>
 
       {mine.length > 0 ? (
@@ -186,18 +186,21 @@ export function ShareForm({
                 {s.viewCount} view{s.viewCount === 1 ? "" : "s"}
               </span>
               {!s.revokedAt ? (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    await revokeReportShare(organizationId, s.id);
-                    router.refresh();
-                  }}
-                  className="ml-auto text-[11.5px] underline"
-                  style={{ color: "var(--color-block)" }}
-                  data-testid="revoke-share"
-                >
-                  revoke
-                </button>
+                // Revoking a share is destructive (it kills a link a client may
+                // hold), so it is not one keystroke from something harmless:
+                // the control arms, names the consequence, then fires.
+                <span className="ml-auto">
+                  <ConfirmAction
+                    label="revoke"
+                    confirmLabel="yes, revoke"
+                    consequence="a revoked link stops working immediately"
+                    testId="revoke-share"
+                    onConfirm={async () => {
+                      await revokeReportShare(organizationId, s.id);
+                      router.refresh();
+                    }}
+                  />
+                </span>
               ) : null}
             </li>
           ))}

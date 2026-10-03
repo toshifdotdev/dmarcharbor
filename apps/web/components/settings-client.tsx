@@ -20,6 +20,7 @@
  * The callback URL shown to the operator comes from the connection itself.
  */
 
+import { ActionButton } from "@/components/action-button";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { EntitlementNotice } from "@/components/entitlement-gate";
@@ -107,6 +108,18 @@ export function WhiteLabelForm({
     }
   }
 
+  async function doVerify() {
+    setBusy(true);
+    setError(null);
+    const res = await verifyCustomDomain(organizationId);
+    setBusy(false);
+    if (!res.ok) setError(res.error);
+    else {
+      setNote("TXT record verified — the custom domain is live.");
+      router.refresh();
+    }
+  }
+
   return (
     <section
       className="lift flex flex-col gap-4 rounded-[2px] border p-5"
@@ -146,15 +159,14 @@ export function WhiteLabelForm({
               <input type="color" value={accent} onChange={(e) => setAccent(e.target.value)} />
             </Field>
           </div>
-          <button
-            type="button"
+          <ActionButton
+            label="Save colours"
+            loadingLabel="Saving…"
+            busy={busy}
             onClick={saveColours}
-            disabled={busy}
-            className="self-start rounded-[2px] border px-4 py-2 text-[13.5px] font-semibold"
-            style={{ borderColor: "var(--color-line-strong)", color: "var(--color-ink-2)" }}
-          >
-            Save colours
-          </button>
+            variant="ghost"
+            style={{ alignSelf: "flex-start" }}
+          />
 
           <div className="border-t pt-4" style={{ borderColor: "var(--color-line)" }}>
             <Field label="Client portal logo">
@@ -184,15 +196,13 @@ export function WhiteLabelForm({
               )}
             </Field>
             {allowLogoUpload && file ? (
-              <button
-                type="button"
+              <ActionButton
+                label="Upload logo"
+                loadingLabel="Uploading…"
+                busy={busy}
                 onClick={doUpload}
-                disabled={busy}
-                className="mt-2 rounded-[2px] px-4 py-2 text-[13.5px] font-semibold"
-                style={{ background: "var(--color-accent)", color: "var(--color-accent-ink)" }}
-              >
-                Upload logo
-              </button>
+                style={{ marginTop: 8, alignSelf: "flex-start" }}
+              />
             ) : null}
           </div>
 
@@ -206,31 +216,22 @@ export function WhiteLabelForm({
               />
             </Field>
             <div className="mt-2 flex items-center gap-3">
-              <button
-                type="button"
+              <ActionButton
+                label="Save domain"
+                loadingLabel="Saving…"
+                busy={busy}
                 onClick={saveDomain}
-                disabled={busy}
-                className="rounded-[2px] border px-4 py-2 text-[13.5px] font-semibold"
-                style={{ borderColor: "var(--color-line-strong)", color: "var(--color-ink-2)" }}
-              >
-                Save domain
-              </button>
+                variant="ghost"
+              />
               {branding.customDomain && !branding.customDomainVerifiedAt ? (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const res = await verifyCustomDomain(organizationId);
-                    if (!res.ok) setError(res.error);
-                    else {
-                      setNote("TXT record verified — the custom domain is live.");
-                      router.refresh();
-                    }
-                  }}
-                  className="text-[13px] underline"
-                  style={{ color: "var(--color-unverified)" }}
-                >
-                  verify TXT record
-                </button>
+                <ActionButton
+                  label="verify TXT record"
+                  loadingLabel="Verifying…"
+                  busy={busy}
+                  onClick={doVerify}
+                  variant="ghost"
+                  style={{ border: "none", color: "var(--color-unverified)", padding: 0 }}
+                />
               ) : null}
               {branding.customDomainVerifiedAt ? (
                 <span className="num text-[11.5px] tracking-[0.12em] uppercase" style={{ color: "var(--color-pass)" }}>
@@ -347,14 +348,12 @@ export function ReportInboxForm({
             <input type="checkbox" checked={secure} onChange={(e) => setSecure(e.target.checked)} />
             TLS
           </label>
-          <button
+          <ActionButton
+            label={inbox.configured ? "Update mailbox" : "Connect mailbox"}
+            loadingLabel="Saving…"
+            busy={busy}
             type="submit"
-            disabled={busy}
-            className="rounded-[2px] px-4 py-2 text-[13.5px] font-semibold"
-            style={{ background: "var(--color-accent)", color: "var(--color-accent-ink)" }}
-          >
-            {inbox.configured ? "Update mailbox" : "Connect mailbox"}
-          </button>
+          />
           {inbox.configured ? (
             <button
               type="button"
@@ -450,9 +449,13 @@ export function SsoSection({
               <span className="num text-[12px]" style={{ color: "var(--color-ink-3)" }}>
                 {c.protocol} · {c.provisioning.toLowerCase()} · default role {c.defaultRole}
               </span>
-              {c.callbackUrl ? (
-                <span className="num text-[11.5px]" style={{ color: "var(--color-ink-3)" }}>
-                  callback: {c.callbackUrl}
+              {c.allowedEmailDomains.length > 0 ? (
+                <span
+                  data-testid="sso-allowlist"
+                  className="num text-[11.5px]"
+                  style={{ color: "var(--color-ink-3)" }}
+                >
+                  allowlist: {c.allowedEmailDomains.join(", ")}
                 </span>
               ) : null}
               <button
@@ -500,7 +503,13 @@ export function SsoSection({
             <input value={issuer} onChange={(e) => setIssuer(e.target.value)} required />
           </Field>
           <Field label="Entry point (URL)">
-            <input type="url" value={entryPoint} onChange={(e) => setEntryPoint(e.target.value)} required />
+            <input
+              type="text"
+              value={entryPoint}
+              onChange={(e) => setEntryPoint(e.target.value)}
+              required
+              inputMode="url"
+            />
           </Field>
           <Field label="Client ID">
             <input value={clientId} onChange={(e) => setClientId(e.target.value)} required />
@@ -559,14 +568,14 @@ export function SsoSection({
           does not accept it.
         </p>
 
-        <button
+        <ActionButton
+          label="Add SSO connection"
+          loadingLabel="Saving…"
+          busy={busy}
+          disabled={jitNeedsDomains}
           type="submit"
-          disabled={busy || jitNeedsDomains}
-          className="self-start rounded-[2px] px-5 py-2.5 text-[14.5px] font-semibold"
-          style={{ background: "var(--color-accent)", color: "var(--color-accent-ink)" }}
-        >
-          {busy ? "Saving…" : "Add SSO connection"}
-        </button>
+          style={{ alignSelf: "flex-start" }}
+        />
       </form>
     </section>
   );

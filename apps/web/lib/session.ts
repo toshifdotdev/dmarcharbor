@@ -3,6 +3,17 @@ import { redirect } from "next/navigation";
 import { ApiError, listWorkspaces } from "./api";
 import type { WorkspaceSummary } from "./types";
 
+/** The ambient workspace choice, shared by the fetch-and-pick helper below and
+ *  by callers that already hold the workspace list (the root page's session
+ *  probe needs the list once, not twice). */
+export async function pickActiveWorkspace(
+  workspaces: WorkspaceSummary[],
+): Promise<WorkspaceSummary | null> {
+  const jar = await cookies();
+  const wanted = jar.get("harbor.workspace")?.value;
+  return workspaces.find((w) => w.id === wanted) ?? workspaces[0] ?? null;
+}
+
 /**
  * The active workspace is ambient context: a cookie, defaulting to the first
  * workspace the account can see. The portfolio renders regardless of which one
@@ -21,8 +32,5 @@ export async function resolveActiveWorkspace(): Promise<{
     }
     throw error;
   }
-  const jar = await cookies();
-  const wanted = jar.get("harbor.workspace")?.value;
-  const active = workspaces.find((w) => w.id === wanted) ?? workspaces[0] ?? null;
-  return { workspaces, active };
+  return { workspaces, active: await pickActiveWorkspace(workspaces) };
 }

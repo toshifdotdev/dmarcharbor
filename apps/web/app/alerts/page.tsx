@@ -1,8 +1,10 @@
 import { listAlertEvents, listAlertRules, getWorkspaceEntitlements, listWorkspaceMembers } from "@/lib/api-ops";
 import { listClients } from "@/lib/api";
 import { resolveActiveWorkspace } from "@/lib/session";
-import type { AlertEventRow, WorkspaceMemberRow } from "@/lib/types";import { Shell } from "@/components/shell";
+import type { AlertEventRow, WorkspaceMemberRow } from "@/lib/types";
+import { Shell } from "@/components/shell";
 import { UpgradePrompt } from "@/components/upgrade-gate";
+import { EmptyState, ErrorState } from "@/components/data-states";
 import { AcknowledgeButton, AlertRuleActions, AlertRuleForm } from "@/components/alerts-client";
 
 export default async function AlertsPage() {
@@ -20,12 +22,18 @@ export default async function AlertsPage() {
   const spoofingEnabled = entitlements?.features["alerts.spoofing"] === true;
 
   const [clients, rules, events] = await Promise.all([
-    listClients(active.id).catch(() => []),
-    listAlertRules(active.id).catch(() => ({ items: [], hasMore: false, nextCursor: null })),
-    listAlertEvents(active.id).catch(() => ({ items: [], hasMore: false, nextCursor: null })),
+    // Three states, never two: a failed load must never render as "no alerts
+    // yet" — that is a lie that costs someone an afternoon.
+    listClients(active.id).catch(() => null),
+    listAlertRules(active.id).catch(() => null),
+    listAlertEvents(active.id).catch(() => null),
   ]);
+  const loadFailed = clients === null || rules === null || events === null;
+  const clientRows = clients ?? [];
+  const ruleRows = rules ? rules.items : [];
+  const eventRows = events ? events.items : [];
 
-  const domains = clients.flatMap((c) => c.domains.map((d) => ({ id: d.id, name: d.name })));
+  const domains = clientRows.flatMap((c) => c.domains.map((d) => ({ id: d.id, name: d.name })));
 
   const members = await fetchMembers(active.id);
 
@@ -75,14 +83,20 @@ export default async function AlertsPage() {
                 <header className="border-b px-5 py-3.5" style={{ borderColor: "var(--color-line)" }}>
                   <h2 className="text-[16.5px] font-semibold tracking-[-0.012em]">Rules</h2>
                 </header>
-                {rules.items.length === 0 ? (
-                  <p className="px-5 py-8 text-center text-[14px]" style={{ color: "var(--color-ink-3)" }}>
-                    No alert rules yet. Rules watch a measured condition and wake
-                    someone when it crosses the line.
-                  </p>
+                {loadFailed ? (
+                  <div className="p-5">
+                    <ErrorState what="the alert rules" detail="This is a connection or API problem, not an empty workspace." />
+                  </div>
+                ) : ruleRows.length === 0 ? (
+                  <div className="p-5">
+                    <EmptyState
+                      title="No alert rules yet"
+                      description="Rules watch a measured condition and wake someone when it crosses the line — a failed-message count, a report that stopped arriving, a source nobody recognised. Add the first rule on the left."
+                    />
+                  </div>
                 ) : (
                   <ul>
-                    {rules.items.map((r) => (
+                    {ruleRows.map((r) => (
                       <li
                         key={r.id}
                         className="flex flex-wrap items-baseline gap-x-4 gap-y-1.5 border-b px-5 py-3"
@@ -119,14 +133,20 @@ export default async function AlertsPage() {
               <header className="border-b px-5 py-3.5" style={{ borderColor: "var(--color-line)" }}>
                 <h2 className="text-[16.5px] font-semibold tracking-[-0.012em]">Events</h2>
               </header>
-              {events.items.length === 0 ? (
-                <p className="px-5 py-8 text-center text-[14px]" style={{ color: "var(--color-ink-3)" }}>
-                  No alert events. When a rule fires, the event appears here and
-                  escalates until it is acknowledged.
-                </p>
+              {loadFailed ? (
+                <div className="p-5">
+                  <ErrorState what="the alert events" detail="This is a connection or API problem, not a quiet workspace." />
+                </div>
+              ) : eventRows.length === 0 ? (
+                <div className="p-5">
+                  <EmptyState
+                    title="No alert events"
+                    description="When a rule fires, the event appears here and escalates until it is acknowledged. Silence here is only meaningful once a rule exists — until then nothing is watching."
+                  />
+                </div>
               ) : (
                 <ul>
-                  {events.items.map((e) => (
+                  {eventRows.map((e) => (
                     <EventRow key={e.id} organizationId={active.id} event={e} />
                   ))}
                 </ul>

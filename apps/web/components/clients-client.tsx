@@ -12,10 +12,12 @@
  * by matching the message.
  */
 
+import { ActionButton } from "@/components/action-button";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { EntitlementNotice } from "@/components/entitlement-gate";
 import { createClient, createDomain } from "@/lib/ops-client";
+import { onboardingHref } from "@/lib/route-hrefs";
 import type { ApiErrorBody } from "@/lib/types";
 
 function slugify(name: string): string {
@@ -108,15 +110,15 @@ export function CreateClientForm({ organizationId }: { organizationId: string })
         </Field>
       </div>
 
-      <button
+      <ActionButton
         type="submit"
-        disabled={busy || !name.trim()}
-        className="mt-4 rounded-[2px] px-5 py-2.5 text-[13.5px] font-semibold"
-        style={{ background: "var(--color-accent)", color: "var(--color-accent-ink)" }}
-        data-testid="create-client"
-      >
-        {busy ? "Creating…" : "Create client"}
-      </button>
+        label={"Create client"}
+        loadingLabel={"Creating…"}
+        busy={busy}
+        disabled={!name.trim()}
+        testId="create-client"
+        style={{ marginTop: 16 }}
+      />
     </form>
   );
 }
@@ -181,7 +183,7 @@ export function AddDomainForm({
         <p role="status" className="mt-3 text-[13px]" style={{ color: "var(--color-pass)" }}>
           Domain added.{" "}
           <a
-            href={`/onboarding/${createdId}`}
+            href={onboardingHref(createdId)}
             className="underline"
             style={{ color: "var(--color-ink)" }}
             data-testid="continue-setup"
@@ -204,15 +206,14 @@ export function AddDomainForm({
             />
           </Field>
         </div>
-        <button
+        <ActionButton
           type="submit"
-          disabled={busy || !name.trim()}
-          className="rounded-[2px] px-5 py-2.5 text-[13.5px] font-semibold"
-          style={{ background: "var(--color-accent)", color: "var(--color-accent-ink)" }}
-          data-testid="add-domain"
-        >
-          {busy ? "Adding…" : "Add domain"}
-        </button>
+          label={"Add domain"}
+          loadingLabel={"Adding…"}
+          busy={busy}
+          disabled={!name.trim()}
+          testId="add-domain"
+        />
       </div>
     </form>
   );

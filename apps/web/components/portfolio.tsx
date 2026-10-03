@@ -36,6 +36,7 @@ import {
   type ResolvedPosture,
 } from "@/lib/posture";
 import { PostureBadge } from "@/components/posture";
+import { domainHref } from "@/lib/route-hrefs";
 
 export type PortfolioRow = {
   client: ClientRow;
@@ -386,10 +387,10 @@ export function PortfolioGrid({ rows }: { rows: PortfolioRow[] }) {
                 <tr
                   key={row.id}
                   data-domain-id={row.original.domain.id}
-                  onClick={() => router.push(`/domains/${row.original.domain.id}`)}
+                  onClick={() => router.push(domainHref(row.original.domain.id))}
                   tabIndex={0}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") router.push(`/domains/${row.original.domain.id}`);
+                    if (e.key === "Enter") router.push(domainHref(row.original.domain.id));
                   }}
                   className="cursor-pointer transition-colors hover:bg-[var(--color-surface)]"
                   style={

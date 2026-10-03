@@ -17,17 +17,25 @@ import type {
   AlertEventRow,
   AlertRuleRow,
   ApiErrorBody,
+  ApiKeyRow,
   BillingStatus,
+  BillingCurrencyPreference,
   BrandingSettings,
   CheckoutRequest,
   CheckoutSummary,
   CreatedShare,
   DomainRow,
+  ErasureCreated,
+  ErasurePreview,
+  ErasureRequestRow,
+  ExportJob,
+  IssuedApiKey,
   PlanDefinition,
   ReportDigestRow,
   ReportInboxSettings,
   ReportShareRow,
   ResolvedEntitlements,
+  SlackDestination,
   SsoConnectionRow,
   VerifyDomainResult,
   WorkspaceMemberRow,
@@ -84,6 +92,16 @@ export function getWorkspaceEntitlements(
 
 export function getBillingStatus(organizationId: string): Promise<BillingStatus> {
   return opsFetch<BillingStatus>(`/api/workspaces/${organizationId}/billing`);
+}
+
+/** GET /billing/currency — the currency a workspace is quoted in and whether
+ *  it can still change. Default is INR until Paddle is approved. */
+export function getBillingCurrency(
+  organizationId: string,
+): Promise<BillingCurrencyPreference> {
+  return opsFetch<BillingCurrencyPreference>(
+    `/api/workspaces/${organizationId}/billing/currency`,
+  );
 }
 
 /** The full plan catalog with prices as integer minor units. The only source
@@ -266,6 +284,167 @@ export function deleteReportDigest(
 }
 
 // ─── settings: members, branding, mailbox, SSO ───────────────────────────────
+
+// ─── settings sections (Phase 6) ─────────────────────────────────────────────
+
+/** Slack alerts. The webhook URL NEVER comes back from the API — maskedUrl is
+ *  the host plus its last four characters. There is nothing to fetch to
+ *  populate an edit form: editing means the owner pastes a new URL, and the
+ *  PUT accepts it. */
+export function getSlackDestination(
+  organizationId: string,
+): Promise<SlackDestination | null> {
+  return opsFetch<SlackDestination | null>(
+    `/api/workspaces/${organizationId}/slack-destination`,
+  );
+}
+
+export function setSlackDestination(
+  organizationId: string,
+  body: { webhookUrl: string; channelLabel?: string | null },
+): Promise<SlackDestination> {
+  return opsFetch<SlackDestination>(
+    `/api/workspaces/${organizationId}/slack-destination`,
+    { method: "PUT", body: JSON.stringify(body) },
+  );
+}
+
+export function setSlackDestinationEnabled(
+  organizationId: string,
+  enabled: boolean,
+): Promise<void> {
+  return opsFetch<void>(`/api/workspaces/${organizationId}/slack-destination`, {
+    method: "PATCH",
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+export function deleteSlackDestination(organizationId: string): Promise<void> {
+  return opsFetch<void>(`/api/workspaces/${organizationId}/slack-destination`, {
+    method: "DELETE",
+  });
+}
+
+/** API keys. `key` appears in the create response EXACTLY ONCE — the list only
+ *  ever carries prefixes. */
+export function listApiKeys(
+  organizationId: string,
+): Promise<{ apiKeys: ApiKeyRow[] }> {
+  return opsFetch<{ apiKeys: ApiKeyRow[] }>(
+    `/api/workspaces/${organizationId}/api-keys`,
+  );
+}
+
+export function createApiKey(
+  organizationId: string,
+  body: {
+    name: string;
+    scopes: Array<"read" | "write">;
+    expiresInDays?: number;
+  },
+): Promise<IssuedApiKey> {
+  return opsFetch<IssuedApiKey>(`/api/workspaces/${organizationId}/api-keys`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function revokeApiKey(
+  organizationId: string,
+  keyId: string,
+): Promise<void> {
+  return opsFetch<void>(
+    `/api/workspaces/${organizationId}/api-keys/${keyId}`,
+    { method: "DELETE" },
+  );
+}
+
+/** Data export is a REQUEST: created first, then available at its downloadUrl
+ *  until it expires. */
+export function createExport(
+  organizationId: string,
+  body: {
+    scope: "ORGANIZATION" | "CLIENT" | "DOMAIN";
+    targetId?: string;
+    format: "JSON" | "CSV";
+  },
+): Promise<ExportJob> {
+  return opsFetch<ExportJob>(`/api/workspaces/${organizationId}/exports`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function listExports(organizationId: string): Promise<{
+  exports: ExportJob[];
+  linkDays: number;
+  recordRetentionDays: number;
+}> {
+  return opsFetch(`/api/workspaces/${organizationId}/exports`);
+}
+
+export function deleteExport(
+  organizationId: string,
+  exportId: string,
+): Promise<void> {
+  return opsFetch<void>(
+    `/api/workspaces/${organizationId}/exports/${exportId}`,
+    { method: "DELETE" },
+  );
+}
+
+/** Erasure is destructive and irreversible. The preview reports exactly what
+ *  a request would do before anything happens, and the request itself enters a
+ *  grace period (202, state PENDING) before deletion. */
+export function previewErasure(
+  organizationId: string,
+  scope: "ORGANIZATION" | "CLIENT" | "DOMAIN",
+  targetId?: string,
+): Promise<ErasurePreview> {
+  const q = targetId ? `&targetId=${encodeURIComponent(targetId)}` : "";
+  return opsFetch<ErasurePreview>(
+    `/api/workspaces/${organizationId}/erasures/preview?scope=${scope}${q}`,
+  );
+}
+
+export function createErasure(
+  organizationId: string,
+  body: {
+    scope: "ORGANIZATION" | "CLIENT" | "DOMAIN";
+    targetId?: string;
+    reason?: string;
+  },
+): Promise<ErasureCreated> {
+  return opsFetch<ErasureCreated>(`/api/workspaces/${organizationId}/erasures`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function listErasures(organizationId: string): Promise<{
+  requests: ErasureRequestRow[];
+  certificateRetentionDays: number;
+}> {
+  return opsFetch(`/api/workspaces/${organizationId}/erasures`);
+}
+
+export function cancelErasure(
+  organizationId: string,
+  erasureId: string,
+): Promise<void> {
+  return opsFetch<void>(
+    `/api/workspaces/${organizationId}/erasures/${erasureId}/cancel`,
+    { method: "POST" },
+  );
+}
+
+/** Manual mailbox poll — the scheduler runs this on its own; the route exists
+ *  so a just-configured mailbox can be tested now. */
+export function pollReportInbox(organizationId: string): Promise<unknown> {
+  return opsFetch(`/api/workspaces/${organizationId}/report-inbox/poll`, {
+    method: "POST",
+  });
+}
 
 export function listWorkspaceMembers(
   organizationId: string,

@@ -12,6 +12,7 @@
  * exist and lapsed is FAILED.
  */
 
+import { ActionButton } from "@/components/action-button";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { verifyDomain } from "@/lib/ops-client";
@@ -79,8 +80,10 @@ export function VerifyControls({
                 </dd>
               </dl>
             </div>
-            <button
-              type="button"
+            <ActionButton
+              label={copied ? "copied" : "copy value"}
+              loadingLabel="Copying…"
+              busy={false}
               onClick={async () => {
                 try {
                   await navigator.clipboard.writeText(record.value);
@@ -90,38 +93,32 @@ export function VerifyControls({
                   setCopied(false);
                 }
               }}
-              className="mt-2 rounded-[2px] border px-3 py-1.5 text-[12px]"
-              style={{ borderColor: "var(--color-line-strong)", color: "var(--color-ink-2)" }}
-              data-testid="copy-ownership"
-            >
-              {copied ? "copied" : "copy value"}
-            </button>
+              variant="ghost"
+              testId="copy-ownership"
+              style={{ marginTop: 8, alignSelf: "flex-start", padding: "6px 12px", fontSize: "12px" }}
+            />
           </div>
 
           <LookupStatus verification={record} published={published} />
 
-          <button
-            type="button"
+          <ActionButton
+            label={result ? "Re-check DNS" : "Check DNS"}
+            loadingLabel="Checking DNS…"
+            busy={busy}
             onClick={check}
-            disabled={busy}
-            className="self-start rounded-[2px] px-5 py-2.5 text-[13.5px] font-semibold"
-            style={{ background: "var(--color-accent)", color: "var(--color-accent-ink)" }}
-            data-testid="verify-domain"
-          >
-            {busy ? "Checking DNS…" : result ? "Re-check DNS" : "Check DNS"}
-          </button>
+            testId="verify-domain"
+            style={{ alignSelf: "flex-start" }}
+          />
         </>
       ) : (
-        <button
-          type="button"
+        <ActionButton
+          label="Show record & check DNS"
+          loadingLabel="Checking DNS…"
+          busy={busy}
           onClick={check}
-          disabled={busy}
-          className="self-start rounded-[2px] px-5 py-2.5 text-[13.5px] font-semibold"
-          style={{ background: "var(--color-accent)", color: "var(--color-accent-ink)" }}
-          data-testid="verify-domain"
-        >
-          {busy ? "Checking DNS…" : "Show record & check DNS"}
-        </button>
+          testId="verify-domain"
+          style={{ alignSelf: "flex-start" }}
+        />
       )}
 
       {error ? (

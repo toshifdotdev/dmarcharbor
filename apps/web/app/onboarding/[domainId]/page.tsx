@@ -248,6 +248,25 @@ export default async function OnboardingPage({
                       </div>
                       <div className="mt-1 text-[12px] leading-relaxed" style={{ color: "var(--color-ink-2)" }}>
                         {s.detail}
+                        {/* The rua=https thread: a domain whose reports go to a
+                            web endpoint is fixed by collecting from a mailbox —
+                            so the step points at that section rather than
+                            leaving the operator to find it. */}
+                        {s.id === "aggregate_reporting" &&
+                        s.status !== "done" &&
+                        s.detail.includes("web endpoint") ? (
+                          <>
+                            {" "}
+                            <Link
+                              href="/settings/mailbox"
+                              className="underline"
+                              style={{ color: "var(--color-ink)" }}
+                              data-testid="rua-mailbox-link"
+                            >
+                              Set up the report mailbox →
+                            </Link>
+                          </>
+                        ) : null}
                       </div>
                     </div>
                   </div>

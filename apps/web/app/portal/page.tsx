@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getPortalOverview, PortalError } from "@/lib/api-portal";
+import { portalDomainHref } from "@/lib/route-hrefs";
 import { PortalDenied } from "@/components/portal-denied";
 
 /**
@@ -118,7 +119,7 @@ export default async function PortalPage() {
                 {client.domains.map((d) => (
                   <li key={d.id}>
                     <Link
-                      href={`/portal/domain/${d.id}`}
+                      href={portalDomainHref(d.id)}
                       className="flex flex-wrap items-baseline gap-x-5 gap-y-1 border-b py-4 transition-colors"
                       style={{ borderColor: "var(--line)" }}
                     >

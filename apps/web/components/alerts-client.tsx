@@ -17,6 +17,7 @@
  * is labelled so a stopped feed reads as silence, not health.
  */
 
+import { ActionButton } from "@/components/action-button";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { EntitlementNotice } from "@/components/entitlement-gate";
@@ -221,14 +222,14 @@ export function AlertRuleForm({
         </p>
       ) : null}
 
-      <button
+      <ActionButton
         type="submit"
-        disabled={busy || !domainId}
-        className="mt-1 rounded-[2px] px-5 py-2.5 text-[14.5px] font-semibold"
-        style={{ background: "var(--color-accent)", color: "var(--color-accent-ink)" }}
-      >
-        {busy ? "Creating…" : "Create alert rule"}
-      </button>
+        label={"Create alert rule"}
+        loadingLabel={"Creating…"}
+        busy={busy}
+        disabled={!domainId}
+        style={{ marginTop: 4 }}
+      />
     </form>
   );
 }

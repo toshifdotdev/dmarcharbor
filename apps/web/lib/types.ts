@@ -264,6 +264,197 @@ export interface AuthProviders {
   microsoft: boolean;
 }
 
+// ─── settings sections (Phase 6) ─────────────────────────────────────────────
+
+/** GET /slack-destination — null before one is configured. The webhook URL
+ *  NEVER comes back: maskedUrl is the host plus its last four characters, and
+ *  there is nothing to fetch to populate an edit form. Editing means the owner
+ *  pastes a new URL. */
+export interface SlackDestination {
+  channelLabel: string | null;
+  enabled: boolean;
+  maskedUrl: string;
+  lastDeliveredAt: string | null;
+  /** Surfaced so a broken webhook is visible before anyone wonders why alerts
+   *  went quiet. */
+  consecutiveFailures: number;
+  lastError: string | null;
+}
+
+export interface ApiKeyRow {
+  id: string;
+  name: string;
+  /** Display prefix only — enough to tell keys apart, never a secret. */
+  prefix: string;
+  scopes: Array<"read" | "write">;
+  lastUsedAt: string | null;
+  lastUsedIp: string | null;
+  revokedAt: string | null;
+  expiresAt?: string | null;
+}
+
+/** POST /api-keys — `key` is returned EXACTLY ONCE and cannot be retrieved
+ *  again; only its prefix survives for display. */
+export interface IssuedApiKey {
+  id: string;
+  name: string;
+  prefix: string;
+  key: string;
+  scopes: Array<"read" | "write">;
+  expiresAt: string;
+  notice?: string;
+}
+
+/** An export is a REQUEST that is prepared, then available — not an instant
+ *  download. */
+export interface ExportJob {
+  id: string;
+  scope: "ORGANIZATION" | "CLIENT" | "DOMAIN";
+  targetId: string | null;
+  format: "JSON" | "CSV";
+  state: string;
+  downloadUrl?: string;
+  token?: string;
+  expiresAt: string;
+  createdAt?: string;
+  revokedAt?: string | null;
+}
+
+export interface PlannedAction {
+  key: string;
+  label: string;
+  count: number;
+  action: "delete" | "anonymize" | "retain";
+  reason: string;
+  basis: string;
+  containsPersonalData: boolean;
+}
+
+/** GET /erasures/preview — what an erasure would do, before it does anything. */
+export interface ErasurePreview {
+  scope: "ORGANIZATION" | "CLIENT" | "DOMAIN";
+  scopeLabel: string;
+  plan: string;
+  actions: PlannedAction[];
+  totals: {
+    personalDataRecords: number;
+    recordsDeleted: number;
+    recordsAnonymised: number;
+    evidenceRetained: number;
+  };
+  executeAfter?: string;
+}
+
+export interface ErasureRequestRow {
+  id: string;
+  scope: "ORGANIZATION" | "CLIENT" | "DOMAIN";
+  targetId: string | null;
+  reason: string | null;
+  state: "PENDING" | "EXECUTED" | "CANCELLED" | string;
+  purgeAfter: string;
+  createdAt?: string;
+  requestedById?: string | null;
+  certificate?: unknown;
+}
+
+/** POST /erasures → 202: a destructive request enters a grace period before
+ *  anything is deleted. */
+export interface ErasureCreated {
+  id: string;
+  state: "PENDING";
+  purgeAfter: string;
+  preview: ErasurePreview;
+}
+
+// ─── billing state (Phase 7) ─────────────────────────────────────────────────
+
+/** One named overage line in a refused downgrade, straight from error.overage —
+ *  rendered as rows, never regexed out of the message. The wire format is
+ *  final and FLAT: { error: { code, message, overage, from, to } } — there is
+ *  no nested detail object. */
+export interface PlanOverageRow {
+  quota: string;
+  label: string;
+  used: number;
+  limit: number;
+  by: number;
+}
+
+/** The plan that applies when the current period ends. Distinct from the
+ *  current plan — a customer with both sees them side by side. Robust to the
+ *  source's `StoredBillingInterval` spelling: the UI displays whatever the
+ *  API reports, lowercased, and never invents an effectiveAt it cannot source. */
+export interface PendingPlan {
+  plan: string;
+  interval: string;
+  /** Genuinely nullable — read it, never format it when null. */
+  effectiveAt: string | null;
+}
+
+/** NONE | WARNED | WITHDRAWN. Final, per the API — not a spelling to be
+ *  tolerant of. Any non-NONE value means payment recovery is in progress. */
+export type DunningStage = "NONE" | "WARNED" | "WITHDRAWN";
+
+// ─── sessions (Phase 7) ──────────────────────────────────────────────────────
+
+/** GET /api/me/sessions — account level, not workspace. */
+export interface SessionRow {
+  id: string;
+  current: boolean;
+  createdAt: string;
+  expiresAt: string;
+  ipAddress: string;
+  userAgent: string;
+}
+
+// ─── compliance packs & trust center (Phase 7) ───────────────────────────────
+
+/** Issued packs for a client, newest first. */
+export interface CompliancePackRow {
+  id: string;
+  hash: string;
+  issuedAt: string;
+  asOf: string;
+  superseded: boolean;
+  documentVersion: string;
+}
+
+/** POST compliance-packs streams the PDF; these travel in its headers. */
+export interface IssuedPackHeaders {
+  reference: string;
+  sha256: string;
+}
+
+// ─── public share report (Phase 7) ───────────────────────────────────────────
+
+/** GET /api/reports/share/:token — the payload a share page renders. Scoped to
+ *  the share by the server; nothing in the UI may reach beyond it. */
+export interface PublicShareReport {
+  sharedFor: { organization: string; client: string; domain: string };
+  generatedAt: string;
+  expiresAt: string;
+  policy: { published: string | null; reportingConfigured: boolean; recommended: string };
+  health: {
+    score: number | null;
+    passRatePercent: number | null;
+    messagesObserved: number;
+    daysObserved: number;
+  };
+  reporting: { reportsReceived: number; lastReportAt: string | null; daysSinceLastReport: number | null };
+  activity: {
+    dailyReports: { date: string; reports: number; messages: number }[];
+    spikes: unknown[];
+  };
+  sources: Array<{
+    sourceIp: string;
+    failedMessages: number;
+    totalMessages: number;
+    risk: string;
+    topSendingDomain: string | null;
+  }>;
+  forensic: { included: boolean; reportCount: number; rejectedMessages: number; affectedRecipients: number } | null;
+}
+
 export interface ReportRow {
   id: string;
   receivedAt: string;
@@ -355,6 +546,19 @@ export interface BillingStatus {
   cancelAtPeriodEnd: boolean;
   priceLabel: string;
   currency: "USD" | "INR";
+  /**
+   * The plan that applies when the current period ends — distinct from the
+   * current plan, shown side by side. Null means nothing is scheduled. While
+   * the field is landing, `undefined` renders the spot without asserting
+   * anything, and never a client-side guess.
+   */
+  pendingPlan?: PendingPlan | null;
+  /** NONE | WARNING | WITHDRAWING — how far payment recovery has gone. */
+  dunningStage?: DunningStage;
+  /** Non-null means the workspace is still working during payment recovery:
+   *  say how long is left, because this is the state people email support
+   *  about instead of fixing their card. */
+  graceEnds?: string | null;
 }
 
 export type AlertMetric =
@@ -447,19 +651,35 @@ export interface SsoConnectionRow {
   label: string;
   protocol: "SAML" | "OIDC";
   issuer: string;
+  entryPoint: string;
+  clientId: string;
   provisioning: "JIT" | "DISABLED";
-  allowedEmailDomains: string[];
   defaultRole: "analyst" | "viewer" | "admin";
-  /** The callback URL the customer's identity provider needs. Comes from the
-   *  connection — never constructed in the UI. */
-  callbackUrl?: string;
+  enabled: boolean;
+  /** The allowlist of verified email domains a connection is gated on —
+   *  surfaced because a connection that silently refuses everyone looks like a
+   *  broken feature. */
+  allowedEmailDomains: string[];
+  createdAt: string;
 }
 
 export interface CheckoutRequest {
   plan: string;
   interval: "monthly" | "annual";
-  currency: "USD" | "INR";
+  /** Optional by contract: the API falls back to the stored preference when the
+   *  request omits it, so a form that forgets the field cannot quote one
+   *  currency and charge another. */
+  currency?: "USD" | "INR";
   contact: { name: string; email: string; taxId?: string | null };
+}
+
+/** GET /billing/currency — the currency a workspace is quoted in, and whether
+ *  it can still change. `reason` is the explanation field; never parse the
+ *  message for it. */
+export interface BillingCurrencyPreference {
+  preferredCurrency: "USD" | "INR";
+  locked: boolean;
+  reason: string | null;
 }
 
 export interface CheckoutSummary {
@@ -630,5 +850,12 @@ export interface ApiErrorBody {
     planLabel?: string;
     requiredIn?: string;
     upgradeTo?: string;
+    /** PLAN_CHANGE_OVER_QUOTA carries named overages directly on the error —
+     *  the wire format is flat ({ error: { code, message, overage, from, to } }),
+     *  rendered as rows. The message stays the headline, and nothing is ever
+     *  regexed out of a sentence. */
+    overage?: PlanOverageRow[];
+    from?: string;
+    to?: string;
   };
 }

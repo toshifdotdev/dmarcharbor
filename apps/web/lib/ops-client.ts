@@ -12,7 +12,15 @@
  * absent: no user can reach them and no screen needs them.
  */
 
-import type { ApiErrorBody, VerifyDomainResult } from "./types";
+import type {
+  ApiErrorBody,
+  BillingCurrencyPreference,
+  ErasureCreated,
+  ExportJob,
+  IssuedApiKey,
+  SlackDestination,
+  VerifyDomainResult,
+} from "./types";
 
 export type OpsResult<T> =
   | { ok: true; data: T }
@@ -32,12 +40,28 @@ async function call<T>(
     const text = await res.text();
     const body = text ? JSON.parse(text) : null;
     if (!res.ok) {
+      // Most endpoints nest their error under `error` (the contract shape), but
+      // Slack's controller flattens it: { error: "message", code: … }. A
+      // helpful message must survive either shape, or the UI would show
+      // "undefined" where the API said exactly what was wrong.
+      const nested = (body as ApiErrorBody)?.error;
+      const flattened =
+        nested && typeof nested === "object"
+          ? nested
+          : {
+              message: typeof (body as { error?: unknown })?.error === "string"
+                ? ((body as { error: string }).error)
+                : `Request failed (${res.status})`,
+              code: (body as { code?: string })?.code,
+            };
+      // A refusal like PLAN_CHANGE_OVER_QUOTA carries structured numbers. The
+      // wire format is final and FLAT: overage/from/to live directly on the
+      // error object ({ error: { code, message, overage, from, to } }) — no
+      // nested detail, so the rows land where the controller puts them.
       return {
         ok: false,
         status: res.status,
-        error: (body as ApiErrorBody)?.error ?? {
-          message: `Request failed (${res.status})`,
-        },
+        error: flattened,
       };
     }
     return { ok: true, data: body as T };
@@ -272,6 +296,130 @@ export const createReportShare = (
 export const revokeReportShare = (orgId: string, shareId: string) =>
   call<void>(wsPath(orgId, `/report-shares/${shareId}`), { method: "DELETE" });
 
+// ─── settings: Slack (Phase 6) ───────────────────────────────────────────────
+
+export const getSlackDestination = (orgId: string) =>
+  call<SlackDestination | null>(wsPath(orgId, "/slack-destination"));
+
+export const putSlackDestination = (
+  orgId: string,
+  body: { webhookUrl: string; channelLabel?: string | null },
+) =>
+  call<SlackDestination>(wsPath(orgId, "/slack-destination"), {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+
+export const patchSlackDestinationEnabled = (orgId: string, enabled: boolean) =>
+  call<void>(wsPath(orgId, "/slack-destination"), {
+    method: "PATCH",
+    body: JSON.stringify({ enabled }),
+  });
+
+export const deleteSlackDestination = (orgId: string) =>
+  call<void>(wsPath(orgId, "/slack-destination"), { method: "DELETE" });
+
+// ─── settings: API keys (Phase 6) ────────────────────────────────────────────
+
+export const createApiKeyClient = (
+  orgId: string,
+  body: { name: string; scopes: Array<"read" | "write">; expiresInDays?: number },
+) =>
+  call<IssuedApiKey>(wsPath(orgId, "/api-keys"), {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const revokeApiKeyClient = (orgId: string, keyId: string) =>
+  call<void>(wsPath(orgId, `/api-keys/${keyId}`), { method: "DELETE" });
+
+// ─── settings: export & erasure (Phase 6) ────────────────────────────────────
+
+export const createExportJob = (
+  orgId: string,
+  body: { scope: "ORGANIZATION" | "CLIENT" | "DOMAIN"; targetId?: string; format: "JSON" | "CSV" },
+) =>
+  call<ExportJob>(wsPath(orgId, "/exports"), {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const revokeExportJob = (orgId: string, exportId: string) =>
+  call<void>(wsPath(orgId, `/exports/${exportId}`), { method: "DELETE" });
+
+export const requestErasureJob = (
+  orgId: string,
+  body: { scope: "ORGANIZATION" | "CLIENT" | "DOMAIN"; targetId?: string; reason?: string },
+) =>
+  call<ErasureCreated>(wsPath(orgId, "/erasures"), {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const cancelErasureJob = (orgId: string, erasureId: string) =>
+  call<void>(wsPath(orgId, `/erasures/${erasureId}/cancel`), { method: "POST" });
+
+export const pollInboxNow = (orgId: string) =>
+  call<unknown>(wsPath(orgId, "/report-inbox/poll"), { method: "POST" });
+
+// ─── sessions (account level) (Phase 7) ─────────────────────────────────────
+
+export const revokeSession = (sessionId: string) =>
+  call<void>(`/api/me/sessions/${sessionId}`, { method: "DELETE" });
+
+/** The lost-laptop action: every other session, this one spared. */
+export const revokeOtherSessions = () =>
+  call(`/api/me/sessions/revoke-others`, { method: "POST" });
+
+/** The deliberate nuke — INCLUDING this device. Confirm in the UI first. */
+export const revokeAllSessions = () =>
+  call<void>(`/api/me/sessions/revoke-all`, { method: "POST" });
+
+// ─── compliance packs (Phase 7) ─────────────────────────────────────────────
+
+/**
+ * Issues a pack: the response IS the PDF and the fingerprint travels in its
+ * headers. Returns both so the caller can present the SHA-256 as the primary
+ * artefact and hand the PDF to the browser — the fingerprint is the claim that
+ * goes in the email, the file is what it fingerprints.
+ */
+export async function issueCompliancePack(
+  orgId: string,
+  clientId: string,
+): Promise<
+  | { ok: true; data: { bytes: Blob; reference: string; sha256: string; filename: string } }
+  | { ok: false; status: number; error: ApiErrorBody["error"] }
+> {
+  try {
+    const res = await fetch(wsPath(orgId, `/clients/${clientId}/compliance-packs`), {
+      method: "POST",
+      credentials: "include",
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      const body = text ? (JSON.parse(text) as ApiErrorBody) : null;
+      return {
+        ok: false,
+        status: res.status,
+        error: body?.error ?? { message: `Request failed (${res.status})` },
+      };
+    }
+    const disposition = res.headers.get("content-disposition") ?? "";
+    const filenameMatch = disposition.match(/filename="([^"]+)"/);
+    return {
+      ok: true,
+      data: {
+        bytes: await res.blob(),
+        reference: res.headers.get("x-dmarc-pack-reference") ?? "",
+        sha256: res.headers.get("x-dmarc-pack-sha256") ?? "",
+        filename: filenameMatch?.[1] ?? `dmarc-compliance-${Date.now()}.pdf`,
+      },
+    };
+  } catch {
+    return { ok: false, status: 0, error: { message: "The request could not be sent." } };
+  }
+}
+
 // ─── billing ─────────────────────────────────────────────────────────────────
 
 export const startCheckout = (
@@ -289,7 +437,7 @@ export const startCheckout = (
 
 export const changeBillingPlan = (
   orgId: string,
-  body: { plan: string },
+  body: { plan: string; interval?: "monthly" | "annual" },
 ) => call(wsPath(orgId, "/billing/plan"), { method: "PATCH", body: JSON.stringify(body) });
 
 export const cancelSubscription = (orgId: string) =>
@@ -300,3 +448,12 @@ export const resumeSubscription = (orgId: string) =>
 
 export const openBillingPortal = (orgId: string) =>
   call<{ url: string }>(wsPath(orgId, "/billing/portal"), { method: "POST" });
+
+/** PATCH /billing/currency — sets the currency a future checkout charges.
+ *  Refused with CURRENCY_LOCKED (409) once a payment exists; the reason travels
+ *  on the error and is shown as the explanation, never parsed from a message. */
+export const setBillingCurrency = (orgId: string, currency: "USD" | "INR") =>
+  call<BillingCurrencyPreference>(wsPath(orgId, "/billing/currency"), {
+    method: "PATCH",
+    body: JSON.stringify({ currency }),
+  });

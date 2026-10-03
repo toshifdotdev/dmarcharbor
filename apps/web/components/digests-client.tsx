@@ -16,6 +16,7 @@
  * and portal contacts never receive it.
  */
 
+import { ActionButton } from "@/components/action-button";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { EntitlementNotice } from "@/components/entitlement-gate";
@@ -183,14 +184,14 @@ export function DigestForm({
         </span>
       </label>
 
-      <button
+      <ActionButton
         type="submit"
-        disabled={busy || !domainId || recipients.length === 0 || recipients.length > 20}
-        className="mt-1 rounded-[2px] px-5 py-2.5 text-[14.5px] font-semibold"
-        style={{ background: "var(--color-accent)", color: "var(--color-accent-ink)" }}
-      >
-        {busy ? "Creating…" : "Create digest"}
-      </button>
+        label={"Create digest"}
+        loadingLabel={"Creating…"}
+        busy={busy}
+        disabled={!domainId || recipients.length === 0 || recipients.length > 20}
+        style={{ marginTop: 4 }}
+      />
     </form>
   );
 }

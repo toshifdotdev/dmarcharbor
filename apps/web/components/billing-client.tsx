@@ -13,7 +13,7 @@
  * ever implies GDPR rights are a paid feature.
  */
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { featureGroup, featureLabel } from "@/lib/feature-label";
 import { currencySymbol, formatMinor } from "@/lib/money";
@@ -33,7 +33,9 @@ export function PlanPicker({
   currentPlan,
   currency,
   status,
+  provider,
   cancelAtPeriodEnd,
+  account,
 }: {
   organizationId: string;
   plans: PlanDefinition[];
@@ -41,7 +43,15 @@ export function PlanPicker({
   currentPlan: string;
   currency: "USD" | "INR";
   status: string;
+  /** The billing provider of the existing subscription — "NONE" until a
+   *  payment exists. Plan change needs a real provider subscription; without
+   *  one the API refuses and the only honest path is checkout. */
+  provider: string;
   cancelAtPeriodEnd: boolean;
+  /** The signed-in account, read server-side (lib/api-phase7 is server-only).
+   *  The checkout contact is this — the API validates name (min 2) and a real
+   *  email, so an empty payload is a guaranteed 400. */
+  account: { name: string; email: string } | null;
 }) {
   const router = useRouter();
   const [interval, setInterval] = useState<"monthly" | "annual">("monthly");
@@ -85,14 +95,33 @@ export function PlanPicker({
     setNote(null);
     const price: PlanPriceMinor = plan.prices[currency];
     const isFree = price.monthlyMinor === 0 && price.annualMinor === 0;
+    // A plan change only makes sense against a real provider subscription —
+    // the API answers "This workspace has no subscription to change" without
+    // one. A workspace that has never paid buys through checkout like any new
+    // customer; routing it to plan-change made the first purchase impossible.
+    const hasPaidSubscription = provider !== "NONE";
 
-    if (isFree || (currentPlan !== plan.tier && status !== "NONE")) {
-      // Moving between existing plans is a plan change, not a checkout.
-      const res = await changeBillingPlan(organizationId, { plan: plan.tier });
+    if (isFree || (currentPlan !== plan.tier && hasPaidSubscription)) {
+      // Moving between existing plans is a plan change, not a checkout. The
+      // API schedules it at the end of the current period for BOTH directions
+      // (provider-side schedule_change_at: cycle_end), so the copy says what
+      // the product does: nothing is lost today, the new plan applies when the
+      // period ends. "Immediate upgrade" is not something the API can deliver
+      // for an active subscription today — claiming it would earn the
+      // chargeback the wording exists to prevent.
+      const res = await changeBillingPlan(organizationId, {
+        plan: plan.tier,
+        interval,
+      });
       setBusyPlan(null);
       if (!res.ok) setError(res.error);
       else {
-        setNote("Plan changed. The workspace now carries this plan's limits.");
+        const scheduled = plan.tier === "MOORING" ? "cancelling" : "scheduled";
+        setNote(
+          scheduled === "cancelling"
+            ? "Cancellation scheduled. Your workspace keeps everything it has until the period you already paid for ends."
+            : `Plan change scheduled. Your current plan stays as it is until your current period ends, then ${plan.label} applies — you keep what you paid for until then.`,
+        );
         router.refresh();
       }
       return;
@@ -102,7 +131,7 @@ export function PlanPicker({
       plan: plan.tier,
       interval,
       currency,
-      contact: { name: "", email: "" },
+      contact: account ?? { name: "", email: "" },
     });
     setBusyPlan(null);
     if (!res.ok) {
@@ -144,14 +173,54 @@ export function PlanPicker({
       </div>
 
       {error ? (
-        <p
+        <div
           role="alert"
-          data-feature={error.feature ?? ""}
-          className="text-[15px]"
-          style={{ color: "var(--color-block)" }}
+          data-testid="plan-change-error"
+          className="flex flex-col gap-3 rounded-[2px] border px-4 py-3.5"
+          style={{
+            borderColor: "var(--color-block)",
+            background: "var(--color-block-soft)",
+          }}
         >
-          {error.message}
-        </p>
+          {/* The API's own message is the headline. The named overages arrive
+              directly on the error (the flat wire shape) and render as rows —
+              never regexed out of the sentence. */}
+          <p className="text-[14.5px]" style={{ color: "var(--color-block)" }}>
+            {error.message}
+          </p>
+          {error.overage && error.overage.length > 0 ? (
+            <ul
+              className="flex flex-col gap-1.5 border-t pt-2.5"
+              style={{ borderColor: "var(--color-line-strong)" }}
+            >
+              {error.overage.map((o) => (
+                <li
+                  key={o.quota}
+                  data-testid={`overage-row-${o.quota}`}
+                  className="num flex flex-wrap items-baseline gap-x-3 text-[12px]"
+                  style={{ color: "var(--color-ink-2)" }}
+                >
+                  <span style={{ color: "var(--color-ink)" }}>{o.label}</span>
+                  <span>
+                    {o.used} of {o.limit} used
+                  </span>
+                  <span style={{ color: "var(--color-block)" }}>{o.by} over</span>
+                  <span style={{ color: "var(--color-ink-3)" }}>
+                    — remove {o.by} {o.label === "members" ? "member" : o.label.replace(/s$/, "")}
+                    {o.by === 1 ? "" : "s"} to move to this plan
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {error.overage && error.overage.length > 0 ? (
+            <p className="text-[12px]" style={{ color: "var(--color-ink-3)" }}>
+              A downgrade takes effect at the end of the period you have already
+              paid for — nothing is lost today. Your current plan stays as it is
+              until you remove the excess or choose to keep it.
+            </p>
+          ) : null}
+        </div>
       ) : null}
       {note ? (
         <p role="status" className="text-[14.5px]" style={{ color: "var(--color-pass)" }}>
@@ -312,8 +381,13 @@ export function PlanPicker({
           </thead>
           <tbody>
             {featureGroups.map(({ group, keys }) => (
-              <>
-                <tr key={`grp-${group}`}>
+              // The group name is the key: it is unique per group and it is
+              // what identifies the row to React. Groups are filtered by plan,
+              // so an index key would make React reuse the wrong rows when the
+              // plan changes — a comparison table whose rows do not match the
+              // plan on screen.
+              <Fragment key={group}>
+                <tr>
                   <td
                     colSpan={ordered.length + 1}
                     className="label border-b px-5 pb-1.5 pt-4"
@@ -342,7 +416,7 @@ export function PlanPicker({
                     ))}
                   </tr>
                 ))}
-              </>
+              </Fragment>
             ))}
           </tbody>
         </table>
