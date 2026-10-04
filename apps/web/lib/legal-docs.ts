@@ -56,7 +56,7 @@ export const LEGAL_DOCS: LegalDoc[] = [
     title: "Terms of Service",
     version: "1.0-draft",
     effectiveDate: "to be set at launch",
-    sourceFile: "TERMS.md",
+    sourceFile: "TERMS-OF-SERVICE.md",
     placeholder: [
       "The full text of these terms is being finalised and will be published here before launch. This page exists so that the acceptance record on checkout can point at a specific document version.",
     ],
@@ -85,7 +85,7 @@ export const LEGAL_DOCS: LegalDoc[] = [
     title: "Refund Policy",
     version: "1.0-draft",
     effectiveDate: "to be set at launch",
-    sourceFile: "REFUNDS.md",
+    sourceFile: "REFUND-POLICY.md",
     placeholder: [
       "The full text of the refund policy is being finalised and will be published here before launch. It is linked from the billing page because that is where the question arises.",
     ],
@@ -103,7 +103,7 @@ export const LEGAL_DOCS: LegalDoc[] = [
     title: "Acceptable Use Policy",
     version: "1.0-draft",
     effectiveDate: "to be set at launch",
-    sourceFile: "ACCEPTABLE-USE.md",
+    sourceFile: "ACCEPTABLE-USE-POLICY.md",
     placeholder: [
       "The full text of the acceptable use policy is being finalised and will be published here before launch.",
     ],
@@ -137,7 +137,7 @@ export const LEGAL_DOCS: LegalDoc[] = [
     title: "Complaint Policy",
     version: "1.0-draft",
     effectiveDate: "to be set at launch",
-    sourceFile: "COMPLAINTS.md",
+    sourceFile: "COMPLAINT-POLICY.md",
     placeholder: [
       "The full complaint policy is being finalised and will be published here before launch. It exists as its own page because our payment processor requires a complaint route that is reachable without an account.",
     ],
@@ -149,6 +149,16 @@ export const LEGAL_DOCS: LegalDoc[] = [
           `If you paid through Paddle, you can also raise a complaint through Paddle's own dispute process: Paddle is the Merchant of Record for those orders.`,
         ],
       },
+    ],
+  },
+  {
+    slug: "cookies",
+    title: "Cookie Policy",
+    version: "1.0-draft",
+    effectiveDate: "to be set at launch",
+    sourceFile: "COOKIE-POLICY.md",
+    placeholder: [
+      "The cookie policy is being finalised and will be published here before launch.",
     ],
   },
 ];

@@ -83,21 +83,29 @@ export async function LegalDocView({ slug }: { slug: string }) {
           </p>
         ) : null}
 
-        {doc.required?.map((section) => (
-          <section key={section.heading} className="mt-6">
-            <h2
-              className="text-[19px] font-semibold tracking-[-0.02em]"
-              style={{ fontFamily: "var(--font-display)", color: "var(--color-ink)" }}
-            >
-              {section.heading}
-            </h2>
-            {section.paragraphs.map((paragraph) => (
-              <p key={paragraph} className="mt-3 text-[13.5px] leading-[1.8]" style={{ color: "var(--color-ink-2)" }}>
-                {paragraph}
-              </p>
-            ))}
-          </section>
-        ))}
+        {/* The required sections are the floor that must exist while the
+            supplied text has not landed. Once the file renders, it is the
+            authoritative document and carries its own clauses: rendering both
+            would duplicate the mandated paragraph and put two different entity
+            placeholders on one page. The harness asserts the mandated Paddle
+            paragraph is present on the rendered page either way. */}
+        {body.kind === "placeholder"
+          ? doc.required?.map((section) => (
+              <section key={section.heading} className="mt-6">
+                <h2
+                  className="text-[19px] font-semibold tracking-[-0.02em]"
+                  style={{ fontFamily: "var(--font-display)", color: "var(--color-ink)" }}
+                >
+                  {section.heading}
+                </h2>
+                {section.paragraphs.map((paragraph) => (
+                  <p key={paragraph} className="mt-3 text-[13.5px] leading-[1.8]" style={{ color: "var(--color-ink-2)" }}>
+                    {paragraph}
+                  </p>
+                ))}
+              </section>
+            ))
+          : null}
 
         <div className="mt-6">
           <LegalMarkdown markdown={body.text} />

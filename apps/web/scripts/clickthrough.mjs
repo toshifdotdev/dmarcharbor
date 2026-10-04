@@ -1552,8 +1552,11 @@ await waitForEval(`!!document.querySelector('[data-testid="key-issued"]')`, (v) 
 const keyIssued = await evalJs(
   `document.querySelector('[data-testid="key-issued"]')?.textContent ?? ''`,
 );
-// The full key (prefix_SECRET), not the prefix the list keeps showing.
-const fullKey = keyIssued.match(/dmh_[A-Za-z0-9]+_[A-Za-z0-9_-]+/)?.[0] ?? "";
+// The full key (prefix_SECRET), not the prefix the list keeps showing. The
+// secret is base64url, so both segments can carry - and _: a regex that
+// excludes them silently matches nothing and the check fails on a working
+// product. Proven with the real format: dmh_ab12-x_y_ZZsecret99.
+const fullKey = keyIssued.match(/dmh_[A-Za-z0-9_-]{20,}/)?.[0] ?? "";
 const shownOnceText = keyIssued.toLowerCase().includes("shown once") && fullKey.length > 0;
 await evalJs(`(() => { const b = document.querySelector('[data-testid="key-dismiss"]'); if (b) b.click(); return true; })()`);
 await waitForEval(`!document.querySelector('[data-testid="key-issued"]')`, (v) => v === true, 15000);
@@ -2274,9 +2277,20 @@ const homeLinks = await evalJs(
   `[...new Set([...document.querySelectorAll('a[href]')].map(a => a.getAttribute('href')).filter(h => h && h.startsWith('/')))]`,
 );
 let deadLinks = [];
+// A route that has never been compiled in dev answers slowly the first time;
+// a single fetch that gives up is not evidence a link is dead. Retry once
+// before calling it: /cookies returned 0 on first hit and 200 on the second.
+async function routeStatus(href) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await fetch(WEB + href, { redirect: "manual", signal: AbortSignal.timeout(60_000) }).catch(() => null);
+    const status = res ? res.status : 0;
+    if (status !== 0) return status;
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  return 0;
+}
 for (const href of homeLinks ?? []) {
-  const res = await fetch(WEB + href, { redirect: "manual", signal: AbortSignal.timeout(30_000) }).catch(() => null);
-  const status = res ? res.status : 0;
+  const status = await routeStatus(href);
   // 3xx here is a route that answers; 404/500 is a dead link.
   if (status === 404 || status >= 500 || status === 0) deadLinks.push(`${href} → ${status}`);
 }
@@ -2287,8 +2301,7 @@ const pricingLinks = await evalJs(
 );
 for (const href of pricingLinks ?? []) {
   if ((homeLinks ?? []).includes(href)) continue;
-  const res = await fetch(WEB + href, { redirect: "manual", signal: AbortSignal.timeout(30_000) }).catch(() => null);
-  const status = res ? res.status : 0;
+  const status = await routeStatus(href);
   if (status === 404 || status >= 500 || status === 0) deadLinks.push(`${href} → ${status}`);
 }
 check(
@@ -2768,7 +2781,7 @@ console.log("phase 9 shots:", shotHome, shotPricing, shotSignUp, shotWorkspace);
 //      version and effective date (an acceptance record points at a specific
 //      text), and every page reachable from the footer — no dead ends.
 await cdp("Network.clearBrowserCookies");
-const legalSlugs = ["privacy", "terms", "dpa", "refunds", "acceptable-use", "security", "sub-processors", "complaints", "faq", "support"];
+const legalSlugs = ["privacy", "terms", "dpa", "refunds", "acceptable-use", "security", "sub-processors", "complaints", "faq", "cookies", "support"];
 const legalResults = [];
 for (const slug of legalSlugs) {
   await navigate(`${WEB}/${slug}`);
@@ -2840,14 +2853,15 @@ const heroHeightBefore = await evalJs(
 );
 await fillInput('[data-testid="domain-check-input"]', "example.com");
 await evalJs(`(() => { const b = document.querySelector('[data-testid="domain-check-submit"]'); if (b && !b.disabled) b.click(); return true; })()`);
-// The audit reads INSIDE the domain-check region: the homepage itself now
-// carries example.com (the DNS lookup) and the word "published" in prose, so
-// a body-wide scan would "pass" before any result rendered. A check that can
-// pass without the thing it checks is not a check.
+// The audit reads INSIDE the domain-check region and only once the region's
+// state is "result": the resting worked example carries example.com and the
+// word published by design, so a phrase match would "pass" before any lookup
+// ran. A check that can pass without the thing it checks is not a check.
 const checkAudit = await waitForEval(
   `(() => {
     const region = document.querySelector('[data-testid="domain-check"]');
-    if (!region) return { result: false, boundary: false, ungated: false };
+    if (!region) return { result: false, boundary: false, ungated: false, state: null };
+    if (region.getAttribute('data-state') !== 'result') return { result: false, boundary: false, ungated: true, state: region.getAttribute('data-state') };
     const el = document.querySelector('[data-testid="domain-check-boundary"]');
     const t = region.textContent.toLowerCase();
     return {

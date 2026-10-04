@@ -62,6 +62,7 @@ export const LEGAL_FOOTER_LINKS: Array<[string, string]> = [
   ["/sub-processors", "Sub-processors"],
   ["/complaints", "Complaints"],
   ["/faq", "FAQ"],
+  ["/cookies", "Cookies"],
   ["/support", "Support"],
 ];
 
@@ -228,7 +229,10 @@ export async function MarketingHome() {
         <h2 className="text-[23px] font-semibold tracking-[-0.028em]" style={{ fontFamily: "var(--font-display)" }}>
           One lookup, end to end
         </h2>
-        <div className="mt-6 grid grid-cols-1 gap-x-10 gap-y-8 lg:grid-cols-2">
+        <div className="mt-6 grid grid-cols-1 items-start gap-x-10 gap-y-8 lg:grid-cols-2">
+          {/* The lookup box hugs its content: a fixed-height rectangle left a
+              tall empty area below the caption, and an empty bordered
+              rectangle reads as a broken component. */}
           <DnsResolution />
           <div>
             <h3 className="text-[15px] font-semibold tracking-[-0.012em]" style={{ color: "var(--color-ink)" }}>

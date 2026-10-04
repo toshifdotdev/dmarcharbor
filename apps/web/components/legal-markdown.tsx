@@ -42,7 +42,7 @@ function inline(text: string): React.ReactNode {
 }
 
 interface Block {
-  type: "h2" | "h3" | "p" | "ul" | "ol" | "quote" | "table";
+  type: "h2" | "h3" | "p" | "ul" | "ol" | "quote" | "table" | "hr";
   lines: string[];
 }
 
@@ -53,6 +53,11 @@ function parseBlocks(markdown: string): Block[] {
   while (i < lines.length) {
     const line = lines[i];
     if (line.trim() === "") {
+      i++;
+      continue;
+    }
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) {
+      blocks.push({ type: "hr", lines: [] });
       i++;
       continue;
     }
@@ -68,7 +73,24 @@ function parseBlocks(markdown: string): Block[] {
         quoted.push(lines[i].replace(/^>\s?/, ""));
         i++;
       }
-      blocks.push({ type: "quote", lines: quoted });
+      // The source is hard-wrapped at 80 columns: consecutive non-empty lines
+      // are ONE paragraph. Joining with spaces keeps a quoted sentence whole,
+      // which matters because one of these quotes is Paddle's mandated
+      // paragraph and its verbatim text is a compliance requirement. An empty
+      // line still starts a new paragraph.
+      const paragraphs: string[] = [];
+      let current = "";
+      for (const raw of quoted) {
+        const text = raw.trim();
+        if (text === "") {
+          if (current) paragraphs.push(current);
+          current = "";
+        } else {
+          current = current ? `${current} ${text}` : text;
+        }
+      }
+      if (current) paragraphs.push(current);
+      blocks.push({ type: "quote", lines: paragraphs });
       continue;
     } else if (/^[-*]\s+/.test(line)) {
       const items: string[] = [];
@@ -103,7 +125,8 @@ function parseBlocks(markdown: string): Block[] {
         !/^[-*]\s+/.test(lines[i]) &&
         !/^\d+\.\s+/.test(lines[i]) &&
         !/^>\s?/.test(lines[i]) &&
-        !/^\|/.test(lines[i])
+        !/^\|/.test(lines[i]) &&
+        !/^(-{3,}|\*{3,}|_{3,})$/.test(lines[i].trim())
       ) {
         para.push(lines[i]);
         i++;
@@ -188,6 +211,10 @@ export function LegalMarkdown({ markdown }: { markdown: string }) {
                   <p key={j}>{inline(item)}</p>
                 ))}
               </blockquote>
+            );
+          case "hr":
+            return (
+              <hr key={i} style={{ borderColor: "var(--color-line-strong)", opacity: 0.4 }} />
             );
           case "table": {
             const rows = block.lines
