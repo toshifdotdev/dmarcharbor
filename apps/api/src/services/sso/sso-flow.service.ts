@@ -48,12 +48,18 @@ const requestTtlMs = 10 * 60 * 1000;
  * across instances and restarts, which is the only version of it worth having for
  * an endpoint that mints seven day sessions.
  *
- * Two properties matter and both come from the library's own call pattern: `get` is
- * consulted before the assertion is trusted, and `remove` is called immediately
- * after it is, so a second presentation of the same assertion finds nothing. That
- * is single use without this code inventing a nonce of its own.
+ * Two properties matter and both come from the library's own call pattern. `get` is
+ * consulted before the assertion is trusted, and `remove` is called on the way out
+ * of validation whether it succeeded or threw. That second half is what makes it
+ * single use rather than merely checked: the id is consumed on the first attempt,
+ * so the same `InResponseTo` presented twice reaches `get` as null the second time.
+ *
+ * Exported so it can be exercised directly. Reaching these three methods through
+ * the library needs a signed assertion fixture, which we do not have, and an
+ * untested `get` is an untested `validateInResponseTo`: if it returned the wrong
+ * shape, every legitimate sign-in would be refused and nothing would say so.
  */
-const samlRequestCacheFor = (connectionId: string) => ({
+export const samlRequestCacheFor = (connectionId: string) => ({
   async saveAsync(key: string, value: string) {
     await prisma.ssoAuthRequest.create({
       data: {
@@ -517,9 +523,23 @@ function buildSaml(connectionId: string, connection: NonNullable<Connection>) {
     // https://localhost/api/sso/..., which tells an IdP to send users nowhere.
     callbackUrl: callbackUrlsFor(connectionId).saml,
     wantAssertionsSigned: true,
-    // A signed response alone is accepted as well as a signed assertion,
-    // because some providers will only sign one of the two. At least one must
-    // be signed or the assertion could be edited in flight.
+    /**
+     * Both the response and the assertion must be signed. This comment used to say
+     * the opposite - "at least one must be signed" - which described an intention
+     * the two lines of configuration did not implement, so the next person
+     * reading it would have believed a wider set of providers worked than do.
+     *
+     * Stricter is kept deliberately. Loosening it to either-signed would accept an
+     * assertion whose only signature comes from an envelope the assertion sits
+     * inside, and that is the case where the thing being asserted can be edited in
+     * flight. Refusing to sign somebody in is a support problem; accepting a
+     * modified assertion is a security problem.
+     *
+     * The cost is known and real: an IdP configured to sign only one of the two
+     * will fail here, with a signature complaint rather than anything pointing at
+     * this setting. If that happens with a real provider, relax it here and only
+     * here, and note it in the connection's own record.
+     */
     wantAuthnResponseSigned: true,
     disableRequestedAuthnContext: true,
     acceptedClockSkewMs: 5000,
