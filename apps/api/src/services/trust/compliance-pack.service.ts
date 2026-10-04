@@ -27,6 +27,45 @@ import { TrustCenterError, subProcessors } from './trust-center.service.js';
  * so identical inputs produce identical bytes.
  */
 
+
+/**
+ * Builds the reference a reader quotes.
+ *
+ * Human-readable on purpose. This value appears in a document a customer hands
+ * to their compliance team, and they have to be able to read it back over a phone
+ * when asking us for the published digest. A cuid fails that: 25 characters of
+ * noise that also disclose that the value is a database row and roughly when it
+ * was created.
+ *
+ * Client slug and issue date so a reference sorts into a filing, plus a short
+ * random suffix for uniqueness within the same day.
+ */
+export function compliancePackReference(clientName: string, asOf: Date): string {
+  const slug = clientName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 24)
+    .toUpperCase();
+
+  const date = asOf.toISOString().slice(0, 10).replace(/-/g, '');
+  const suffix = randomUUID().replace(/-/g, '').slice(0, 6).toUpperCase();
+
+  return `DMARC-${date}-${slug || 'CLIENT'}-${suffix}`;
+}
+
+/**
+ * A filename safe to put in a Content-Disposition header.
+ *
+ * The reference is already alphanumeric plus hyphens, so this is a guard rather
+ * than a transform: it exists so a future change to the reference format cannot
+ * put a quote, a newline or a path separator into a response header.
+ */
+export function compliancePackFilename(reference: string, asOf: Date): string {
+  const safe = reference.replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 80);
+  return `dmarc-compliance-${safe}-${asOf.toISOString().slice(0, 10)}.pdf`;
+}
+
 export const documentVersion = '1.0';
 
 export class CompliancePackError extends Error {
@@ -205,28 +244,77 @@ class Page {
   }
 }
 
+/**
+ * Measures a string at a specific font and size.
+ *
+ * PDFKit's `heightOfString` measures using whatever font is currently active, so
+ * calling it before setting the font measures the previous element's font instead
+ * of this one's. After a 12pt heading that over-reserves and leaves a gap; after an
+ * 8.5pt table cell it under-reserves and the next element is drawn on top of this
+ * one. Both happened in the shipped document. The font is therefore set before the
+ * measurement, every time, and the caller's intent is passed in rather than
+ * inherited.
+ */
+function measure(
+  doc: PDFKit.PDFDocument,
+  text: string,
+  width: number,
+  options: { font: string; size: number; bold?: boolean },
+): number {
+  doc.font(options.bold === true ? `${options.font}-Bold` : options.font);
+  doc.fontSize(options.size);
+  return doc.heightOfString(text, { width });
+}
+
+/**
+ * Reserves height that is known up front, rather than measured from a string.
+ *
+ * Used where there is no text to measure, so there is nothing that can disagree
+ * with what is drawn.
+ */
+function ensure(page: Page, points: number): void {
+  page.ensure(points);
+}
+
 function heading(doc: PDFKit.PDFDocument, page: Page, text: string): void {
-  page.ensure(46);
-  doc.font('Helvetica-Bold').fontSize(12).fillColor(ACCENT).text(text, PAGE_MARGIN, page.y);
-  page.move(20);
-  const y = page.y - 4;
-  doc.moveTo(PAGE_MARGIN, y).lineTo(PAGE_WIDTH - PAGE_MARGIN, y).lineWidth(0.75).strokeColor(RULE).stroke();
+  const height = measure(doc, text, CONTENT_WIDTH, { font: 'Helvetica', size: 12, bold: true });
+  ensure(page, height + 20 + 2);
+
+  const top = page.y;
+  doc.font('Helvetica-Bold').fontSize(12).fillColor(ACCENT).text(text, PAGE_MARGIN, top, { width: CONTENT_WIDTH });
+  page.y = top + height + 4;
+
+  doc.moveTo(PAGE_MARGIN, page.y).lineTo(PAGE_WIDTH - PAGE_MARGIN, page.y).lineWidth(0.75).strokeColor(RULE).stroke();
   page.move(14);
 }
 
 function body(doc: PDFKit.PDFDocument, page: Page, text: string, size = 9.5): void {
-  const height = doc.heightOfString(text, { width: CONTENT_WIDTH });
-  page.ensure(height + 8);
-  doc.font('Helvetica').fontSize(size).fillColor(INK).text(text, PAGE_MARGIN, page.y, { width: CONTENT_WIDTH });
+  // Measured at the size it will actually be drawn at. Measuring before setting the
+  // font is what produced overlapping paragraphs in the first issued pack.
+  const height = measure(doc, text, CONTENT_WIDTH, { font: 'Helvetica', size });
+  ensure(page, height + 8);
+
+  const top = page.y;
+  doc.font('Helvetica').fontSize(size).fillColor(INK).text(text, PAGE_MARGIN, top, { width: CONTENT_WIDTH });
+  page.y = top + height;
   page.move(8);
 }
 
 function labelled(doc: PDFKit.PDFDocument, page: Page, label: string, value: string): void {
-  const height = doc.font('Helvetica').fontSize(9.5).heightOfString(value, { width: CONTENT_WIDTH - 130 });
-  page.ensure(height + 10);
-  doc.font('Helvetica-Bold').fontSize(9).fillColor(MUTED).text(label, PAGE_MARGIN, page.y, { width: 126 });
-  doc.font('Helvetica').fontSize(9.5).fillColor(INK).text(value, PAGE_MARGIN + 130, page.y, { width: CONTENT_WIDTH - 130 });
-  page.move(height + 8);
+  const valueHeight = measure(doc, value, CONTENT_WIDTH - 130, { font: 'Helvetica', size: 9.5 });
+  // The label is a single short word on its own line, but it is measured rather
+  // than assumed so a longer label cannot overlap the value.
+  const labelHeight = measure(doc, label, CONTENT_WIDTH - 130, { font: 'Helvetica', size: 9, bold: true });
+  const height = Math.max(valueHeight, labelHeight);
+  ensure(page, height + 10);
+
+  const top = page.y;
+  doc.font('Helvetica-Bold').fontSize(9).fillColor(MUTED).text(label, PAGE_MARGIN, top, { width: 126 });
+  doc.font('Helvetica').fontSize(9.5).fillColor(INK).text(value, PAGE_MARGIN + 130, top, {
+    width: CONTENT_WIDTH - 130,
+  });
+  page.y = top + height;
+  page.move(8);
 }
 
 function table(doc: PDFKit.PDFDocument, page: Page, columns: { label: string; width: number }[], rows: string[][]): void {
@@ -235,27 +323,46 @@ function table(doc: PDFKit.PDFDocument, page: Page, columns: { label: string; wi
     return;
   }
 
+  const cellFont = { font: 'Helvetica', size: 8.5 } as const;
+  const paddingY = 5;
+  const gap = 6;
+
   for (const [index, row] of rows.entries()) {
-    const cells = row.map((cell) => cell.length * 4.2);
-    const height = Math.max(14, ...cells);
-    page.ensure(height + 6);
+    // Measured per cell at the size it will actually be drawn at.
+    //
+    // The first issued pack estimated the row height from the cell's character
+    // count, which reserved roughly 80 to 95 points for a single line of 8.5pt
+    // text and produced pages that were mostly empty grey bands. A string's
+    // length says nothing about how tall it renders, because wrapping decides
+    // that, and only the renderer knows where it wrapped.
+    const heights = row.map((cell, column) =>
+      measure(doc, cell, (columns[column]?.width ?? 100) - 8, cellFont),
+    );
+    const height = Math.max(11, ...heights);
+    ensure(page, height + paddingY * 2);
 
     const top = page.y;
 
     if (index % 2 === 0) {
-      doc.rect(PAGE_MARGIN, top - 2, CONTENT_WIDTH, height + 4).fillColor('#f8fafc').fill();
+      doc.rect(PAGE_MARGIN, top, CONTENT_WIDTH, height + paddingY * 2).fillColor('#f8fafc').fill();
     }
 
     let x = PAGE_MARGIN;
     row.forEach((cell, column) => {
-      // The column index is what positions the cell; a cell that overflows is
-      // truncated rather than allowed to run into the next column.
       const width = columns[column]?.width ?? 100;
-      doc.font('Helvetica').fontSize(8.5).fillColor(INK).text(cell, x + 4, top, { width: width - 8, ellipsis: true });
+      doc.font(cellFont.font).fontSize(cellFont.size).fillColor(INK).text(cell, x + 4, top + paddingY, {
+        width: width - 8,
+        // lineBreak rather than ellipsis: ellipsis alone does not clip a block that
+        // has wrapped, so a long cell overflowed its column and ran into the next.
+        lineBreak: true,
+        height,
+        ellipsis: true,
+      });
       x += width;
     });
 
-    page.y = top + height + 4;
+    page.y = top + height + paddingY * 2;
+    page.move(gap);
   }
 }
 
@@ -498,6 +605,18 @@ export async function buildCompliancePackPdf(input: {
 
 export interface IssuedPack {
   id: string;
+  /** The value printed in the document, quoted in the filename and used to verify. */
+  reference: string;
+  /**
+   * Exposed because it is the cheapest available regression signal for the layout.
+   *
+   * The first issued pack ran to seven pages for the same facts because row heights
+   * were estimated from string length, reserving 80 to 95 points for a single line
+   * of text. A correct render of the same facts is three. A future change that
+   * reintroduces the estimate moves this number, so it is asserted rather than
+   * eyeballed.
+   */
+  pageCount: number;
   hash: string;
   byteSize: number;
   asOf: Date;
@@ -518,15 +637,21 @@ export async function issueCompliancePack(input: {
   actorUserId?: string | null;
   asOf?: Date;
 }): Promise<IssuedPack & { buffer: Buffer }> {
-  // Minted before rendering so it can be printed in the document, letting a
-  // reader quote it when asking us for the published digest. Generated here
-  // rather than by the database so it does not depend on an extension being
-  // installed.
-  const reference = randomUUID();
+  const asOf = input.asOf ?? new Date();
+
+  // The reference is derived from the client and the date so it is legible, and it
+  // is stored rather than minted and discarded. The first implementation printed a
+  // UUID that was never persisted while the public lookup resolved on the primary
+  // key, so the value the document told a reader to quote could not be quoted.
+  const client = await prisma.client.findFirstOrThrow({
+    where: { id: input.clientId, organizationId: input.organizationId },
+    select: { name: true },
+  });
+  const reference = compliancePackReference(client.name, asOf);
 
   const rendered = await buildCompliancePackPdf({
     clientId: input.clientId,
-    asOf: input.asOf,
+    asOf,
     reference,
   });
 
@@ -540,12 +665,14 @@ export async function issueCompliancePack(input: {
   // would collide on the unique index. Reuse it rather than fail.
   const existing = await prisma.compliancePack.findUnique({
     where: { pdfHash: rendered.hash },
-    select: { id: true, createdAt: true },
+    select: { id: true, createdAt: true, reference: true },
   });
 
   if (existing) {
     return {
       id: existing.id,
+      reference: existing.reference,
+      pageCount: rendered.pageCount,
       hash: rendered.hash,
       byteSize: rendered.buffer.length,
       asOf: rendered.asOf,
@@ -570,11 +697,12 @@ export async function issueCompliancePack(input: {
         documentVersion: rendered.documentVersion,
         asOf: rendered.asOf,
         pdfHash: rendered.hash,
+        reference,
         byteSize: rendered.buffer.length,
         pageCount: rendered.pageCount,
         generatedById: input.actorUserId ?? null,
       },
-      select: { id: true, createdAt: true },
+      select: { id: true, createdAt: true, reference: true },
     });
   });
 
@@ -586,6 +714,7 @@ export async function issueCompliancePack(input: {
     targetId: row.id,
     detail: {
       clientId: input.clientId,
+      reference: row.reference,
       hash: rendered.hash,
       byteSize: rendered.buffer.length,
       documentVersion: rendered.documentVersion,
@@ -595,6 +724,8 @@ export async function issueCompliancePack(input: {
 
   return {
     id: row.id,
+    reference: row.reference,
+    pageCount: rendered.pageCount,
     hash: rendered.hash,
     byteSize: rendered.buffer.length,
     asOf: rendered.asOf,

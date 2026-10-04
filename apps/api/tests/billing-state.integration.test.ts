@@ -295,7 +295,7 @@ describe('mock billing provider', () => {
   });
 
   it('exposes both currencies at the catalog price', () => {
-    expect(planCatalog.HARBOR.prices.USD.monthlyMinor).toBe(7900);
-    expect(planCatalog.HARBOR.prices.INR.monthlyMinor).toBe(659900);
+    expect(planCatalog.HARBOR.prices.USD.monthlyMinor).toBe(14900);
+    expect(planCatalog.HARBOR.prices.INR.monthlyMinor).toBe(1249900);
   });
 });

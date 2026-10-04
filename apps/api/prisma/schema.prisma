@@ -1012,6 +1012,17 @@ model CompliancePack {
   /// bytes and therefore the same hash.
   asOf           DateTime
   pdfHash        String    @unique
+  /// The value printed in the document and quoted when asking us for the digest.
+  ///
+  /// Previously the document printed a freshly minted UUID that was then
+  /// discarded, while the public lookup resolved against the primary key. The
+  /// number a reader was told to quote therefore could not be quoted, and a
+  /// regenerated-but-identical document printed a different one for the same
+  /// bytes.
+  ///
+  /// Human-readable on purpose. A customer reading this to their compliance team
+  /// needs to say it out loud, and a cuid is neither quotable nor legible.
+  reference      String    @unique
   byteSize       Int
   pageCount      Int
   supersededAt   DateTime?

@@ -59,7 +59,9 @@ describe('stored provider plans', () => {
     });
 
     expect(stored.providerPlanId).toBe('plan_harbor_inr_monthly');
-    expect(stored.priceMinor).toBe(659900);
+    // Read from the catalog rather than hardcoded, so a price change cannot leave a
+    // stale figure asserting the old one.
+    expect(stored.priceMinor).toBe(planCatalog.HARBOR.prices.INR.monthlyMinor);
 
     const found = await findStoredPlan({ provider: 'RAZORPAY', tier: 'HARBOR', interval: 'monthly', currency: 'INR' });
     expect(found?.id).toBe(stored.id);

@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { env } from '../config/env.js';
 import { prisma } from '../database/prisma.js';
 import { EntitlementError } from '../services/entitlements/entitlement.service.js';
+import { compliancePackFilename } from '../services/trust/compliance-pack.service.js';
 import { CompliancePackError, TrustCenterError, issueCompliancePack, listCompliancePacks } from '../services/trust/compliance-pack.service.js';
 
 function sendError(response: Response, error: unknown): void {
@@ -34,10 +35,16 @@ export async function createCompliancePackController(request: Request, response:
 
     response.setHeader('Content-Type', 'application/pdf');
     response.setHeader('Content-Length', String(issued.buffer.length));
-    response.setHeader('Content-Disposition', `attachment; filename="dmarc-compliance-${issued.id}.pdf"`);
+    // The reference, not the row id. A cuid here is what put
+// dmarc-compliance-cmusmh4g0003m1gsstrz4tz1e.pdf in the customer's downloads,
+    // which a compliance team cannot read back or file.
+    response.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${compliancePackFilename(issued.reference, issued.asOf)}"`,
+    );
     // The digest travels with the file so a reader never has to ask for it.
     response.setHeader('X-DMARC-Pack-Sha256', issued.hash);
-    response.setHeader('X-DMARC-Pack-Reference', issued.id);
+    response.setHeader('X-DMARC-Pack-Reference', issued.reference);
     response.setHeader('Cache-Control', 'no-store');
 
     response.status(200).end(issued.buffer);
@@ -70,7 +77,8 @@ export async function verifyCompliancePackController(request: Request, response:
 
   try {
     const rows = await prisma.compliancePack.findMany({
-      where: { id: reference },
+      // On the reference rather than the row id, because the document quotes the reference.
+      where: { reference },
       select: {
         pdfHash: true,
         byteSize: true,

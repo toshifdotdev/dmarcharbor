@@ -45,11 +45,57 @@ export class TrustCenterError extends Error {
  * than no Trust Center at all.
  */
 export const subProcessors: { name: string; purpose: string; data: string }[] = [
-  { name: 'PostgreSQL hosting', purpose: 'Primary database, including report records', data: 'Client identifiers, DMARC report metadata' },
-  { name: 'Resend', purpose: 'Transactional email, such as alerts and digests', data: 'Recipient email addresses' },
-  { name: 'Razorpay or Paddle', purpose: 'Subscription billing', data: 'Workspace name, billing contact, transaction reference' },
-  { name: 'Cloudflare', purpose: 'DNS lookups and email routing for report collection', data: 'Queried domain names' },
+  {
+    name: 'Amazon Web Services',
+    purpose: 'Application hosting, database and object storage for customer logos',
+    data: 'Everything the service holds, in a single region',
+  },
+  {
+    name: 'PostgreSQL hosting',
+    purpose: 'Primary database, including report records',
+    data: 'Client identifiers, DMARC report metadata',
+  },
+  {
+    // Named because report collection actually depends on it. The default
+    // deployment does not use it, and saying so unconditionally would be the same
+    // class of error as naming a processor we do not use: a Trust Center that
+    // overstates its own sub-processors is worse than one that understates them.
+    name: 'Migadu',
+    purpose: 'Hosted mailbox that receives aggregate and forensic DMARC reports',
+    data: 'Inbound report XML, which may contain recipient email addresses',
+  },
+  {
+    name: 'Resend',
+    purpose: 'Transactional email, such as alerts and digests',
+    data: 'Recipient email addresses',
+  },
+  {
+    name: 'Razorpay',
+    purpose: 'Subscription billing in Indian rupees',
+    data: 'Workspace name, billing contact, transaction reference',
+  },
+  {
+    name: 'Paddle',
+    purpose: 'Subscription billing in other currencies, once enabled',
+    data: 'Workspace name, billing contact, transaction reference',
+  },
+  {
+    name: 'Google and Microsoft',
+    purpose: 'Optional single sign-on, only where an agency has enabled it',
+    data: 'Email address and profile of the person signing in',
+  },
 ];
+
+/**
+ * The region the deployment's data actually sits in.
+ *
+ * Read from configuration rather than hardcoded, because a Trust Center that
+ * names the wrong jurisdiction is a compliance statement that is wrong rather
+ * than one that is missing.
+ */
+export function dataResidencyRegion(env: { DATA_RESIDENCY_REGION?: string }): string {
+  return env.DATA_RESIDENCY_REGION?.trim() || 'Not configured - see the launch checklist';
+}
 
 /** Retention is quoted from the plan actually in force, not from marketing copy. */
 function retentionFor(plan: keyof typeof planCatalog): { data: string; audit: string } {

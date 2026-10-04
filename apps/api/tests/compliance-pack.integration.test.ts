@@ -5,7 +5,7 @@ import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { grantPlan } from './helpers/plan.js';
 import { setOverride } from '../src/services/entitlements/entitlement.service.js';
-import { buildCompliancePackPdf } from '../src/services/trust/compliance-pack.service.js';
+import { buildCompliancePackPdf, issueCompliancePack } from '../src/services/trust/compliance-pack.service.js';
 import type { PlanTier } from '@prisma/client';
 
 /**
@@ -351,5 +351,120 @@ describe('compliance pack', () => {
     });
 
     expect(audit.detail).toMatchObject({ clientId: client.id, hash, documentVersion: '1.0' });
+  });
+});
+
+describe('compliance pack reference', () => {
+  beforeAll(resetDatabase);
+
+  async function issue() {
+    const { agent, organizationId } = await setupWorkspace('HARBOR');
+    const client = await addClient(agent, organizationId, 'Acme Corporation');
+    await addDomain(agent, organizationId, client.id, 'acme.test');
+    const response = await agent.post(`/api/workspaces/${organizationId}/clients/${client.id}/compliance-packs`).send({});
+    return { agent, organizationId, client, response };
+  }
+
+  it('issues a reference a human can read back over a phone', async () => {
+    const { response } = await issue();
+    const reference = String(response.headers['x-dmarc-pack-reference']);
+
+    // Printed in the document, quoted in the filename, and what the public
+    // verifier resolves. A cuid fails all three: it is 25 characters of noise, it
+    // discloses that the value is a database row and roughly when it was created,
+    // and nobody can read it back down a phone.
+    expect(reference).toMatch(/^DMARC-\d{8}-[A-Z0-9-]+-[A-Z0-9]{6}$/);
+    expect(reference).not.toMatch(/^cm[a-z0-9]{20,}$/i);
+  });
+
+  it('keeps the row id out of the download filename', async () => {
+    const { response } = await issue();
+    const disposition = String(response.headers['content-disposition']);
+    const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? '';
+
+    // The shipped filename was dmarc-compliance-<cuid>.pdf, which a compliance team
+    // can neither file nor read back.
+    expect(filename).toMatch(/^dmarc-compliance-DMARC-[\w-]+\.pdf$/);
+    expect(disposition).not.toMatch(/cm[a-z0-9]{20,}/i);
+  });
+
+  it('uses one reference everywhere it appears', async () => {
+    const { response } = await issue();
+    const reference = String(response.headers['x-dmarc-pack-reference']);
+    const filename = String(response.headers['content-disposition']).match(/filename="([^"]+)"/)?.[1] ?? '';
+
+    // Three different values for one document is how a reader ends up verifying
+    // against the wrong thing.
+    expect(filename).toContain(reference);
+
+    // normalise strips whitespace and lower cases but keeps hyphens, which the
+    // reference is built from.
+    const text = normalise(extractPdfText(response.body as Buffer));
+    expect(text).toContain(reference.toLowerCase());
+  });
+
+  it('resolves the reference the document prints', async () => {
+    const { response } = await issue();
+    const reference = String(response.headers['x-dmarc-pack-reference']);
+    const expectedHash = String(response.headers['x-dmarc-pack-sha256']);
+
+    const verified = await request(app).get(`/api/compliance-packs/verify?reference=${encodeURIComponent(reference)}`);
+
+    // The first implementation printed a UUID that was never persisted while the
+    // verifier resolved on the row id, so the value the document told a reader to
+    // quote could not be quoted and the scheme was unusable.
+    expect(verified.status).toBe(200);
+    expect(verified.body.found).toBe(true);
+    expect(String(verified.body.packs?.[0]?.sha256)).toBe(expectedHash);
+    expect(String(verified.body.packs?.[0]?.reference)).toBe(reference);
+  });
+
+  it('gives a reissued document its own reference rather than reusing one', async () => {
+    const { agent, organizationId, client, response } = await issue();
+
+    const again = await agent
+      .post(`/api/workspaces/${organizationId}/clients/${client.id}/compliance-packs`)
+      .send({});
+
+    // The reference is printed in the document, so two issues are two documents
+    // with two hashes. What matters is that neither borrows the other's value:
+    // a reference that pointed at a superseded pack would verify the wrong bytes.
+    expect(again.status).toBe(200);
+    expect(String(again.headers['x-dmarc-pack-reference'])).not.toBe(
+      String(response.headers['x-dmarc-pack-reference']),
+    );
+
+    const first = await request(app).get(
+      `/api/compliance-packs/verify?reference=${encodeURIComponent(String(response.headers['x-dmarc-pack-reference']))}`,
+    );
+    expect(String(first.body.packs?.[0]?.sha256)).toBe(
+      String(response.headers['x-dmarc-pack-sha256']),
+    );
+  });
+
+  it('renders the same facts in three pages rather than seven', async () => {
+    const { client, organizationId } = await issue();
+
+    // Issued directly so the page count is on the returned value rather than having
+    // to be parsed back out of a response header.
+    const fresh = await issueCompliancePack({ clientId: client.id, organizationId });
+
+    // Row heights were once estimated from string length, which reserved 80 to 95
+    // points for a single 8.5pt line and produced a document that was mostly empty
+    // grey bands. Same facts, seven pages. This is the cheapest guard against that
+    // estimate coming back.
+    expect(fresh.pageCount).toBeGreaterThan(0);
+    expect(fresh.pageCount).toBeLessThanOrEqual(4);
+  });
+
+  it('is a filename a header can carry safely', async () => {
+    const { response } = await issue();
+    const disposition = String(response.headers['content-disposition']);
+
+    // A quote, newline or path separator in a Content-Disposition is a header
+    // injection, so the format is alphanumeric plus hyphens and nothing else.
+    expect(disposition).not.toMatch(/[^\x20-\x7E]/);
+    expect(disposition.split('filename=')[1]).not.toContain('/');
+    expect(disposition.split('filename=')[1]).not.toContain('\\');
   });
 });

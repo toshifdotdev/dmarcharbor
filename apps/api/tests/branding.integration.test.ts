@@ -19,12 +19,12 @@ async function resetDatabase(): Promise<void> {
 async function setup(plan: 'MOORING' | 'FAIRWAY' | 'HARBOR' | 'ADMIRALTY' = 'ADMIRALTY') {
   fixtureId += 1;
   const agent = request.agent(app);
-  const email = `brand-${Date.now()}-${fixtureId}@northgate.test`;
+  const email = `brand-${Date.now()}-${fixtureId}@harbour.test`;
   expect((await agent.post('/api/auth/sign-up/email').send({ name: 'Brand Owner', email, password })).status).toBe(200);
   await prisma.user.update({ where: { email }, data: { emailVerified: true } });
   expect((await agent.post('/api/auth/sign-in/email').send({ email, password })).status).toBe(200);
 
-  const workspace = await agent.post('/api/workspaces').send({ name: 'Northgate Digital', slug: `b-${Date.now()}-${fixtureId}` });
+  const workspace = await agent.post('/api/workspaces').send({ name: 'Harbour Digital', slug: `b-${Date.now()}-${fixtureId}` });
   const organizationId = workspace.body.id as string;
   if (plan !== 'MOORING') {
     await grantPlan(organizationId, plan);
@@ -154,16 +154,16 @@ describe('white label branding', () => {
     expect('error' in short && short.error).toContain('hex');
     expect('colour' in good && good.colour).toBe('#a1b2c3');
 
-    const ok = validateCustomDomain('https://reports.northgate.test');
-    expect('domain' in ok && ok.domain).toBe('reports.northgate.test');
-    expect('error' in validateCustomDomain('reports.northgate.test')).toBe(true);
+    const ok = validateCustomDomain('https://reports.harbour.test');
+    expect('domain' in ok && ok.domain).toBe('reports.harbour.test');
+    expect('error' in validateCustomDomain('reports.harbour.test')).toBe(true);
   });
 
   it('saves a logo and colours on an Admiralty workspace', async () => {
     const { agent, organizationId } = await setup('ADMIRALTY');
 
     const updated = await agent.patch(`/api/workspaces/${organizationId}/branding`).send({
-      logoUrl: 'https://cdn.northgate.test/logo.svg',
+      logoUrl: 'https://cdn.harbour.test/logo.svg',
       primaryColor: '#1A2B3C',
       accentColor: '#C9D1D9',
     });
@@ -178,7 +178,7 @@ describe('white label branding', () => {
     // facing page is a tracking pixel.
     expect(updated.body.logoUrl).toBeNull();
     const stored = await prisma.organization.findUniqueOrThrow({ where: { id: organizationId } });
-    expect(stored.brandLogoUrl).toBe('https://cdn.northgate.test/logo.svg');
+    expect(stored.brandLogoUrl).toBe('https://cdn.harbour.test/logo.svg');
   });
 
   it('refuses branding below Admiralty, so a cheap plan cannot look like a branded agency', async () => {
@@ -198,12 +198,12 @@ describe('white label branding', () => {
     const resolved = await resolveBranding(organizationId);
     expect(resolved.logoUrl).toBeNull();
     expect(resolved.branded).toBe(false);
-    expect(resolved.workspaceName).toBe('Northgate Digital');
+    expect(resolved.workspaceName).toBe('Harbour Digital');
   });
 
   it('does not use a custom domain until its DNS record is verified', async () => {
     const { agent, organizationId } = await setup('ADMIRALTY');
-    const host = `proof-${fixtureId}.northgate.test`;
+    const host = `proof-${fixtureId}.harbour.test`;
 
     const set = await agent.put(`/api/workspaces/${organizationId}/branding/custom-domain`).send({
       customDomain: `https://${host}`,
@@ -243,7 +243,7 @@ describe('white label branding', () => {
 
   it('removes a custom domain cleanly', async () => {
     const { agent, organizationId } = await setup('ADMIRALTY');
-    const host = `retired-${fixtureId}.northgate.test`;
+    const host = `retired-${fixtureId}.harbour.test`;
 
     await agent.put(`/api/workspaces/${organizationId}/branding/custom-domain`).send({ customDomain: `https://${host}` });
     const removed = await agent.put(`/api/workspaces/${organizationId}/branding/custom-domain`).send({ customDomain: null });
@@ -329,7 +329,7 @@ describe('white label branding', () => {
     const { agent, organizationId } = await setup('ADMIRALTY');
 
     await agent.patch(`/api/workspaces/${organizationId}/branding`).send({
-      logoUrl: 'https://cdn.northgate.test/logo.svg',
+      logoUrl: 'https://cdn.harbour.test/logo.svg',
       primaryColor: '#112233',
     });
 
@@ -350,7 +350,7 @@ describe('white label branding', () => {
     // pixel. The upload route is the only way a logo gets served.
     expect(branding.body.logoUrl).toBeNull();
     expect(branding.body.primaryColor).toBe('#112233');
-    expect(branding.body.workspaceName).toBe('Northgate Digital');
+    expect(branding.body.workspaceName).toBe('Harbour Digital');
 
     const overview = await contact.get('/api/portal');
     expect(overview.body.branding.logoUrl).toBeNull();
@@ -363,17 +363,17 @@ describe('white label branding', () => {
     const { organizationId } = await setup('ADMIRALTY');
     const resolved = await resolveBranding(organizationId);
 
-    expect(resolved.workspaceName).toBe('Northgate Digital');
+    expect(resolved.workspaceName).toBe('Harbour Digital');
     expect(resolved.logoUrl).toBeNull();
     expect(resolved.customDomain).toBeNull();
   });
 
   it('serves the agency to a visitor arriving on its own hostname', async () => {
     const { agent, organizationId } = await setup('ADMIRALTY');
-    const host = `reports-${fixtureId}.northgate.test`;
+    const host = `reports-${fixtureId}.harbour.test`;
 
     await agent.patch(`/api/workspaces/${organizationId}/branding`).send({
-      logoUrl: 'https://cdn.northgate.test/logo.svg',
+      logoUrl: 'https://cdn.harbour.test/logo.svg',
       primaryColor: '#0f172a',
     });
     const claimed = await agent.put(`/api/workspaces/${organizationId}/branding/custom-domain`).send({
@@ -399,7 +399,7 @@ describe('white label branding', () => {
     const served = await anonymous.get('/api/branding/host').set('Host', host);
 
     expect(served.status).toBe(200);
-    expect(served.body.workspaceName).toBe('Northgate Digital');
+    expect(served.body.workspaceName).toBe('Harbour Digital');
     // Colours and the name resolve for the agency on its own hostname. A pasted
     // external logo does not, for the same tracking reason as everywhere else.
     expect(served.body.logoUrl).toBeNull();
@@ -409,12 +409,12 @@ describe('white label branding', () => {
     // A development port, and letter case, must not defeat the lookup.
     const withPort = await anonymous.get('/api/branding/host').set('Host', `${host.toUpperCase()}:3000`);
     expect(withPort.status).toBe(200);
-    expect(withPort.body.workspaceName).toBe('Northgate Digital');
+    expect(withPort.body.workspaceName).toBe('Harbour Digital');
   });
 
   it('refuses to serve an agency whose hostname proof was never verified', async () => {
     const { agent, organizationId } = await setup('ADMIRALTY');
-    const host = `unproven-${fixtureId}.northgate.test`;
+    const host = `unproven-${fixtureId}.harbour.test`;
     await agent.put(`/api/workspaces/${organizationId}/branding/custom-domain`).send({ customDomain: `https://${host}` });
 
     const anonymous = request(app);
@@ -430,12 +430,12 @@ describe('white label branding', () => {
     const second = await setup('ADMIRALTY');
 
     const claimed = await first.agent.put(`/api/workspaces/${first.organizationId}/branding/custom-domain`).send({
-      customDomain: 'https://contested.northgate.test',
+      customDomain: 'https://contested.harbour.test',
     });
     expect(claimed.status).toBe(200);
 
     const refused = await second.agent.put(`/api/workspaces/${second.organizationId}/branding/custom-domain`).send({
-      customDomain: 'https://contested.northgate.test',
+      customDomain: 'https://contested.harbour.test',
     });
 
     expect(refused.status).toBe(409);
@@ -448,7 +448,7 @@ describe('white label branding', () => {
   });
 
   it('stops serving an agency once the hostname is removed', async () => {    const { agent, organizationId } = await setup('ADMIRALTY');
-    const host = `gone-${fixtureId}.northgate.test`;
+    const host = `gone-${fixtureId}.harbour.test`;
     await agent.put(`/api/workspaces/${organizationId}/branding/custom-domain`).send({ customDomain: `https://${host}` });
 
     const token = (await prisma.organization.findUniqueOrThrow({ where: { id: organizationId } })).customDomainToken!;
