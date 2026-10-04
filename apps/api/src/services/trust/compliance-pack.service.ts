@@ -521,8 +521,10 @@ async function render(facts: PackFacts): Promise<{ buffer: Buffer; pageCount: nu
   doc.addPage();
   page.y = PAGE_MARGIN;
 
+  // Measured, like everything else. These were hand-positioned with fixed offsets,
+  // which works until a heading wraps and then draws over the paragraph beneath it.
   doc.font('Helvetica-Bold').fontSize(14).fillColor(INK).text('How to verify this document', PAGE_MARGIN, page.y, { width: CONTENT_WIDTH });
-  page.y += 26;
+  page.y += doc.heightOfString('How to verify this document', { width: CONTENT_WIDTH }) + 14;
 
   body(
     doc,
@@ -535,30 +537,31 @@ async function render(facts: PackFacts): Promise<{ buffer: Buffer; pageCount: nu
     `To verify: compute the SHA-256 digest of this file and compare it with the value published on the Trust Center page for ${facts.client.name}. If they match, the file you hold is byte for byte the one that was issued. If the file has been edited in any way, the digest will not match.`,
   );
 
-  page.y += 6;
-  doc.font('Helvetica-Bold').fontSize(9).fillColor(MUTED).text('DOCUMENT REFERENCE', PAGE_MARGIN, page.y, { width: CONTENT_WIDTH });
-  page.y += 16;
+  // The reference is drawn in a fixed-width face on purpose. In a proportional one,
+  // DMARC-20261003-ACME and DMARC-2026100S-ACME differ by a glyph a reader cannot
+  // distinguish, and this is the value they are told to read back over a phone.
+  const referenceText = facts.reference;
+  const referenceWidth = CONTENT_WIDTH - 130;
+  doc.font('Courier-Bold').fontSize(10);
+  const referenceHeight = doc.heightOfString(referenceText, { width: referenceWidth });
 
-  // In a fixed width face so it cannot be reflowed, hyphenated or rewrapped,
-  // which would let a visually identical document differ.
-  doc.font('Courier-Bold').fontSize(10).fillColor(INK).text(facts.reference, PAGE_MARGIN, page.y, {
-    width: CONTENT_WIDTH,
-    characterSpacing: 0.4,
+  ensure(page, Math.max(referenceHeight, 12) + 10);
+  const referenceTop = page.y;
+  doc.font('Helvetica-Bold').fontSize(9).fillColor(MUTED).text('Document reference', PAGE_MARGIN, referenceTop, {
+    width: 126,
   });
+  doc.font('Courier-Bold').fontSize(10).fillColor(INK).text(referenceText, PAGE_MARGIN + 130, referenceTop, {
+    width: referenceWidth,
+  });
+  page.y = referenceTop + Math.max(referenceHeight, 12) + 10;
 
-  page.y += 30;
   body(
     doc,
     page,
     'The digest is deliberately not printed here. A file cannot contain its own digest, because writing it in changes the file and therefore changes the digest. It is published on the Trust Center instead, so there is exactly one value and it cannot disagree with itself.',
   );
 
-  doc.font('Helvetica').fontSize(8.5).fillColor(MUTED).text(
-    `Document version ${documentVersion}, data as of ${facts.asOf.toISOString().slice(0, 10)}.`,
-    PAGE_MARGIN,
-    page.y,
-    { width: CONTENT_WIDTH },
-  );
+  body(doc, page, `Document version ${documentVersion}, data as of ${facts.asOf.toISOString().slice(0, 10)}.`, 8.5);
 
   const pageCount = doc.bufferedPageRange().count;
   doc.flushPages();

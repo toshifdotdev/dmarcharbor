@@ -18,6 +18,7 @@ import { portalRouter } from './routes/portal.routes.js';
 import { brandingRouter } from './routes/branding.routes.js';
 import { reportInboxRouter } from './routes/report-inbox.routes.js';
 import { slackRouter } from './routes/slack.routes.js';
+import { dpaRouter, wellKnownRouter } from './routes/dpa.routes.js';
 import { ssoRouter } from './routes/sso.routes.js';
 import { billingRouter } from './routes/billing.routes.js';
 import { trustRouter } from './routes/trust.routes.js';
@@ -77,6 +78,10 @@ app.all('/api/auth/*splat', toNodeHandler(auth));
   app.use('/api', trustRouter);
   app.use('/api', reportInboxRouter);
 app.use('/api', slackRouter);
+app.use('/api', dpaRouter);
+// RFC 9116 requires this at the host root, and a header-only document should not
+// depend on a JavaScript runtime starting up to be found.
+app.use(wellKnownRouter);
   app.use('/api', ssoRouter);
   app.use(portalErrorHandler);
   app.use('/api/v1', apiV1Router);

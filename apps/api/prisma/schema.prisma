@@ -104,6 +104,22 @@ model Organization {
   /// with today, and a customer who reaches a checkout that returns 503 has
   /// already been lost. Flip this to USD the day Paddle is live; it is a default.
   preferredCurrency     BillingCurrency       @default(INR)
+  /// When this workspace accepted the Data Processing Agreement, and which
+  /// version of it they accepted.
+  ///
+  /// Recorded per organisation rather than per user, because an agency accepts the
+  /// DPA on behalf of its clients. A member who leaves must not erase the record
+  /// that the acceptance happened.
+  ///
+  /// The version matters more than the timestamp. A customer auditor's first
+  /// question is which document was agreed to, and an acceptance with no version
+  /// cannot answer it.
+  dpaAcceptedAt         DateTime?
+  dpaVersion            String?
+  /// The user who ticked the boxes, retained because "who signed" is asked and
+  /// "yes, someone did" is not an answer.
+  dpaAcceptedById       String?
+  dpaAcceptedByEmail    String?
   brandLogoUrl          String?
   brandPrimaryColor     String?
   brandAccentColor      String?
@@ -1250,6 +1266,9 @@ enum AuditAction {
   BILLING_PLAN_CHANGE_REFUSED
   BILLING_CANCELLED
   BILLING_RESUMED
+  /// Recorded so a dispute about whether someone was authorised to accept the
+  /// Data Processing Agreement on the organisation's behalf is settled by a row.
+  DPA_ACCEPTED
   TRUST_CENTER_CREATED
   TRUST_CENTER_REVOKED
   COMPLIANCE_PACK_ISSUED

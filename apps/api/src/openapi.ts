@@ -1002,6 +1002,42 @@ export const openApiDocument = {
         },
       },
     },
+    '/.well-known/security.txt': {
+      get: {
+        tags: ['Compliance'],
+        security: [],
+        summary: 'RFC 9116 security contact',
+        description: [
+          'Served from the API as well as the application, because this is a header-only document and must not depend on a JavaScript runtime starting up.',
+          'Publish a Contact, a Policy and an expiry. A missing expiry tells a researcher the file was abandoned, which is worse than not publishing one.',
+        ].join(' '),
+        responses: { 200: { description: 'text/plain security.txt' } },
+      },
+    },
+    '/workspaces/{organizationId}/dpa-acceptance': {
+      get: {
+        tags: ['Compliance'],
+        summary: 'Which version of the Data Processing Agreement this workspace has accepted',
+        description: [
+          'Reported per organisation rather than per user, because an agency accepts on behalf of its clients and a member leaving must not erase the record.',
+          'Reports the accepted version alongside the current one, so an older acceptance can be prompted for again rather than treated as current.',
+        ].join(' '),
+        responses: { 200: { description: 'Accepted flag, accepted and current versions, whether re-consent is required, and who accepted.' } },
+      },
+      post: {
+        tags: ['Compliance'],
+        summary: 'Record acceptance of the Data Processing Agreement',
+        description: [
+          'Both confirmations are required: that the agreement has been read, and that the person accepting is authorised to bind the organisation.',
+          'The second is the one that matters. An employee creating a workspace has not been authorised by their firm to accept a data processing agreement on its behalf.',
+          'Recorded in the audit trail with the confirming IP, because a later dispute about authority is settled by a row rather than by memory.',
+        ].join(' '),
+        responses: {
+          200: { description: 'The recorded acceptance.' },
+          409: { description: 'Both confirmations were not supplied.' },
+        },
+      },
+    },
     '/capabilities': {
       get: {
         tags: ['System'],
