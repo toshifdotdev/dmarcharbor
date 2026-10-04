@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../database/prisma.js';
+import { env } from '../config/env.js';
 import { recordAuditEvent } from '../services/audit.service.js';
 import { SsoError, createSsoConnection, deleteSsoConnection, listSsoConnections } from '../services/sso/sso.service.js';
 import {
@@ -130,7 +131,7 @@ export async function ssoStartController(request: Request, response: Response): 
     const connection = await describeConnection(connectionId);
     const url = connection.protocol === 'OIDC'
       ? await beginOidcSignIn(connectionId)
-      : await samlEntryPoint(connectionId, request.get('host') ?? 'localhost');
+      : await samlEntryPoint(connectionId);
 
     response.redirect(url);
   } catch (error) {
@@ -144,8 +145,8 @@ export async function ssoCallbackController(request: Request, response: Response
   try {
     const result =
       request.method === 'POST'
-        ? await completeSamlSignIn(connectionId, String((request.body as { SAMLResponse?: unknown })?.SAMLResponse ?? ''), request.get('host') ?? 'localhost')
-        : await finishOidcSignIn(connectionId, new URL(request.originalUrl, `http://${request.get('host') ?? 'localhost'}`));
+        ? await completeSamlSignIn(connectionId, String((request.body as { SAMLResponse?: unknown })?.SAMLResponse ?? ''))
+        : await finishOidcSignIn(connectionId, new URL(request.originalUrl, env.APP_URL));
 
     const { token, expiresAt } = await createSessionForUser(result.userId, {
       ipAddress: request.ip,

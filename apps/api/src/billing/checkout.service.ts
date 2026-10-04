@@ -268,11 +268,6 @@ export async function changePlan(input: {
     );
   }
 
-  const provider = resolveProviderForCheckout({
-    currency: 'INR',
-    existingProvider: subscription.provider,
-  });
-
   // Only a move to a smaller plan can be over quota. Counting usage for an
   // upgrade would refuse a purchase, which is the opposite of what we want.
   if (quotaRank(input.plan) < quotaRank(subscription.plan)) {
@@ -304,6 +299,15 @@ export async function changePlan(input: {
       );
     }
   }
+
+  // Resolved after the quota guard on purpose. The guard needs no provider and
+  // answers the question the customer actually asked, so resolving first meant an
+  // over-quota downgrade with no provider configured returned "payments are not
+  // available yet" instead of naming the clients they have too many of.
+  const provider = resolveProviderForCheckout({
+    currency: 'INR',
+    existingProvider: subscription.provider,
+  });
 
   await provider.changePlan({
     providerSubscriptionId: subscription.providerSubscriptionId,
@@ -497,14 +501,34 @@ export async function syncStatus(provider: string, currency: BillingCurrency) {
   return planSyncReport(provider, currency);
 }
 
+/**
+ * Formats a minor-unit amount for display.
+ *
+ * Integer arithmetic throughout. Dividing by 100 produces a float, and a display
+ * string that depends on float rounding is a string that can be wrong by a cent at
+ * some price. Money is stored in minor units precisely so that this never has to
+ * happen.
+ */
 function formatLabel(minor: number, currency: BillingCurrency): string {
   if (minor === 0) {
     return 'Free';
   }
-  const major = minor / 100;
-  return currency === 'INR'
-    ? `\u20b9${new Intl.NumberFormat('en-IN').format(major)}`
-    : `$${new Intl.NumberFormat('en-US').format(major)}`;
+
+  const negative = minor < 0;
+  const absolute = Math.abs(Math.trunc(minor));
+  const units = Math.trunc(absolute / 100);
+  const cents = absolute % 100;
+
+  const formatter = new Intl.NumberFormat(currency === 'INR' ? 'en-IN' : 'en-US', {
+    minimumFractionDigits: cents === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  });
+
+  const grouped = formatter.format(units);
+  const body = cents === 0 ? grouped : `${grouped}.${String(cents).padStart(2, '0')}`;
+
+  const signed = negative ? `-${body}` : body;
+  return currency === 'INR' ? `\u20b9${signed}` : `$${signed}`;
 }
 
 /**

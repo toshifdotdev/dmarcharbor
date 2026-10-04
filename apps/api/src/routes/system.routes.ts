@@ -8,10 +8,23 @@ import { requireSession } from '../middleware/auth.middleware.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
 import { paginationQuerySchema } from '../utils/pagination.js';
 import { openApiDocument } from '../openapi.js';
+import { capabilities } from '../services/capabilities.service.js';
 
 export const systemRouter = Router();
 
 const readinessTimeoutMs = 3_000;
+
+/**
+ * Public capability probe.
+ *
+ * Read by the marketing and pricing pages before anyone has an account, so it takes
+ * no authentication. It answers which sign-in methods exist and which currencies can
+ * actually be paid in, which is what stops the pricing page advertising a price the
+ * checkout would then refuse.
+ */
+systemRouter.get('/capabilities', async (_request, response) => {
+  response.json(await capabilities());
+});
 
 systemRouter.get('/health', (_request, response) => {
   response.json({ status: 'ok', service: 'dmarcharbor-api' });

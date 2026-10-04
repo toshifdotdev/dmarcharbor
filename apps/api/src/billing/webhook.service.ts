@@ -66,6 +66,10 @@ const razorpayStatusMap: Record<string, ProviderSubscriptionStatus> = {
   cancelled: 'cancelled',
   completed: 'expired',
   expired: 'expired',
+  // Razorpay issues this when a subscription reaches the end of its term rather
+  // than being cancelled early. It was unmapped, so the workspace was never told
+  // the paid period ran out and reconciliation was the only thing that noticed.
+  closed: 'expired',
 };
 
 export async function handleRazorpayWebhook(input: {
@@ -143,6 +147,10 @@ const paddleEventMap: Record<string, BillingEventType> = {
   'subscription.expired': 'subscription.expired',
   'transaction.completed': 'checkout.completed',
   'transaction.updated': 'subscription.updated',
+  // Paddle's explicit failure event. Without it a declined card was only noticed by
+  // reconciliation, which runs on a schedule, so a customer could sit in a state we
+  // had already been told about and did nothing about.
+  'transaction.failed': 'subscription.past_due',
 };
 
 const paddleStatusMap: Record<string, ProviderSubscriptionStatus> = {

@@ -412,17 +412,43 @@ describe('white label branding', () => {
     expect(withPort.body.workspaceName).toBe('Harbour Digital');
   });
 
-  it('refuses to serve an agency whose hostname proof was never verified', async () => {
+  it('answers for an agency whose hostname proof was never verified, and says so', async () => {
     const { agent, organizationId } = await setup('ADMIRALTY');
     const host = `unproven-${fixtureId}.harbour.test`;
     await agent.put(`/api/workspaces/${organizationId}/branding/custom-domain`).send({ customDomain: `https://${host}` });
 
     const anonymous = request(app);
     const served = await anonymous.get('/api/branding/host').set('Host', host);
-    expect(served.status).toBe(404);
 
+    // Previously a 404, which made the honest state unreachable. The record exists
+    // and the domain is pointed at us, so answering and flagging the state is the
+    // truth. Returning 404 instead left the frontend with no way to distinguish
+    // "nobody is here" from "someone is here but has not proved it", so it fell
+    // through to the default brand and the branding looked live when it was not.
+    expect(served.status).toBe(200);
+    expect(served.body.customDomainVerified).toBe(false);
+    expect(served.body.workspaceName).toBe('Harbour Digital');
+
+    // A host nobody has claimed is still a 404. The distinction matters, so it is
+    // asserted rather than assumed.
     const unknown = await anonymous.get('/api/branding/host').set('Host', 'someone-elses-domain.test');
     expect(unknown.status).toBe(404);
+  });
+
+  it('still says verified once the proof exists', async () => {
+    const { agent, organizationId } = await setup('ADMIRALTY');
+    const host = `proven-${fixtureId}.harbour.test`;
+    await agent.put(`/api/workspaces/${organizationId}/branding/custom-domain`).send({ customDomain: `https://${host}` });
+    await agent.post(`/api/workspaces/${organizationId}/branding/custom-domain/verify`).send({});
+    await prisma.organization.update({
+      where: { id: organizationId },
+      data: { customDomainVerifiedAt: new Date() },
+    });
+
+    const served = await request(app).get('/api/branding/host').set('Host', host);
+
+    expect(served.status).toBe(200);
+    expect(served.body.customDomainVerified).toBe(true);
   });
 
   it('lets only one agency claim a hostname', async () => {

@@ -1,5 +1,6 @@
 import { prisma } from '../../database/prisma.js';
 import { encryptSensitive } from '../privacy.service.js';
+import { callbackUrlsFor } from './sso-flow.service.js';
 
 /**
  * Enterprise single sign on for a workspace.
@@ -144,6 +145,14 @@ export interface SsoConnectionView {
   issuer: string;
   entryPoint: string;
   clientId: string;
+  /**
+   * Where this provider must send the user back to, for both protocols.
+   *
+   * An administrator configuring an IdP cannot copy a value they were never given.
+   * This is what the previous implementation computed and then threw away, which is
+   * why the field was absent from the view while the service could produce it.
+   */
+  callbackUrls: { saml: string; oidc: string };
   provisioning: SsoProvisioningMode;
   defaultRole: string;
   enabled: boolean;
@@ -166,6 +175,7 @@ export async function listSsoConnections(organizationId: string): Promise<SsoCon
     issuer: row.issuer,
     entryPoint: row.entryPoint,
     clientId: row.clientId,
+    callbackUrls: callbackUrlsFor(row.id),
     provisioning: row.provisioning,
     defaultRole: row.defaultRole,
     enabled: row.enabled,

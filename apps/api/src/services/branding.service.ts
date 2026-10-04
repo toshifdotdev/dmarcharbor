@@ -286,7 +286,9 @@ export async function verifyCustomDomain(
  * an agency. Caller is responsible for applying the plan gate through
  * `resolveBranding`.
  */
-export async function findOrganizationByHost(host: string | undefined | null): Promise<string | null> {
+export async function findOrganizationByHost(
+  host: string | undefined | null,
+): Promise<{ organizationId: string; verified: boolean } | null> {
   if (!host) {
     return null;
   }
@@ -303,11 +305,18 @@ export async function findOrganizationByHost(host: string | undefined | null): P
     select: { id: true, customDomainVerifiedAt: true },
   });
 
-  if (!organization?.customDomainVerifiedAt) {
+  if (!organization) {
     return null;
   }
 
-  return organization?.id ?? null;
+  // A host pointed at us but not yet proven is still a fact about the world, and
+  // returning null for it made the honest state unreachable. The frontend already
+  // renders "record not verified yet" correctly, and that branch could never fire
+  // because the API refused to say the host existed at all.
+  //
+  // The proof is not skipped in exchange. Callers decide what a verified host
+  // unlocks; this only reports what is true.
+  return { organizationId: organization.id, verified: organization.customDomainVerifiedAt !== null };
 }
 
 export class BrandingError extends Error {

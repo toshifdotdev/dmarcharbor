@@ -55,13 +55,20 @@ function sendBrandingError(response: Response, error: unknown): void {
  */
 export async function resolveBrandingByHostController(request: Request, response: Response): Promise<void> {
   try {
-    const organizationId = await findOrganizationByHost(request.get('host'));
-    if (!organizationId) {
+    const found = await findOrganizationByHost(request.get('host'));
+    if (!found) {
       response.status(404).json({ error: { code: 'NOT_FOUND', message: 'No agency is served on this address.' } });
       return;
     }
 
-    response.json(await resolveBranding(organizationId));
+    // An unverified host is answered, not refused. The record exists and the
+    // domain is pointed at us, so saying so is the honest answer and it is what
+    // lets the frontend show "not verified yet" instead of silently falling back
+    // to the default brand, which read as the branding being live when it was not.
+    response.json({
+      ...(await resolveBranding(found.organizationId)),
+      customDomainVerified: found.verified,
+    });
   } catch (error) {
     sendBrandingError(response, error);
   }

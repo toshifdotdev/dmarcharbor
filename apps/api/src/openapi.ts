@@ -1002,6 +1002,20 @@ export const openApiDocument = {
         },
       },
     },
+    '/capabilities': {
+      get: {
+        tags: ['System'],
+        security: [],
+        summary: 'What this deployment can actually do',
+        description: [
+          'Public, because it is read by the marketing and pricing pages before anyone has an account.',
+          'Answers which sign-in methods exist and which currencies can actually be paid in. Derived from provider configuration rather than a flag, so it cannot drift: adding PADDLE_API_KEY and PADDLE_WEBHOOK_SECRET is the whole of the change.',
+          'This exists because the pricing page used to render every currency the catalog carries prices for, and therefore advertised a plan the checkout would then refuse. A public page must not promise something the API will not deliver.',
+          'Exposes configuration state only: no keys, no identifiers, no counts.',
+        ].join(' '),
+        responses: { 200: { description: 'Purchasable currencies, default currency, provider readiness, and illustrative compliance pack identifiers.' } },
+      },
+    },
     '/health': {
       get: {
         tags: ['System'],

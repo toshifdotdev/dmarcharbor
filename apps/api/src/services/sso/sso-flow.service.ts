@@ -10,6 +10,7 @@ import {
   randomState,
 } from 'openid-client';
 import { prisma } from '../../database/prisma.js';
+import { env } from '../../config/env.js';
 import { decryptSensitive, encryptSensitive } from '../privacy.service.js';
 import { recordAuditEvent } from '../audit.service.js';
 import { SsoError, assertMayProvision, normalizeEmailDomain } from './sso.service.js';
@@ -230,10 +231,26 @@ async function oidcConfiguration(connection: NonNullable<Connection>) {
   return configuration;
 }
 
-/** Where a connection's provider should send the user back to. */
-export async function callbackUrlFor(connectionId: string): Promise<string> {
-  const connection = await loadConnection(connectionId);
-  return connection.entryPoint;
+/**
+ * Where a connection's provider must send the user back to.
+ *
+ * Built from the configured application URL rather than the request's Host header.
+ *
+ * The previous implementation of this function returned the connection's
+ * entryPoint, which is the provider's own discovery document, while its name and
+ * comment promised the redirect target. Nothing called it, so it was harmless, and
+ * wiring it up would have handed an administrator their IdP's URL to paste as a
+ * callback, at which point sign-in would silently never complete.
+ *
+ * Two protocols, one answer, because an administrator configuring an IdP needs to
+ * paste a value and cannot tell from the form which of the two applies.
+ */
+export function callbackUrlsFor(connectionId: string): { saml: string; oidc: string } {
+  const base = env.APP_URL.replace(/\/+$/, '');
+  return {
+    saml: `${base}/api/sso/${connectionId}/saml/acs`,
+    oidc: `${base}/api/sso/${connectionId}/callback`,
+  };
 }
 
 export async function beginOidcSignIn(connectionId: string): Promise<string> {
@@ -324,26 +341,32 @@ export async function finishOidcSignIn(connectionId: string, currentUrl: URL): P
  * redirect, which matters because a provider that is configured to require a
  * signed request will refuse a plain URL.
  */
-export async function samlEntryPoint(connectionId: string, host: string): Promise<string> {
+export async function samlEntryPoint(connectionId: string): Promise<string> {
   const connection = await loadConnection(connectionId);
   if (connection.protocol !== 'SAML') {
     throw new SsoError('This connection is not a SAML connection.', 'SSO_PROTOCOL_MISMATCH', 400);
   }
 
-  const samlInstance = buildSaml(connectionId, connection, host);
+  const samlInstance = buildSaml(connectionId, connection);
   // The connection id doubles as the RelayState, so the assertion that comes
   // back can be matched to the request that started it.
   return samlInstance.getAuthorizeUrlAsync(connectionId, undefined, {});
 }
 
-function buildSaml(connectionId: string, connection: NonNullable<Connection>, host: string) {
+// No host parameter. It used to carry the request's Host header into the ACS URL, which
+// meant the value an administrator pasted into their IdP depended on which hostname
+// they happened to be browsing and could be the internal name behind a proxy.
+function buildSaml(connectionId: string, connection: NonNullable<Connection>) {
   return new saml.SAML({
     entryPoint: connection.entryPoint,
     issuer: `dmarcharbor-${connectionId}`,
     // Required by the library's types. An unsigned assertion is refused
     // below by wantAssertionsSigned, so a missing certificate fails closed.
     idpCert: connection.idpCertificate ?? '',
-    callbackUrl: `https://${host}/api/sso/${connectionId}/saml/acs`,
+    // From configuration, not from the request. A Host header behind a proxy is
+    // the internal name, and without one the old fallback produced
+    // https://localhost/api/sso/..., which tells an IdP to send users nowhere.
+    callbackUrl: callbackUrlsFor(connectionId).saml,
     wantAssertionsSigned: true,
     // A signed response alone is accepted as well as a signed assertion,
     // because some providers will only sign one of the two. At least one must
@@ -355,17 +378,18 @@ function buildSaml(connectionId: string, connection: NonNullable<Connection>, ho
   });
 }
 
+// No host parameter. The assertion consumer is configured from APP_URL rather than
+// from whichever hostname the browser happened to arrive on.
 export async function completeSamlSignIn(
   connectionId: string,
   encodedResponse: string,
-  host: string,
 ): Promise<{ userId: string; organizationId: string; created: boolean }> {
   const connection = await loadConnection(connectionId);
   if (connection.protocol !== 'SAML') {
     throw new SsoError('This connection is not a SAML connection.', 'SSO_PROTOCOL_MISMATCH', 400);
   }
 
-  const samlInstance = buildSaml(connectionId, connection, host);
+  const samlInstance = buildSaml(connectionId, connection);
   const { profile } = await samlInstance.validatePostResponseAsync({ SAMLResponse: encodedResponse });
 
   const email = typeof profile?.email === 'string' ? profile.email : profile?.nameID;
