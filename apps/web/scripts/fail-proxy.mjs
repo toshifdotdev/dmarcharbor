@@ -12,6 +12,14 @@
  *   POST /__fail/off                        → forwarding resumes
  *   POST /__slow/on?path=clients&ms=8000   → that path's answer is delayed
  *   POST /__slow/off                        → delay removed
+ *   POST /__caps/on?currencies=INR,USD     → /api/capabilities reports that list
+ *   POST /__caps/off                        → capabilities forwards upstream
+ *
+ * The caps override exists because "the USD tab appears when capabilities says
+ * two currencies" needs a capabilities response the real API (Paddle
+ * unconfigured) will not produce. The page reads the fixture the same way it
+ * reads the real endpoint: the assertion is about the page's wiring, not the
+ * API's mood.
  *
  * The slow mode exists because browser network throttling cannot slow a
  * SERVER-side fetch: the portfolio's data call runs inside Next, never through
@@ -26,6 +34,7 @@ const PORT = Number(process.env.PORT ?? 3103);
 let failPattern = null;
 let slowPattern = null;
 let slowMs = 0;
+let capsOverride = null;
 
 const server = http.createServer((req, res) => {
   const url = req.url ?? "/";
@@ -41,6 +50,25 @@ const server = http.createServer((req, res) => {
     failPattern = null;
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ failing: null }));
+    return;
+  }
+
+  if (url.startsWith("/__caps/")) {
+    if (url.startsWith("/__caps/on")) {
+      const wanted = new URL(url, "http://x").searchParams.get("currencies") ?? "";
+      const list = wanted.split(",").map((s) => s.trim()).filter(Boolean);
+      capsOverride = {
+        currencies: list,
+        defaultCurrency: list[0] ?? "INR",
+        providers: { razorpay: list.includes("INR"), paddle: list.includes("USD") },
+      };
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(capsOverride));
+      return;
+    }
+    capsOverride = null;
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ capabilities: null }));
     return;
   }
 
@@ -94,6 +122,12 @@ const server = http.createServer((req, res) => {
   if (failPattern && failPattern.test(url)) {
     res.writeHead(500, { "content-type": "application/json" });
     res.end(JSON.stringify({ error: { code: "INTERNAL", message: "Deliberate harness failure." } }));
+    return;
+  }
+
+  if (capsOverride && url.startsWith("/api/capabilities")) {
+    res.writeHead(200, { "content-type": "application/json", connection: "close" });
+    res.end(JSON.stringify(capsOverride));
     return;
   }
 

@@ -2334,13 +2334,12 @@ check(
   JSON.stringify(pricingAudit),
 );
 
-// The currency toggle: INR is the DEFAULT and says so, both currencies stay
-// visible (honest about both), and the control is live. Once locked it must
-// disable itself and show the API's reason field — never parse a message.
-// LAUNCH STATE: only INR is purchasable (USD routes to Paddle, not live), so
-// the group collapses to a single chip — no USD tab, no "INR is the default"
-// note beside it. A one-option toggle with a note says "you have a choice"
-// when the API would refuse the checkout.
+// The currency group is DERIVED from GET /api/capabilities, not the catalog:
+// while capabilities reports one currency the group is a single chip with no
+// USD tab, and when the response reports two the tab appears. The two-currency
+// case is a fixture override on the fail-proxy: Paddle is unconfigured here,
+// so the real endpoint will not produce it, and the assertion is about the
+// page's wiring rather than the API's mood.
 const currencyAudit = await waitForEval(
   `(() => {
     const toggle = document.querySelector('[data-testid="pricing-currency"]');
@@ -2358,6 +2357,40 @@ check(
   "pricing currency group collapses at launch: one purchasable chip, no false choice",
   Boolean(currencyAudit && currencyAudit.toggleRendered && currencyAudit.collapsedSingleChip && currencyAudit.noUsdTab && currencyAudit.noFalseChoiceNote),
   JSON.stringify(currencyAudit),
+);
+
+// The fixture flip: capabilities says two currencies, the USD tab must appear
+// with no code change. Then flip back so the rest of the run sees the launch
+// state (the shared figure checks below read the INR column).
+await fetch(`${FP}/__caps/on?currencies=INR,USD`, { method: "POST" }).catch(() => null);
+await navigate(WEB + "/pricing");
+const twoCurrencyAudit = await waitForEval(
+  `(() => ({
+    inr: !!document.querySelector('[data-testid="pricing-currency-INR"]'),
+    usd: !!document.querySelector('[data-testid="pricing-currency-USD"]'),
+  }))()`,
+  (c) => c && c.inr && c.usd,
+  15000,
+);
+check(
+  "currency tabs follow capabilities: two currencies reported, USD tab appears",
+  Boolean(twoCurrencyAudit && twoCurrencyAudit.inr && twoCurrencyAudit.usd),
+  JSON.stringify(twoCurrencyAudit),
+);
+await fetch(`${FP}/__caps/off`, { method: "POST" }).catch(() => null);
+await navigate(WEB + "/pricing");
+const restoredAudit = await waitForEval(
+  `(() => ({
+    singleChip: !!document.querySelector('[data-testid="pricing-currency-INR"]'),
+    noUsdTab: !document.querySelector('[data-testid="pricing-currency-USD"]'),
+  }))()`,
+  (c) => c && c.singleChip && c.noUsdTab,
+  15000,
+);
+check(
+  "currency tabs follow capabilities: one currency reported, USD tab gone again",
+  Boolean(restoredAudit && restoredAudit.singleChip && restoredAudit.noUsdTab),
+  JSON.stringify(restoredAudit),
 );
 
 check(
@@ -2798,6 +2831,13 @@ await cdp("Network.clearBrowserCookies");
 await navigate(WEB + "/");
 await waitForEval(`!!document.querySelector('[data-testid="domain-check-input"]')`, (v) => v === true, 15000);
 await waitForHydration();
+// The hero must not reflow on interaction: measured before the scan, and
+// again once the verdict renders. The panel is a fixed verdict box with the
+// three record rows present in both states, so the hero height is the same
+// number either way. A screenshot cannot catch a 160px drift; this does.
+const heroHeightBefore = await evalJs(
+  `Math.round(document.querySelector('[data-testid="home-hero"]').getBoundingClientRect().height)`,
+);
 await fillInput('[data-testid="domain-check-input"]', "example.com");
 await evalJs(`(() => { const b = document.querySelector('[data-testid="domain-check-submit"]'); if (b && !b.disabled) b.click(); return true; })()`);
 // The audit reads INSIDE the domain-check region: the homepage itself now
@@ -2808,7 +2848,7 @@ const checkAudit = await waitForEval(
   `(() => {
     const region = document.querySelector('[data-testid="domain-check"]');
     if (!region) return { result: false, boundary: false, ungated: false };
-    const el = region.querySelector('[data-testid="domain-check-boundary"]');
+    const el = document.querySelector('[data-testid="domain-check-boundary"]');
     const t = region.textContent.toLowerCase();
     return {
       result: t.includes('example.com') && (t.includes('published') || t.includes('missing') || t.includes('not measured')),
@@ -2823,6 +2863,14 @@ check(
   "homepage domain check: real result, ungated, honest boundary",
   Boolean(checkAudit && checkAudit.result && checkAudit.boundary && checkAudit.ungated),
   JSON.stringify(checkAudit),
+);
+const heroHeightAfter = await evalJs(
+  `Math.round(document.querySelector('[data-testid="home-hero"]').getBoundingClientRect().height)`,
+);
+check(
+  "hero holds its height through a scan: no reflow on interaction",
+  typeof heroHeightBefore === "number" && typeof heroHeightAfter === "number" && heroHeightBefore === heroHeightAfter,
+  JSON.stringify({ before: heroHeightBefore, after: heroHeightAfter }),
 );
 
 // 10c. Pricing refinements. All four buttons share one y-coordinate (the

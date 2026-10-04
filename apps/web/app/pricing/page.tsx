@@ -1,5 +1,10 @@
 import Link from "next/link";
-import { getBillingCurrency, getPlanCatalog } from "@/lib/api-ops";
+import {
+  getBillingCurrency,
+  getCapabilities,
+  getPlanCatalog,
+  type DeploymentCapabilities,
+} from "@/lib/api-ops";
 import { formatMinor } from "@/lib/money";
 import { featureLabel } from "@/lib/feature-label";
 import { readHostBrand } from "@/lib/host-brand";
@@ -37,15 +42,14 @@ function soldKeys(plans: PlanDefinition[]): string[] {
   return [...keys].sort((a, b) => a.localeCompare(b));
 }
 
-/** The currencies that can actually be CHARGED. The catalog carries both USD
- *  and INR prices, but the catalog is not what a checkout can complete: at
- *  launch INR routes to Razorpay (live) and USD to Paddle (not approved), so a
- *  USD price on the page would promise a checkout the API refuses — worse than
- *  showing no USD at all. This is the launch state's own truth, not an edge
- *  case; when GET /api/capabilities lands (its owner's call), its `currencies`
- *  list replaces this and the tab appears with no frontend release. */
-function purchasableCurrencies(): Array<"INR" | "USD"> {
-  return ["INR"];
+/** The currencies this deployment can actually CHARGE, straight from
+ *  GET /api/capabilities. The catalog carries prices in currencies no checkout
+ *  can complete, so deriving purchasability from the catalog would promise a
+ *  payment the API refuses. This is provider readiness, not a flag: when
+ *  Paddle is configured, its currencies appear with no frontend release. */
+function purchasableCurrencies(capabilities: DeploymentCapabilities | null): Array<"INR" | "USD"> {
+  const wanted = capabilities?.currencies ?? [];
+  return (["INR", "USD"] as const).filter((c) => wanted.includes(c));
 }
 
 export default async function PricingPage({
@@ -56,6 +60,7 @@ export default async function PricingPage({
   const brand = await readHostBrand();
   const name = brandName(brand);
   const catalog = await getPlanCatalog().catch(() => null);
+  const capabilities = await getCapabilities().catch(() => null);
 
   // The quoted currency: the workspace's stored preference (the value a later
   // checkout charges) when signed in, INR by default until Paddle is approved.
@@ -74,9 +79,19 @@ export default async function PricingPage({
     // Signed out: display only, nothing to persist.
   }
   const { currency: wanted, interval: wantedInterval } = await searchParams;
+  // The displayed currency is always one the deployment can charge: a stored
+  // preference or a query for a currency capabilities does not offer would
+  // quote a checkout the API refuses. Fall back to the capabilities default.
+  const chargeable = purchasableCurrencies(capabilities);
+  const wantedCurrency: PricingCurrency = wanted === "USD" || wanted === "INR" ? wanted : "INR";
+  const stored: PricingCurrency | null =
+    preference && chargeable.includes(preference.preferredCurrency) ? preference.preferredCurrency : null;
+  const fallback: PricingCurrency =
+    chargeable.includes(capabilities?.defaultCurrency as PricingCurrency)
+      ? (capabilities!.defaultCurrency as PricingCurrency)
+      : chargeable[0] ?? "INR";
   const currency: PricingCurrency =
-    preference?.preferredCurrency ??
-      (wanted === "USD" || wanted === "INR" ? wanted : "INR");
+    stored ?? (chargeable.includes(wantedCurrency) ? wantedCurrency : fallback);
   // Monthly is the honest default: it is the number a reader compares, and
   // annual is the discount they opt into: never the reverse.
   const interval: PricingInterval =
@@ -129,7 +144,7 @@ export default async function PricingPage({
           </h1>
         </div>
         <p className="max-w-[46ch] flex-1 text-[13.5px] leading-[1.7]" style={{ color: "var(--color-ink-2)" }}>
-          All of them are on this screen. Monthly in {purchasableCurrencies().length > 1 ? "INR and USD" : currency === "INR" ? "INR" : "USD"}, annual where
+          All of them are on this screen. Monthly in {chargeable.join(" and ")}, annual where
           it saves you two months. The words about what each plan buys are
           below, where scrolling is fine. <strong style={{ color: "var(--color-ink)" }}>
           {name}</strong> never prices data portability or erasure: those are on
@@ -143,7 +158,7 @@ export default async function PricingPage({
             reason={preference?.reason ?? null}
             persistable={Boolean(organizationId)}
             organizationId={organizationId}
-            availableCurrencies={purchasableCurrencies()}
+            availableCurrencies={purchasableCurrencies(capabilities)}
           />
         </div>
       </section>

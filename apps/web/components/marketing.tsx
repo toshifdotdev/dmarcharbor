@@ -159,7 +159,7 @@ export async function MarketingHome() {
           the hero action. The hook belongs above the fold: the strongest thing
           a stranger can do here is check their own domain, so that is the
           primary action and the account CTA is the secondary one. */}
-      <section className="mx-auto w-full max-w-[1180px] px-6 pt-12">
+      <section className="mx-auto w-full max-w-[1180px] px-6 pt-12" data-testid="home-hero">
         <div className="grid grid-cols-1 gap-x-12 gap-y-9 lg:grid-cols-[1.02fr_0.98fr]">
           <div>
             <div className="label">DMARC monitoring for client domains</div>
@@ -217,14 +217,14 @@ export async function MarketingHome() {
               not. In the hero, because it is the fastest way for a stranger to
               see the product working on their own domain. */}
           <div className="lg:pt-2">
-            <DomainCheck compact />
+            <DomainCheck />
           </div>
         </div>
       </section>
 
       {/* The lookup, end to end: the one animation here, and the things it
           finds. SVG and CSS only, played once, reduced-motion aware. */}
-      <section className="mx-auto mt-16 w-full max-w-[1180px] px-6">
+      <section className="mx-auto mt-10 w-full max-w-[1180px] px-6">
         <h2 className="text-[23px] font-semibold tracking-[-0.028em]" style={{ fontFamily: "var(--font-display)" }}>
           One lookup, end to end
         </h2>
@@ -232,6 +232,23 @@ export async function MarketingHome() {
           <DnsResolution />
           <div>
             <h3 className="text-[15px] font-semibold tracking-[-0.012em]" style={{ color: "var(--color-ink)" }}>
+              What the three rows mean
+            </h3>
+            <div className="mt-3 flex flex-col gap-3.5">
+              <Fact
+                title="DMARC"
+                body="The policy domain owners publish for mail that fails alignment: reject refuses it, quarantine filters it to spam or holds it, and none only reports it. No policy published means receivers decide on their own."
+              />
+              <Fact
+                title="SPF"
+                body="The list of servers allowed to send as the domain. Published but not validating means the record itself is broken, which fails alignment just as surely as an unauthorised sender."
+              />
+              <Fact
+                title="DKIM"
+                body="The cryptographic signature receivers check. At least one selector published is a start; a migration or a key nobody rotated shows up here as a missing selector."
+              />
+            </div>
+            <h3 className="mt-7 text-[15px] font-semibold tracking-[-0.012em]" style={{ color: "var(--color-ink)" }}>
               What it catches
             </h3>
             <dl className="mt-3 flex flex-col gap-3.5">
@@ -254,6 +271,20 @@ export async function MarketingHome() {
             </dl>
           </div>
         </div>
+        <p
+          className="mt-8 max-w-[68ch] text-[13.5px] leading-[1.75]"
+          style={{ color: "var(--color-ink-3)" }}
+          data-testid="domain-check-boundary"
+        >
+          One lookup is one moment. {name} watches a whole book of client
+          domains continuously: posture per domain as reports arrive, alerting,
+          shareable evidence and a client portal. That is the difference between
+          checking a domain and being responsible for it.{" "}
+          <Link href="/sign-up" className="underline" style={{ color: "var(--color-ink)" }}>
+            Start monitoring free
+          </Link>
+          .
+        </p>
       </section>
 
       {/* A worked example: a real result's shape, domain redacted. */}

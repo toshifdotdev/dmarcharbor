@@ -110,6 +110,19 @@ export function getPlanCatalog(): Promise<{ plans: PlanDefinition[]; order: stri
   return opsFetch<{ plans: PlanDefinition[]; order: string[] }>("/api/plans");
 }
 
+/** GET /api/capabilities: what this deployment can actually DO. The currencies
+ *  list is the set a checkout can complete (provider readiness, not a flag),
+ *  so a page quoting a currency from here can never promise a payment the API
+ *  refuses. Unauthenticated and public. */
+export interface DeploymentCapabilities {
+  currencies: string[];
+  defaultCurrency: string;
+  providers: { razorpay: boolean; paddle: boolean };
+}
+export function getCapabilities(): Promise<DeploymentCapabilities> {
+  return opsFetch<DeploymentCapabilities>("/api/capabilities");
+}
+
 export function startCheckout(
   organizationId: string,
   body: CheckoutRequest,

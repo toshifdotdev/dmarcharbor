@@ -4,20 +4,24 @@
  * domain-check.tsx — the homepage's anonymous domain check.
  *
  * POST /api/scan is public and rate limited, so there is nothing to gate: the
- * result is never hidden behind a sign-up (that was considered and rejected —
- * a free check that demands an account is not free). The box shows the record
- * and what it means, and it is honest about what the free check is not: one
- * lookup is a moment in time, while the product is continuous measurement
- * across a book of client domains.
+ * result is never hidden behind a sign-up (that was considered and rejected:
+ * a free check that demands an account is not free).
  *
- * The 429 is not an error — the endpoint is rate limited on purpose. It reads
+ * The panel is a VERDICT BOX and it is fixed height by construction: the
+ * domain, the status, and the three record states (DMARC, SPF, DKIM) are all
+ * it shows, and the idle state renders the same three record labels with an
+ * empty state cell. Idle and loaded occupy the same pixels, so the hero never
+ * reflows on interaction. The explanations of what each row means live with
+ * the product prose in "One lookup, end to end", not inside the output the
+ * moment it appears.
+ *
+ * The 429 is not an error: the endpoint is rate limited on purpose. It reads
  * as "too many lookups, try again shortly", never as a failure.
  *
  * Anything the API did not report is shown as unknown, never as a pass.
  */
 
 import { useState } from "react";
-import Link from "next/link";
 
 interface ScanIssue {
   severity: "info" | "warning" | "error";
@@ -43,17 +47,21 @@ interface ScanResult {
   recommendations: string[];
 }
 
-const POLICY_MEANING: Record<ScanResult["dmarc"]["policy"], string> = {
-  reject: "Mail that fails alignment is refused by receivers: the strongest policy.",
-  quarantine: "Mail that fails alignment is filtered to spam or held: enforcement without rejection.",
-  none: "Mail that fails alignment is only reported. Nothing is enforced yet: this is monitoring, not protection.",
-  unknown: "No policy is published, so receivers decide on their own.",
+const STATUS_LABEL: Record<ScanResult["status"], string> = {
+  healthy: "looks good",
+  needs_attention: "needs attention",
+  missing: "no DMARC record",
+  error: "lookup failed",
 };
 
-function RecordRow({ label, found, detail }: { label: string; found: boolean | null; detail: string }) {
+/** One record state row: the label is static (idle and loaded identical) and
+ *  the state word is the whole verdict of the row. Unknown is never a pass:
+ *  found = green, missing = amber, and no measurement renders an empty cell
+ *  rather than borrowing either colour. */
+function RecordRow({ label, found }: { label: string; found: boolean | null }) {
   return (
     <div
-      className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-b py-2"
+      className="flex min-h-[34px] items-center gap-x-3 border-b"
       style={{ borderColor: "var(--color-line)" }}
     >
       <span className="num w-[64px] text-[11px] uppercase tracking-[0.12em]" style={{ color: "var(--color-ink-3)" }}>
@@ -62,21 +70,16 @@ function RecordRow({ label, found, detail }: { label: string; found: boolean | n
       <span
         className="num text-[11px] uppercase tracking-[0.12em]"
         style={{
-          // Unknown is never a pass: found = green, missing = amber, null =
-          // not measured at all.
           color: found === true ? "var(--color-pass)" : found === false ? "var(--color-unverified)" : "var(--color-unmeasured)",
         }}
       >
-        {found === true ? "published" : found === false ? "missing" : "not measured"}
-      </span>
-      <span className="flex-1 text-[12.5px]" style={{ color: "var(--color-ink-2)" }}>
-        {detail}
+        {found === true ? "published" : found === false ? "missing" : ""}
       </span>
     </div>
   );
 }
 
-export function DomainCheck({ compact = false }: { compact?: boolean } = {}) {
+export function DomainCheck() {
   const [domain, setDomain] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ScanResult | null>(null);
@@ -123,28 +126,15 @@ export function DomainCheck({ compact = false }: { compact?: boolean } = {}) {
   }
 
   return (
-    <section className={compact ? "w-full" : "mt-14 w-full"} data-testid="domain-check">
+    <section className="w-full" data-testid="domain-check">
       <div
-        className="rounded-[2px] border px-6 py-6"
+        className="rounded-[2px] border px-6 py-5"
         style={{ borderColor: "var(--color-line-strong)", background: "var(--color-surface)" }}
       >
-        {!compact ? (
-          <>
-            <h2 className="text-[19px] font-semibold tracking-[-0.02em]" style={{ fontFamily: "var(--font-display)" }}>
-              Check one domain, now
-            </h2>
-            <p className="mt-2 max-w-[62ch] text-[13.5px] leading-[1.75]" style={{ color: "var(--color-ink-2)" }}>
-              No account, no email, no card. We look up the published records and
-              tell you what the world's mail servers see: the same reading the
-              product starts from.
-            </p>
-          </>
-        ) : (
-          <p className="max-w-[62ch] text-[13.5px] leading-[1.75]" style={{ color: "var(--color-ink-2)" }}>
-            No account, no email, no card. We look up the published records and
-            tell you what the world's mail servers see.
-          </p>
-        )}
+        <p className="max-w-[62ch] text-[13.5px] leading-[1.75]" style={{ color: "var(--color-ink-2)" }}>
+          No account, no email, no card. We look up the published records and
+          tell you what the world's mail servers see.
+        </p>
 
         <form onSubmit={run} className="mt-4 flex flex-wrap items-center gap-3">
           <input
@@ -176,122 +166,60 @@ export function DomainCheck({ compact = false }: { compact?: boolean } = {}) {
           </button>
         </form>
 
-        {rateLimited ? (
-          <p role="status" className="mt-3 text-[13px]" style={{ color: "var(--color-unverified)" }}>
-            Too many lookups: try again shortly. The lookup service is shared
-            and rate limited, which is why this check stays free.
-          </p>
-        ) : null}
-        {error ? (
-          <p role="alert" className="mt-3 text-[13px]" style={{ color: "var(--color-block)" }}>
-            {error}
-          </p>
-        ) : null}
-
-        {result ? (
-          <div className="mt-5 border-t pt-4" style={{ borderColor: "var(--color-line)" }}>
-            <div className="flex flex-wrap items-baseline gap-x-4">
-              <span className="num text-[13px]" style={{ color: "var(--color-ink)" }}>
-                {result.domain}
-              </span>
-              <span
-                className="num text-[11px] uppercase tracking-[0.12em]"
-                style={{
-                  color:
-                    result.status === "healthy"
-                      ? "var(--color-pass)"
-                      : result.status === "needs_attention"
-                        ? "var(--color-unverified)"
-                        : "var(--color-block)",
-                }}
-              >
-                {result.status === "healthy"
-                  ? "looks good"
-                  : result.status === "needs_attention"
-                    ? "needs attention"
-                    : result.status === "missing"
-                      ? "no DMARC record"
-                      : "lookup failed"}
-              </span>
-            </div>
-
-            {/* The record and what it means — never the record alone. */}
-            <div className="mt-3">
-              <RecordRow
-                label="DMARC"
-                found={result.dmarc.status === "found" ? true : result.dmarc.status === "missing" ? false : null}
-                detail={
-                  result.dmarc.status === "found"
-                    ? `p=${result.dmarc.policy}: ${POLICY_MEANING[result.dmarc.policy]}`
-                    : result.dmarc.status === "missing"
-                      ? "No DMARC policy is published, so receivers decide on their own."
-                      : "This lookup could not read the DMARC record."
-                }
-              />
-              <RecordRow
-                label="SPF"
-                found={result.spf.status === "found" ? true : result.spf.status === "missing" ? false : null}
-                detail={
-                  result.spf.status === "found"
-                    ? result.spf.valid === false
-                      ? "Published, but it does not validate."
-                      : "Published and valid."
-                    : "Not published."
-                }
-              />
-              <RecordRow
-                label="DKIM"
-                found={result.dkim.status === "found" ? true : result.dkim.status === "missing" ? false : null}
-                detail={result.dkim.status === "found" ? "At least one selector published." : "No selector found."}
-              />
-            </div>
-
-            {result.dmarc.record ? (
-              <pre
-                className="num mt-3 overflow-x-auto rounded-[2px] border px-3 py-2 text-[11.5px]"
-                style={{
-                  background: "var(--color-elevate)",
-                  borderColor: "var(--color-line-strong)",
-                  color: "var(--color-ink-2)",
-                }}
-              >
-                {result.dmarc.record}
-              </pre>
-            ) : null}
-
-            {result.issues.length > 0 ? (
-              <ul className="mt-4 flex flex-col gap-2">
-                {result.issues.slice(0, 4).map((issue) => (
-                  <li key={issue.code} className="text-[12.5px] leading-[1.7]" style={{ color: "var(--color-ink-2)" }}>
-                    <strong style={{ color: "var(--color-ink)" }}>{issue.title}.</strong>{" "}
-                    {issue.message}
-                    {issue.recommendation ? (
-                      <span style={{ color: "var(--color-ink-3)" }}> {issue.recommendation}</span>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-
-            {/* What the free check is not — the honest boundary, said where it
-                matters rather than buried in a footer. */}
-            <p
-              className="mt-5 border-t pt-4 text-[12.5px] leading-[1.75]"
-              style={{ borderColor: "var(--color-line)", color: "var(--color-ink-3)" }}
-              data-testid="domain-check-boundary"
-            >
-              This is one lookup at one moment. DMARC Harbor watches a whole book
-              of client domains continuously: posture per domain as reports
-              arrive, alerting, shareable evidence and a client portal: which is
-              the difference between checking a domain and being responsible for
-              it.{" "}
-              <Link href="/sign-up" className="underline" style={{ color: "var(--color-ink)" }}>
-                Start monitoring free
-              </Link>
-              .
+        {/* One fixed slot for the pause and failure messages: a message that
+            appears must not push the verdict box down the page. */}
+        <div className="mt-3 min-h-[18px]" data-testid="domain-check-message">
+          {rateLimited ? (
+            <p role="status" className="text-[13px]" style={{ color: "var(--color-unverified)" }}>
+              Too many lookups: try again shortly. The lookup service is shared
+              and rate limited, which is why this check stays free.
             </p>
+          ) : error ? (
+            <p role="alert" className="text-[13px]" style={{ color: "var(--color-block)" }}>
+              {error}
+            </p>
+          ) : null}
+        </div>
+
+        {/* The verdict box. The header line and the three record rows render
+            in both states; only their contents differ, so the height is the
+            same before and after a scan. */}
+        <div className="mt-2 border-t pt-3" style={{ borderColor: "var(--color-line)" }}>
+          <div className="flex min-h-[22px] items-baseline gap-x-4">
+            {result ? (
+              <>
+                <span className="num text-[13px]" style={{ color: "var(--color-ink)" }}>
+                  {result.domain}
+                </span>
+                <span
+                  className="num text-[11px] uppercase tracking-[0.12em]"
+                  style={{
+                    color:
+                      result.status === "healthy"
+                        ? "var(--color-pass)"
+                        : result.status === "needs_attention"
+                          ? "var(--color-unverified)"
+                          : "var(--color-block)",
+                  }}
+                >
+                  {STATUS_LABEL[result.status]}
+                </span>
+              </>
+            ) : null}
           </div>
-        ) : null}
+          <RecordRow
+            label="DMARC"
+            found={result ? (result.dmarc.status === "found" ? true : result.dmarc.status === "missing" ? false : null) : null}
+          />
+          <RecordRow
+            label="SPF"
+            found={result ? (result.spf.status === "found" ? true : result.spf.status === "missing" ? false : null) : null}
+          />
+          <RecordRow
+            label="DKIM"
+            found={result ? (result.dkim.status === "found" ? true : result.dkim.status === "missing" ? false : null) : null}
+          />
+        </div>
       </div>
     </section>
   );
