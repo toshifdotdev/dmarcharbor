@@ -267,6 +267,92 @@ function measure(
 }
 
 /**
+ * A numbered section, described once and both measured and rendered from the same
+ * description.
+ *
+ * Describing the shape twice is how a section ends up half on one page and half on
+ * the next: the measurement pass and the render pass drift apart, and the document
+ * changes with no code change. One description, one set of numbers.
+ */
+interface SectionBlock {
+  kind: 'body' | 'labelled' | 'table' | 'note';
+  text?: string;
+  label?: string;
+  value?: string;
+  columns?: { label: string; width: number }[];
+  rows?: string[][];
+  size?: number;
+}
+
+interface Section {
+  title: string;
+  blocks: SectionBlock[];
+}
+
+/**
+ * Height a section will occupy, using the same measurement and the same spacing
+ * constants the render path uses.
+ */
+function sectionHeight(doc: PDFKit.PDFDocument, section: Section): number {
+  const headingSize = 12;
+  const headingText = measure(doc, section.title, CONTENT_WIDTH, {
+    font: 'Helvetica',
+    size: headingSize,
+    bold: true,
+  });
+
+  let total = headingText + 4 + 1 + 14;
+
+  for (const block of section.blocks) {
+    if (block.kind === 'body' || block.kind === 'note') {
+      const size = block.size ?? (block.kind === 'note' ? 8.5 : 9.5);
+      total += measure(doc, block.text ?? '', CONTENT_WIDTH, { font: 'Helvetica', size }) + 8;
+      continue;
+    }
+
+    if (block.kind === 'labelled') {
+      const value = measure(doc, block.value ?? '', CONTENT_WIDTH - 130, { font: 'Helvetica', size: 9.5 });
+      const label = measure(doc, block.label ?? '', CONTENT_WIDTH - 130, { font: 'Helvetica', size: 9, bold: true });
+      total += Math.max(value, label) + 8;
+      continue;
+    }
+
+    for (const row of block.rows ?? []) {
+      const cellHeights = row.map((cell, column) =>
+        measure(doc, cell, (block.columns?.[column]?.width ?? 100) - 8, { font: 'Helvetica', size: 8.5 }),
+      );
+      // Same arithmetic as the render path: measured cells, five points of padding
+      // above and below, six between rows.
+      total += Math.max(11, ...cellHeights) + 5 * 2 + 6;
+    }
+  }
+
+  return total;
+}
+
+/** Draws a section, having first moved it whole to the next page if it would split. */
+function section(doc: PDFKit.PDFDocument, page: Page, spec: Section): void {
+  page.ensure(sectionHeight(doc, spec));
+  heading(doc, page, spec.title);
+
+  for (const block of spec.blocks) {
+    if (block.kind === 'body') {
+      body(doc, page, block.text ?? '');
+      continue;
+    }
+    if (block.kind === 'note') {
+      body(doc, page, block.text ?? '', block.size ?? 8.5);
+      continue;
+    }
+    if (block.kind === 'labelled') {
+      labelled(doc, page, block.label ?? '', block.value ?? '');
+      continue;
+    }
+    table(doc, page, block.columns ?? [], block.rows ?? []);
+  }
+}
+
+/**
  * Reserves height that is known up front, rather than measured from a string.
  *
  * Used where there is no text to measure, so there is nothing that can disagree
@@ -420,102 +506,111 @@ async function render(facts: PackFacts): Promise<{ buffer: Buffer; pageCount: nu
   labelled(doc, page, 'Domains in scope', String(facts.domains.length));
   labelled(doc, page, 'Active portal contacts', String(facts.portalContacts));
 
-  // What is held
-  heading(doc, page, '1. What is held for this client');
-  body(
-    doc,
-    page,
-    'Only the categories below are collected. A category marked as containing personal data means named individuals are involved, and that data is held under a lawful basis the provider who manages it is responsible for.',
-  );
-  table(
-    doc,
-    page,
-    [
-      { label: 'Category', width: 150 },
-      { label: 'Description', width: 268 },
-      { label: 'Personal data', width: 65 },
+  section(doc, page, {
+    title: '1. What is held for this client',
+    blocks: [
+      {
+        kind: 'body',
+        text: 'Only the categories below are collected. A category marked as containing personal data means named individuals are involved, and that data is held under a lawful basis the provider who manages it is responsible for.',
+      },
+      {
+        kind: 'table',
+        columns: [
+          { label: 'Category', width: 150 },
+          { label: 'Description', width: 268 },
+          { label: 'Personal data', width: 65 },
+        ],
+        rows: facts.dataHeld.map((entry) => [entry.category, entry.description, entry.personal ? 'Yes' : 'No']),
+      },
     ],
-    facts.dataHeld.map((entry) => [entry.category, entry.description, entry.personal ? 'Yes' : 'No']),
-  );
+  });
 
-  // Access
-  heading(doc, page, '2. Who can read it');
-  body(
-    doc,
-    page,
-    'Access is checked on every request rather than only at sign in. No other client of the same provider, and no other organisation using this platform, can read this client\'s records. The boundary is enforced by the application and covered by an automated test suite that attempts cross tenant access and asserts every attempt is refused.',
-  );
-  body(
-    doc,
-    page,
-    `${facts.portalContacts} portal contact${facts.portalContacts === 1 ? '' : 's'} currently have access. Portal contacts can see report volume, sending sources and spoofing warnings. They cannot see forensic data or named recipients, and that restriction is enforced on the response, not in the interface.`,
-  );
-
-  // Domains
-  heading(doc, page, '3. Domains and enforcement');
-  table(
-    doc,
-    page,
-    [
-      { label: 'Domain', width: 200 },
-      { label: 'Status', width: 90 },
-      { label: 'Policy', width: 70 },
-      { label: 'Verified', width: 123 },
+  section(doc, page, {
+    title: '2. Who can read it',
+    blocks: [
+      {
+        kind: 'body',
+        text: "Access is checked on every request rather than only at sign in. No other client of the same provider, and no other organisation using this platform, can read this client's records. The boundary is enforced by the application and covered by an automated test suite that attempts cross tenant access and asserts every attempt is refused.",
+      },
+      {
+        kind: 'body',
+        text: `${facts.portalContacts} portal contact${facts.portalContacts === 1 ? '' : 's'} currently have access. Portal contacts can see report volume, sending sources and spoofing warnings. They cannot see forensic data or named recipients, and that restriction is enforced on the response, not in the interface.`,
+      },
     ],
-    facts.domains.map((domain) => [
-      domain.name,
-      domain.status,
-      domain.policy ?? 'not published',
-      domain.verifiedAt ? domain.verifiedAt.toISOString().slice(0, 10) : 'no',
-    ]),
-  );
+  });
 
-  // Retention
-  heading(doc, page, '4. How long it is kept');
-  labelled(doc, page, 'DMARC and domain data', facts.retention.data);
-  labelled(doc, page, 'Audit trail', facts.retention.audit);
-  labelled(doc, page, 'Deletion window', facts.retention.erasure);
-  body(
-    doc,
-    page,
-    'A failed payment does not delete anything. A workspace whose subscription lapses moves to the free plan with every client, domain and report intact, and upgrading restores the previous plan.',
-  );
-
-  // Sub processors
-  heading(doc, page, '5. Who else touches this data');
-  table(
-    doc,
-    page,
-    [
-      { label: 'Sub processor', width: 130 },
-      { label: 'Purpose', width: 200 },
-      { label: 'Data', width: 153 },
+  section(doc, page, {
+    title: '3. Domains and enforcement',
+    blocks: [
+      {
+        kind: 'table',
+        columns: [
+          { label: 'Domain', width: 200 },
+          { label: 'Status', width: 90 },
+          { label: 'Policy', width: 70 },
+          { label: 'Verified', width: 123 },
+        ],
+        rows: facts.domains.map((domain) => [
+          domain.name,
+          domain.status,
+          domain.policy ?? 'not published',
+          domain.verifiedAt ? domain.verifiedAt.toISOString().slice(0, 10) : 'no',
+        ]),
+      },
     ],
-    subProcessors.map((entry) => [entry.name, entry.purpose, entry.data]),
-  );
-  labelled(doc, page, 'Hosting region', facts.provider.region);
-  body(doc, page, `Law enforcement. ${facts.lawEnforcement}`);
+  });
 
-  // Rights
-  heading(doc, page, '6. Your rights');
-  labelled(doc, page, 'Export', facts.rights.export);
-  labelled(doc, page, 'Deletion', facts.rights.erasure);
+  section(doc, page, {
+    title: '4. How long it is kept',
+    blocks: [
+      { kind: 'labelled', label: 'DMARC and domain data', value: facts.retention.data },
+      { kind: 'labelled', label: 'Audit trail', value: facts.retention.audit },
+      { kind: 'labelled', label: 'Deletion window', value: facts.retention.erasure },
+      {
+        kind: 'body',
+        text: 'A failed payment does not delete anything. A workspace whose subscription lapses moves to the free plan with every client, domain and report intact, and upgrading restores the previous plan.',
+      },
+    ],
+  });
+
+  section(doc, page, {
+    title: '5. Who else touches this data',
+    blocks: [
+      {
+        kind: 'table',
+        columns: [
+          { label: 'Sub processor', width: 130 },
+          { label: 'Purpose', width: 200 },
+          { label: 'Data', width: 153 },
+        ],
+        rows: subProcessors.map((entry) => [entry.name, entry.purpose, entry.data]),
+      },
+      { kind: 'labelled', label: 'Hosting region', value: facts.provider.region },
+      { kind: 'body', text: `Law enforcement. ${facts.lawEnforcement}` },
+    ],
+  });
+
+  const rightsBlocks: SectionBlock[] = [
+    { kind: 'labelled', label: 'Export', value: facts.rights.export },
+    { kind: 'labelled', label: 'Deletion', value: facts.rights.erasure },
+  ];
 
   if (facts.erasures.length > 0) {
-    body(doc, page, 'Completed deletions covering this client:');
-    table(
-      doc,
-      page,
-      [
+    rightsBlocks.push({ kind: 'body', text: 'Completed deletions covering this client:' });
+    rightsBlocks.push({
+      kind: 'table',
+      columns: [
         { label: 'Scope', width: 180 },
         { label: 'Completed', width: 120 },
         { label: 'Records removed', width: 183 },
       ],
-      facts.erasures.map((entry) => [entry.scope, entry.completedAt, String(entry.records)]),
-    );
+      rows: facts.erasures.map((entry) => [entry.scope, entry.completedAt, String(entry.records)]),
+    });
   } else {
-    body(doc, page, 'No deletion covering this client has been requested.');
+    rightsBlocks.push({ kind: 'note', text: 'No deletion covering this client has been requested.' });
   }
+
+  section(doc, page, { title: '6. Your rights', blocks: rightsBlocks });
 
   // Integrity page
   doc.addPage();
