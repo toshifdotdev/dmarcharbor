@@ -453,8 +453,11 @@ export async function MarketingHome() {
  *  free check produces, shown before anyone types. RFC 2606 reserved domains
  *  only: an example must never be a real company. */
 function ScanExample() {
+  // The same record the hero box and the lookup section show: one page, one
+  // demonstration. A second example with a different policy and verdict reads
+  // as two products disagreeing about the same domain.
   const rows: Array<[string, boolean | null, string]> = [
-    ["DMARC", true, "p=quarantine. Mail that fails alignment is filtered to spam or held."],
+    ["DMARC", true, "p=reject. Mail that fails alignment is refused by receivers."],
     ["SPF", true, "Published and valid."],
     ["DKIM", false, "No selector found."],
   ];

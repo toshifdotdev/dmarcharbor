@@ -3050,6 +3050,43 @@ await fillInput('input[type="email"]', "sam@example.test");
 await fillInput('input[type="password"]', "harbor-test-2026");
 await evalJs(`(() => { document.querySelector('button[type=submit]').click(); return 'clicked'; })()`);
 await waitForEval("document.querySelectorAll('tbody tr').length > 0", (v) => v === true, 60000);
+
+// The version the page renders and the version the API records MUST be equal:
+// an acceptance record pointing at a document the page cannot show is exactly
+// the failure the version field exists to prevent, and it is invisible until
+// someone audits. Asserted, not assumed: the rendered line on /dpa against the
+// value GET /api/workspaces/:id/dpa-acceptance reports as currentVersion. A
+// signed-in session is required to read the record. Drift fails a run instead
+// of hiding until someone reads both.
+await navigate(`${WEB}/dpa`);
+const pageVersion = await waitForEval(
+  `(() => {
+    const el = document.querySelector('[data-testid="legal-version"]');
+    return el ? (el.textContent.match(/version\\s+([^ ]+)/)?.[1] ?? null) : null;
+  })()`,
+  (v) => typeof v === "string" && v.length > 0,
+  20000,
+);
+const recordVersionAudit = await evalJs(`(async () => {
+  const ws = await (await fetch('/api/workspaces', { credentials: 'include' })).json();
+  if (!Array.isArray(ws) || ws.length === 0) return { orgId: null, version: null, currentVersion: null };
+  const orgId = ws[0].id;
+  const res = await fetch('/api/workspaces/' + orgId + '/dpa-acceptance', { credentials: 'include' });
+  if (!res.ok) return { orgId, version: null, currentVersion: null, status: res.status };
+  const body = await res.json();
+  return { orgId, version: body.version ?? null, currentVersion: body.currentVersion ?? null };
+})()`);
+check(
+  "document version: page and acceptance record agree",
+  Boolean(
+    pageVersion &&
+      recordVersionAudit &&
+      recordVersionAudit.currentVersion &&
+      recordVersionAudit.currentVersion === pageVersion,
+  ),
+  JSON.stringify({ pageVersion, record: recordVersionAudit }),
+);
+
 await navigate(WEB + "/billing");
 const ackAudit = await waitForEval(
   `(() => {

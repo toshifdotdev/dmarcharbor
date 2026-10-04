@@ -19,8 +19,8 @@
 import { useEffect, useRef, useState } from "react";
 
 const QUERY = "dig TXT _dmarc.example.com";
-const RECORD = "v=DMARC1; p=quarantine; rua=mailto:rua@example.com";
-const SPF = "v=spf1 include:_spf.example.net -all";
+const RECORD = "v=DMARC1;p=reject;sp=reject;adkim=s;aspf=s";
+const SPF = "v=spf1 -all";
 
 function Step({
   label,
@@ -103,7 +103,7 @@ export function DnsResolution() {
             needs attention
           </span>
           <span className="ml-3 text-[12.5px]" style={{ color: "var(--color-ink-2)" }}>
-            p=quarantine is live, but no DKIM selector is published.
+            Aggregate reporting is not configured.
           </span>
         </Step>
       </div>

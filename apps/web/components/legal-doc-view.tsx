@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { readHostBrand } from "@/lib/host-brand";
-import { LEGAL_DOCS, legalBody, type LegalDoc } from "@/lib/legal-docs";
+import { LEGAL_DOCS, LEGAL_VERSION, LEGAL_EFFECTIVE_DATE, legalBody, type LegalDoc } from "@/lib/legal-docs";
 import { LegalMarkdown } from "@/components/legal-markdown";
 import {
   HostUnverifiedBanner,
@@ -68,8 +68,8 @@ export async function LegalDocView({ slug }: { slug: string }) {
           >
             {doc.title}
           </h1>
-          <p className="num mt-2 text-[11.5px]" style={{ color: "var(--color-ink-3)" }}>
-            version {doc.version} · effective {doc.effectiveDate}
+          <p className="num mt-2 text-[11.5px]" data-testid="legal-version" style={{ color: "var(--color-ink-3)" }}>
+            version {LEGAL_VERSION} · effective {LEGAL_EFFECTIVE_DATE}
           </p>
         </header>
 

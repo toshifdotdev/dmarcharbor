@@ -71,7 +71,7 @@ function stateWord(status: "found" | "missing" | "error"): RecordState {
  *  description of it, and example.com can never resolve to a real company. */
 const WORKED_EXAMPLE: BoxShape = {
   query: "dig TXT _dmarc.example.com",
-  response: "v=DMARC1; p=reject; sp=reject; adkim=s; aspf=s",
+  response: "v=DMARC1;p=reject;sp=reject;adkim=s;aspf=s",
   records: [
     ["DMARC", "published"],
     ["SPF", "published"],
@@ -242,7 +242,8 @@ export function DomainCheck() {
         </form>
 
         {/* One fixed slot for the pause and failure messages: a message that
-            appears must not push the rectangle down the page. */}
+            appears must not push the rectangle down the page. At rest it is a
+            hint of what the box returns, never an empty rectangle. */}
         <div className="mt-3 min-h-[36px]" data-testid="domain-check-message">
           {rateLimited ? (
             <p role="status" className="text-[13px]" style={{ color: "var(--color-unverified)" }}>
@@ -253,7 +254,11 @@ export function DomainCheck() {
             <p role="alert" className="text-[13px]" style={{ color: "var(--color-block)" }}>
               {error}
             </p>
-          ) : null}
+          ) : (
+            <p className="text-[12.5px]" style={{ color: "var(--color-ink-3)" }}>
+              SPF, DKIM and DMARC, from published records.
+            </p>
+          )}
         </div>
 
         {/* The rectangle: query, response, parsed, verdict. The worked example
