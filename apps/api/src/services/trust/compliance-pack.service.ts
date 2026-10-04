@@ -612,9 +612,10 @@ async function render(facts: PackFacts): Promise<{ buffer: Buffer; pageCount: nu
 
   section(doc, page, { title: '6. Your rights', blocks: rightsBlocks });
 
-  // Integrity page
-  doc.addPage();
-  page.y = PAGE_MARGIN;
+  // Flows from wherever the rights section ended. A forced break here cost a whole
+  // mostly empty page, and this block is short enough to usually fit in what is
+  // left of the current one.
+  page.ensure(150);
 
   // Measured, like everything else. These were hand-positioned with fixed offsets,
   // which works until a heading wraps and then draws over the paragraph beneath it.
