@@ -295,9 +295,6 @@ export async function executeErasure(
         ? { clientId: request.targetId, client: { organizationId } }
         : { client: { organizationId } };
 
-  const userWhere: Prisma.UserWhereInput = { members: { some: { organizationId } } };
-  const ownedByUser = { user: userWhere };
-
   const anonymous = await anonymiseAuditTrail(organizationId);
   const anonymisedSubscriptions = await anonymiseSubscription(organizationId);
 
@@ -310,14 +307,57 @@ export async function executeErasure(
   let notifications: number;
 
   if (request.scope === 'ORGANIZATION') {
-    // Only a full workspace erasure removes the people. Erasing one client or
-    // one domain must never sign the agency staff out of their own workspace.
-    users = (await prisma.user.deleteMany({ where: userWhere })).count;
-    await prisma.session.deleteMany({ where: ownedByUser });
-    await prisma.account.deleteMany({ where: ownedByUser });
+    /**
+     * Sessions and accounts go, but the people do not.
+     *
+     * A user is keyed by email, globally: one person consulting for two agencies
+     * has one `User` row and two `Member` rows pointing at it. Deleting that row
+     * cascades to `Member`, `Invitation.inviterId`, `ClientPortalAccess.userId` and
+     * `Account`, so one workspace's erasure would reach into the other agency and
+     * remove the consultant's membership, destroy pending invitations they had
+     * issued there, revoke portal grants they held over that agency's clients, and
+     * delete the credentials they use to sign in at all.
+     *
+     * So the memberships for this workspace are removed, sessions for those people
+     * everywhere are ended, and a user row is deleted only when this was the last
+     * workspace they belonged to. Someone who also works elsewhere keeps their
+     * account and their access to everywhere else, exactly as before the request.
+     */
+    const membersToRemove = await prisma.member.findMany({
+      where: { organizationId },
+      select: { userId: true },
+    });
+    const affectedUserIds = [...new Set(membersToRemove.map((member) => member.userId))];
+
+    // A session is per person, not per workspace: holding one grants access to
+    // every workspace they belong to. There is no way to end "their sessions for
+    // this workspace" only, so all of them are ended. That signs the person out
+    // of any other agency they work for too, which is a far smaller harm than
+    // leaving a live session into a workspace that has just been erased.
+    await prisma.session.deleteMany({ where: { userId: { in: affectedUserIds } } });
+
+    // These rows go before anything is asked about who is left. Computing orphans
+    // while this workspace's memberships still exist finds nobody, because
+    // everyone still belongs to somewhere - the workspace being erased.
+    await prisma.member.deleteMany({ where: { organizationId } });
+
     notifications = (await prisma.notification.deleteMany({ where: { organizationId } })).count;
     await prisma.alertDelivery.deleteMany({ where: { event: { organizationId } } });
     await prisma.alertRecipient.deleteMany({ where: { rule: { organizationId } } });
+
+    // Only a person with no remaining membership anywhere is genuinely orphaned,
+    // and only then is their row ours to remove.
+    const orphaned = await prisma.user.findMany({
+      where: { id: { in: affectedUserIds }, members: { none: {} } },
+      select: { id: true },
+    });
+    const orphanedIds = orphaned.map((user) => user.id);
+
+    if (orphanedIds.length > 0) {
+      await prisma.account.deleteMany({ where: { userId: { in: orphanedIds } } });
+      await prisma.invitation.deleteMany({ where: { inviterId: { in: orphanedIds } } });
+      users = (await prisma.user.deleteMany({ where: { id: { in: orphanedIds } } })).count;
+    }
 
     // Organization deletion cascades to clients, domains, scans, reports,
     // forensic reports, alert rules, alert events, shares, digests, members,

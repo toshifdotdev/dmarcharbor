@@ -187,11 +187,27 @@ describe('who a connection admits', () => {
     expect(() => assertMayProvision(c, 'Someone@NorthGate.TEST')).not.toThrow();
   });
 
-  it('admits nobody when provisioning is switched off', () => {
+  it('checks the address and the allowlist, not the provisioning mode', () => {
     const c = connectionFixture(['northgate.test']);
     const disabled = { ...c, provisioning: 'DISABLED' as const };
 
-    expect(() => assertMayProvision(disabled, 'someone@northgate.test')).toThrow(SsoError);
+    /**
+     * Deliberately does not throw now.
+     *
+     * This used to assert that every address is refused when provisioning is off,
+     * which contradicted the error message beside it: "this connection only
+     * admits people who have already been invited" cannot be enforced by refusing
+     * everybody. In practice an administrator who switched a connection to
+     * invitation-only locked every existing member out of it.
+     *
+     * Whether a given person may join depends on whether they already hold a
+     * membership or a pending invitation, which is a question about the database.
+     * It is answered in `completeSignIn`, and covered below.
+     */
+    expect(() => assertMayProvision(disabled, 'someone@northgate.test')).not.toThrow();
+
+    // The allowlist still governs, in either mode.
+    expect(() => assertMayProvision(disabled, 'attacker@gmail.com')).toThrow(SsoError);
   });
 
   it('refuses an address with no domain', () => {

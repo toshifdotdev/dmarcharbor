@@ -499,8 +499,20 @@ async function deliverEvent(
     return;
   }
 
-  const users = await prisma.user.findMany({
-    where: { id: { in: recipientUserIds } },
+  /**
+ * Recipients, filtered to people who are still in the workspace.
+ *
+ * `AlertRecipient` has no foreign key to `Member`, so recipient rows outlive the
+ * membership that created them. This looked the users up by id alone, so removing
+ * somebody from a workspace did not stop the alert emails naming that workspace,
+ * its clients and its domains. Offboarding a contractor and continuing to email
+ * them the customer's security posture is not a small thing.
+ *
+ * `notification.service.ts` already re-checked membership for in-app
+ * notifications, so the two disagreed about who counts as a recipient.
+ */
+const users = await prisma.user.findMany({
+    where: { id: { in: recipientUserIds }, members: { some: { organizationId } } },
     select: {
       id: true,
       email: true,

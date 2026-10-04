@@ -2,6 +2,7 @@ import { ImapFlow } from 'imapflow';
 import { prisma } from '../../database/prisma.js';
 import { decryptSensitive, encryptSensitive } from '../privacy.service.js';
 import { processInboundDmarcEmail } from '../inbound-report.service.js';
+import { isPrivateOrReservedHost } from '../net-guard.js';
 
 /**
  * Emailed DMARC report collection.
@@ -42,16 +43,32 @@ export class InboxError extends Error {
   }
 }
 
-/** Only plaintext IMAP is accepted, and even then refused by default. */
+/**
+ * Only public mail servers are accepted.
+ *
+ * This refused three literals: `localhost`, `127.0.0.1` and `::1`. Everything
+ * else went through, including 10.0.0.5, 192.168.1.1 and 169.254.169.254. The
+ * poll opens a real TCP and TLS connection with the credentials supplied, so the
+ * feature is a port scanner pointed wherever a tenant tells it, and
+ * `inboxStatus` returns `lastError` back to the same tenant, so `connect
+ * ECONNREFUSED 10.0.0.5:993` confirms exactly which internal hosts are closed.
+ *
+ * It now shares the guard webhook delivery uses, so the two cannot drift apart
+ * and leave one of them as the way in.
+ */
 function assertAllowedHost(host: string): void {
   const lower = host.trim().toLowerCase();
 
-  if (lower === 'localhost' || lower === '127.0.0.1' || lower === '::1') {
-    throw new InboxError('A loopback mail server is not allowed.', 'INBOX_HOST_REFUSED', 400);
-  }
-
   if (!lower.includes('.')) {
     throw new InboxError('Enter a fully qualified mail server hostname.', 'INBOX_HOST_INVALID', 400);
+  }
+
+  if (isPrivateOrReservedHost(lower)) {
+    throw new InboxError(
+      'The mail server must be a public address, not a local or private one.',
+      'INBOX_HOST_REFUSED',
+      400,
+    );
   }
 }
 
@@ -279,18 +296,19 @@ export function readPolicyDomain(xml: string): string | null {
 
 /** Records a poll failure without throwing, so one bad mailbox cannot stop the rest. */
 export async function recordInboxFailure(organizationId: string, detail: string): Promise<void> {
-  const inbox = await prisma.reportInbox.findUnique({
-    where: { organizationId },
-    select: { consecutiveFailures: true },
-  });
-  if (!inbox) {
-    return;
-  }
-
-  await prisma.reportInbox.update({
+  /**
+   * `updateMany` with an increment, rather than a read followed by a write.
+   *
+   * Two schedulers can be inside this function at once for the same mailbox, and
+   * read-then-write would have both write N+1, permanently under-reporting how
+   * long a mailbox has been failing and so never tripping the threshold that
+   * stops us logging in to it. It also cannot throw on a mailbox deleted midway,
+   * which is what the existence check was for.
+   */
+  await prisma.reportInbox.updateMany({
     where: { organizationId },
     // Deliberately the message only. An IMAP error string can contain the
     // username, and this column is read by the billing screen.
-    data: { consecutiveFailures: inbox.consecutiveFailures + 1, lastError: detail.slice(0, 200), pollClaimedAt: null },
+    data: { consecutiveFailures: { increment: 1 }, lastError: detail.slice(0, 200), pollClaimedAt: null },
   });
 }

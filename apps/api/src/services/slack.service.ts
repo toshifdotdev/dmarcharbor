@@ -343,15 +343,18 @@ export async function deliverSlackAlert(input: {
 }
 
 async function recordSlackFailure(destinationId: string, error: string): Promise<void> {
-  const destination = await prisma.slackDestination.findUnique({
-    where: { id: destinationId },
-    select: { consecutiveFailures: true },
-  });
-
+  /**
+   * Incremented by the database rather than in JavaScript.
+   *
+   * Read-then-write means two alerts failing at the same moment both read N and
+   * both write N+1, so the count permanently under-reports and a dead channel
+   * never reaches the threshold that would stop us posting to it. The webhook
+   * delivery counter already did this correctly with `{ increment: 1 }`.
+   */
   await prisma.slackDestination.update({
     where: { id: destinationId },
     data: {
-      consecutiveFailures: (destination?.consecutiveFailures ?? 0) + 1,
+      consecutiveFailures: { increment: 1 },
       lastError: error,
     },
   });

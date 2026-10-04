@@ -143,9 +143,22 @@ export async function ssoCallbackController(request: Request, response: Response
   const connectionId = request.params.connectionId as string;
 
   try {
+    /**
+     * RelayState is required and consumed on first use.
+     *
+     * It used to be ignored entirely and the connection id doubled as its value,
+     * which is public in the URL, so there was nothing binding an incoming
+     * assertion to the browser that started the sign in.
+     */
+    const body = (request.body ?? {}) as { SAMLResponse?: unknown; RelayState?: unknown };
+
     const result =
       request.method === 'POST'
-        ? await completeSamlSignIn(connectionId, String((request.body as { SAMLResponse?: unknown })?.SAMLResponse ?? ''))
+        ? await completeSamlSignIn(
+            connectionId,
+            String(body.SAMLResponse ?? ''),
+            typeof body.RelayState === 'string' ? body.RelayState : null,
+          )
         : await finishOidcSignIn(connectionId, new URL(request.originalUrl, env.APP_URL));
 
     const { token, expiresAt } = await createSessionForUser(result.userId, {

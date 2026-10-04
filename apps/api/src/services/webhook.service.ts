@@ -4,6 +4,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
 import { recordAuditEvent } from './audit.service.js';
 import { decryptSensitive, encryptSensitive } from './privacy.service.js';
+import { isPrivateOrReservedHost } from './net-guard.js';
 
 export const webhookEvents = [
   'domain.verified',
@@ -189,28 +190,6 @@ export interface RegisteredEndpoint {
   createdAt: string;
 }
 
-function isLoopbackOrPrivate(hostname: string): boolean {
-  // URL parsing keeps IPv6 literals bracketed, so [::1] arrives as "[::1]".
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.internal') || host.endsWith('.local')) {
-    return true;
-  }
-  if (host === '::1' || host === '0.0.0.0' || host === '::') {
-    return true;
-  }
-  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (ipv4) {
-    const [a, b] = ipv4.slice(1).map(Number);
-    if (a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a === 0) {
-      return true;
-    }
-  }
-  if (host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80')) {
-    return true;
-  }
-  return false;
-}
-
 export function validateEndpointUrl(raw: string): { url: string } | { error: string } {
   let parsed: URL;
   try {
@@ -223,7 +202,7 @@ export function validateEndpointUrl(raw: string): { url: string } | { error: str
     return { error: 'The endpoint must use https, because the payload carries a signing secret derived event.' };
   }
 
-  if (isLoopbackOrPrivate(parsed.hostname)) {
+  if (isPrivateOrReservedHost(parsed.hostname)) {
     return { error: 'The endpoint must be a public address, not a local or private one.' };
   }
 
@@ -515,6 +494,21 @@ export async function deliverDueWebhooks(now = new Date()): Promise<DeliveryOutc
         },
         body,
         signal: AbortSignal.timeout(deliveryTimeoutMs),
+        /**
+         * Redirects are not followed.
+         *
+         * The URL was validated when the endpoint was registered, but `fetch`
+         * follows redirects by default, so an accepted `https://` endpoint could
+         * answer with a 302 to the cloud metadata service and the request would
+         * carry on to it. That defeats the address check entirely, and it is not a
+         * theoretical concern: a tenant with `organization: update` controls the
+         * endpoint, and delivery can be triggered on demand through
+         * `POST /workspaces/:id/webhooks/test`.
+         *
+         * A 3xx is recorded as the response code it is. A receiver that
+         * legitimately redirects should point the endpoint at the final URL.
+         */
+        redirect: 'manual',
       });
       responseCode = response.status;
       if (response.status >= 200 && response.status < 300) {

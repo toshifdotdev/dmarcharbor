@@ -163,7 +163,16 @@ model Member {
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   role           String       @default("member")
   createdAt      DateTime
-
+  /**
+   * One membership per person per workspace.
+   *
+   * Without it, two concurrent SSO callbacks could both read "no member row",
+   * both create one, and leave the workspace with a duplicate. That is not
+   * cosmetic: the `member` quota counts these rows, so a duplicate inflates a
+   * count the customer is sold, and it grants the same person two memberships to
+   * audit against.
+   */
+  @@unique([organizationId, userId])
   @@index([organizationId])
   @@index([userId])
   @@map("member")
@@ -938,14 +947,36 @@ model SsoAuthRequest {
   id           String        @id @default(cuid())
   connectionId String
   connection   SsoConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
-  nonce        String        @unique
+  /// The OIDC `state`, and the PKCE nonce. Null for a SAML request, which has
+  /// neither.
+  nonce        String?       @unique
   /// The PKCE verifier for this request.
   ///
   /// Held server side rather than in the browser so that an intercepted
   /// authorisation code cannot be redeemed without it.
-  verifier     String
+  verifier     String?
+  /// The opaque value handed to the identity provider as RelayState, echoed back
+  /// on the assertion consumer service post.
+  ///
+  /// This is the half of SAML replay protection that does not come from the
+  /// library. `InResponseTo` proves the assertion answers an AuthnRequest we
+  /// issued; RelayState proves the response came back through the browser we
+  /// sent it to. Without it, an attacker who captures any valid assertion can
+  /// post it with any RelayState and have it accepted, because the connection id
+  /// in the path is the only thing being checked and it is not a secret.
+  relayState   String?       @unique
+  /// The identifier we put on the outgoing AuthnRequest, stored so the assertion
+  /// that returns can be matched to the request that asked for it.
+  ///
+  /// The node-saml library would keep this in an in-memory map, which is correct
+  /// for one process and wrong for two: a user who signs in while a deploy
+  /// happens, or whose load balancer sends the start and the return to different
+  /// replicas, fails to sign in for no visible reason.
+  samlRequestId String?      @unique
   createdAt    DateTime      @default(now())
 
+  @@index([connectionId])
+  @@index([createdAt])
   @@map("sso_auth_request")
 }
 

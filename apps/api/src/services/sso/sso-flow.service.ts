@@ -34,6 +34,64 @@ import { SsoError, assertMayProvision, normalizeEmailDomain } from './sso.servic
 /** How long an in flight authorisation request may sit around. */
 const requestTtlMs = 10 * 60 * 1000;
 
+/**
+ * Request tracking for SAML, held in the database rather than in process memory.
+ *
+ * `node-saml` protects against replay by writing each outgoing AuthnRequest id to
+ * a `cacheProvider`, refusing an assertion whose `InResponseTo` is not in that
+ * cache, and removing the id once the assertion validates. The default provider is
+ * an in-memory map, which is correct for one process and wrong for two: a user
+ * whose sign-in start and assertion return land on different replicas fails for no
+ * visible reason, and a rolling deploy drops every request in flight.
+ *
+ * Backing it with the existing `sso_auth_request` table makes the guarantee hold
+ * across instances and restarts, which is the only version of it worth having for
+ * an endpoint that mints seven day sessions.
+ *
+ * Two properties matter and both come from the library's own call pattern: `get` is
+ * consulted before the assertion is trusted, and `remove` is called immediately
+ * after it is, so a second presentation of the same assertion finds nothing. That
+ * is single use without this code inventing a nonce of its own.
+ */
+const samlRequestCacheFor = (connectionId: string) => ({
+  async saveAsync(key: string, value: string) {
+    await prisma.ssoAuthRequest.create({
+      data: {
+        connectionId,
+        // node-saml hands us the issue instant, not the PKCE verifier, so the
+        // request id is the key and the value is the timestamp it ages out by.
+        samlRequestId: key,
+        verifier: value,
+        createdAt: new Date(),
+      },
+    });
+    return null;
+  },
+
+  async getAsync(key: string) {
+    const row = await prisma.ssoAuthRequest.findUnique({
+      where: { samlRequestId: key },
+      select: { createdAt: true },
+    });
+    if (!row) {
+      return null;
+    }
+    if (Date.now() - row.createdAt.getTime() > requestTtlMs) {
+      await prisma.ssoAuthRequest.deleteMany({ where: { samlRequestId: key } });
+      return null;
+    }
+    return row.createdAt.toISOString();
+  },
+
+  async removeAsync(key: string | null) {
+    if (!key) {
+      return null;
+    }
+    await prisma.ssoAuthRequest.deleteMany({ where: { samlRequestId: key } });
+    return null;
+  },
+});
+
 async function purgeExpiredRequests(): Promise<void> {
   await prisma.ssoAuthRequest.deleteMany({
     where: { createdAt: { lt: new Date(Date.now() - requestTtlMs) } },
@@ -108,6 +166,22 @@ export async function completeSignIn(
   let created = false;
 
   if (!userId) {
+      /**
+       * Someone we have never seen before can only join by being provisioned.
+       *
+       * This is the only place the provisioning mode decides anything, which is
+       * what makes "invitation only" mean what it says: an address with no account
+       * and no invitation is refused, while an address that already holds a
+       * membership is not affected by the mode at all and can keep signing in.
+       */
+      if (connection.provisioning === 'DISABLED') {
+        throw new SsoError(
+          'This connection only admits people who have already been invited.',
+          'SSO_PROVISIONING_DISABLED',
+          403,
+        );
+      }
+
       const role = provisionableRole(connection.defaultRole);
 
     const user = await prisma.user.create({
@@ -136,12 +210,38 @@ export async function completeSignIn(
     userId = user.id;
     created = true;
   } else {
-    const already = await prisma.member.findFirst({
-      where: { organizationId: connection.organizationId, userId },
+    /**
+     * An existing account is only re-attached if it is not already a member.
+     *
+     * The membership row is created whenever one is missing, which meant removing
+     * somebody from a workspace did not stick: the next time they signed in
+     * through their own employer's IdP they reappeared, because nothing in the
+     * connection distinguished "has never been here" from "was deliberately
+     * removed". The only thing consulted was the email domain allowlist, which is
+     * a property of their employer rather than a decision this workspace made.
+     *
+     * A removal is now a removal. Someone removed by an administrator has to be
+     * invited back, which is what an invitation is for.
+     */
+    const already = await prisma.member.findUnique({
+      where: { organizationId_userId: { organizationId: connection.organizationId, userId } },
       select: { id: true },
     });
 
     if (!already) {
+      const invitation = await prisma.invitation.findFirst({
+        where: { organizationId: connection.organizationId, email, status: 'pending' },
+        select: { id: true },
+      });
+
+      if (!invitation) {
+        throw new SsoError(
+          'This account is not a member of this workspace. Ask an administrator for an invitation.',
+          'SSO_NOT_PROVISIONABLE',
+          403,
+        );
+      }
+
       await prisma.member.create({
         data: {
           id: randomBytes(16).toString('hex'),
@@ -150,6 +250,11 @@ export async function completeSignIn(
           role: provisionableRole(connection.defaultRole),
           createdAt: new Date(),
         },
+      });
+
+      await prisma.invitation.updateMany({
+        where: { organizationId: connection.organizationId, email, status: 'pending' },
+        data: { status: 'accepted' },
       });
     }
   }
@@ -340,7 +445,9 @@ export async function finishOidcSignIn(connectionId: string, currentUrl: URL): P
   const configuration = await oidcConfiguration(connection);
   const tokens = await authorizationCodeGrant(configuration, currentUrl, {
     expectedState: state,
-    pkceCodeVerifier: pending.verifier,
+    // Nullable now that a SAML request shares this table, so it has to be proved
+    // present rather than assumed. An OIDC row always has one.
+    pkceCodeVerifier: pending.verifier ?? undefined,
   });
 
   const claims = tokens.claims();
@@ -371,10 +478,28 @@ export async function samlEntryPoint(connectionId: string): Promise<string> {
     throw new SsoError('This connection is not a SAML connection.', 'SSO_PROTOCOL_MISMATCH', 400);
   }
 
+  await purgeExpiredRequests();
+
+  /**
+   * A single use RelayState, stored server side.
+   *
+   * `InResponseTo` proves the assertion answers a request we issued. It does not
+   * prove the assertion came back through the browser we sent it to, because the
+   * connection id in the ACS path is the only other thing checked and a cuid is
+   * not a secret. So an attacker who captures one assertion can post it with a
+   * RelayState of their own choosing and be accepted. A 256 bit value we minted,
+   * stored, and delete on first use closes that half.
+   *
+   * It also gives the OIDC and SAML paths the same shape, which is why the OIDC
+   * path was already safe and this one was not.
+   */
+  const relayState = randomBytes(32).toString('base64url');
+  await prisma.ssoAuthRequest.create({
+    data: { connectionId, relayState, createdAt: new Date() },
+  });
+
   const samlInstance = buildSaml(connectionId, connection);
-  // The connection id doubles as the RelayState, so the assertion that comes
-  // back can be matched to the request that started it.
-  return samlInstance.getAuthorizeUrlAsync(connectionId, undefined, {});
+  return samlInstance.getAuthorizeUrlAsync(relayState, undefined, {});
 }
 
 // No host parameter. It used to carry the request's Host header into the ACS URL, which
@@ -399,6 +524,25 @@ function buildSaml(connectionId: string, connection: NonNullable<Connection>) {
     disableRequestedAuthnContext: true,
     acceptedClockSkewMs: 5000,
     identifierFormat: 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress',
+    /**
+     * Replay protection, and the reason this file changed.
+     *
+     * The library's default is `never`, which means the `InResponseTo` on the
+     * incoming assertion is read out of the XML and then ignored. That attribute
+     * is the only thing tying an assertion to the AuthnRequest that asked for it,
+     * and without checking it a single captured assertion is a permanent
+     * credential: it can be posted to the assertion consumer service again and
+     * again, each time minting a fresh seven day session, until the assertion
+     * expires.
+     *
+     * `always` refuses an assertion with no `InResponseTo` at all, which also
+     * closes login CSRF: a response the provider never produced for a request we
+     * made is refused before any account is touched.
+     */
+    validateInResponseTo: saml.ValidateInResponseTo.always,
+    requestIdExpirationPeriodMs: requestTtlMs,
+    /** Durable, shared across instances, rather than the in-memory default. */
+    cacheProvider: samlRequestCacheFor(connectionId),
   });
 }
 
@@ -407,14 +551,62 @@ function buildSaml(connectionId: string, connection: NonNullable<Connection>) {
 export async function completeSamlSignIn(
   connectionId: string,
   encodedResponse: string,
+  relayState: string | null,
 ): Promise<{ userId: string; organizationId: string; created: boolean }> {
   const connection = await loadConnection(connectionId);
   if (connection.protocol !== 'SAML') {
     throw new SsoError('This connection is not a SAML connection.', 'SSO_PROTOCOL_MISMATCH', 400);
   }
 
+  /**
+   * The RelayState is checked and consumed before the assertion is even parsed.
+   *
+   * Consuming it first means a replay loses here, having caused no work and no
+   * session, rather than part way through the library's own validation. The
+   * comparison against the path's connection id stops a RelayState minted for one
+   * workspace being presented to another.
+   */
+  if (!relayState) {
+    throw new SsoError('This sign in request is not recognised.', 'SSO_RELAY_STATE_INVALID', 400);
+  }
+
+  const pending = await prisma.ssoAuthRequest.findUnique({
+    where: { relayState },
+    select: { id: true, connectionId: true, createdAt: true },
+  });
+
+  if (!pending || pending.connectionId !== connectionId) {
+    throw new SsoError('This sign in request is not recognised.', 'SSO_RELAY_STATE_INVALID', 400);
+  }
+
+  if (Date.now() - pending.createdAt.getTime() > requestTtlMs) {
+    await prisma.ssoAuthRequest.deleteMany({ where: { id: pending.id } });
+    throw new SsoError('This sign in request has expired. Start again.', 'SSO_RELAY_STATE_EXPIRED', 400);
+  }
+
+  await prisma.ssoAuthRequest.deleteMany({ where: { id: pending.id } });
+
   const samlInstance = buildSaml(connectionId, connection);
-  const { profile } = await samlInstance.validatePostResponseAsync({ SAMLResponse: encodedResponse });
+
+  /**
+   * `InResponseTo` is verified inside this call, against the request ids this
+   * connection issued and has not yet seen. A response for a request we never
+   * made, or one already used, is refused before a session exists.
+   */
+  let profile: Awaited<ReturnType<typeof samlInstance.validatePostResponseAsync>>['profile'];
+  try {
+    ({ profile } = await samlInstance.validatePostResponseAsync({ SAMLResponse: encodedResponse }));
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : 'Unknown SAML validation error.';
+    // The library's own wording for a response whose InResponseTo does not match
+    // a request we issued. Reported as a distinct code because it is the answer
+    // to "someone is replaying assertions at us", which is worth being able to
+    // alert on.
+    if (/InResponseTo/i.test(detail)) {
+      throw new SsoError('That sign in response does not match any request we made.', 'SSO_IN_RESPONSE_TO_INVALID', 400);
+    }
+    throw new SsoError('The sign in response could not be verified.', 'SSO_RESPONSE_INVALID', 400);
+  }
 
   const email = typeof profile?.email === 'string' ? profile.email : profile?.nameID;
   if (typeof email !== 'string' || !email.includes('@')) {

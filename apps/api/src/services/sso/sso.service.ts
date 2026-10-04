@@ -216,24 +216,24 @@ export async function deleteSsoConnection(organizationId: string, connectionId: 
 }
 
 /**
- * Whether an address may provision into the connection's workspace.
+ * Whether an address is usable by this connection at all.
  *
- * Both the domain allowlist and the provisioning mode have to agree, and the
- * check lives here rather than in the flow handlers so the OIDC and SAML paths
- * cannot drift apart and end up with different rules.
+ * This checks the shape of the address and the domain allowlist, and nothing
+ * else. The domain check lives here rather than in the flow handlers so the OIDC
+ * and SAML paths cannot drift apart and end up with different rules.
+ *
+ * Whether a particular person may *join* is a different question and needs the
+ * database, so it is answered in the flow where membership and invitations are
+ * visible. It used to be answered here as well, and rejecting every address when
+ * provisioning is disabled, which contradicted this function's own error message:
+ * "only admits people who have already been invited" cannot be enforced by
+ * refusing everybody, and in practice it locked every existing member out of a
+ * connection an administrator had switched to invitation only.
  */
 export function assertMayProvision(
   connection: { provisioning: SsoProvisioningMode; connections: { domain: string }[] },
   email: string,
 ): string {
-  if (connection.provisioning === 'DISABLED') {
-    throw new SsoError(
-      'This connection only admits people who have already been invited.',
-      'SSO_PROVISIONING_DISABLED',
-      403,
-    );
-  }
-
   const domain = emailDomain(email);
   if (!domain) {
     throw new SsoError('That identity has no usable email address.', 'SSO_EMAIL_INVALID', 403);
