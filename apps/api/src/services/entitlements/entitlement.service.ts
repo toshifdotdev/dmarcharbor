@@ -4,14 +4,12 @@ import { emitEvent } from '../webhook.service.js';
 import { countCountedDomains } from '../inventory/inventory.service.js';
 import {
   alwaysAllowedEntitlements,
-  effectivePlan,
   nextTier,
   planCatalog,
   quotaLabel,
   type EntitlementKey,
   type QuotaKey,
 } from './plan-catalog.js';
-
 
 export interface ResolvedEntitlements {
   plan: PlanTier;
@@ -62,13 +60,31 @@ function liveOverrides(
     }));
 }
 
+/**
+ * The plan a workspace actually gets.
+ *
+ * This is `Organization.plan` and nothing else. It used to be computed from
+ * `Subscription.plan`, which is the mirror of what the provider last told us,
+ * and the two records were written by different code paths, so they drifted: a
+ * scheduled downgrade cleared the marker and wrote the organisation but left the
+ * subscription on the old tier, which meant every quota stayed at the price the
+ * customer had just stopped paying while the billing page, the compliance pack,
+ * the erasure inventory and the Trust Center all read the organisation and
+ * correctly reported the new one. A workspace could be Admiralty for capacity
+ * and Fairway for retention in the same request.
+ *
+ * `applyBillingEvent` resolves the plan once, against the persisted paid period,
+ * and writes both records in one transaction, so there is a single answer to
+ * read. The subscription is still selected for the fields below, which are
+ * genuinely provider state rather than plan state.
+ */
 export async function resolveEntitlements(organizationId: string, now = new Date()): Promise<ResolvedEntitlements> {
   const organization = await prisma.organization.findUnique({
     where: { id: organizationId },
     select: {
       plan: true,
       subscription: {
-        select: { plan: true, status: true, currentPeriodEnd: true, cancelAtPeriodEnd: true },
+        select: { status: true, currentPeriodEnd: true, cancelAtPeriodEnd: true },
       },
       entitlementOverrides: {
         select: { entitlement: true, enabled: true, expiresAt: true, reason: true },
@@ -80,16 +96,7 @@ export async function resolveEntitlements(organizationId: string, now = new Date
     throw new EntitlementError('FEATURE_NOT_IN_PLAN', 'Workspace not found.', { organizationId });
   }
 
-  const plan = effectivePlan(
-    organization.subscription
-      ? {
-          plan: organization.subscription.plan,
-          status: organization.subscription.status,
-          currentPeriodEnd: organization.subscription.currentPeriodEnd,
-        }
-      : null,
-    now,
-  );
+  const plan = organization.plan;
 
   const definition = planCatalog[plan];
   const overrides = liveOverrides(organization.entitlementOverrides, now);

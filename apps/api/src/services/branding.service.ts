@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
 import { deleteStoredLogo, objectKeyFromLogoUrl, publicLogoUrl } from './branding/logo-storage.service.js';
 import { recordAuditEvent } from './audit.service.js';
@@ -156,15 +157,24 @@ export async function updateBranding(input: {
  * which is the mirror image of the rule that a failed payment never destroys
  * data: losing paid functionality must not silently keep their files.
  */
-export async function removeLogoOnDowngrade(organizationId: string): Promise<boolean> {
-  const organization = await prisma.organization.findUniqueOrThrow({
+/**
+ * Accepts the caller's transaction so a downgrade cannot delete a stored logo
+ * and then roll back. It previously used the global client, which meant the
+ * object was removed from the bucket even when the plan change around it was
+ * abandoned: the customer's logo gone and their plan unchanged.
+ */
+export async function removeLogoOnDowngrade(
+  organizationId: string,
+  tx: Prisma.TransactionClient = prisma,
+): Promise<boolean> {
+  const organization = await tx.organization.findUniqueOrThrow({
     where: { id: organizationId },
     select: { brandLogoUrl: true },
   });
 
   const removed = await deleteStoredLogo(objectKeyFromLogoUrl(organization.brandLogoUrl));
   if (removed) {
-    await prisma.organization.update({ where: { id: organizationId }, data: { brandLogoUrl: null } });
+    await tx.organization.update({ where: { id: organizationId }, data: { brandLogoUrl: null } });
   }
 
   return removed;

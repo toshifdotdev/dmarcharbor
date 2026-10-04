@@ -175,17 +175,33 @@ export async function revokeApiKey(
 
 export const idempotencyTtlHours = 24;
 
-export async function findIdempotentResult(key: string) {
+/**
+ * Looks up a stored response for an idempotent retry.
+ *
+ * Scoped to the caller's workspace. This read used to be keyed on `key` alone,
+ * because `key` was globally unique, which merged every customer's retry
+ * namespace into one. The caller then compared `organizationId` and refused to
+ * replay on a mismatch, but by then the second workspace had already overwritten
+ * the first workspace's stored body through `saveIdempotentResult`, whose update
+ * branch left `organizationId` untouched. The first workspace's next retry passed
+ * the ownership check and replayed the second workspace's payload, including its
+ * client ids and DNS verification values.
+ *
+ * Also returns the stored request hash, which was previously recorded and never
+ * compared: a different payload sent under a reused key returned the earlier
+ * response instead of a conflict.
+ */
+export async function findIdempotentResult(organizationId: string, key: string) {
   const record = await prisma.idempotencyRecord.findUnique({
-    where: { key },
-    select: { organizationId: true, statusCode: true, responseBody: true },
+    where: { organizationId_key: { organizationId, key } },
+    select: { organizationId: true, requestHash: true, statusCode: true, responseBody: true, createdAt: true },
   });
 
   if (!record) {
     return null;
   }
 
-  const age = Date.now() - (await prisma.idempotencyRecord.findUniqueOrThrow({ where: { key }, select: { createdAt: true } })).createdAt.getTime();
+  const age = Date.now() - record.createdAt.getTime();
   if (age > idempotencyTtlHours * 60 * 60 * 1000) {
     return null;
   }
@@ -200,8 +216,11 @@ export async function saveIdempotentResult(input: {
   statusCode: number;
   responseBody: unknown;
 }): Promise<void> {
+  // The upsert writes every column, `organizationId` included. It cannot now
+  // update a row belonging to a different workspace, because the unique key it
+  // matches on includes it.
   await prisma.idempotencyRecord.upsert({
-    where: { key: input.key },
+    where: { organizationId_key: { organizationId: input.organizationId, key: input.key } },
     create: {
       key: input.key,
       organizationId: input.organizationId,
@@ -210,6 +229,7 @@ export async function saveIdempotentResult(input: {
       responseBody: input.responseBody as never,
     },
     update: {
+      requestHash: input.requestHash,
       statusCode: input.statusCode,
       responseBody: input.responseBody as never,
     },

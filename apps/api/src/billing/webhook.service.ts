@@ -7,7 +7,7 @@ import {
   type ProviderSubscriptionStatus,
 } from './provider.js';
 import { findStoredPlanByProviderPlanId } from './plans.js';
-import { applyBillingEvent, claimBillingEvent } from './subscription-state.js';
+import { applyBillingEvent } from './subscription-state.js';
 import { verifyRazorpaySignature } from './razorpay.provider.js';
 import { verifyPaddleSignature } from './paddle.provider.js';
 
@@ -72,6 +72,15 @@ const razorpayStatusMap: Record<string, ProviderSubscriptionStatus> = {
   closed: 'expired',
 };
 
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'P2002'
+  );
+}
+
 export async function handleRazorpayWebhook(input: {
   rawBody: string;
   signature: string | undefined;
@@ -103,7 +112,28 @@ export async function handleRazorpayWebhook(input: {
   }
 
   const subscriptionEntity = payload.payload?.subscription?.entity;
-  const eventId = payload.payload?.entity?.id ?? `${input.eventName}:${subscriptionEntity?.id ?? 'unknown'}`;
+  const paymentEntity = payload.payload?.payment?.entity;
+
+  /**
+   * A stable, distinct id for every event.
+   *
+   * `payload.entity.id` is only present on some Razorpay events. For
+   * `payment.failed` the payload carries `payment.entity` and no subscription at
+   * all, so the old fallback collapsed to the constant
+   * `payment.failed:unknown`. `providerEventId` is globally unique, so only the
+   * first such event was ever recorded and every later one hit the constraint and
+   * was discarded: a customer's second failed payment, and then their third,
+   * were silently dropped, `currentPeriodEnd` froze, and the dunning grace check
+   * read a stale date and withdrew a paying workspace early.
+   *
+   * The id now folds in whatever identifiers the payload actually carries,
+   * falling back to the payment rather than to a literal.
+   */
+  const eventId =
+    payload.payload?.entity?.id ??
+    paymentEntity?.id ??
+    subscriptionEntity?.id ??
+    `${input.eventName}:${subscriptionEntity?.id ?? paymentEntity?.id ?? 'unknown'}:${payload.payload?.created_at ?? 'no-timestamp'}`;
 
   const organizationId = await resolveOrganizationId('RAZORPAY', {
     organizationId: subscriptionEntity?.notes?.organizationId,
@@ -123,11 +153,33 @@ export async function handleRazorpayWebhook(input: {
     providerCustomerId: subscriptionEntity?.customer_id ?? null,
     organizationId,
     plan: tier,
-    status: razorpayStatusMap[subscriptionEntity?.status ?? 'active'] ?? 'active',
+    /**
+     * Not `?? 'active'`.
+     *
+     * A `payment.failed` carries no subscription entity, so this defaulted to
+     * 'active' and would have recorded a failed payment as a healthy
+     * subscription. Combined with the fact that `applyBillingEvent` ignored the
+     * event type entirely, a declined card was either invisible or actively
+     * written as ACTIVE, and dunning only ever examined PAST_DUE.
+     */
+    status: subscriptionEntity
+      ? (subscriptionEntity.status ? (razorpayStatusMap[subscriptionEntity.status] ?? 'past_due') : 'past_due')
+      : type === 'checkout.completed'
+        ? 'active'
+        : 'past_due',
     currentPeriodEnd: subscriptionEntity?.current_end ? new Date(subscriptionEntity.current_end * 1000) : null,
     cancelAtPeriodEnd: Boolean(subscriptionEntity?.cancel_at_cycle_end),
     nextAttemptAt: null,
-    occurredAt: new Date(),
+    /**
+     * Razorpay's own event time, not ours.
+     *
+     * Stamping `new Date()` meant the ordering guard could never reject
+     * anything: every webhook looked brand new even when it was a redelivery of
+     * something from last week. Razorpay sends `created_at` in seconds.
+     */
+    occurredAt: payload.payload?.created_at
+      ? new Date(payload.payload.created_at * 1000)
+      : new Date(),
     raw: payload,
   };
 
@@ -227,8 +279,8 @@ async function commit(event: BillingEvent): Promise<WebhookOutcome> {
   // An event with no resolvable workspace is stored for support but changes
   // nothing. Dropping it silently would hide a real integration problem.
   if (!event.organizationId) {
-    await prisma.billingEvent
-      .create({
+    try {
+      await prisma.billingEvent.create({
         data: {
           providerEventId: event.providerEventId,
           provider: event.provider,
@@ -238,8 +290,15 @@ async function commit(event: BillingEvent): Promise<WebhookOutcome> {
           payload: event.raw as never,
           occurredAt: event.occurredAt,
         },
-      })
-      .catch(() => undefined);
+      });
+    } catch (error) {
+      // A repeat of an event already stored unattributed is expected and fine.
+      // Anything else is not, and was previously swallowed by a bare catch, so
+      // an integration fault looked identical to a duplicate.
+      if (!isUniqueViolation(error)) {
+        console.error(`[billing] storing an unattributed ${event.provider} event failed:`, error);
+      }
+    }
 
     return {
       accepted: false,
@@ -250,12 +309,19 @@ async function commit(event: BillingEvent): Promise<WebhookOutcome> {
     };
   }
 
-  if (!(await claimBillingEvent(event))) {
+  /**
+   * The claim and the state change are one transaction now, inside
+   * `applyBillingEvent`. They used to be two calls here, which meant an event
+   * could be recorded as consumed and then fail to apply, after which the
+   * provider's retry was answered 200 and the paid change was lost.
+   */
+  const result = await applyBillingEvent(event);
+
+  if (result.duplicate) {
     return { accepted: true, duplicate: true, type: event.type, organizationId: event.organizationId };
   }
 
-  const result = await applyBillingEvent(event);
-  return { accepted: true, duplicate: false, type: event.type, organizationId: result.plan ? event.organizationId : null };
+  return { accepted: true, duplicate: false, type: event.type, organizationId: event.organizationId };
 }
 
 /**
@@ -316,6 +382,15 @@ interface RazorpayPayload {
   event?: string;
   payload?: {
     entity?: { id?: string };
+    /**
+     * Razorpay stamps every event with its own creation time in seconds. Used as
+     * the ordering timestamp, so a redelivery from last week is recognisable as
+     * stale rather than looking freshly generated.
+     */
+    created_at?: number;
+    payment?: {
+      entity?: { id?: string };
+    };
     subscription?: {
       entity?: {
         id?: string;

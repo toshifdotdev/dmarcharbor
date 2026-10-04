@@ -31,6 +31,9 @@ export class MockBillingProvider implements BillingProvider {
    */
   readonly name = 'RAZORPAY' as const;
 
+  /** Matches Razorpay, which is what it stands in for. */
+  readonly appliesPlanChangeImmediately = false;
+
   private readonly customers = new Map<string, string>();
   private readonly subscriptions = new Map<string, ProviderSubscription & { organizationId: string }>();
   // Module level rather than per instance, because a real provider issues

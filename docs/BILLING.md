@@ -30,11 +30,15 @@ code handles a decimal amount, because a rounding error is a real charge.
 | Plan | USD | INR |
 |---|---|---|
 | Mooring | $0 | ₹0 |
-| Fairway | $19 | ₹1,599 |
-| Harbor | $79 | ₹6,599 |
-| Admiralty | $249 | ₹20,999 |
+| Fairway | $29 | ₹2,499 |
+| Harbor | $149 | ₹12,499 |
+| Admiralty | $399 | ₹33,999 |
 
-Annual billing is ten months of price for twelve months of service.
+Annual billing is ten months of price for twelve months of service. These were
+raised from $19/$79/$249 and ₹1,599/₹6,599/₹20,999, and this table was not
+updated with them. That matters more than a stale document usually does: this is
+the operator reference for the layer that takes the money, and it understated
+Harbor by $70 a month and Admiralty by $150.
 
 ## Provider plans live in the database
 

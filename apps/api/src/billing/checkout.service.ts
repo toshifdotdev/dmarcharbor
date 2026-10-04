@@ -151,12 +151,21 @@ export async function startCheckout(input: StartCheckoutInput): Promise<Checkout
     reference: input.organizationId,
   });
 
-  // Written after the provider accepted, so the stored preference always matches a
-  // currency we were actually able to charge in.
-  await prisma.organization.update({
-    where: { id: input.organizationId },
-    data: { preferredCurrency: currency },
-  });
+  /**
+ * Only rewrite the stored preference when the request actually chose a currency.
+ *
+ * This ran unconditionally with the resolved currency, which meant a request that
+ * omitted the field fell back to the stored preference and then wrote that same
+ * value back - harmless - but a request that *did* carry a currency, from a form
+ * that had not yet been saved, silently changed the workspace's saved preference
+ * as a side effect of starting a checkout. Now only an explicit choice persists.
+ */
+if (input.currency) {
+    await prisma.organization.update({
+      where: { id: input.organizationId },
+      data: { preferredCurrency: input.currency },
+    });
+  }
 
   await recordAuditEvent({
     organizationId: input.organizationId,
@@ -315,16 +324,43 @@ export async function changePlan(input: {
     interval: input.interval,
   });
 
-  // Recorded only after the provider accepted the change, so our row can never
-  // claim a scheduled change the provider refused. Cleared by applyBillingEvent
-  // when the plan actually moves.
-  await prisma.subscription.update({
-    where: { organizationId: input.organizationId },
-    data: {
-      pendingPlan: input.plan,
-      pendingPlanInterval: toStoredInterval(input.interval),
-    },
-  });
+  /**
+   * The marker is left only when the provider will not apply the change yet.
+   *
+   * It used to be written unconditionally after `changePlan` returned without
+   * throwing. For Paddle that was actively harmful: the provider had already
+   * applied the change immediately, and a marker saying "pending until cycle end"
+   * survived, so a later `applyDuePendingPlans` run re-applied a downgrade the
+   * customer may have upgraded away from since. The marker describes a future
+   * the provider is not going to act on.
+   *
+   * When the change is already live, the plan is written here rather than waiting
+   * for the confirmation webhook. That webhook still arrives and re-applies the
+   * same value, so this is idempotent, and it means a customer who downgrades on
+   * Paddle sees the plan change immediately instead of waiting for a delivery we
+   * do not control.
+   */
+  if (provider.appliesPlanChangeImmediately) {
+    await prisma.$transaction(async (tx) => {
+      await tx.organization.update({ where: { id: input.organizationId }, data: { plan: input.plan } });
+      await tx.subscription.updateMany({ where: { organizationId: input.organizationId }, data: { plan: input.plan } });
+      await tx.subscription.update({
+        where: { organizationId: input.organizationId },
+        data: { pendingPlan: null, pendingPlanInterval: null },
+      });
+    });
+  } else {
+    // Recorded only after the provider accepted the change, so our row can never
+    // claim a scheduled change the provider refused. Cleared by applyBillingEvent
+    // when the plan actually moves.
+    await prisma.subscription.update({
+      where: { organizationId: input.organizationId },
+      data: {
+        pendingPlan: input.plan,
+        pendingPlanInterval: toStoredInterval(input.interval),
+      },
+    });
+  }
 
   // Told at the moment of the request, not when it takes effect, so nobody
   // discovers a plan change by losing a feature.
@@ -333,7 +369,7 @@ export async function changePlan(input: {
       organizationId: input.organizationId,
       fromPlan: subscription.plan,
       toPlan: input.plan,
-      effectiveAt: subscription.currentPeriodEnd,
+      effectiveAt: provider.appliesPlanChangeImmediately ? new Date() : subscription.currentPeriodEnd,
     });
   }
 
@@ -343,9 +379,15 @@ export async function changePlan(input: {
     action: 'BILLING_PLAN_CHANGE_REQUESTED',
     targetType: 'subscription',
     targetId: subscription.providerSubscriptionId,
-    // The requested plan is recorded, but the workspace's own plan is not
-    // changed here. It moves when the provider confirms, at period end.
-    detail: { from: subscription.plan, to: input.plan, interval: input.interval, effectiveAt: 'cycle_end' },
+    // The requested plan is recorded either way. Whether the workspace's own plan
+    // moves now or at period end is `appliesPlanChangeImmediately`.
+    detail: {
+      from: subscription.plan,
+      to: input.plan,
+      interval: input.interval,
+      provider: provider.name,
+      effectiveAt: provider.appliesPlanChangeImmediately ? 'immediate' : 'cycle_end',
+    },
   });
 }
 
@@ -453,11 +495,14 @@ export async function billingStatus(organizationId: string): Promise<{
   dunningStage: 'NONE' | 'WARNED' | 'WITHDRAWN';
   /** When a failed payment stops being forgiven. Null when nothing is failing. */
   graceEnds: string | null;
+  /** The interval actually being billed, so the price below matches it. */
+  interval: StoredBillingInterval;
 }> {
   const organization = await prisma.organization.findUniqueOrThrow({
     where: { id: organizationId },
     select: {
       plan: true,
+      preferredCurrency: true,
       subscription: {
         select: {
           status: true,
@@ -473,27 +518,64 @@ export async function billingStatus(organizationId: string): Promise<{
     },
   });
 
-  const currency: BillingCurrency = organization.subscription?.provider === 'PADDLE' ? 'USD' : 'INR';
+  /**
+   * The currency comes from the stored preference, not from the provider.
+   *
+   * Deriving it from the provider meant the billing screen could quote a
+   * different currency from the one the customer actually pays in, which is the
+   * one number on that screen they will compare against their bank statement.
+   */
+  const currency: BillingCurrency =
+    organization.preferredCurrency ?? (organization.subscription?.provider === 'PADDLE' ? 'USD' : 'INR');
+
+  const periodEnd = organization.subscription?.currentPeriodEnd ?? null;
+  const interval: StoredBillingInterval = isAnnualPeriod(periodEnd) ? 'ANNUAL' : 'MONTHLY';
+
   const prices = planCatalog[organization.plan].prices[currency];
 
   return {
     plan: organization.plan,
     status: organization.subscription?.status ?? 'ACTIVE',
     provider: organization.subscription?.provider ?? 'NONE',
-    currentPeriodEnd: organization.subscription?.currentPeriodEnd?.toISOString() ?? null,
+    currentPeriodEnd: periodEnd?.toISOString() ?? null,
     cancelAtPeriodEnd: organization.subscription?.cancelAtPeriodEnd ?? false,
-    priceLabel: formatLabel(prices.monthlyMinor, currency),
+    /**
+     * The price for the interval being billed.
+     *
+     * This reported `monthlyMinor` unconditionally, so an annual Harbor customer
+     * who paid 1,24,990 was shown "12,499" on their own billing page: the
+     * screen understated the charge by ten times, in the one number they use to
+     * check whether they have been overcharged.
+     */
+    priceLabel: formatLabel(interval === 'ANNUAL' ? prices.annualMinor : prices.monthlyMinor, currency),
     currency,
+    interval,
     pendingPlan: organization.subscription?.pendingPlan
       ? {
           plan: organization.subscription.pendingPlan,
           interval: organization.subscription.pendingPlanInterval ?? 'MONTHLY',
-          effectiveAt: organization.subscription.currentPeriodEnd?.toISOString() ?? null,
+          effectiveAt: periodEnd?.toISOString() ?? null,
         }
       : null,
     dunningStage: organization.subscription?.dunningStage ?? 'NONE',
     graceEnds: organization.subscription?.graceEndsAt?.toISOString() ?? null,
   };
+}
+
+/**
+ * True when the paid period is long enough to be a year.
+ *
+ * Nine months is the midpoint between a year and the longest plausible monthly
+ * run, so anything past it cannot be a monthly subscription. The catalog makes
+ * annual exactly ten months of monthly, and monthly periods are a month, so there
+ * is a wide gap and no realistic value lands near the boundary.
+ */
+function isAnnualPeriod(currentPeriodEnd: Date | null): boolean {
+  if (!currentPeriodEnd) {
+    return false;
+  }
+  const remainingMs = currentPeriodEnd.getTime() - Date.now();
+  return remainingMs > 237 * 24 * 60 * 60 * 1000;
 }
 
 /** Tells an operator which provider plans still need creating. */
@@ -549,13 +631,35 @@ export async function billingCurrencyPreference(organizationId: string): Promise
     }),
     prisma.subscription.findUnique({
       where: { organizationId },
-      select: { provider: true, providerSubscriptionId: true, status: true },
+      select: { provider: true, providerSubscriptionId: true, status: true, currentPeriodEnd: true },
     }),
   ]);
 
-  const paid = Boolean(
-    subscription?.providerSubscriptionId && subscription.provider !== 'NONE' && subscription.status !== 'CANCELLED',
-  );
+  /**
+   * Locked unless the subscription is definitively over.
+   *
+   * The old test was `status !== 'CANCELLED'`, which unlocked a workspace that
+   * had cancelled but still had paid time left: flipping currency then meant a
+   * live subscription being charged in one currency by one processor while the
+   * workspace quoted another. Today that is only inert because
+   * `resolveProviderForCheckout` happens to prefer the existing provider, which
+   * is an accident rather than a decision.
+   *
+   * What is being protected is the remaining paid period, so that is the test. A
+   * cancelled subscription with no recorded period end is treated as finished,
+   * which is what "cancelled" means to the person who cancelled it, and an
+   * unknown end date on a live subscription is treated as paid, because guessing
+   * "free" in favour of a migration is how a customer gets moved mid period.
+   */
+  const periodStillRunning =
+    subscription?.currentPeriodEnd != null && subscription.currentPeriodEnd.getTime() > Date.now();
+
+  const hasLiveSubscription = Boolean(subscription?.providerSubscriptionId) && subscription?.provider !== 'NONE';
+
+  const definitivelyOver =
+    (subscription?.status === 'CANCELLED' || subscription?.status === 'EXPIRED') && !periodStillRunning;
+
+  const paid = hasLiveSubscription && !definitivelyOver;
 
   return {
     preferredCurrency: organization?.preferredCurrency ?? 'INR',

@@ -40,9 +40,28 @@ async function withIdempotency(
     .update(`${organizationId}:${request.method}:${request.originalUrl}:${JSON.stringify(request.body ?? {})}`)
     .digest('hex');
 
-  const existing = await findIdempotentResult(key);
+  const existing = await findIdempotentResult(organizationId, key);
 
-  if (existing && existing.organizationId === organizationId) {
+  if (existing) {
+    /**
+     * A reused key with a different payload is a conflict, not a replay.
+     *
+     * The hash was computed and stored but never compared, so an integration
+     * that reused a key across two different bodies got the first response back
+     * and silently lost the second request. Returning 409 is what the documented
+     * contract promises and is the only safe answer: the caller cannot be told
+     * which of the two payloads this response corresponds to.
+     */
+    if (existing.requestHash !== fingerprint) {
+      response.status(409).json({
+        error: {
+          code: 'IDEMPOTENCY_KEY_REUSED',
+          message: 'That Idempotency-Key was already used with a different request body.',
+        },
+      });
+      return;
+    }
+
     response.setHeader('Idempotency-Replayed', 'true');
     response.status(existing.statusCode ?? 200).json(existing.responseBody ?? {});
     return;

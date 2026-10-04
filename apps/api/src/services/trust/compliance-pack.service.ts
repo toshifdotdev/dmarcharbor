@@ -836,17 +836,43 @@ export async function issueCompliancePack(input: {
 
 /** What has been issued for a client, newest first. */
 export async function listCompliancePacks(clientId: string): Promise<
-  { id: string; hash: string; issuedAt: string; asOf: string; superseded: boolean; documentVersion: string }[]
+  {
+    id: string;
+    /**
+     * The human-quotable document reference, e.g. `DMARC-20261004-ACME-8P1709`.
+     *
+     * Returned here because this list is the only place an operator can get it,
+     * and without it there is no way to construct a working link to the public
+     * verifier: the frontend was passing the row id, the verifier looks up by
+     * reference, and the reference was not in the response. So the verify link on
+     * every issued pack 404s and there is no identifier on screen to fix it with.
+     */
+    reference: string;
+    hash: string;
+    issuedAt: string;
+    asOf: string;
+    superseded: boolean;
+    documentVersion: string;
+  }[]
 > {
   const rows = await prisma.compliancePack.findMany({
     where: { clientId },
-    select: { id: true, pdfHash: true, createdAt: true, asOf: true, supersededAt: true, documentVersion: true },
+    select: {
+      id: true,
+      reference: true,
+      pdfHash: true,
+      createdAt: true,
+      asOf: true,
+      supersededAt: true,
+      documentVersion: true,
+    },
     orderBy: { createdAt: 'desc' },
     take: 50,
   });
 
   return rows.map((row) => ({
     id: row.id,
+    reference: row.reference,
     hash: row.pdfHash,
     issuedAt: row.createdAt.toISOString(),
     asOf: row.asOf.toISOString(),

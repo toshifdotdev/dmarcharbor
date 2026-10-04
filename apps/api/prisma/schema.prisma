@@ -696,6 +696,14 @@ model Subscription {
   /// Null when no payment is failing. Exposed so the grace period can be stated
   /// as a duration instead of leaving the customer to guess how long they have.
   graceEndsAt            DateTime?
+  /// When the most recent provider event we accepted for this subscription occurred.
+  ///
+  /// Both providers redeliver out of order, and there is no ordering on the
+  /// subscription itself, so a late `subscription.activated` would otherwise
+  /// resurrect a subscription the customer had already cancelled. Without a
+  /// timestamp to compare against there is no way to tell a fresh event from a
+  /// stale one, and `occurredAt` on the incoming event is the only other signal.
+  lastEventAt            DateTime?
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt
 
@@ -1074,7 +1082,7 @@ model BillingEvent {
 
 model IdempotencyRecord {
   id             String       @id @default(cuid())
-  key            String       @unique
+  key            String
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   requestHash    String
@@ -1082,6 +1090,17 @@ model IdempotencyRecord {
   responseBody   Json?
   createdAt      DateTime     @default(now())
 
+  /// Scoped to the workspace, deliberately.
+  ///
+  /// This used to be unique on `key` alone, which made every customer's
+  /// idempotency namespace the same namespace. One workspace choosing a key
+  /// another workspace already held then overwrote that workspace's stored
+  /// response, because the upsert's update branch did not rewrite
+  /// `organizationId`: the reader still saw the original owner and happily
+  /// replayed the second workspace's payload to them, including its client ids
+  /// and DNS verification values. The key is chosen by the caller, so it has to
+  /// be unique per caller rather than globally.
+  @@unique([organizationId, key])
   @@index([createdAt])
   @@index([organizationId])
   @@map("idempotency_record")

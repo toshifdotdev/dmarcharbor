@@ -61,7 +61,15 @@ export interface CheckoutSession {
 export interface ProviderSubscription {
   providerSubscriptionId: string;
   providerCustomerId: string | null;
-  plan: PlanTier;
+  /**
+   * Null when the provider's plan id cannot be resolved in our catalog.
+   *
+   * Deliberately not defaulted to the free tier. A null here means our catalog
+   * and the provider have diverged, and the only safe response is to change
+   * nothing; defaulting it silently revoked paying customers' access from the
+   * unattended reconciliation job.
+   */
+  plan: PlanTier | null;
   status: ProviderSubscriptionStatus;
   currentPeriodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
@@ -80,6 +88,23 @@ export interface BillingProvider {
   readonly name: Exclude<ProviderName, 'NONE'>;
 
   /**
+   * Whether `changePlan` takes effect at the provider now, or only at the end of
+   * the paid period.
+   *
+   * Razorpay schedules a price change for the next cycle and keeps billing the
+   * old price until then. Paddle cannot schedule a price change at all, so the
+   * only honest implementation is to apply it immediately and let Paddle prorate
+   * the credit.
+   *
+   * This distinction was previously carried implicitly, and wrongly: Paddle's
+   * `changePlan` used to return the live subscription untouched for a downgrade,
+   * which the caller read as acceptance. So we granted the cheaper plan while
+   * Paddle kept billing the dearer one. The caller needs this flag to know
+   * whether a marker should be left for `applyDuePendingPlans` to apply later.
+   */
+  readonly appliesPlanChangeImmediately: boolean;
+
+  /**
    * Creates or reuses a customer record. Idempotent by organisation, so calling
    * it on every checkout attempt is safe and does not create duplicates.
    */
@@ -95,7 +120,11 @@ export interface BillingProvider {
    */
   createCheckout(input: CheckoutRequest): Promise<CheckoutSession>;
 
-  /** Moves an existing subscription to a different plan, effective at period end. */
+  /**
+   * Moves an existing subscription to a different plan.
+   *
+   * Whether that is now or at period end is `appliesPlanChangeImmediately`.
+   */
   changePlan(input: {
     providerSubscriptionId: string;
     plan: PlanTier;

@@ -59,7 +59,16 @@ export function razorpayConfigured(): boolean {
 }
 
 /** Razorpay's own vocabulary, mapped onto ours. The SDK's union is narrower than
- * the statuses the API can actually return, so this is a string lookup. */
+ *  the statuses the API can actually return, so this is a string lookup.
+ *
+ *  `closed` is the one that matters. Razorpay issues it when a subscription
+ *  reaches the end of its term rather than being cancelled early, and it was
+ *  absent here while present in the webhook adapter's own map. That meant
+ *  `toProviderSubscription` read every closed subscription as `active`, so
+ *  `reconcileWithProvider` - the mechanism whose entire purpose is noticing a
+ *  subscription the provider has ended - reported every one of them as live for
+ *  ever, at the full monthly price, with nothing to indicate a problem. The fix
+ *  had been applied in one file and not the other. */
 const statusMap: Record<string, ProviderSubscriptionStatus> = {
   created: 'active',
   authenticated: 'active',
@@ -69,6 +78,7 @@ const statusMap: Record<string, ProviderSubscriptionStatus> = {
   cancelled: 'cancelled',
   completed: 'expired',
   expired: 'expired',
+  closed: 'expired',
 };
 
 interface RazorpaySubscriptionLike {
@@ -83,6 +93,9 @@ interface RazorpaySubscriptionLike {
 
 export class RazorpayBillingProvider implements BillingProvider {
   readonly name = 'RAZORPAY' as const;
+
+  /** Razorpay accepts a scheduled price change for the next cycle. */
+  readonly appliesPlanChangeImmediately = false;
 
   private async findCustomer(organizationId: string): Promise<string | null> {
     const row = await prisma.subscription.findFirst({
@@ -374,9 +387,17 @@ function toProviderSubscription(subscription: RazorpaySubscriptionLike, storedTi
   return {
     providerSubscriptionId: subscription.id,
     providerCustomerId: subscription.customer_id ?? null,
-    // A subscription whose plan is not in our catalog cannot be priced, so it
-    // is reported as the free tier rather than guessed at.
-    plan: storedTier ?? 'MOORING',
+    /**
+     * Null, not MOORING.
+     *
+     * A plan id we cannot resolve is not evidence the customer is on the free
+     * tier, it is evidence our catalog and Razorpay have diverged. Reporting
+     * MOORING here meant `reconcileWithProvider` delivered the free plan to a
+     * paying customer, from a job that runs unattended, while Razorpay kept
+     * charging. `ProviderSubscription.plan` being null makes the caller refuse
+     * to apply anything and leave the event for a human.
+     */
+    plan: storedTier,
     status: statusMap[subscription.status ?? 'active'] ?? 'active',
     currentPeriodEnd: subscription.current_end ? new Date(subscription.current_end * 1000) : null,
     cancelAtPeriodEnd: Boolean(subscription.cancel_at_cycle_end),

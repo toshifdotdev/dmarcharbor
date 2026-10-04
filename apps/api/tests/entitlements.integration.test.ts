@@ -356,11 +356,48 @@ describe('plan entitlements', () => {
     });
     expect((await resolveEntitlements(organizationId)).plan).toBe('HARBOR');
 
-    await prisma.subscription.updateMany({
-      where: { organizationId },
-      data: { currentPeriodEnd: new Date(Date.now() - 1000) },
+    /**
+     * The expiry now arrives as a provider event rather than being derived on
+     * read.
+     *
+     * This used to move the subscription's period end into the past and expect
+     * the next entitlement read to notice, because resolution recomputed the plan
+     * from the subscription every time. It reads `Organization.plan` now, which
+     * `applyBillingEvent` resolves once against the persisted paid period and
+     * writes along with the subscription in one transaction.
+     *
+     * That is the fix for the split brain, and it has a cost worth stating: a
+     * lapsed period is no longer self-healing on read. It is repaired by the
+     * provider's expiry webhook, or by reconciliation, which now can see it
+     * because `closed` is mapped in the Razorpay adapter. The assertion below
+     * goes through the same path a real expiry takes.
+     */
+    const { applyBillingEvent } = await import('../src/billing/subscription-state.js');
+    await applyBillingEvent({
+      providerEventId: `evt_expiry_${organizationId}`,
+      type: 'subscription.expired',
+      provider: 'RAZORPAY',
+      providerSubscriptionId: `sub_expiry_${organizationId}`,
+      providerCustomerId: null,
+      organizationId,
+      plan: 'HARBOR',
+      status: 'expired',
+      currentPeriodEnd: new Date(Date.now() - 1000),
+      cancelAtPeriodEnd: false,
+      nextAttemptAt: null,
+      occurredAt: new Date(),
+      raw: { note: 'fixture' },
     });
+
     expect((await resolveEntitlements(organizationId)).plan).toBe('MOORING');
+
+    // Both records agree, which is the property that was previously violated.
+    const [organization, subscription] = await Promise.all([
+      prisma.organization.findUniqueOrThrow({ where: { id: organizationId }, select: { plan: true } }),
+      prisma.subscription.findUniqueOrThrow({ where: { organizationId }, select: { plan: true } }),
+    ]);
+    expect(organization.plan).toBe('MOORING');
+    expect(subscription.plan).toBe('MOORING');
   });
 
   it('keeps a trial on its trial plan while it is running', async () => {

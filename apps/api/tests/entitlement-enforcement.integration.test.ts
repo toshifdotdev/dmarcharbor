@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { grantPlan } from './helpers/plan.js';
-import { setOverride } from '../src/services/entitlements/entitlement.service.js';
+import { setOverride, setOrganizationPlan } from '../src/services/entitlements/entitlement.service.js';
 import { createApiKey } from '../src/services/api-key.service.js';
 import type { PlanTier } from '@prisma/client';
 
@@ -179,12 +179,18 @@ describe('paid feature enforcement', () => {
 });
 
 async function setOrganizationPlanDowngrade(organizationId: string): Promise<void> {
-  await prisma.subscription.updateMany({
-    where: { organizationId },
-    data: {
-      plan: 'MOORING',
-      status: 'ACTIVE',
-      currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-    },
+  /**
+   * Goes through `setOrganizationPlan`, which writes the organisation and the
+   * subscription together.
+   *
+   * This used to update only the subscription row and expect the next request to
+   * notice, because entitlement resolution recomputed the plan from the
+   * subscription on every read. It reads `Organization.plan` now, so a fixture
+   * that writes one record and not the other is exactly the split brain the
+   * production code was fixed to prevent.
+   */
+  await setOrganizationPlan(organizationId, 'MOORING', {
+    status: 'ACTIVE',
+    currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
   });
 }

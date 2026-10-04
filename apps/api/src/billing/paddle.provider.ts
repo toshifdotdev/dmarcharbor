@@ -97,6 +97,9 @@ function toBillingCurrency(code: string | null | undefined): BillingCurrency | n
 export class PaddleBillingProvider implements BillingProvider {
   readonly name = 'PADDLE' as const;
 
+  /** Paddle cannot schedule a price change, so the change lands now and prorates. */
+  readonly appliesPlanChangeImmediately = true;
+
   /** Idempotent by organisation, so a retried checkout never creates a second customer. */
   private async findCustomer(organizationId: string): Promise<string | null> {
     const row = await prisma.subscription.findFirst({
@@ -228,15 +231,34 @@ export class PaddleBillingProvider implements BillingProvider {
     // A downgrade is left to us. Nothing is sent to Paddle; the caller records a
     // pendingPlan and applyDuePendingPlans moves it once the paid period ends.
     // Same rule as a cancellation: the customer keeps what they paid for.
-    const currentRank = planOrder.indexOf(live.plan);
+    // An upgrade and a downgrade are the same API call in Paddle, differing only
+    // in which direction the ladder is moving.
+    const currentRank = live.plan ? planOrder.indexOf(live.plan) : -1;
     const targetRank = planOrder.indexOf(input.plan);
-    const isUpgrade = currentRank === -1 || targetRank > currentRank;
 
-    if (!isUpgrade) {
-      // Unchanged, and reported as unchanged. The caller stores the request.
+    // Same plan: nothing to send.
+    if (currentRank !== -1 && currentRank === targetRank) {
       return { ...live, cancelAtPeriodEnd: false };
     }
 
+    /**
+     * A downgrade is sent to Paddle rather than deferred.
+     *
+     * This used to return the live subscription unchanged, and
+     * `subscription-state` treated that return as acceptance, cleared nothing and
+     * moved our own plan down. So a customer who asked to downgrade kept being
+     * billed the higher price for ever while holding the cheaper plan, and our
+     * row disagreed with Paddle's by design. At Harbor to Fairway that is
+     * 10,000 rupees a month of revenue we had granted away and still owed
+     * collection on, and it is the worst possible position to be in when the
+     * customer opens a chargeback.
+     *
+     * Paddle cannot schedule a price change, so the honest options were to send
+     * it now and let Paddle prorate the credit, or to keep lying. Prorating now
+     * means the customer is refunded the unused difference immediately, which is
+     * more generous than waiting for the period to end, and it is the only option
+     * where Paddle and our row agree.
+     */
     await this.call(() =>
       paddle().subscriptions.update(input.providerSubscriptionId, {
         items: [{ priceId: target.providerPlanId, quantity: 1 }],
@@ -465,10 +487,13 @@ function toProviderSubscription(
   return {
     providerSubscriptionId: subscription.id,
     providerCustomerId: subscription.customerId ?? null,
-    // A subscription whose price is not in our catalog, or is denominated in a
-    // currency we do not sell, cannot be priced, so it is reported as the free
-    // tier rather than guessed at.
-    plan: storedTier && recognisedCurrency ? storedTier : 'MOORING',
+    /**
+     * Null rather than MOORING, for the same reason as the Razorpay adapter: an
+     * unresolvable price id is evidence that our catalog and Paddle have
+     * diverged, not evidence that the customer is free. Reporting MOORING made
+     * the unattended reconciler hand the free tier to a paying subscriber.
+     */
+    plan: storedTier && recognisedCurrency ? storedTier : null,
     status: statusMap[subscription.status] ?? 'active',
     currentPeriodEnd: periodEnd ? new Date(periodEnd) : null,
     cancelAtPeriodEnd: subscription.scheduledChange?.action === 'cancel' || subscription.status === 'cancelled',

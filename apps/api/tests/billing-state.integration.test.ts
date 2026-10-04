@@ -6,10 +6,11 @@ import { MockBillingProvider } from '../src/billing/mock-provider.js';
 import {
   BillingStateError,
   applyBillingEvent,
-  claimBillingEvent,
+  applyDuePendingPlans,
   reconcileWithProvider,
 } from '../src/billing/subscription-state.js';
 import type { BillingEvent, BillingInterval, CheckoutRequest } from '../src/billing/provider.js';
+import { resolveEntitlements } from '../src/services/entitlements/entitlement.service.js';
 import { planCatalog } from '../src/services/entitlements/plan-catalog.js';
 
 let fixtureId = 0;
@@ -119,11 +120,21 @@ describe('subscription state machine', () => {
     const { organizationId } = await setupWorkspace();
     const first = event(organizationId, { providerEventId: 'evt_duplicate' });
 
-    expect(await claimBillingEvent(first)).toBe(true);
-    await applyBillingEvent(first);
+    /**
+     * The claim and the state change are one transaction now, so there is no
+     * separate claim step to call. This previously read
+     * `claimBillingEvent(first)` then `applyBillingEvent(first)`, which is
+     * precisely the sequence that let an event be recorded as consumed and then
+     * fail to apply.
+     */
+    const applied = await applyBillingEvent(first);
+    expect(applied.applied).toBe(true);
+    expect(applied.duplicate).toBe(false);
 
     // Razorpay and Paddle both redeliver, so the same id comes back.
-    expect(await claimBillingEvent(first)).toBe(false);
+    const redelivered = await applyBillingEvent(first);
+    expect(redelivered.duplicate).toBe(true);
+    expect(redelivered.applied).toBe(false);
 
     const stored = await prisma.billingEvent.count({ where: { providerEventId: 'evt_duplicate' } });
     expect(stored).toBe(1);
@@ -132,14 +143,183 @@ describe('subscription state machine', () => {
     expect(audit).toBe(1);
   });
 
+  it('drops an event that happened before the last one it accepted', async () => {
+    const { organizationId } = await setupWorkspace();
+
+    const cancelled = event(organizationId, {
+      providerEventId: 'evt_newer_cancel',
+      status: 'cancelled',
+      occurredAt: new Date('2030-06-01T00:00:00.000Z'),
+    });
+    await applyBillingEvent(cancelled);
+
+    // A late activation, carrying an older timestamp. Both providers redeliver out
+    // of order, so this is routine rather than exotic, and applying it would tell
+    // a customer who cancelled that they are renewing.
+    const staleActivation = event(organizationId, {
+      providerEventId: 'evt_stale_activate',
+      status: 'active',
+      occurredAt: new Date('2030-05-01T00:00:00.000Z'),
+    });
+    const outcome = await applyBillingEvent(staleActivation);
+
+    expect(outcome.applied).toBe(false);
+
+    const stored = await prisma.subscription.findUniqueOrThrow({
+      where: { organizationId },
+      select: { status: true },
+    });
+    expect(stored.status).toBe('CANCELLED');
+
+    // Recorded rather than dropped silently, so an operator can see the provider
+    // sent something we chose not to act on.
+    const audited = await prisma.auditLog.count({
+      where: { organizationId, action: 'SUBSCRIPTION_UPDATED', detail: { path: ['event'], equals: 'stale_event_ignored' } },
+    });
+    expect(audited).toBe(1);
+  });
+
+  it('refuses an event that resolves to no plan rather than granting the free tier', async () => {
+    const { organizationId } = await setupWorkspace();
+
+    const before = await prisma.organization.findUniqueOrThrow({
+      where: { id: organizationId },
+      select: { plan: true },
+    });
+
+    // `?? 'MOORING'` used to turn an unresolvable plan id into a free plan for a
+    // customer the provider was still charging.
+    await expect(
+      applyBillingEvent(event(organizationId, { providerEventId: 'evt_no_plan', plan: null })),
+    ).rejects.toThrow(BillingStateError);
+
+    const after = await prisma.organization.findUniqueOrThrow({
+      where: { id: organizationId },
+      select: { plan: true },
+    });
+    expect(after.plan).toBe(before.plan);
+  });
+
+  it('keeps the paid period when a cancellation event omits it', async () => {
+    const { organizationId } = await setupWorkspace();
+    const periodEnd = new Date(Date.now() + 20 * 24 * 60 * 60 * 1000);
+
+    await prisma.subscription.create({
+      data: {
+        organizationId,
+        plan: 'HARBOR',
+        status: 'ACTIVE',
+        provider: 'RAZORPAY',
+        providerSubscriptionId: `sub_period_${Date.now()}`,
+        currentPeriodEnd: periodEnd,
+      },
+    });
+    await prisma.organization.update({ where: { id: organizationId }, data: { plan: 'HARBOR' } });
+
+    // No currentPeriodEnd on the event. The refund policy promises cancelling
+    // keeps the paid period, and reading the payload's null as "not paid through"
+    // is what broke that promise.
+    await applyBillingEvent(
+      event(organizationId, {
+        providerEventId: 'evt_cancel_no_period',
+        plan: 'HARBOR',
+        status: 'cancelled',
+        currentPeriodEnd: null,
+      }),
+    );
+
+    const organization = await prisma.organization.findUniqueOrThrow({
+      where: { id: organizationId },
+      select: { plan: true },
+    });
+    expect(organization.plan).toBe('HARBOR');
+  });
+
+  it('keeps both plan records in step when a pending change lands', async () => {
+    const { organizationId } = await setupWorkspace();
+
+    await prisma.subscription.create({
+      data: {
+        organizationId,
+        plan: 'HARBOR',
+        status: 'ACTIVE',
+        provider: 'NONE',
+        currentPeriodEnd: new Date(Date.now() - 24 * 60 * 60 * 1000),
+        pendingPlan: 'FAIRWAY',
+        pendingPlanInterval: 'MONTHLY',
+      },
+    });
+    await prisma.organization.update({ where: { id: organizationId }, data: { plan: 'HARBOR' } });
+
+    await applyDuePendingPlans();
+
+    // The whole defect in one assertion: the billing page reads the organisation
+    // and every quota used to read the subscription, so a downgrade that wrote
+    // only one of them left a customer paying Fairway and being served Admiralty.
+    const [organization, subscription] = await Promise.all([
+      prisma.organization.findUniqueOrThrow({ where: { id: organizationId }, select: { plan: true } }),
+      prisma.subscription.findUniqueOrThrow({ where: { organizationId }, select: { plan: true, pendingPlan: true } }),
+    ]);
+
+    expect(organization.plan).toBe('FAIRWAY');
+    expect(subscription.plan).toBe('FAIRWAY');
+    expect(subscription.pendingPlan).toBeNull();
+
+    const entitlements = await resolveEntitlements(organizationId);
+    expect(entitlements.plan).toBe('FAIRWAY');
+  });
+
+  it('keeps a pending downgrade across a renewal that still reports the old plan', async () => {
+    const { organizationId } = await setupWorkspace();
+
+    await prisma.subscription.create({
+      data: {
+        organizationId,
+        plan: 'HARBOR',
+        status: 'ACTIVE',
+        provider: 'NONE',
+        providerSubscriptionId: `sub_keep_${Date.now()}`,
+        currentPeriodEnd: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000),
+        pendingPlan: 'FAIRWAY',
+        pendingPlanInterval: 'MONTHLY',
+      },
+    });
+
+    // The clear condition was the negation of its own comment, so a renewal
+    // reporting the still-current tier erased the request and the customer was
+    // told "scheduled for cycle end" and kept paying the higher price for ever.
+    await applyBillingEvent(
+      event(organizationId, {
+        providerEventId: 'evt_renewal_old_price',
+        plan: 'HARBOR',
+        status: 'active',
+        currentPeriodEnd: new Date(Date.now() + 40 * 24 * 60 * 60 * 1000),
+      }),
+    );
+
+    const subscription = await prisma.subscription.findUniqueOrThrow({
+      where: { organizationId },
+      select: { pendingPlan: true },
+    });
+    expect(subscription.pendingPlan).toBe('FAIRWAY');
+  });
+
   it('handles two deliveries of one event arriving at the same time', async () => {
     const { organizationId } = await setupWorkspace();
     const concurrent = event(organizationId, { providerEventId: 'evt_race' });
 
-    const claims = await Promise.all([claimBillingEvent(concurrent), claimBillingEvent(concurrent)]);
+    // Both deliveries now race inside one transaction each, so the unique index
+    // is what decides: one commits the event and its transition, the other finds
+    // the row already claimed.
+    const results = await Promise.all([applyBillingEvent(concurrent), applyBillingEvent(concurrent)]);
 
-    expect(claims.filter(Boolean)).toHaveLength(1);
+    expect(results.filter((result) => result.applied)).toHaveLength(1);
     expect(await prisma.billingEvent.count({ where: { providerEventId: 'evt_race' } })).toBe(1);
+
+    const audit = await prisma.auditLog.count({
+      where: { organizationId, action: 'SUBSCRIPTION_UPDATED', detail: { path: ['event'], equals: 'subscription.activated' } },
+    });
+    expect(audit).toBe(1);
   });
 
   it('keeps the plan after cancelling, until the paid period ends', async () => {

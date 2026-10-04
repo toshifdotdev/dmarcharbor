@@ -1,6 +1,6 @@
 import { prisma } from '../../database/prisma.js';
 import { encryptSensitive } from '../privacy.service.js';
-import { callbackUrlsFor } from './sso-flow.service.js';
+import { callbackUrlsFor, ssoIdentifiersFor } from './sso-flow.service.js';
 
 /**
  * Enterprise single sign on for a workspace.
@@ -153,6 +153,27 @@ export interface SsoConnectionView {
    * why the field was absent from the view while the service could produce it.
    */
   callbackUrls: { saml: string; oidc: string };
+  /**
+   * The values an IdP asks the service provider for, spelled out.
+   *
+   * The callback URL alone is not enough to configure either protocol. An
+   * administrator is also asked for the entity id to put in the IdP, and for the
+   * sign-in URL a user is sent to, and neither is derivable from the callback.
+   *
+   * `entityId` is this service acting as the service provider, so it is a
+   * namespace we mint per connection rather than the IdP's own entity id, which
+   * is what makes it stable across a certificate rotation. `loginUrl` is the IdP's
+   * own entry point, returned verbatim: an administrator needs to see it to check
+   * it, and it is not a secret.
+   *
+   * `idpEntityId` is the identifier the IdP expects to be given, which for SAML is
+   * conventionally the issuer of the assertions it sends. Both are surfaced
+   * because an IdP console will ask for one of them under a name nobody can guess
+   * from the other.
+   */
+  entityId: string;
+  idpEntityId: string;
+  loginUrl: string;
   provisioning: SsoProvisioningMode;
   defaultRole: string;
   enabled: boolean;
@@ -176,6 +197,7 @@ export async function listSsoConnections(organizationId: string): Promise<SsoCon
     entryPoint: row.entryPoint,
     clientId: row.clientId,
     callbackUrls: callbackUrlsFor(row.id),
+    ...ssoIdentifiersFor(row),
     provisioning: row.provisioning,
     defaultRole: row.defaultRole,
     enabled: row.enabled,

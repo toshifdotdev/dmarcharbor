@@ -25,7 +25,18 @@ import { paddleWebhookSecret } from '../billing/paddle.provider.js';
 const checkoutSchema = z.object({
   plan: z.enum(['FAIRWAY', 'HARBOR', 'ADMIRALTY']),
   interval: z.enum(['monthly', 'annual']).default('monthly'),
-  currency: z.enum(['USD', 'INR']).default('INR'),
+  /**
+   * Optional on purpose, with no default.
+   *
+   * This was `z.enum(['USD','INR']).default('INR')`, and Zod always populates a
+   * defaulted field, so `input.currency` was never undefined and the documented
+   * fallback in `startCheckout` - "when omitted the workspace's stored preference
+   * decides" - was dead code. Any client omitting it, including automation and
+   * the web app's own optional type, was quoted and routed to INR and Razorpay
+   * regardless of an explicit USD setting on the workspace. Defaulting here would
+   * quietly reinstate exactly that.
+   */
+  currency: z.enum(['USD', 'INR']).optional(),
   contact: z.object({
     name: z.string().trim().min(2).max(120),
     email: z.string().trim().email(),
@@ -65,7 +76,9 @@ export async function startCheckoutController(request: Request, response: Respon
       actorUserId: response.locals.session?.user?.id,
       plan: body.data.plan,
       interval: body.data.interval,
-      currency: body.data.currency,
+      // Only forwarded when the caller actually sent one, so the stored
+      // preference decides otherwise.
+      ...(body.data.currency ? { currency: body.data.currency } : {}),
       contact: body.data.contact,
     });
 

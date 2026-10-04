@@ -253,6 +253,30 @@ export function callbackUrlsFor(connectionId: string): { saml: string; oidc: str
   };
 }
 
+/**
+ * The identifiers an IdP configuration screen asks for.
+ *
+ * Without these the callback URL is not enough to finish the job: an IdP console
+ * asks for the service provider's entity id and for a sign-in URL, and neither
+ * can be derived from the callback. That is why SSO could be created through the
+ * product and then not configured, because the one value an administrator
+ * genuinely needs was never on screen.
+ *
+ * Our entity id is namespaced per connection so it survives a certificate
+ * rotation, and so two connections never collide in one IdP.
+ */
+export function ssoIdentifiersFor(connection: { id: string; issuer: string; entryPoint: string }): {
+  entityId: string;
+  idpEntityId: string;
+  loginUrl: string;
+} {
+  return {
+    entityId: `${env.APP_URL.replace(/\/+$/, '')}/api/sso/${connection.id}`,
+    idpEntityId: connection.issuer,
+    loginUrl: connection.entryPoint,
+  };
+}
+
 export async function beginOidcSignIn(connectionId: string): Promise<string> {
   const connection = await loadConnection(connectionId);
   if (connection.protocol !== 'OIDC') {
