@@ -77,15 +77,12 @@ billingRouter.post(
   requireSession,
   requireOrganizationPermission('billing', 'update'),
   resumeSubscriptionController,
-  reconcileController,
 );
 
 billingRouter.post(
   '/workspaces/:organizationId/billing/portal',
   requireSession,
   requireOrganizationPermission('billing', 'update'),
-  billingCurrencyController,
-  setBillingCurrencyController,
   billingPortalController,
 );
 

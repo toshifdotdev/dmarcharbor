@@ -98,6 +98,28 @@ const envSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((value) => value === 'true'),
+  /**
+   * How many reverse proxies sit in front of this process, so Express can trust
+   * the leftmost `X-Forwarded-For` entry and rate limiters can key on the real
+   * client address rather than on the proxy's.
+   *
+   * Zero means trust nothing and use the socket address, which is correct when
+   * nothing is in front. A wrong non-zero value lets a client forge its own
+   * source address and walk straight through every IP keyed limit, so this fails
+   * closed to zero rather than guessing.
+   */
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(10).default(0),
+  /**
+   * Sign-in attempts allowed per client address per minute.
+   *
+   * There is no MFA in this product, so this is the primary control on
+   * credential stuffing rather than a secondary one. Configurable because the
+   * integration suite authenticates dozens of times from one address and would
+   * otherwise trip it for reasons that have nothing to do with the limit.
+   */
+  AUTH_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(10_000).default(20),
+  /** Authenticated requests allowed per API key per minute. */
+  API_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(100_000).default(300),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -146,6 +168,47 @@ if (parsed.data.NODE_ENV === 'production' && parsed.data.FORENSIC_PSEUDONYM_SECR
 
 if (parsed.data.NODE_ENV === 'production' && parsed.data.FORENSIC_PII_ENCRYPTION_KEY === developmentPiiKey) {
   throw new Error('FORENSIC_PII_ENCRYPTION_KEY must be set in production.');
+}
+
+/**
+ * `NODE_ENV` has to reach `process.env`, not just this module's parsed copy.
+ *
+ * Every production guard below keys off `parsed.data.NODE_ENV`, but the libraries
+ * we do not control read `process.env.NODE_ENV` themselves. Express's final
+ * handler is the one that matters: it returns `err.stack` in the body of every
+ * unhandled 500 whenever that variable is anything other than `production`, so a
+ * deploy that forgot to set NODE_ENV would hand database error text, SQL
+ * fragments and absolute file paths to anonymous callers while looking
+ * completely healthy. Writing it back makes our own guards and the framework's
+ * behaviour agree, whichever way the platform spells it.
+ */
+process.env.NODE_ENV = parsed.data.NODE_ENV;
+
+if (parsed.data.NODE_ENV === 'production') {
+  /**
+   * `DATABASE_URL` gets a development default so an unsigned local checkout
+   * runs. In production that default is the dangerous case rather than the
+   * convenient one: it points at a localhost database whose password matches
+   * the one in compose.yaml, so a deploy that omits the variable either loops
+   * on a failing readiness check forever or, worse, attaches to a co-located
+   * development database and writes real customer data into it. Presence is
+   * checked against the raw environment rather than the parsed value so the
+   * default can never satisfy it.
+   */
+  if (!process.env.DATABASE_URL) {
+    throw new Error('DATABASE_URL must be set explicitly in production.');
+  }
+
+  // Better Auth derives `useSecureCookies` from the baseURL protocol, so a plain
+  // http default here means session cookies are issued without the Secure flag.
+  // Both URLs are also baked into emails the customer receives: erasure
+  // cancellation and export download links are built from BETTER_AUTH_URL.
+  for (const name of ['BETTER_AUTH_URL', 'APP_URL'] as const) {
+    const value = parsed.data[name];
+    if (!value.startsWith('https://')) {
+      throw new Error(`${name} must be an https URL in production.`);
+    }
+  }
 }
 
 export const env = {

@@ -32,18 +32,81 @@ import { sessionRouter } from './routes/session.routes.js';
 import { sessionManagementRouter } from './routes/session-management.routes.js';
 import { systemRouter } from './routes/system.routes.js';
 import { requestContext } from './middleware/request-context.middleware.js';
+import { createAuthRateLimiter } from './middleware/rate-limit.middleware.js';
 import { sendError } from './utils/api-error.js';
+import helmet from 'helmet';
 
 export function createApp(): express.Express {
   const app = express();
 
+  /**
+   * Tell Express how many proxies sit in front of this process.
+   *
+   * Without it, `request.ip` is the address of the nearest proxy, so every
+   * IP-keyed rate limiter collapses into a single bucket for the whole service
+   * the moment this is deployed behind a load balancer, an ingress or a CDN.
+   * One tenant exhausting that bucket then denies the service to every other
+   * tenant, and audit records show the proxy's address rather than the
+   * customer's.
+   *
+   * Defaults to zero, which trusts nothing. A wrong non-zero value is worse
+   * than no setting at all, because a client can then forge `X-Forwarded-For`
+   * and walk straight past every limit, so it is explicit and never guessed.
+   */
+  app.set('trust proxy', env.TRUST_PROXY_HOPS);
+  if (env.NODE_ENV === 'production' && env.TRUST_PROXY_HOPS === 0) {
+    console.warn(
+      '[config] TRUST_PROXY_HOPS is 0 in production. If this service sits behind a load balancer or ingress, ' +
+        'every IP-keyed rate limit will share one bucket across all tenants until it is set to the real hop count.',
+    );
+  }
+
+  /**
+   * Response headers.
+   *
+   * `crossOriginResourcePolicy` is relaxed to cross-origin because the browser
+   * application is served from a different origin to this API and reads these
+   * responses with credentials; the strict default would block them. The
+   * cross-origin embedding policy is disabled for the same reason: it breaks
+   * loading assets across origins, which a CSP here cannot meaningfully police
+   * since this service returns JSON and no HTML.
+   *
+   * Note this protects API responses. The dashboard HTML is served by apps/web,
+   * which sets no security headers of its own and needs the same treatment
+   * there, most importantly a CSP, which is the one header that only matters on
+   * a page that renders markup.
+   */
+  app.use(
+    helmet({
+      crossOriginEmbedderPolicy: false,
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+      contentSecurityPolicy: {
+        useDefaults: false,
+        directives: {
+          'default-src': ["'none'"],
+          'frame-ancestors': ["'none'"],
+          'base-uri': ["'none'"],
+          'form-action': ["'none'"],
+        },
+      },
+      referrerPolicy: { policy: 'no-referrer' },
+      strictTransportSecurity: { maxAge: 31_536_000, includeSubDomains: true },
+      frameguard: { action: 'deny' },
+    }),
+  );
+
   app.use(requestContext);
   app.use(cors({ origin: env.CORS_ORIGINS, credentials: true }));
   // Ahead of the Better Auth handler, which owns /api/auth/* and would otherwise
-// answer this itself. Read by the sign-in page, so it cannot require a session.
-app.use('/api/auth', authOptionsRouter);
+  // answer this itself. Read by the sign-in page, so it cannot require a session.
+  app.use('/api/auth', authOptionsRouter);
 
-app.all('/api/auth/*splat', toNodeHandler(auth));
+  // Ahead of the Better Auth handler so it covers every auth path, not only the
+  // ones this codebase registers. There is no MFA, so this is the only brake
+  // on credential stuffing.
+  app.use('/api/auth', createAuthRateLimiter());
+
+  app.all('/api/auth/*splat', toNodeHandler(auth));
   app.use('/api', systemRouter);
   app.use('/api', inboundReportRouter);
   app.use('/api', publicReportRouter);

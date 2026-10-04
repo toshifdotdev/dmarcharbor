@@ -20,6 +20,13 @@ export default defineConfig({
       // the key to exist, otherwise the route is simply closed and the test
       // would pass for the wrong reason.
       STAFF_API_KEY: 'test-staff-key-not-a-real-secret',
+      // The auth rate limiter is real and mounted, not stubbed out, so the suite
+      // genuinely exercises it on every sign-in. The budget is raised because
+      // every file authenticates repeatedly from 127.0.0.1 and would otherwise
+      // trip a limit that has nothing to do with what each test asserts.
+      // rate-limit.test.ts covers the limit itself engaging.
+      AUTH_RATE_LIMIT_PER_MINUTE: '10000',
+      API_RATE_LIMIT_PER_MINUTE: '100000',
     },
   },
 });

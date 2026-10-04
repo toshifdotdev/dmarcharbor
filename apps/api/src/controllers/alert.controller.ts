@@ -206,7 +206,28 @@ export async function acknowledgeAlertEventController(request: Request, response
 }
 
 export async function getNotificationPreferenceController(request: Request, response: Response): Promise<void> {
-  response.json(await getNotificationPreference(request.params.userId as string));
+  // Preferences are personal and scoped to one person: their timezone, their
+  // quiet hours, which alerts they opted out of. The sibling PATCH below already
+  // refuses anyone but the owner of the record, so this read needed the same
+  // check. Without it any authenticated caller, including a client portal
+  // contact, could read any other user's working hours and alert behaviour by
+  // user id, and user ids are not secret (they ride along on scan and audit
+  // responses).
+  const sessionUserId = response.locals.session?.user?.id;
+  if (!sessionUserId || sessionUserId !== request.params.userId) {
+    response
+      .status(403)
+      .json({ error: { message: 'You can only read your own notification preferences.' } });
+    return;
+  }
+
+  try {
+    response.json(await getNotificationPreference(sessionUserId));
+  } catch (error) {
+    response.status(400).json({
+      error: { message: error instanceof Error ? error.message : 'The preferences could not be read.' },
+    });
+  }
 }
 
 export async function updateNotificationPreferenceController(request: Request, response: Response): Promise<void> {

@@ -14,6 +14,29 @@ if (env.NODE_ENV !== 'test') {
   startWebhookScheduler();
   startInboxScheduler();
 
+  /**
+   * Last line of defence against a silent death.
+   *
+   * Node's default since v15 is to treat an unhandled rejection as an uncaught
+   * exception and terminate. Without these handlers a single floating promise
+   * that rejects, on any route, at any hour, takes the process down for every
+   * tenant at once and the orchestrator restarts it into the same fault. The
+   * handlers make the cause explicit and exit non-zero so a crash loop is
+   * visible to the platform rather than looking like a rolling restart.
+   *
+   * The message is logged first because the default reporter on an
+   * uncaughtException can itself be the thing that was broken.
+   */
+  process.on('unhandledRejection', (reason) => {
+    console.error('[fatal] unhandled promise rejection:', reason);
+    process.exit(1);
+  });
+
+  process.on('uncaughtException', (error) => {
+    console.error('[fatal] uncaught exception:', error);
+    process.exit(1);
+  });
+
   const shutdown = (): void => {
     stopAlertScheduler();
     stopWebhookScheduler();

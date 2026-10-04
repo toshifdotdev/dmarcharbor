@@ -50,9 +50,20 @@ function fireAndForget(work: Promise<void>, label: string): void {
   });
 }
 
+/**
+ * Everyone who should receive a workspace level transactional email.
+ *
+ * The role values are the lowercase keys registered in auth/permissions.ts:70
+ * and stored verbatim in `Member.role` by Better Auth's organization plugin.
+ * Comparing against 'OWNER' and 'ADMIN' matches nothing, so this returned an
+ * empty list and every sender built on it silently did nothing: no domain
+ * verification, no payment failure, no export link, and neither of the two
+ * erasure notices, which are the ones a data protection regulator asks about.
+ * The failure was invisible because every sender is fire and forget.
+ */
 async function ownersOf(organizationId: string): Promise<string[]> {
   const members = await prisma.member.findMany({
-    where: { organizationId, role: { in: ['OWNER', 'ADMIN'] } },
+    where: { organizationId, role: { in: ['owner', 'admin'] } },
     select: { user: { select: { email: true } } },
   });
   return members.map((member) => member.user.email);

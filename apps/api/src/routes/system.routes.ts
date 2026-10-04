@@ -7,6 +7,7 @@ import { alwaysAllowedEntitlements } from '../services/entitlements/plan-catalog
 import { requireSession } from '../middleware/auth.middleware.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
 import { paginationQuerySchema } from '../utils/pagination.js';
+import { sendError } from '../utils/api-error.js';
 import { openApiDocument } from '../openapi.js';
 import { capabilities } from '../services/capabilities.service.js';
 
@@ -95,17 +96,33 @@ systemRouter.get(
   '/workspaces/:organizationId/audit-events',
   requireSession,
   requireOrganizationPermission('report', 'read'),
-  (request, response) => {
+  async (request, response) => {
     const query = paginationQuerySchema.safeParse(request.query);
     const domainId = typeof request.query.domainId === 'string' ? request.query.domainId : undefined;
     const action = typeof request.query.action === 'string' ? request.query.action : undefined;
 
-    void listAuditEvents(response.locals.organizationId, {
-      domainId,
-      action,
-      limit: query.success ? query.data.limit : undefined,
-    }).then((events) => {
+    // Awaited rather than floated. A floating promise with no rejection handler
+    // is fatal: Node treats an unhandled rejection as an uncaught exception and
+    // exits the process, so one transient database error on this one read route
+    // would take down the API for every tenant. Errors are mapped to the same
+    // envelope every other route uses so a failure is a 500 the caller can see
+    // rather than a dropped connection.
+    try {
+      const events = await listAuditEvents(response.locals.organizationId, {
+        domainId,
+        action,
+        limit: query.success ? query.data.limit : undefined,
+      });
       response.json({ items: events });
-    });
+    } catch (error) {
+      // Logged, not returned. A driver error carries the host, port, database
+      // name and sometimes the failing statement, which is exactly the detail
+      // the production guards in config/env.ts exist to keep off the wire.
+      console.error(
+        `[audit-events] ${response.locals.requestId ?? 'no-request-id'} read failed:`,
+        error instanceof Error ? error.message : error,
+      );
+      sendError(response, 500, 'The audit trail could not be read.');
+    }
   },
 );

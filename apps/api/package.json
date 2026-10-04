@@ -29,6 +29,7 @@
     "express": "^5.1.0",
     "express-rate-limit": "^7.5.0",
     "fast-xml-parser": "5.11.1",
+    "helmet": "^8.1.0",
     "imapflow": "^2.1.1",
     "mailparser": "3.9.28",
     "openid-client": "^6.8.8",
