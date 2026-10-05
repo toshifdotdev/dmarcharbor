@@ -3,6 +3,7 @@ import { prisma } from '../database/prisma.js';
 import { emitEvent } from './webhook.service.js';
 import { sendDomainVerificationEmail } from '../email/mailer.js';
 import { normalizeDomain } from '../scanner/domain.js';
+import { withQuota } from './entitlements/entitlement.service.js';
 import { systemDnsReader } from '../scanner/dns.js';
 import type { CreateClientRequest, CreateDomainRequest } from '../models/client.model.js';
 
@@ -87,37 +88,44 @@ export async function createDomain(
   const name = normalizeDomain(input.name).toLowerCase();
 
   /**
-   * Refused up front, with an explanation.
+   * Counted and inserted under one lock, and the collision checked in the same
+   * transaction.
    *
-   * Without this the collision was accepted, both rows reached VERIFIED, and report
-   * routing then found two domains for one name and returned `ambiguous_domain` —
-   * at which point *neither* workspace received another report for that domain and
-   * nothing on either dashboard said why. One tenant naming a domain another
-   * tenant monitors was enough to silently blind them.
+   * The domain limit is the plan number customers notice immediately, and checking it
+   * in middleware with the insert left to afterwards leaves a window where two
+   * requests both read "one slot left" and both take it: over the limit, with no error
+   * anywhere.
+   *
+   * The name collision is checked inside the same transaction rather than before it,
+   * for the same reason. A pre-check outside would leave the two of them able to
+   * interleave, and this is the uniqueness that stops two tenants going dark for one
+   * domain.
    */
-  const existing = await prisma.domain.findUnique({ where: { name }, select: { id: true, clientId: true } });
+  return withQuota(organizationId, 'activeDomain', async (tx) => {
+    const held = await tx.domain.findUnique({ where: { name }, select: { id: true, clientId: true } });
 
-  if (existing && existing.clientId !== clientId) {
-    throw new DomainNameTakenError(name);
-  }
+    if (held && held.clientId !== clientId) {
+      throw new DomainNameTakenError(name);
+    }
 
-  if (existing) {
-    // Already held by this client. Returning the same row is what stops a second one
-    // being created, which is the state that used to make routing ambiguous inside a
-    // single workspace too.
-    return { domain: await prisma.domain.findUnique({ where: { id: existing.id } }), created: false };
-  }
+    if (held) {
+      // Already held by this client. Returning the same row is what stops a second one
+      // being created, which is the state that used to make routing ambiguous inside a
+      // single workspace too.
+      return { domain: await tx.domain.findUnique({ where: { id: held.id } }), created: false };
+    }
 
-  return {
-    domain: await prisma.domain.create({
-      data: {
-        clientId,
-        name,
-        slug: domainSlug(name),
-      },
-    }),
-    created: true,
-  };
+    return {
+      domain: await tx.domain.create({
+        data: {
+          clientId,
+          name,
+          slug: domainSlug(name),
+        },
+      }),
+      created: true,
+    };
+  });
 }
 
 /**

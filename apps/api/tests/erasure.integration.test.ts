@@ -226,6 +226,184 @@ describe('client data erasure', () => {
     expect(outcome.body.certificate.statement).toContain('contains no personal data');
   });
 
+  it('strips the contact email and name out of retained audit detail', async () => {
+    const { agent, organizationId } = await setup();
+    await seedClientDomain(agent, organizationId, 'Portal');
+
+    const client = await prisma.client.findFirstOrThrow({ where: { organizationId } });
+    const member = await prisma.user.findFirstOrThrow({ where: { members: { some: { organizationId } } } });
+
+    /**
+     * The exact payload `portal.service.ts` writes on every grant and revoke.
+     *
+     * Nulling `actorUserId` never touched this. The contact at the client's company
+     * and their display name were in `detail`, retained for as long as the audit
+     * trail exists, while the erasure reported the trail anonymised.
+     */
+    const seeded = await prisma.auditLog.create({
+      data: {
+        organizationId,
+        actorUserId: member.id,
+        action: 'PORTAL_ACCESS_GRANTED',
+        targetType: 'client',
+        targetId: client.id,
+        detail: {
+          clientName: 'Portal Client',
+          email: 'it.contact@portal-client.example',
+          displayName: 'Alex Contact',
+          nested: { forwardedTo: 'someone.else@elsewhere.example', depth: 3 },
+          recipients: ['a@b.example', 'c@d.example'],
+          scope: 'CLIENT',
+        },
+      },
+      select: { id: true },
+    });
+
+    const created = await agent.post(`/api/workspaces/${organizationId}/erasures`).send({ scope: 'ORGANIZATION' });
+    await agent.post(`/api/workspaces/${organizationId}/erasures/${created.body.id}/execute`).send({ confirmNamePurge: true });
+
+    const surviving = await prisma.auditLog.findUniqueOrThrow({ where: { id: seeded.id } });
+    const serialized = JSON.stringify(surviving.detail);
+
+    expect(serialized).not.toContain('it.contact@portal-client.example');
+    expect(serialized).not.toContain('Alex Contact');
+    expect(serialized).not.toContain('someone.else@elsewhere.example');
+    expect(serialized).not.toContain('a@b.example');
+
+    /**
+     * The facts are kept.
+     *
+     * Blanking `detail` wholesale would have removed the personal data and the
+     * evidence with it, and an audit trail that records nothing cannot evidence
+     * anything. A client's company name is organisational, not personal.
+     */
+    const detail = surviving.detail as Record<string, unknown>;
+    expect(detail.clientName).toBe('Portal Client');
+    expect(detail.scope).toBe('CLIENT');
+    expect(detail.email).toBe('[erased]');
+    expect(detail.displayName).toBe('[erased]');
+    expect((detail.nested as Record<string, unknown>).depth).toBe(3);
+  });
+
+  it('scrubs personal data without touching another workspace audit trail', async () => {
+    const { agent, organizationId } = await setup();
+    await seedClientDomain(agent, organizationId, 'Scoped');
+    const other = await setup();
+
+    const otherUser = await prisma.user.findFirstOrThrow({ where: { members: { some: { organizationId: other.organizationId } } } });
+
+    const mine = await prisma.auditLog.create({
+      data: { organizationId, action: 'PORTAL_ACCESS_GRANTED', targetType: 'client', targetId: 'c', detail: { email: 'mine@mine.example' } },
+      select: { id: true },
+    });
+    const theirs = await prisma.auditLog.create({
+      data: {
+        organizationId: other.organizationId,
+        actorUserId: otherUser.id,
+        action: 'PORTAL_ACCESS_GRANTED',
+        targetType: 'client',
+        targetId: 'c',
+        detail: { email: 'theirs@theirs.example' },
+      },
+      select: { id: true },
+    });
+
+    const created = await agent.post(`/api/workspaces/${organizationId}/erasures`).send({ scope: 'ORGANIZATION' });
+    await agent.post(`/api/workspaces/${organizationId}/erasures/${created.body.id}/execute`).send({ confirmNamePurge: true });
+
+    expect(JSON.stringify((await prisma.auditLog.findUniqueOrThrow({ where: { id: mine.id } })).detail)).not.toContain(
+      'mine@mine.example',
+    );
+
+    // One workspace's erasure reaching into another's trail would be the same
+    // cross-tenant reach that deleting a shared User row caused.
+    const untouched = await prisma.auditLog.findUniqueOrThrow({ where: { id: theirs.id } });
+    expect(JSON.stringify(untouched.detail)).toContain('theirs@theirs.example');
+    expect(untouched.actorUserId).toBe(otherUser.id);
+  });
+
+  it('does not claim org-wide deletions it did not make, when erasing one client', async () => {
+    const { agent, organizationId } = await setup();
+    const target = await seedClientDomain(agent, organizationId, 'Scoped Target');
+    const other = await seedClientDomain(agent, organizationId, 'Scoped Other');
+
+    const contactEmail = `client-contact-${Date.now()}@acme.example`;
+    const contact = await prisma.user.create({
+      data: { id: `portal-contact-${Date.now()}`, email: contactEmail, name: 'Client Contact', emailVerified: true },
+      select: { id: true },
+    });
+
+    await prisma.clientPortalAccess.create({
+      data: { organizationId, clientId: target.clientId, userId: contact.id, email: contactEmail },
+    });
+
+    const created = await agent
+      .post(`/api/workspaces/${organizationId}/erasures`)
+      .send({ scope: 'CLIENT', targetId: target.clientId });
+
+    await agent
+      .post(`/api/workspaces/${organizationId}/erasures/${created.body.id}/execute`)
+      .send({ confirmNamePurge: true });
+
+    const record = await prisma.erasureRequest.findUniqueOrThrow({ where: { id: created.body.id } });
+    const certificate = record.certificate as {
+      personalDataRemoved: { key: string }[];
+      evidenceRetained: { key: string; reason: string }[];
+      statement: string;
+    };
+
+    /**
+     * The agency's own people and integrations are untouched by erasing one client,
+     * and the certificate used to list them as removed.
+     *
+     * It read every counted row straight off its data class, so `member`, `session`,
+     * `user` and `portalAccess` all appeared under "personal data removed" with real
+     * counts, while the agency could still log in afterwards. This is the document a
+     * regulator checks, and it would have been disproved by the customer's own next
+     * sign-in.
+     */
+    const claimed = certificate.personalDataRemoved.map((entry) => entry.key);
+
+    for (const key of ['member', 'session', 'user', 'portalAccess']) {
+      expect(claimed, `${key} was claimed as deleted but an agency erasure leaves it in place`).not.toContain(key);
+    }
+
+    // And the reason it was kept is stated rather than implied.
+    const retainedKeys = certificate.evidenceRetained.map((entry) => entry.key);
+    for (const key of ['member', 'user', 'portalAccess']) {
+      const entry = certificate.evidenceRetained.find((candidate) => candidate.key === key);
+      expect(retainedKeys).toContain(key);
+      expect(entry?.reason).toContain('Outside the scope of this request');
+    }
+
+    expect(certificate.statement).toContain('outside the scope of this request');
+
+    // The other client really is still there, which is the point.
+    expect(await prisma.client.count({ where: { id: other.clientId } })).toBe(1);
+    expect(await prisma.user.count({ where: { id: contact.id } })).toBe(1);
+    expect(await prisma.member.count({ where: { organizationId } })).toBeGreaterThan(0);
+  });
+
+  it('still claims everything when the whole workspace is erased', async () => {
+    const { agent, organizationId } = await setup();
+    await seedClientDomain(agent, organizationId, 'Alpha');
+
+    const created = await agent.post(`/api/workspaces/${organizationId}/erasures`).send({ scope: 'ORGANIZATION' });
+    const outcome = await agent
+      .post(`/api/workspaces/${organizationId}/erasures/${created.body.id}/execute`)
+      .send({ confirmNamePurge: true });
+
+    const claimed = (outcome.body.certificate as { personalDataRemoved: { key: string }[] }).personalDataRemoved.map(
+      (entry) => entry.key,
+    );
+
+    // An ORGANIZATION erasure deletes the workspace, so its people go with it. The
+    // scope guard must not quietly downgrade the full request into a narrow one.
+    expect(claimed).toContain('member');
+    expect(claimed).toContain('user');
+    expect(await prisma.organization.count({ where: { id: organizationId } })).toBe(0);
+  });
+
   it('erases one client and leaves the others untouched', async () => {
     const { agent, organizationId } = await setup();
     const first = await seedClientDomain(agent, organizationId, 'Alpha');

@@ -1164,7 +1164,16 @@ model BillingEvent {
   organizationId         String?
   organization           Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   providerSubscriptionId String?
-  payload                Json
+  /// The provider's own webhook body, verbatim.
+  ///
+  /// Nullable because it is erased, not because it is optional. A Razorpay or
+  /// Paddle subscription payload carries the customer's name and email, so it is
+  /// personal data with no declared retention behind it. The row is kept because
+  /// `providerEventId` is what makes webhook processing idempotent and
+  /// `occurredAt` is what orders events; the provider keeps its own copy, and
+  /// everything this service actually reasons about is in the typed columns
+  /// beside it.
+  payload                Json?
   occurredAt             DateTime
   createdAt              DateTime      @default(now())
 

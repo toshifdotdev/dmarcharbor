@@ -4,6 +4,7 @@ import { prisma } from './database/prisma.js';
 import { startAlertScheduler, stopAlertScheduler } from './scheduler/alert-scheduler.js';
 import { startWebhookScheduler, stopWebhookScheduler } from './scheduler/webhook-scheduler.js';
 import { startInboxScheduler, stopInboxScheduler } from './scheduler/inbox-scheduler.js';
+import { startRetentionScheduler, stopRetentionScheduler } from './scheduler/retention-scheduler.js';
 
 if (env.NODE_ENV !== 'test') {
   const server = createApp().listen(env.PORT, () => {
@@ -13,6 +14,7 @@ if (env.NODE_ENV !== 'test') {
   startAlertScheduler();
   startWebhookScheduler();
   startInboxScheduler();
+  startRetentionScheduler();
 
   /**
    * Last line of defence against a silent death.
@@ -41,6 +43,7 @@ if (env.NODE_ENV !== 'test') {
     stopAlertScheduler();
     stopWebhookScheduler();
     stopInboxScheduler();
+    stopRetentionScheduler();
     server.close(() => {
       void prisma.$disconnect().finally(() => process.exit(0));
     });

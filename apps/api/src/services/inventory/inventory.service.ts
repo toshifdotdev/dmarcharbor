@@ -53,11 +53,17 @@ export async function countCountedDomains(
   organizationId: string,
   retentionDays: number,
   now = new Date(),
+  /**
+   * Pass the transaction client when counting inside `withQuota`. Counting on a
+   * different connection than the insert it guards is the race the lock exists to
+   * prevent, so the client is threaded rather than assumed.
+   */
+  client: Prisma.TransactionClient | typeof prisma = prisma,
 ): Promise<number> {
   const activeSince = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1000);
   const graceSince = new Date(now.getTime() - domainGraceDays * 24 * 60 * 60 * 1000);
 
-  return prisma.domain.count({
+  return client.domain.count({
     where: {
       client: { organizationId },
       OR: [{ dmarcReports: { some: { receivedAt: { gte: activeSince } } } }, { createdAt: { gte: graceSince } }],
@@ -104,6 +110,18 @@ export async function buildInventory(
     auditEvents,
     subscriptions,
     overrides,
+    notificationPreferences,
+    portalAccess,
+    reportInbox,
+    apiKeys,
+    webhookEndpoints,
+    ssoConnections,
+    slackDestinations,
+    idempotencyRecords,
+    exportJobs,
+    compliancePacks,
+    erasureRequests,
+    ssoAuthRequests,
     activeDomains,
     countedDomains,
   ] = await Promise.all([
@@ -146,6 +164,29 @@ export async function buildInventory(
       : prisma.auditLog.count({ where: { organizationId: org } }),
     prisma.subscription.count({ where: { organizationId: org } }),
     prisma.entitlementOverride.count({ where: { organizationId: org } }),
+    /**
+     * The rest of the tables that hold personal data.
+     *
+     * None of these were counted, and a count of zero in the inventory is a claim
+     * rather than an absence: the erasure preview told customers a workspace held no
+     * portal contacts and no sign-in credentials while it held both. `portalAccess`
+     * in particular is a named human being at a client company, which is the most
+     * obvious category to leave out of a data protection summary.
+     */
+    prisma.notificationPreference.count({ where: { user: userScope } }),
+    prisma.clientPortalAccess.count({ where: { organizationId: org } }),
+    prisma.reportInbox.count({ where: { organizationId: org } }),
+    prisma.apiKey.count({ where: { organizationId: org } }),
+    prisma.webhookEndpoint.count({ where: { organizationId: org } }),
+    prisma.ssoConnection.count({ where: { organizationId: org } }),
+    prisma.slackDestination.count({ where: { organizationId: org } }),
+    prisma.idempotencyRecord.count({ where: { organizationId: org } }),
+    prisma.exportJob.count({ where: { organizationId: org } }),
+    prisma.compliancePack.count({ where: { organizationId: org } }),
+    prisma.erasureRequest.count({ where: { organizationId: org } }),
+    prisma.ssoAuthRequest.count({
+      where: { connection: { organizationId: org } },
+    }),
     countActiveDomains(org, retentionDays, now),
     countCountedDomains(org, retentionDays, now),
   ]);
@@ -168,7 +209,7 @@ export async function buildInventory(
     reportShare: reportShares,
     reportDigest: reportDigests,
     notification: notifications,
-    notificationPreference: 0,
+    notificationPreference: notificationPreferences,
     member: members,
     invitation: invitations,
     session: sessions,
@@ -177,6 +218,17 @@ export async function buildInventory(
     auditLog: auditEvents,
     subscription: subscriptions,
     entitlementOverride: overrides,
+    portalAccess: portalAccess,
+    reportInbox: reportInbox,
+    apiKey: apiKeys,
+    webhookEndpoint: webhookEndpoints,
+    ssoConnection: ssoConnections,
+    ssoAuthRequest: ssoAuthRequests,
+    slackDestination: slackDestinations,
+    idempotencyRecord: idempotencyRecords,
+    exportJob: exportJobs,
+    compliancePack: compliancePacks,
+    erasureRequest: erasureRequests,
   };
 
   return {

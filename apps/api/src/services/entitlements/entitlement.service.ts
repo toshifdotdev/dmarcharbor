@@ -134,23 +134,72 @@ export async function resolveEntitlements(organizationId: string, now = new Date
 
 export { countCountedDomains } from '../inventory/inventory.service.js';
 
+/**
+ * Counts, checks and inserts under one lock, so a quota cannot be exceeded by racing.
+ *
+ * `assertQuota` on its own is a check followed by an act, with the insert left to the
+ * caller. Two requests that arrive together both read "one domain left", both pass,
+ * and both insert: the customer ends up on three domains of a two domain plan. No
+ * error, no log line, just a plan limit that quietly does not hold.
+ *
+ * Taking a row lock on the workspace first makes the count and the insert one
+ * serialised unit per workspace. Different workspaces still run concurrently, which
+ * is the only concurrency that matters here since the quota is per workspace.
+ *
+ * This has to wrap the insert, not just the check, which is why it takes a callback
+ * rather than returning a boolean. The alternative - a database constraint - is not
+ * expressible for "at most N rows of this kind, where N is in another table".
+ */
+export async function withQuota<T>(
+  organizationId: string,
+  quota: QuotaKey,
+  work: (tx: Prisma.TransactionClient) => Promise<T>,
+  options: { requested?: number; now?: Date } = {},
+): Promise<T> {
+  const requested = options.requested ?? 1;
+
+  return prisma.$transaction(async (tx) => {
+    /**
+     * `FOR UPDATE` serialises every other writer that goes through here for this
+     * workspace. It is the workspace row because it exists for exactly this purpose
+     * and is never deleted while the transaction holds it.
+     */
+    await tx.$queryRaw`SELECT id FROM "organization" WHERE id = ${organizationId} FOR UPDATE`;
+
+    const entitlements = await resolveEntitlements(organizationId, options.now);
+    const usage = await quotaUsage(organizationId, quota, entitlements.plan, options.now, tx);
+
+    if (usage.used + requested > usage.limit) {
+      throw await quotaExceeded(organizationId, entitlements, quota, usage, requested);
+    }
+
+    return work(tx);
+  });
+}
+
 export async function quotaUsage(
   organizationId: string,
   quota: QuotaKey,
   plan: PlanTier,
   now = new Date(),
+  /**
+   * Pass the transaction client when counting inside `withQuota`, or the count runs
+   * on a different connection than the insert it is meant to be serialised against,
+   * which would reintroduce the exact race this exists to close.
+   */
+  client: Prisma.TransactionClient | typeof prisma = prisma,
 ): Promise<{ used: number; limit: number }> {
   const definition = planCatalog[plan];
 
   if (quota === 'activeDomain') {
-    return { used: await countCountedDomains(organizationId, definition.dataRetentionDays, now), limit: definition.maxActiveDomains };
+    return { used: await countCountedDomains(organizationId, definition.dataRetentionDays, now, client), limit: definition.maxActiveDomains };
   }
 
   if (quota === 'client') {
-    return { used: await prisma.client.count({ where: { organizationId } }), limit: definition.maxClients };
+    return { used: await client.client.count({ where: { organizationId } }), limit: definition.maxClients };
   }
 
-  return { used: await prisma.member.count({ where: { organizationId } }), limit: definition.maxMembers };
+  return { used: await client.member.count({ where: { organizationId } }), limit: definition.maxMembers };
 }
 
 export async function assertFeature(organizationId: string, feature: EntitlementKey, now = new Date()): Promise<void> {
@@ -195,6 +244,23 @@ export async function assertQuota(
     return;
   }
 
+  throw await quotaExceeded(organizationId, entitlements, quota, usage, requested);
+}
+
+/**
+ * The one place a quota refusal is built.
+ *
+ * Shared with `withQuota` so a customer gets the same message, the same payload and
+ * the same analytics event whether the limit was caught by the plain check or under
+ * the lock. Returns rather than throws so the caller decides where it surfaces.
+ */
+async function quotaExceeded(
+  organizationId: string,
+  entitlements: Awaited<ReturnType<typeof resolveEntitlements>>,
+  quota: QuotaKey,
+  usage: { used: number; limit: number },
+  requested: number,
+): Promise<EntitlementError> {
   const label = quotaLabel(quota);
   const upgradeTo = nextTier(entitlements.plan);
   const upgradeName = upgradeTo ? planCatalog[upgradeTo].label : null;
@@ -210,7 +276,7 @@ export async function assertQuota(
     occurredAt: new Date().toISOString(),
   });
 
-  throw new EntitlementError(
+  return new EntitlementError(
     'PLAN_LIMIT_REACHED',
     `${entitlements.label} includes ${usage.limit} ${label} and you have ${usage.used}. ` +
       (upgradeName

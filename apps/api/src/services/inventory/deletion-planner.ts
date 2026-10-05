@@ -29,16 +29,70 @@ export interface ErasureCertificate {
  * happen before they confirm it, and the plan can be asserted in tests without
  * touching stored data.
  */
+/**
+ * Data that only goes when the whole workspace is erased.
+ *
+ * Erasing one client, or one domain, deletes that client's rows and the domains in
+ * scope. It leaves the agency's own people, credentials and integrations exactly
+ * where they were, which is correct: an agency erasing one client's data must not
+ * lose its own staff logins or its webhook configuration for every other client.
+ *
+ * The planner used to read every counted class straight off its data class, so a
+ * CLIENT or DOMAIN request produced a certificate listing the agency's members,
+ * sessions and credentials under "personal data removed". They were still there.
+ * A certificate that over-claims is worse than no certificate: it is the document a
+ * regulator checks, and it would have been disproved by the customer's own login.
+ */
+const ORGANISATION_ONLY = new Set([
+  'organization',
+  'member',
+  'invitation',
+  'session',
+  'account',
+  'user',
+  'notification',
+  'notificationPreference',
+  'subscription',
+  'entitlementOverride',
+  'portalAccess',
+  'reportInbox',
+  'apiKey',
+  'webhookEndpoint',
+  'ssoConnection',
+  'ssoAuthRequest',
+  'slackDestination',
+  'idempotencyRecord',
+  'exportJob',
+]);
+
+const NARROW_SCOPE_REASON =
+  'Outside the scope of this request. Erasing one client or one domain leaves the agency\'s own people and integrations in place.';
+
 export function planErasure(inventory: Inventory): PlannedAction[] {
+  const organisationWide = inventory.scope.kind === 'ORGANIZATION';
+
   return Object.entries(inventory.counts)
     .filter(([, count]) => count > 0)
     .map(([key, count]) => {
       const definition = dataClassByKey.get(key);
+
+      if (!organisationWide && ORGANISATION_ONLY.has(key)) {
+        return {
+          key,
+          label: definition?.label ?? key,
+          count,
+          action: 'retain' as const,
+          reason: NARROW_SCOPE_REASON,
+          basis: definition?.retentionBasis ?? '',
+          containsPersonalData: definition?.containsPersonalData ?? false,
+        };
+      }
+
       return {
         key,
         label: definition?.label ?? key,
         count,
-        action: definition?.erasure ?? 'delete',
+        action: definition?.erasure ?? ('delete' as const),
         reason: definition?.retentionReason ?? 'The data is the subject of the request.',
         basis: definition?.retentionBasis ?? '',
         containsPersonalData: definition?.containsPersonalData ?? false,
@@ -101,6 +155,7 @@ export function buildErasureCertificate(
     statement:
       'Personal data held for this scope was deleted, and identifying fields on retained security records were cleared. ' +
       'Non personal DMARC authentication evidence was retained because it contains no recipient data. ' +
+      'Anything marked as retained below was outside the scope of this request and has not been altered. ' +
       'This certificate contains no personal data and is the record that the request was carried out.',
   };
 }

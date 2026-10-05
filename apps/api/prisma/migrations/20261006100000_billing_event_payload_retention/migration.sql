@@ -1,0 +1,13 @@
+-- Allow the provider webhook body to be erased.
+--
+-- `billing_event.payload` held the provider's raw body for ever. A Razorpay or
+-- Paddle subscription payload carries the customer's name and email address, so
+-- this was personal data retained with no window behind it while the rest of the
+-- service published and enforced explicit retention for reports and exports.
+--
+-- The row stays. `providerEventId` is what makes webhook processing idempotent, and
+-- `occurredAt` is what orders events against out-of-order delivery; deleting the
+-- row to remove the payload would reintroduce duplicate charges. Everything the
+-- service reasons about lives in the typed columns beside it, and the provider
+-- keeps its own copy of the body.
+ALTER TABLE "billing_event" ALTER COLUMN "payload" DROP NOT NULL;

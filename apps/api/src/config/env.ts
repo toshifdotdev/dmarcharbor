@@ -88,6 +88,28 @@ const envSchema = z.object({
   ALERT_ROLLUP_HOURS: z.coerce.number().int().min(1).max(168).default(24),
   ALERT_STALE_DAYS: z.coerce.number().int().min(1).max(365).default(7),
   REPORT_RETENTION_DAYS: z.coerce.number().int().min(7).max(3650).default(400),
+
+  // A customer's full dataset, in one row, with a purge date already stamped on
+  // it. Nothing was reading that date, so every export ever issued was kept for
+  // ever and the export job table was the largest concentration of personal data
+  // in the service.
+  EXPORT_JOB_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(7),
+
+  // An idempotency record stores the whole response body, which for a checkout
+  // call includes client ids and DNS verification values. A day is generous for
+  // replaying a request that a network dropped; keeping them longer only grows the
+  // table.
+  IDEMPOTENCY_RECORD_RETENTION_HOURS: z.coerce.number().int().min(1).max(720).default(24),
+
+  // Abandoned SSO starts. Consumed ones are removed at the callback, but a user who
+  // closes the tab at the identity provider leaves a row, with a PKCE verifier and
+  // a RelayState in it, that nothing ever collects.
+  SSO_REQUEST_RETENTION_HOURS: z.coerce.number().int().min(1).max(720).default(24),
+
+  // The provider's raw webhook body. The typed columns beside it are what the
+  // service reasons about and the provider keeps its own copy, so three months is
+  // long enough to investigate a billing dispute from our own record.
+  BILLING_PAYLOAD_RETENTION_DAYS: z.coerce.number().int().min(7).max(3650).default(90),
   REPORT_AGGREGATE_ADDRESS: z
     .string()
     .trim()

@@ -1,4 +1,4 @@
-import type { ErasureScope, Prisma } from '@prisma/client';
+import { Prisma, type ErasureScope } from '@prisma/client';
 import { prisma } from '../../database/prisma.js';
 import { env } from '../../config/env.js';
 import { sendErasureCompletedEmail, sendErasureScheduledEmail } from '../../email/mailer.js';
@@ -191,7 +191,107 @@ async function anonymiseAuditTrail(organizationId: string): Promise<number> {
     where: { organizationId },
     data: { actorUserId: null, ipAddress: null, requestId: null },
   });
-  return count;
+
+  return count + (await scrubAuditTrailDetails(organizationId));
+}
+
+/** What a redacted value looks like, so it is visible rather than merely absent. */
+const REDACTED = '[erased]';
+
+/**
+ * Keys whose values identify a person regardless of what they look like.
+ *
+ * A person's display name is personal data. A client company's name is not, and
+ * blanking it would strip the audit trail of the only thing that makes it evidence:
+ * what happened, to which client.
+ */
+const PERSONAL_KEYS = new Set([
+  'email',
+  'emails',
+  'recipientemails',
+  'recipients',
+  'displayname',
+  'fullname',
+  'username',
+  'useragent',
+  'sourceip',
+  'remoteaddress',
+]);
+
+/**
+ * Anything that looks like an address, wherever it is hiding.
+ *
+ * `portal.service.ts` writes `{ clientName, email, displayName }` on every grant and
+ * revoke, so the audit trail has been retaining the contact at the client's company
+ * and their name for as long as the trail exists. Nulling `actorUserId` did nothing
+ * about it: the identifier was in `detail` the whole time.
+ *
+ * Matching the shape as well as the key means the next audit payload that grows a
+ * new email field does not quietly reintroduce the leak. A regex is the right tool
+ * here because the alternative is trusting every future caller of
+ * `recordAuditEvent` to remember.
+ */
+const EMAIL_SHAPED = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Removes personal data from an audit payload, keeping the facts.
+ *
+ * Recursive because `detail` is arbitrary JSON written by a dozen callers, and a
+ * shallow pass would only protect the ones already thought of.
+ */
+export function scrubAuditDetail(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return EMAIL_SHAPED.test(value.trim()) ? REDACTED : value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => scrubAuditDetail(entry));
+  }
+
+  if (value !== null && typeof value === 'object') {
+    const output: Record<string, unknown> = {};
+
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      output[key] = PERSONAL_KEYS.has(key.toLowerCase()) ? REDACTED : scrubAuditDetail(entry);
+    }
+
+    return output;
+  }
+
+  return value;
+}
+
+/**
+ * Rewrites `detail` across the workspace's audit trail.
+ *
+ * Row by row rather than `updateMany`, because each row's scrubbed payload is
+ * different and there is no way to express that as one statement without a database
+ * function. An erasure is rare and workspace scoped, so the cost is a bounded number
+ * of updates on a path that already deletes a great deal.
+ *
+ * Only rows that actually change are written, so an audit trail that never held
+ * personal data leaves no needless write churn behind.
+ */
+async function scrubAuditTrailDetails(organizationId: string): Promise<number> {
+  const rows = await prisma.auditLog.findMany({
+    where: { organizationId, detail: { not: Prisma.DbNull } },
+    select: { id: true, detail: true },
+  });
+
+  let scrubbed = 0;
+
+  for (const row of rows) {
+    const next = scrubAuditDetail(row.detail) as Prisma.InputJsonValue;
+
+    if (JSON.stringify(next) === JSON.stringify(row.detail)) {
+      continue;
+    }
+
+    await prisma.auditLog.update({ where: { id: row.id }, data: { detail: next } });
+    scrubbed += 1;
+  }
+
+  return scrubbed;
 }
 
 async function anonymiseSubscription(organizationId: string): Promise<number> {

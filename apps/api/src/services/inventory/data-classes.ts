@@ -220,6 +220,89 @@ export const dataClasses: DataClass[] = [
     containsPersonalData: true,
     erasure: 'delete',
   },
+  {
+    key: 'portalAccess',
+    label: 'Client portal contacts',
+    description:
+      'The people a client has given access to their reports: their email address, display name and which clients they may see.',
+    containsPersonalData: true,
+    erasure: 'delete',
+  },
+  {
+    key: 'reportInbox',
+    label: 'Report inbox credentials',
+    description: 'The mailbox this workspace receives aggregate reports at, and the encrypted password for it.',
+    containsPersonalData: true,
+    erasure: 'delete',
+  },
+  {
+    key: 'apiKey',
+    label: 'API keys',
+    description: 'Named API keys and the first characters of each secret, used to identify a key without storing it.',
+    containsPersonalData: true,
+    erasure: 'delete',
+  },
+  {
+    key: 'webhookEndpoint',
+    label: 'Webhook endpoints',
+    description: 'Outbound webhook destinations and the delivery log. A destination URL can itself contain a secret.',
+    containsPersonalData: true,
+    erasure: 'delete',
+  },
+  {
+    key: 'ssoConnection',
+    label: 'Single sign-on connections',
+    description:
+      'Identity provider configuration, including the email domains permitted to sign in, and the encrypted client secret.',
+    containsPersonalData: true,
+    erasure: 'delete',
+  },
+  {
+    key: 'ssoAuthRequest',
+    label: 'Sign-ins in progress',
+    description: 'PKCE verifiers and RelayState values for authentication requests that have not completed.',
+    containsPersonalData: true,
+    erasure: 'delete',
+  },
+  {
+    key: 'slackDestination',
+    label: 'Slack connection',
+    description: 'The Slack workspace this agency posts alerts to.',
+    containsPersonalData: true,
+    erasure: 'delete',
+  },
+  {
+    key: 'idempotencyRecord',
+    label: 'Request replay records',
+    description:
+      'Stored responses so a retried request is not charged or applied twice. A checkout response includes client identifiers.',
+    containsPersonalData: true,
+    erasure: 'delete',
+  },
+  {
+    key: 'exportJob',
+    label: 'Data exports',
+    description: 'Generated copies of everything above, held for a short window and then deleted.',
+    containsPersonalData: true,
+    erasure: 'delete',
+  },
+  {
+    key: 'compliancePack',
+    label: 'Compliance packs',
+    description: 'Signed evidence documents issued to a client. They describe the system, not the person.',
+    containsPersonalData: false,
+    erasure: 'delete',
+  },
+  {
+    key: 'erasureRequest',
+    label: 'Deletion records',
+    description: 'The request and its certificate. Retained, because it is the evidence the deletion happened.',
+    containsPersonalData: false,
+    erasure: 'retain',
+    retentionReason: 'Proof that a deletion request was carried out.',
+    retentionBasis:
+      'Article 5(2) accountability, and Article 30. A controller has to be able to demonstrate that a data subject request was answered, which is impossible if the record of answering it is deleted.',
+  },
 ];
 
 export const dataClassByKey: Map<string, DataClass> = new Map(dataClasses.map((entry) => [entry.key, entry]));
