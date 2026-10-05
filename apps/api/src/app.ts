@@ -33,7 +33,7 @@ import { sessionRouter } from './routes/session.routes.js';
 import { sessionManagementRouter } from './routes/session-management.routes.js';
 import { systemRouter } from './routes/system.routes.js';
 import { requestContext } from './middleware/request-context.middleware.js';
-import { createAuthRateLimiter } from './middleware/rate-limit.middleware.js';
+import { createAuthRateLimiter, createWorkspaceRateLimiter } from './middleware/rate-limit.middleware.js';
 import { sendError } from './utils/api-error.js';
 import helmet from 'helmet';
 
@@ -130,6 +130,18 @@ export function createApp(): express.Express {
   );
   app.use('/api', sessionRouter);
   app.use('/api', sessionManagementRouter);
+
+  /**
+   * A brake on the authenticated surface, which had no limit of any kind.
+   *
+   * Mounted after the routers that are deliberately public (report shares, inbound
+   * reports, the compliance verifier) and after the session router that establishes
+   * workspace context, so this covers the routes that cost real work: exports,
+   * erasures, packs, scans, billing and webhooks. Each of those already has its own
+   * narrower limiter where one made sense; this is the backstop that used to be absent.
+   */
+  app.use('/api', createWorkspaceRateLimiter());
+
   app.use('/api', clientRouter);
   app.use('/api', entitlementRouter);
   app.use('/api', exportRouter);

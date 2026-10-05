@@ -11,6 +11,7 @@ import {
 } from '../privacy.service.js';
 import { erasureGraceDays } from '../erasure/erasure.service.js';
 import { TrustCenterError, subProcessors } from './trust-center.service.js';
+import { withPdfSlot } from '../pdf-concurrency.js';
 
 /**
  * The signed compliance pack.
@@ -758,7 +759,14 @@ export async function buildCompliancePackPdf(input: {
   const asOf = input.asOf ?? new Date();
   const facts = await collectFacts(input.clientId, asOf, input.reference);
 
-  const rendered = await render(facts);
+  /**
+   * Under the concurrency ceiling.
+   *
+   * Only the render is capped, not the fact gathering: a build that is waiting for a
+   * slot holds no buffer, and the queries are the cheap part. Wrapping the render is
+   * where the memory actually is.
+   */
+  const rendered = await withPdfSlot(() => render(facts));
   const hash = createHash('sha256').update(rendered.buffer).digest('hex');
 
   return { buffer: rendered.buffer, hash, pageCount: rendered.pageCount, asOf, documentVersion };

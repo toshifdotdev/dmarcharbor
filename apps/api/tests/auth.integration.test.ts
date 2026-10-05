@@ -2,12 +2,13 @@ import request from 'supertest';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
+import { drainEmailQueue } from '../src/services/email-queue.service.js';
 
 const email = `owner-${Date.now()}@example.com`;
 const password = 'correct-horse-battery-staple';
 
 async function resetDatabase(): Promise<void> {
-  await prisma.$executeRawUnsafe('TRUNCATE TABLE "organization", invitation, member, session, account, verification, "user" CASCADE');
+  await prisma.$executeRawUnsafe('TRUNCATE TABLE "email_delivery", "organization", invitation, member, session, account, verification, "user" CASCADE');
 }
 
 describe('authentication and workspaces', () => {
@@ -40,6 +41,14 @@ describe('authentication and workspaces', () => {
       expect(signUp.status).toBe(200);
       expect(signUp.body.user.email).toBe(email);
 
+      /**
+       * Delivery goes through the durable queue, so the verification email is a row
+       * until something drains it. In a running service that is the scheduler, every
+       * thirty seconds; here it is driven explicitly, because the alternative is
+       * sleeping for it and asserting on a timer rather than on behaviour.
+       */
+      await drainEmailQueue();
+
       const unverifiedSession = await agent.get('/api/me');
       expect(unverifiedSession.status).toBe(401);
 
@@ -56,8 +65,25 @@ describe('authentication and workspaces', () => {
       const verificationResponse = await agent.get(`${parsedVerificationUrl.pathname}${parsedVerificationUrl.search}`);
       expect([200, 302]).toContain(verificationResponse.status);
 
-      const storedUser = await prisma.user.findUnique({ where: { email } });
-      expect(storedUser?.emailVerified).toBe(true);
+      /**
+       * Polled, because the endpoint answers before the write has necessarily committed.
+       *
+       * Reading it once happened to work when the email was delivered inline during
+       * sign-up, and that ordering was an accident of the old fire-and-forget path
+       * rather than anything the endpoint promises.
+       */
+      const verifiedAt = await (async () => {
+        for (let attempt = 0; attempt < 40; attempt += 1) {
+          const row = await prisma.user.findUnique({ where: { email } });
+          if (row?.emailVerified) {
+            return true;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        return false;
+      })();
+
+      expect(verifiedAt).toBe(true);
     } finally {
       emailOutput.mockRestore();
     }

@@ -1423,3 +1423,38 @@ enum AlertDeliveryStatus {
   SKIPPED_QUIET_HOURS
   SKIPPED_DISABLED
 }
+
+enum EmailDeliveryState {
+  PENDING
+  SENT
+  /// Retries are exhausted. Kept rather than deleted, because a message that silently
+  /// vanished is the failure mode this table exists to remove, and a dead letter row
+  /// is at least something an operator can see and resend.
+  DEAD
+}
+
+model EmailDelivery {
+  id             String            @id @default(cuid())
+  /// Where it was sent from, so a dead letter says which subsystem lost it.
+  kind           String
+  to             String
+  subject        String
+  html           String
+  text           String
+  state          EmailDeliveryState @default(PENDING)
+  attempts       Int                @default(0)
+  /// Exponential backoff, so a provider outage does not turn into a retry storm.
+  nextAttemptAt  DateTime           @default(now())
+  lastError      String?
+  lastAttemptAt  DateTime?
+  sentAt         DateTime?
+  /// Collapses duplicate sends of the same logical message, so a retried request
+  /// cannot turn into two password reset links arriving minutes apart.
+  idempotencyKey String?            @unique
+  organizationId String?
+  createdAt      DateTime           @default(now())
+
+  @@index([state, nextAttemptAt])
+  @@index([state, createdAt])
+  @@map("email_delivery")
+}

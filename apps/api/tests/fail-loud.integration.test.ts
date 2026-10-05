@@ -3,6 +3,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { sendErasureCompletedEmail, sendErasureScheduledEmail } from '../src/email/mailer.js';
+import { drainEmailQueue } from '../src/services/email-queue.service.js';
 
 /**
  * Integration coverage for the fail-loud fixes. Every case here is a behaviour
@@ -15,7 +16,7 @@ const password = 'correct-horse-battery-staple';
 
 async function resetDatabase(): Promise<void> {
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE "audit_log", "notification", "report_digest", "report_share", "alert_delivery", "alert_event", "alert_recipient", "alert_rule", "notification_preference", "dmarc_forensic_report", "dmarc_auth_result", "dmarc_report_record", "dmarc_report", "scan", "domain", "client", "organization", invitation, member, session, account, verification, "user" CASCADE',
+    'TRUNCATE TABLE "email_delivery", "audit_log", "notification", "report_digest", "report_share", "alert_delivery", "alert_event", "alert_recipient", "alert_rule", "notification_preference", "dmarc_forensic_report", "dmarc_auth_result", "dmarc_report_record", "dmarc_report", "scan", "domain", "client", "organization", invitation, member, session, account, verification, "user" CASCADE',
   );
 }
 
@@ -60,6 +61,17 @@ async function waitForEmail(lines: () => string, needle: string, timeoutMs = 5_0
     if (lines().includes(needle)) {
       return true;
     }
+
+    /**
+     * Delivery goes through the durable queue now, so the scheduler is what turns a
+     * queued row into a sent message.
+     *
+     * Driving the drain here rather than lengthening the timeout is what a running
+     * service does every thirty seconds, and it keeps the test asserting the real path:
+     * queued, then delivered, then present in the log.
+     */
+    await drainEmailQueue();
+
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   return lines().includes(needle);
@@ -136,7 +148,19 @@ describe('owner and admin notification recipients', () => {
       data: { id: `member-analyst-${fixtureId}`, organizationId: owner.organizationId, userId: analystUser.id, role: 'analyst', createdAt: new Date() },
     });
 
+    /**
+     * Flushes the queue before the capture starts.
+     *
+     * Signing the analyst up queued a verification email to this same address. With
+     * delivery now going through the queue, draining it inside the captured window
+     * would emit that unrelated message and the assertion below would match the
+     * verification link rather than the erasure notice it is about. So the drain has to
+     * happen before the spy is installed, not merely before the notice is sent.
+     */
+    await drainEmailQueue();
+
     const capture = captureEmails();
+
     sendErasureCompletedEmail({
       organizationId: owner.organizationId,
       scopeLabel: 'one domain',

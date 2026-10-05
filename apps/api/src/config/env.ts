@@ -101,6 +101,17 @@ const envSchema = z.object({
   // table.
   IDEMPOTENCY_RECORD_RETENTION_HOURS: z.coerce.number().int().min(1).max(720).default(24),
 
+  // How many documents may be built at once.
+  //
+  // PDF generation buffers the whole file and holds it twice while the hash is
+  // computed, so unbounded concurrency is a few hundred megabytes per request and an
+  // out-of-memory kill that takes down every tenant's API rather than one pack.
+  PDF_MAX_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(4),
+
+  // Brake for signed-in traffic. Generous on purpose: an agency legitimately
+  // importing several hundred domains in one action must not be caught by it.
+  WORKSPACE_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(10).max(10_000).default(600),
+
   // Abandoned SSO starts. Consumed ones are removed at the callback, but a user who
   // closes the tab at the identity provider leaves a row, with a PKCE verifier and
   // a RelayState in it, that nothing ever collects.

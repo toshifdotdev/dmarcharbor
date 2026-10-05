@@ -53,6 +53,7 @@ const staleness: Record<string, number> = {
   'webhook-delivery': 30 * 60 * 1000,
   'inbox-poll': 12 * 60 * 60 * 1000,
   'retention-sweep': 25 * 60 * 60 * 1000,
+  'email-queue': 30 * 60 * 1000,
 };
 
 function entry(name: string): JobHeartbeat {

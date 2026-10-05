@@ -111,6 +111,46 @@ export function createAuthRateLimiter(limit = env.AUTH_RATE_LIMIT_PER_MINUTE): R
 }
 
 /**
+ * Brake on the authenticated routes, which had no limit at all.
+ *
+ * The gap was real: `apiRateLimiter` guards the machine-to-machine surface, the auth
+ * limiter guards sign-in, and everything a signed-in user can reach had neither. That
+ * included the routes that build a PDF, generate an export or run a scan, which are
+ * the expensive ones, so one runaway loop or one abusive script could saturate the
+ * process for every tenant.
+ *
+ * Keyed on the address, which is a compromise worth naming. Keying on the workspace
+ * would be better, because an agency whose staff share one office address would
+ * otherwise share a budget. It cannot be done from a router level `use`, because the
+ * workspace only reaches `response.locals` once `requireSession` has run on the route,
+ * and a limiter mounted before that sees nothing to key on. Doing it properly means
+ * either moving the limiter inside each route definition or resolving the session
+ * twice, so this takes the address and the limit is set high enough not to catch an
+ * office.
+ *
+ * A brake, not a quota. An agency legitimately importing several hundred domains in one
+ * action must not be stopped by it.
+ */
+export function createWorkspaceRateLimiter(
+  limit = env.WORKSPACE_RATE_LIMIT_PER_MINUTE,
+): RateLimitRequestHandler {
+  return rateLimit({
+    windowMs: 60_000,
+    limit,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    store,
+    keyGenerator: clientKey,
+    message: {
+      error: {
+        code: 'RATE_LIMITED',
+        message: 'Too many requests from this network. Wait a minute and try again.',
+      },
+    },
+  });
+}
+
+/**
  * Unauthenticated flood guard for the machine-to-machine API.
  *
  * Keyed on the client address because at this point in the middleware chain no

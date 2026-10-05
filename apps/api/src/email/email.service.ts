@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import { env } from '../config/env.js';
+import { enqueueEmail } from '../services/email-queue.service.js';
 import type { RenderedEmail } from './templates.js';
 
 /**
@@ -58,28 +59,42 @@ export async function sendEmail(message: EmailMessage): Promise<void> {
 }
 
 /**
- * Queues a message without waiting for it.
+ * Queues a message for durable delivery.
  *
- * A notification is never worth failing a request over, so delivery problems
- * are logged and swallowed. The alternative is a customer whose card was
- * declined being shown an error page because an email provider was down.
+ * A notification is never worth failing a request over, so nothing here throws. What
+ * changed is that the message is written down first and delivered by the queue, rather
+ * than being handed to the provider in a floating promise. The instinct was right and
+ * the mechanism was wrong: for a password reset, a domain verification link or the
+ * confirmation that an erasure completed, this message is the only copy, and a
+ * thirty second provider outage used to destroy it with a line in a log nobody reads.
+ *
+ * Kept async so the signature does not change, but the write is awaited by the queue
+ * rather than floated. A floating queue write can lose the row along with the request
+ * that caused it.
  */
 export function queueEmail(rendered: RenderedEmail, to: string, idempotencyKey?: string): void {
-  void sendEmail({
+  void enqueueEmail({
+    kind: 'notification',
     to,
     subject: rendered.subject,
     html: rendered.html,
     text: rendered.text,
     ...(idempotencyKey ? { idempotencyKey } : {}),
-  }).catch((error: unknown) => {
-    const detail = error instanceof Error ? error.message : 'Unknown email delivery error.';
-    console.error(`[email] ${detail}`);
   });
 }
 
 /** Kept so the auth flow's existing import keeps working. */
 export function queueAuthEmail(message: { to: string; subject: string; text: string }): void {
-  void sendEmail({
+  /**
+   * Auth email goes through the same durable queue as everything else.
+   *
+   * A password reset is the clearest case of a message that exists nowhere else: if it
+   * is lost the customer cannot get in, and support has no way to resend it because
+   * nothing recorded it. Treating it as more important than a notification, not less,
+   * is what the earlier fire-and-forget path got backwards.
+   */
+  void enqueueEmail({
+    kind: 'auth',
     to: message.to,
     subject: message.subject,
     html: `<p style="font-family:sans-serif;font-size:15px;line-height:1.6;">${message.text
@@ -87,9 +102,6 @@ export function queueAuthEmail(message: { to: string; subject: string; text: str
       .map((line) => `<p style="margin:0 0 12px;">${escapeAuthText(line)}</p>`)
       .join('')}</p>`,
     text: message.text,
-  }).catch((error: unknown) => {
-    const detail = error instanceof Error ? error.message : 'Unknown email delivery error.';
-    console.error(`[auth-email] ${detail}`);
   });
 }
 

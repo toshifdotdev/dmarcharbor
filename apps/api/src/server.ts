@@ -5,6 +5,7 @@ import { startAlertScheduler, stopAlertScheduler } from './scheduler/alert-sched
 import { startWebhookScheduler, stopWebhookScheduler } from './scheduler/webhook-scheduler.js';
 import { startInboxScheduler, stopInboxScheduler } from './scheduler/inbox-scheduler.js';
 import { startRetentionScheduler, stopRetentionScheduler } from './scheduler/retention-scheduler.js';
+import { startEmailQueueScheduler, stopEmailQueueScheduler } from './scheduler/email-queue-scheduler.js';
 import { checkSchemaIsCurrent } from './services/schema-check.service.js';
 
 if (env.NODE_ENV !== 'test') {
@@ -28,6 +29,7 @@ if (env.NODE_ENV !== 'test') {
   startWebhookScheduler();
   startInboxScheduler();
   startRetentionScheduler();
+  startEmailQueueScheduler();
 
   /**
    * Last line of defence against a silent death.
@@ -76,6 +78,7 @@ const shutdown = (signal: string): void => {
   stopWebhookScheduler();
   stopInboxScheduler();
   stopRetentionScheduler();
+    stopEmailQueueScheduler();
 
   // The deadline, armed before closing so it covers the drain and not just the
   // database close afterwards.
