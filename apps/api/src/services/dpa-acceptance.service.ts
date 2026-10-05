@@ -33,6 +33,16 @@ export class DpaAcceptanceError extends Error {
  */
 export const currentDpaVersion = '1.0';
 
+/**
+ * Where the agreement is published.
+ *
+ * Named once because it is handed to a client on a rejection, and the route it
+ * named did not exist. `apps/web` serves the document at `/dpa`; there is no
+ * `/legal/*` segment at all. So a caller that respected the instruction went to a
+ * 404 at the moment it most needed to read the thing it was being asked to accept.
+ */
+export const dpaPath = '/dpa';
+
 export interface DpaAcceptance {
   accepted: boolean;
   version: string | null;
@@ -61,7 +71,7 @@ export async function dpaAcceptanceFor(organizationId: string): Promise<DpaAccep
     requiresReconsent: accepted && organization.dpaVersion !== currentDpaVersion,
     acceptedAt: organization.dpaAcceptedAt,
     acceptedByEmail: organization.dpaAcceptedByEmail,
-    dpaUrl: '/legal/dpa',
+    dpaUrl: dpaPath,
   };
 }
 

@@ -112,8 +112,7 @@ async function createWorkspaceDomain(
 
   const workspace = await agent.post('/api/workspaces').send({
     name: 'Forensic Operations',
-    slug: `forensic-operations-${Date.now()}-${fixtureId}`,
-  });
+    slug: `forensic-operations-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
   expect(workspace.status).toBe(201);
 
   const client = await agent.post(`/api/workspaces/${workspace.body.id}/clients`).send({

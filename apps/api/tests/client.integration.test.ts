@@ -29,8 +29,7 @@ async function createWorkspace(): Promise<{ agent: ReturnType<typeof request.age
 
   const workspace = await agent.post('/api/workspaces').send({
     name: 'Client Operations',
-    slug: `client-operations-${Date.now()}-${fixtureId}`,
-  });
+    slug: `client-operations-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
   expect(workspace.status).toBe(201);
 
   const organizationId = workspace.body.id as string;

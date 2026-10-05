@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { grantPlan } from './helpers/plan.js';
+import { forensicPiiRetentionDays, forensicRetentionDays, reportRetentionDays } from '../src/services/privacy.service.js';
 import { setOverride } from '../src/services/entitlements/entitlement.service.js';
 import { buildCompliancePackPdf, issueCompliancePack } from '../src/services/trust/compliance-pack.service.js';
 import type { PlanTier } from '@prisma/client';
@@ -85,7 +86,7 @@ async function setupWorkspace(plan: PlanTier = 'HARBOR') {
   await prisma.user.update({ where: { email }, data: { emailVerified: true } });
   expect((await agent.post('/api/auth/sign-in/email').send({ email, password })).status).toBe(200);
 
-  const workspace = await agent.post('/api/workspaces').send({ name: 'Northgate Digital', slug: `pack-${Date.now()}-${fixtureId}` });
+  const workspace = await agent.post('/api/workspaces').send({ name: 'Northgate Digital', slug: `pack-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
   const organizationId = workspace.body.id as string;
   if (plan !== 'MOORING') {
     await grantPlan(organizationId, plan);
@@ -373,8 +374,87 @@ describe('compliance pack reference', () => {
     // verifier resolves. A cuid fails all three: it is 25 characters of noise, it
     // discloses that the value is a database row and roughly when it was created,
     // and nobody can read it back down a phone.
-    expect(reference).toMatch(/^DMARC-\d{8}-[A-Z0-9-]+-[A-Z0-9]{6}$/);
+    /**
+     * Twenty four hex characters is 96 bits. Six was 24, which is hours of
+     * enumeration against a public endpoint that answers 200 or 404.
+     */
+    expect(reference).toMatch(/^DMARC-\d{8}-[A-Z0-9-]+-[A-F0-9]{24}$/);
     expect(reference).not.toMatch(/^cm[a-z0-9]{20,}$/i);
+  });
+
+  /**
+   * The document must not state a retention period we do not honour.
+   *
+   * Section four used to print `plan.dataRetentionDays` and
+   * `plan.auditRetentionDays`. The first governs only whether a dormant domain
+   * still counts toward a quota; the second is read by no code at all, because
+   * nothing deletes an audit log. A signed compliance statement handed to a
+   * client's procurement team therefore carried two numbers, and neither was a
+   * promise the running service kept.
+   */
+  it('states the retention windows this service actually applies', async () => {
+    const { response } = await issue();
+
+    const text = normalise(extractPdfText(response.body as Buffer));
+
+    // Three windows, because there are three, and they differ by two orders of
+    // magnitude. The shortest is the most sensitive data.
+    expect(text).toContain(normalise('DMARC aggregate reports'));
+    expect(text).toContain(normalise('Forensic reports'));
+    expect(text).toContain(normalise('Named recipients in forensic data'));
+
+    expect(text).toContain(normalise(`${reportRetentionDays()} days`));
+    expect(text).toContain(normalise(`${forensicRetentionDays()} days`));
+    expect(text).toContain(normalise(`${forensicPiiRetentionDays()} days`));
+
+    // And the audit trail says what is true, which is that nothing expires it. The
+    // extracted text has its spacing stripped, so the expectation is normalised the
+    // same way rather than matched with a regex.
+    expect(text).toContain(normalise('Audit trail'));
+    expect(text).toContain(normalise('No automatic expiry is scheduled.'));
+
+    /**
+     * The number Harbor publishes for data. If this ever appears in a pack it means
+     * the marketing figure has crept back in, because the document is supposed to
+     * carry the enforced windows instead.
+     */
+    expect(text).not.toContain('1095 days');
+  });
+
+  /**
+   * Widening the suffix must not invalidate anything already in a customer's hands.
+   *
+   * These documents are filed. A procurement team keeps one for years, and the
+   * whole value of the verifier is that they can check a document from last year
+   * still matches its published digest. So the six character references already
+   * issued have to keep resolving, which they do because the lookup is by exact
+   * string and was never format constrained.
+   */
+  it('still verifies a reference issued before the suffix was widened', async () => {
+    const { organizationId, client } = await issue();
+
+    const legacyReference = 'DMARC-20260101-LEGACY-CLIENT-A1B2C3';
+
+    await prisma.compliancePack.create({
+      data: {
+        organizationId,
+        clientId: client.id,
+        reference: legacyReference,
+        pdfHash: 'legacy-hash-value',
+        byteSize: 1024,
+        pageCount: 3,
+        documentVersion: '1.0',
+        scope: 'CLIENT',
+        asOf: new Date('2026-01-01T00:00:00.000Z'),
+      },
+    });
+
+    const verified = await request(app).get(`/api/compliance-packs/verify?reference=${legacyReference}`);
+
+    expect(verified.status).toBe(200);
+    expect(verified.body.found).toBe(true);
+    expect(verified.body.packs[0].reference).toBe(legacyReference);
+    expect(verified.body.packs[0].sha256).toBe('legacy-hash-value');
   });
 
   it('keeps the row id out of the download filename', async () => {

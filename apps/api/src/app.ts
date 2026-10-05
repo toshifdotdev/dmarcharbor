@@ -21,6 +21,7 @@ import { slackRouter } from './routes/slack.routes.js';
 import { dpaRouter, wellKnownRouter } from './routes/dpa.routes.js';
 import { ssoRouter } from './routes/sso.routes.js';
 import { billingRouter } from './routes/billing.routes.js';
+import { refundRouter } from './routes/refund.routes.js';
 import { trustRouter } from './routes/trust.routes.js';
 import { portalErrorHandler } from './middleware/portal.middleware.js';
 import { domainScanRouter } from './routes/domain-scan.routes.js';
@@ -138,6 +139,7 @@ export function createApp(): express.Express {
   app.use('/api', portalRouter);
   app.use('/api', brandingRouter);
   app.use('/api', billingRouter);
+  app.use('/api', refundRouter);
   app.use('/api', trustRouter);
   app.use('/api', reportInboxRouter);
 app.use('/api', slackRouter);

@@ -1282,6 +1282,51 @@ export const openApiDocument = {
         responses: { 200: { description: 'Updated entitlements.' }, ...standardErrors },
       },
     },
+    '/workspaces/{organizationId}/refund-eligibility': {
+      get: {
+        tags: ['Billing'],
+        summary: 'Whether this workspace can be refunded',
+        description: [
+          'Evaluates the published 30 day money back guarantee against the recorded purchase date.',
+          'Read only, and safe to call during a support conversation. This exists because the guarantee was published with nothing to evaluate it against, so the only way to answer was to open a provider dashboard and read an invoice date.',
+          'Returns an explicit refusal rather than a guess when no completed purchase is on record, and says which day the window ended when it has.',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: { 200: { description: 'Eligibility, with the reason either way.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/refund': {
+      post: {
+        tags: ['Billing'],
+        summary: 'Issue a refund',
+        description: [
+          'Refunds through the payment provider and records both the grant and any refusal, so a dispute about either can be answered later.',
+          'Refuses a workspace outside the guarantee unless `overrideWindow` is set, which is recorded as a separate fact from a guarantee refund.',
+          'Requires the staff credential rather than a workspace permission. Paying money out is not something the permission table should express, and the owner role holds billing:update.',
+          'The provider response is the authority on whether money moved. Nothing is reported as refunded that the provider did not confirm.',
+        ].join(' '),
+        parameters: [orgParam],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['reason'],
+                properties: {
+                  reason: { type: 'string', description: 'Why this refund is being issued. Recorded.' },
+                  overrideWindow: {
+                    type: 'boolean',
+                    description: 'Pay even though the guarantee has expired, as an explicit goodwill decision.',
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: { 201: { description: 'Refund issued, with the provider reference.' }, ...standardErrors },
+      },
+    },
     '/docs/openapi.json': {
       get: {
         tags: ['System'],

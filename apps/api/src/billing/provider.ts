@@ -143,6 +143,26 @@ export interface BillingProvider {
   /** Cancels immediately, used only when a payment has failed past recovery. */
   cancelImmediately(providerSubscriptionId: string): Promise<void>;
 
+  /**
+   * Refunds money back through the provider.
+   *
+   * Exists because the refund policy promises a 30 day money back guarantee on every
+   * purchase and there was no code path that could honour it. Doing it from a
+   * provider dashboard by hand also left no record here, so a second request for the
+   * same purchase had nothing to detect.
+   *
+   * Takes an amount rather than refunding the whole charge, because an annual
+   * purchase part way through its term is a partial refund unless we decide
+   * otherwise, and that decision belongs to the caller rather than to a provider
+   * default. Returns the provider's own refund identifier so a repeat call can be
+   * recognised rather than paid twice.
+   */
+  refund(input: {
+    providerSubscriptionId: string;
+    amountMinor: number;
+    reason: string;
+  }): Promise<{ providerRefundId: string | null }>;
+
   /** Current state as the provider sees it, used to reconcile drift. */
   fetchSubscription(providerSubscriptionId: string): Promise<ProviderSubscription | null>;
 

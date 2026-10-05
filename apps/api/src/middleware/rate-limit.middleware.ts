@@ -165,6 +165,38 @@ export function createApiKeyRateLimiter(limit = env.API_RATE_LIMIT_PER_MINUTE): 
   });
 }
 
+/**
+ * The public compliance pack verifier.
+ *
+ * Unauthenticated by design: the person holding a pack is an auditor, not a
+ * customer, and they have no way to authenticate. That makes it a free oracle, so
+ * it needs a budget.
+ *
+ * Deliberately tighter than the share-link limiter. A share link is a 256 bit
+ * token handed to one recipient; guessing is hopeless, so the limit there only
+ * exists to stop enumeration of the token space by accident. A pack reference
+ * carries a client name and an issue date in clear, so the only unknown is the
+ * suffix, and the endpoint distinguishes a hit from a miss with a 200 and a 404.
+ * Without a limit that is an offline-search problem dressed up as an endpoint.
+ *
+ * The suffix is now 96 bits, which is the real fix. This is what stops a single
+ * determined caller rather than a crowd.
+ */
+export const compliancePackVerifyRateLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  store,
+  keyGenerator: clientKey,
+  message: {
+    error: {
+      code: 'RATE_LIMITED',
+      message: 'Too many verification attempts. Wait a minute and try again.',
+    },
+  },
+});
+
 export const publicReportRateLimiter = rateLimit({
   windowMs: 60_000,
   limit: 30,

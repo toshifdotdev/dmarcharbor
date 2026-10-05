@@ -63,7 +63,7 @@ async function buildTenant(label: string, plan: PlanTier = 'ADMIRALTY'): Promise
 
   const workspace = await agent
     .post('/api/workspaces')
-    .send({ name: `${label} Agency`, slug: `${label.toLowerCase()}-${Date.now()}-${fixtureId}` });
+    .send({ name: `${label} Agency`, slug: `${label.toLowerCase()}-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
   expect(workspace.status).toBe(201);
   const organizationId = workspace.body.id as string;
 

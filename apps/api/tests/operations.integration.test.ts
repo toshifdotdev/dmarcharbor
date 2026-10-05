@@ -50,8 +50,7 @@ async function setup(options: { ruf?: boolean } = {}) {
 
   const workspace = await agent.post('/api/workspaces').send({
     name: 'Ops Agency',
-    slug: `ops-${Date.now()}-${fixtureId}`,
-  });
+    slug: `ops-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
   expect(workspace.status).toBe(201);
 
   const client = await agent.post(`/api/workspaces/${workspace.body.id}/clients`).send({
@@ -183,7 +182,19 @@ describe('audit trail', () => {
       .send({ retainForensicPii: true, confirmLegalBasis: true });
     expect(enabled.status).toBe(200);
 
-    const events = await prisma.auditLog.findMany({ where: { organizationId }, orderBy: { createdAt: 'asc' } });
+    /**
+     * Scoped to the actions under test rather than counted across the whole
+     * workspace.
+     *
+     * Counting every row for the organisation made this test fail the moment
+     * workspace creation started writing a DPA_ACCEPTED row, which is correct
+     * behaviour and nothing to do with forensic identity. The neighbouring test
+     * below already scopes by action for the same reason.
+     */
+    const events = await prisma.auditLog.findMany({
+      where: { organizationId, action: { in: ['FORENSIC_IDENTITY_ENABLED', 'FORENSIC_IDENTITY_DISABLED'] } },
+      orderBy: { createdAt: 'asc' },
+    });
     expect(events).toHaveLength(1);
     expect(events[0].action).toBe('FORENSIC_IDENTITY_ENABLED');
     expect(events[0].actorUserId).toBe(userId);
@@ -197,7 +208,10 @@ describe('audit trail', () => {
       .send({ retainForensicPii: false, confirmNamePurge: true });
     expect(disabled.status).toBe(200);
 
-    const after = await prisma.auditLog.findMany({ where: { organizationId }, orderBy: { createdAt: 'asc' } });
+    const after = await prisma.auditLog.findMany({
+      where: { organizationId, action: { in: ['FORENSIC_IDENTITY_ENABLED', 'FORENSIC_IDENTITY_DISABLED'] } },
+      orderBy: { createdAt: 'asc' },
+    });
     expect(after).toHaveLength(2);
     expect(after[1].action).toBe('FORENSIC_IDENTITY_DISABLED');
   });
@@ -279,15 +293,31 @@ describe('audit trail', () => {
       .patch(`/api/workspaces/${first.organizationId}/domains/${first.domainId}/forensics/identities`)
       .send({ retainForensicPii: true, confirmLegalBasis: true });
 
+    /**
+     * Filtered to the action under test.
+     *
+     * Workspace creation now writes a DPA_ACCEPTED row, so the trail for a fresh
+     * workspace is not empty and never was. What this test is actually about is
+     * that the forensic identity action is visible to its own workspace and to
+     * nobody else's, so that is what is counted.
+     */
     const own = await first.agent.get(`/api/workspaces/${first.organizationId}/audit-events`);
     expect(own.status).toBe(200);
-    expect(own.body.items).toHaveLength(1);
-    expect(own.body.items[0].action).toBe('FORENSIC_IDENTITY_ENABLED');
-    expect(own.body.items[0].actorUser.email).toBeTruthy();
 
+    const identityEvents = own.body.items.filter((entry: { action: string }) => entry.action === 'FORENSIC_IDENTITY_ENABLED');
+    expect(identityEvents).toHaveLength(1);
+    expect(identityEvents[0].actorUser.email).toBeTruthy();
+
+    // Creation's own acceptance row is still there, which is the point of recording
+    // it in the first place.
+    expect(own.body.items.some((entry: { action: string }) => entry.action === 'DPA_ACCEPTED')).toBe(true);
+
+    // Another workspace sees none of the first workspace's events. It does see its own
+    // creation row, which is its own record and not a leak.
     const foreign = await other.agent.get(`/api/workspaces/${other.organizationId}/audit-events`);
     expect(foreign.status).toBe(200);
-    expect(foreign.body.items).toHaveLength(0);
+    expect(foreign.body.items.some((entry: { action: string }) => entry.action === 'FORENSIC_IDENTITY_ENABLED')).toBe(false);
+    expect(foreign.body.items.every((entry: { action: string }) => entry.action === 'DPA_ACCEPTED')).toBe(true);
   });
 
   it('keeps audit rows append only by never exposing an update or delete route', async () => {

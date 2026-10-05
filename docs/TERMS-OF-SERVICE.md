@@ -82,15 +82,24 @@ You may not:
 
 ## 6. Order process and merchant of record
 
-For customers purchasing through Paddle:
+Which company sells to you depends on the currency you paid in. They are not the
+same company, and the distinction decides who you contact about a payment.
+
+**Purchases in US dollars, through Paddle:**
 
 > Our order process is conducted by our online reseller Paddle.com. Paddle.com is
-> the Merchant of Record for all our orders. Paddle provides all customer service
-> inquiries and handles returns.
+> the Merchant of Record for the orders it processes. Paddle provides all customer
+> service inquiries and handles returns for those orders.
 
-Payments collected through Paddle are processed by Paddle as merchant of record.
-For customers purchasing in Indian rupees through Razorpay, payments are processed
-by Razorpay and the contracting party is `[YOUR LEGAL ENTITY NAME]`.
+**Purchases in Indian rupees, through Razorpay:** Razorpay processes the payment as
+our payment gateway. Razorpay is not the seller and does not handle your purchase.
+The contracting party is `[YOUR LEGAL ENTITY NAME]`, and enquiries and returns for
+these orders go to `[SUPPORT EMAIL]`.
+
+Razorpay is the default for rupee payments and Paddle is used for dollar payments,
+so the paragraph above describing Paddle as merchant of record does not apply to
+most customers. If your receipt shows an INR amount, the second paragraph is the
+one that governs your order.
 
 ## 7. Availability and support
 

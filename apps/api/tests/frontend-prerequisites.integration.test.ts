@@ -29,7 +29,7 @@ async function workspaceOwner(label: string, plan?: string) {
   const agent = request.agent(app);
   expect((await agent.post('/api/auth/sign-in/email').send({ email, password })).status).toBe(200);
 
-  const created = await agent.post('/api/workspaces').send({ name: 'Agency', slug: `${label}-${Date.now()}-${fixtureId}` });
+  const created = await agent.post('/api/workspaces').send({ name: 'Agency', slug: `${label}-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
   expect(created.status).toBe(201);
   const organizationId = created.body.id as string;
   const userId = created.body.userId as string | undefined;
@@ -177,7 +177,7 @@ describe('compliance pack references are obtainable', () => {
     expect(row).toBeDefined();
     // Without this the frontend passed the row id where the verifier looks up by
     // reference, so every verify link 404s and nothing on screen could fix it.
-    expect(row.reference).toMatch(/^DMARC-\d{8}-ACME-FREIGHT-[A-Z0-9]{6}$/);
+    expect(row.reference).toMatch(/^DMARC-\d{8}-ACME-FREIGHT-[A-F0-9]{24}$/);
 
     // And the reference really does resolve through the public verifier.
     const verified = await request(app).get('/api/compliance-packs/verify').query({ reference: row.reference });

@@ -154,6 +154,24 @@ export class MockBillingProvider implements BillingProvider {
     subscription.currentPeriodEnd = new Date();
   }
 
+  /**
+   * Refunds are recorded rather than ignored, so a test can assert that a refund
+   * was actually attempted and with what amount, which is the property that matters
+   * on a money path.
+   */
+  readonly refunds: Array<{ providerSubscriptionId: string; amountMinor: number; reason: string }> = [];
+
+  async refund(input: {
+    providerSubscriptionId: string;
+    amountMinor: number;
+    reason: string;
+  }): Promise<{ providerRefundId: string | null }> {
+    this.refunds.push({ ...input });
+    const subscription = this.require(input.providerSubscriptionId);
+    subscription.status = 'cancelled';
+    return { providerRefundId: `mock_refund_${this.refunds.length}` };
+  }
+
   async fetchSubscription(providerSubscriptionId: string): Promise<ProviderSubscription | null> {
     return this.subscriptions.get(providerSubscriptionId) ?? null;
   }

@@ -114,8 +114,7 @@ async function createWorkspace(
 
   const workspace = await agent.post('/api/workspaces').send({
     name: 'Onboarding Agency',
-    slug: `onboarding-${Date.now()}-${fixtureId}`,
-  });
+    slug: `onboarding-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
   expect(workspace.status).toBe(201);
   await grantPlan(workspace.body.id);
 

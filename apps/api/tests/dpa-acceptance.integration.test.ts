@@ -2,6 +2,7 @@ import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
+import { currentDpaVersion, dpaPath } from '../src/services/dpa-acceptance.service.js';
 
 let fixtureId = 0;
 const password = 'correct-horse-battery-staple';
@@ -23,8 +24,7 @@ async function workspace(): Promise<{ agent: ReturnType<typeof request.agent>; o
 
   const created = await agent.post('/api/workspaces').send({
     name: 'DPA Workspace',
-    slug: `dpa-${Date.now()}-${fixtureId}`,
-  });
+    slug: `dpa-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
   expect(created.status).toBe(201);
 
   return { agent, organizationId: created.body.id as string };
@@ -38,14 +38,62 @@ async function workspace(): Promise<{ agent: ReturnType<typeof request.agent>; o
 describe('Data Processing Agreement acceptance', () => {
   beforeAll(resetDatabase);
 
-  it('reports no acceptance on a fresh workspace', async () => {
+  /**
+ * A workspace created through the product records its acceptance as part of
+ * creation.
+ *
+ * This used to assert the opposite, and the opposite was the defect: creation had
+ * no opinion about the agreement, the endpoint that records it was never called
+ * from anywhere in the app, so every workspace in existence had `dpaAcceptedAt:
+ * null` and the compliance evidence chain recorded nothing. An assertion that a
+ * fresh workspace is unaccepted was a test that would have failed the day someone
+ * fixed it.
+ */
+  it('records the acceptance as part of creating a workspace', async () => {
     const { agent, organizationId } = await workspace();
 
     const response = await agent.get(`/api/workspaces/${organizationId}/dpa-acceptance`);
 
     expect(response.status).toBe(200);
-    expect(response.body.accepted).toBe(false);
+    expect(response.body.accepted).toBe(true);
+    expect(response.body.version).toBe(currentDpaVersion);
     expect(response.body.requiresReconsent).toBe(false);
+    expect(response.body.acceptedAt).not.toBeNull();
+  });
+
+  it('refuses to create a workspace without the agreement being accepted', async () => {
+    fixtureId += 1;
+    const agent = request.agent(app);
+    const email = `dpa-refused-${Date.now()}-${fixtureId}@example.com`;
+    expect((await agent.post('/api/auth/sign-up/email').send({ name: 'Refused Owner', email, password })).status).toBe(200);
+    await prisma.user.update({ where: { email }, data: { emailVerified: true } });
+    expect((await agent.post('/api/auth/sign-in/email').send({ email, password })).status).toBe(200);
+
+    const slug = `refused-${Date.now()}-${fixtureId}`;
+
+    // No confirmations at all.
+    const neither = await agent.post('/api/workspaces').send({ name: 'Refused', slug });
+    expect(neither.status).toBe(400);
+    expect(neither.body.error.code).toBe('DPA_NOT_ACCEPTED');
+    // The client has to be able to show the document, not just be told no.
+    expect(neither.body.error.dpaUrl).toBe('/dpa');
+
+    // Read but no authority. This is the one that matters legally.
+    const readOnly = await agent
+      .post('/api/workspaces')
+      .send({ name: 'Refused', slug, dpaHasRead: true, dpaConfirmsAuthority: false });
+    expect(readOnly.status).toBe(400);
+    expect(readOnly.body.error.code).toBe('DPA_NOT_ACCEPTED');
+
+    // And nothing was created by either attempt.
+    expect(await prisma.organization.count({ where: { slug } })).toBe(0);
+  });
+
+  it('points at a route that exists', async () => {
+    // The instruction this endpoint hands out used to be `/legal/dpa`, and there is
+    // no `/legal` segment in the web app at all, so a caller that respected it went
+    // to a 404 at the exact moment it needed to read what it was agreeing to.
+    expect(dpaPath).toBe('/dpa');
   });
 
   it('refuses an acceptance without both confirmations', async () => {
@@ -67,18 +115,29 @@ describe('Data Processing Agreement acceptance', () => {
     expect(neither.status).toBe(409);
   });
 
-  it('leaves the workspace unaccepted when a confirmation is missing', async () => {
+  it('leaves the record untouched when a confirmation is missing', async () => {
     const { agent, organizationId } = await workspace();
+
+    const before = await prisma.organization.findUniqueOrThrow({ where: { id: organizationId } });
 
     await agent
       .post(`/api/workspaces/${organizationId}/dpa-acceptance`)
       .send({ hasRead: true, confirmsAuthority: false });
 
-    const stored = await prisma.organization.findUniqueOrThrow({ where: { id: organizationId } });
-    // A refusal that half-applied would leave the workspace claiming an agreement
-    // it never accepted.
-    expect(stored.dpaAcceptedAt).toBeNull();
-    expect(stored.dpaVersion).toBeNull();
+    const after = await prisma.organization.findUniqueOrThrow({ where: { id: organizationId } });
+
+    /**
+     * A refusal must change nothing.
+     *
+     * This used to assert the fields were null, which was only true because
+     * creation never recorded anything. Now that a workspace is created with a
+     * recorded acceptance, "still null" is no longer the property worth checking:
+     * the one that matters is that a refused call did not overwrite, clear or
+     * partially write an existing record. So the before and after are compared.
+     */
+    expect(after.dpaAcceptedAt).toEqual(before.dpaAcceptedAt);
+    expect(after.dpaVersion).toEqual(before.dpaVersion);
+    expect(after.dpaAcceptedByEmail).toEqual(before.dpaAcceptedByEmail);
   });
 
   it('records the version, the time and who accepted', async () => {
@@ -143,14 +202,19 @@ describe('Data Processing Agreement acceptance', () => {
     const mine = await workspace();
     const theirs = await workspace();
 
+    const before = await prisma.organization.findUniqueOrThrow({ where: { id: theirs.organizationId } });
+
     const response = await mine.agent
       .post(`/api/workspaces/${theirs.organizationId}/dpa-acceptance`)
       .send({ hasRead: true, confirmsAuthority: true });
 
     expect(response.status).toBe(403);
 
-    const stored = await prisma.organization.findUniqueOrThrow({ where: { id: theirs.organizationId } });
-    expect(stored.dpaAcceptedAt).toBeNull();
+    // Unchanged, rather than merely "not null": a cross-workspace write attempt
+    // must leave the other workspace's own record exactly as it was.
+    const after = await prisma.organization.findUniqueOrThrow({ where: { id: theirs.organizationId } });
+    expect(after.dpaAcceptedAt).toEqual(before.dpaAcceptedAt);
+    expect(after.dpaVersion).toEqual(before.dpaVersion);
   });
 
   it('requires a session', async () => {

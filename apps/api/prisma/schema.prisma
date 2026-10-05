@@ -140,6 +140,7 @@ model Organization {
   subscription          Subscription?
   entitlementOverrides  EntitlementOverride[]
   erasureRequests       ErasureRequest[]
+  refunds               RefundRecord[]
   exportJobs            ExportJob[]
   apiKeys               ApiKey[]
   idempotencyRecords    IdempotencyRecord[]
@@ -713,6 +714,18 @@ model Subscription {
   /// timestamp to compare against there is no way to tell a fresh event from a
   /// stale one, and `occurredAt` on the incoming event is the only other signal.
   lastEventAt            DateTime?
+  /// When this workspace's first payment settled.
+  ///
+  /// The refund policy promises a 30 day money back guarantee on every purchase, and
+  /// nothing recorded when a purchase happened. `BillingEvent.occurredAt` is the
+  /// closest thing to the truth but it is the event's own timestamp and an event is
+  /// retained, deduplicated and eventually purged, so an eligibility check that
+  /// depended on it would start answering differently as the table emptied.
+  ///
+  /// Derived from the earliest charge at the point a subscription becomes paid, and
+  /// null until then. Null means "no completed purchase on record", which is the
+  /// honest answer rather than "not eligible, no reason given".
+  firstChargeAt          DateTime?
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt
 
@@ -720,6 +733,40 @@ model Subscription {
   @@index([provider])
   @@index([status])
   @@map("subscription")
+}
+
+/// A refund we issued, or refused to.
+///
+/// Recorded rather than inferred from the provider, because the published promise
+/// is a 30 day money back guarantee on every purchase and support needs to answer
+/// "is this one still inside the window" without opening a provider dashboard and
+/// guessing. The provider's own refund state is the authority on whether the money
+/// moved; this row is the authority on what we promised and what we did.
+model RefundRecord {
+  id             String        @id @default(cuid())
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// The provider's own identifier for the refund, when one came back.
+  providerRefundId String?
+  provider       BillingProvider
+  /// Minor units, integer arithmetic throughout, as everywhere else in billing.
+  amountMinor     Int
+  currency       String
+  plan           PlanTier
+  /// The purchase this refund is against, as it stood when asked about.
+  firstChargeAt  DateTime?
+  eligible       Boolean
+  /// Why it was refused. Null on a refund that went through.
+  refusalReason  String?
+  /// The day 30 after the first charge, which is what "within the guarantee" means.
+  eligibleUntil  DateTime?
+  reason         String
+  actorUserId    String?
+  createdAt      DateTime      @default(now())
+
+  @@index([organizationId])
+  @@index([createdAt])
+  @@map("refund_record")
 }
 
 model EntitlementOverride {
@@ -1303,6 +1350,13 @@ enum AuditAction {
   API_KEY_REVOKED
   CLIENTS_BULK_IMPORTED
   DOMAINS_BULK_IMPORTED
+  /// A refund was issued against the published money back guarantee.
+  ///
+  /// Recorded for the grant and the refusal alike, because a dispute about whether
+  /// someone was refused is as real as one about whether they were paid, and
+  /// neither is answerable from the provider's dashboard alone.
+  REFUND_ISSUED
+  REFUND_REFUSED
   WEBHOOK_ENDPOINT_CREATED
   WEBHOOK_ENDPOINT_UPDATED
   WEBHOOK_ENDPOINT_DELETED

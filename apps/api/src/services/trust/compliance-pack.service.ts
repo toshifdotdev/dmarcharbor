@@ -1,9 +1,15 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import PDFDocument from 'pdfkit';
 import { prisma } from '../../database/prisma.js';
 import { recordAuditEvent } from '../audit.service.js';
 import { resolveEntitlements } from '../entitlements/entitlement.service.js';
 import { planCatalog } from '../entitlements/plan-catalog.js';
+import {
+  forensicPiiRetentionDays,
+  forensicRetentionDays,
+  reportRetentionDays,
+} from '../privacy.service.js';
+import { erasureGraceDays } from '../erasure/erasure.service.js';
 import { TrustCenterError, subProcessors } from './trust-center.service.js';
 
 /**
@@ -37,8 +43,23 @@ import { TrustCenterError, subProcessors } from './trust-center.service.js';
  * noise that also disclose that the value is a database row and roughly when it
  * was created.
  *
- * Client slug and issue date so a reference sorts into a filing, plus a short
- * random suffix for uniqueness within the same day.
+ * Client slug and issue date so a reference sorts into a filing, plus a random
+ * suffix for uniqueness within the same day.
+ *
+ * The suffix was six hex characters, which is 24 bits. That value is the only
+ * secret part: the date is printed in the document, the slug is the client's name,
+ * and `GET /api/capabilities` hands an anonymous caller a reference in this exact
+ * format to show the marketing page. So the search space an attacker faces is the
+ * 16.7 million values of that suffix for a given client and day, against a public
+ * endpoint that answers 200 or 404. Hours of work on one machine, and what it
+ * yields is a searchable index of which named client of which agency received a
+ * signed compliance artefact, on what date.
+ *
+ * Twenty-four hex characters is 96 bits. Long enough that enumeration stops being
+ * a plan, and hex rather than base64 keeps the character set to `[0-9A-Z]`, so the
+ * reference still reads cleanly over the phone and existing references, which are
+ * six characters, keep verifying: the lookup is by exact string and was never
+ * format constrained.
  */
 export function compliancePackReference(clientName: string, asOf: Date): string {
   const slug = clientName
@@ -49,7 +70,7 @@ export function compliancePackReference(clientName: string, asOf: Date): string 
     .toUpperCase();
 
   const date = asOf.toISOString().slice(0, 10).replace(/-/g, '');
-  const suffix = randomUUID().replace(/-/g, '').slice(0, 6).toUpperCase();
+  const suffix = randomBytes(12).toString('hex').toUpperCase();
 
   return `DMARC-${date}-${slug || 'CLIENT'}-${suffix}`;
 }
@@ -110,7 +131,22 @@ interface PackFacts {
   domains: { name: string; status: string; policy: string | null; verifiedAt: Date | null }[];
   portalContacts: number;
   dataHeld: { category: string; description: string; personal: boolean }[];
-  retention: { data: string; audit: string; erasure: string };
+  /**
+   * The windows the running service actually applies, not the plan's published
+   * figure.
+   *
+   * Three of these because there are three, and they differ by two orders of
+   * magnitude. Collapsing them into one number, which is what the plan's single
+   * `dataRetentionDays` invites, is how a document ends up saying the most
+   * sensitive data is held for 1095 days when named recipients are held for 7.
+   */
+  retention: {
+    aggregate: string;
+    forensic: string;
+    forensicNamed: string;
+    audit: string;
+    erasure: string;
+  };
   erasures: { scope: string; completedAt: string; records: number }[];
   rights: { export: string; erasure: string };
   lawEnforcement: string;
@@ -195,10 +231,34 @@ async function collectFacts(clientId: string, asOf: Date, reference: string): Pr
       { category: 'Named recipients', description: 'Individual recipients.', personal: namedRecipients },
       { category: 'Account and billing records', description: 'Workspace members, portal grants and payment history.', personal: true },
     ],
+    /**
+     * What the service does, which is not what the plan says.
+     *
+     * These were `plan.dataRetentionDays` and `plan.auditRetentionDays`. Neither
+     * governs anything. `dataRetentionDays` is read in exactly one place, and that
+     * is a quota rule: it decides whether a dormant domain still counts toward the
+     * active domain limit. It is not a deletion window and never was.
+     * `auditRetentionDays` is read by nothing at all - there is no code anywhere
+     * that deletes an audit log - so the figure in this document was a number with
+     * no implementation behind it.
+     *
+     * What is enforced, and where:
+     *   - aggregate reports carry a `retentionExpiresAt` stamped at ingest and are
+     *     deleted by `purgeExpiredReports`
+     *   - forensic reports likewise, via `purgeExpiredForensicReports`
+     *   - named recipients inside a forensic report expire on the shorter PII
+     *     window, which is the most sensitive data held and the shortest
+     *
+     * So a signed compliance statement says what a customer can hold us to. It
+     * reads less impressive than the plan table, and it is true, which is the only
+     * part of a signed document that matters.
+     */
     retention: {
-      data: `${plan.dataRetentionDays} days`,
-      audit: `${plan.auditRetentionDays} days`,
-      erasure: '7 days between a request and it running',
+      aggregate: `${reportRetentionDays()} days`,
+      forensic: `${forensicRetentionDays()} days`,
+      forensicNamed: `${forensicPiiRetentionDays()} days`,
+      audit: 'Kept until a deletion request removes it. No automatic expiry is scheduled.',
+      erasure: `${erasureGraceDays} days between a request and it running`,
     },
     erasures: counts,
     rights: {
@@ -563,12 +623,14 @@ async function render(facts: PackFacts): Promise<{ buffer: Buffer; pageCount: nu
   section(doc, page, {
     title: '4. How long it is kept',
     blocks: [
-      { kind: 'labelled', label: 'DMARC and domain data', value: facts.retention.data },
+      { kind: 'labelled', label: 'DMARC aggregate reports', value: facts.retention.aggregate },
+      { kind: 'labelled', label: 'Forensic reports', value: facts.retention.forensic },
+      { kind: 'labelled', label: 'Named recipients in forensic data', value: facts.retention.forensicNamed },
       { kind: 'labelled', label: 'Audit trail', value: facts.retention.audit },
       { kind: 'labelled', label: 'Deletion window', value: facts.retention.erasure },
       {
         kind: 'body',
-        text: 'A failed payment does not delete anything. A workspace whose subscription lapses moves to the free plan with every client, domain and report intact, and upgrading restores the previous plan.',
+        text: 'Each window above is applied automatically. A failed payment does not delete anything: a workspace whose subscription lapses moves to the free plan with every client, domain and report intact, and upgrading restores the previous plan.',
       },
     ],
   });

@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { prisma } from '../../database/prisma.js';
 import { recordAuditEvent } from '../audit.service.js';
 import { resolveEntitlements } from '../entitlements/entitlement.service.js';
-import { planCatalog } from '../entitlements/plan-catalog.js';
+import { forensicRetentionDays, reportRetentionDays } from '../privacy.service.js';
 
 /**
  * The client facing Trust Center.
@@ -97,12 +97,34 @@ export function dataResidencyRegion(env: { DATA_RESIDENCY_REGION?: string }): st
   return env.DATA_RESIDENCY_REGION?.trim() || 'Not configured - see the launch checklist';
 }
 
-/** Retention is quoted from the plan actually in force, not from marketing copy. */
-function retentionFor(plan: keyof typeof planCatalog): { data: string; audit: string } {
-  const definition = planCatalog[plan];
+/**
+ * What this deployment actually does, which is not the plan's published figure.
+ *
+ * These were `planCatalog[plan].dataRetentionDays` and `auditRetentionDays`. The
+ * comment above this function claimed the figure was "quoted from the plan
+ * actually in force, not from marketing copy", which is true of where it came
+ * from and false of what it described. `dataRetentionDays` governs one thing only,
+ * and that is whether a dormant domain still counts toward the active domain
+ * quota; it is not a deletion window. `auditRetentionDays` is read by no code in
+ * the repository, because nothing deletes an audit log.
+ *
+ * What is enforced: aggregate reports expire at `retentionExpiresAt`, stamped from
+ * `REPORT_RETENTION_DAYS`; forensic reports from `FORENSIC_RETENTION_DAYS`; and
+ * named recipients on the shorter PII window. Those are the numbers a customer can
+ * hold us to.
+ *
+ * The shape is unchanged on purpose. `apps/web` renders `retention.data`,
+ * `.audit` and `.deletionWindow` directly, and a compliance document's field
+ * names are not the place to break a consumer.
+ *
+ * There is deliberately no plan parameter. Retention stopped being a per-plan
+ * figure when it stopped being fictional, and leaving an unused argument behind
+ * would invite the next person to wire it back to `planCatalog`.
+ */
+function retentionFor(): { data: string; audit: string } {
   return {
-    data: `${definition.dataRetentionDays} days`,
-    audit: `${definition.auditRetentionDays} days`,
+    data: `Aggregate reports ${reportRetentionDays()} days, forensic reports ${forensicRetentionDays()} days`,
+    audit: 'Kept until a deletion request removes it',
   };
 }
 
@@ -244,7 +266,7 @@ export async function buildTrustCenter(slug: string): Promise<TrustCenterPayload
     }),
   ]);
 
-  const retention = retentionFor(client.organization.plan);
+  const retention = retentionFor();
 
   // Only the erasure requests that actually covered this client. An
   // organization wide deletion covered it too, so both are relevant and

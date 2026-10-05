@@ -77,7 +77,7 @@ async function setup() {
   await prisma.user.update({ where: { email }, data: { emailVerified: true } });
   await agent.post('/api/auth/sign-in/email').send({ email, password });
 
-  const workspace = await agent.post('/api/workspaces').send({ name: 'Scale Agency', slug: `sc-${Date.now()}-${fixtureId}` });
+  const workspace = await agent.post('/api/workspaces').send({ name: 'Scale Agency', slug: `sc-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
   const organizationId = workspace.body.id as string;
   const userId = (await prisma.user.findUniqueOrThrow({ where: { email }, select: { id: true } })).id;
 

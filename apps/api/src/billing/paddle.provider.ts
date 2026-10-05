@@ -300,6 +300,53 @@ export class PaddleBillingProvider implements BillingProvider {
     );
   }
 
+/**
+ * Paddle is merchant of record, so a refund is an adjustment created against a
+ * transaction rather than anything on the subscription.
+ *
+ * The transaction is found by listing for the subscription and taking the most
+ * recent completed one, because `Subscription` carries no transaction id in this
+ * SDK version.
+ *
+ * A full adjustment is always issued. A partial one needs the exact line item id
+ * from the original transaction, and reconstructing it here would be guesswork on
+ * a money path. Eligibility is decided before this is called, so a partial refund
+ * is something an operator arranges deliberately rather than something this
+ * silently gets wrong.
+ */
+async refund(input: {
+    providerSubscriptionId: string;
+    amountMinor: number;
+    reason: string;
+  }): Promise<{ providerRefundId: string | null }> {
+    // `transactions.list` is synchronous in this SDK version, unlike the other
+    // resources, so it is wrapped to keep `this.call` uniform across the adapter.
+    const collection = (await this.call(async () =>
+      paddle().transactions.list({
+        subscriptionId: [input.providerSubscriptionId],
+        status: ['completed'],
+        perPage: 1,
+        orderBy: 'created_at DESC',
+      }),
+    )) as unknown as { data: Array<{ id?: string }> };
+
+    const transactionId = collection.data?.[0]?.id;
+    if (!transactionId) {
+      throw new BillingProviderError('No completed transaction for that subscription.', 'PAYMENT_NOT_FOUND', 404);
+    }
+
+    const adjustment = (await this.call(() =>
+      paddle().adjustments.create({
+        action: 'refund',
+        type: 'full',
+        transactionId,
+        reason: input.reason.slice(0, 250),
+      }),
+    )) as { id?: string };
+
+    return { providerRefundId: adjustment?.id ?? null };
+  }
+
   async fetchSubscription(providerSubscriptionId: string): Promise<ProviderSubscription | null> {
     try {
       const subscription = await this.call(() => paddle().subscriptions.get(providerSubscriptionId));

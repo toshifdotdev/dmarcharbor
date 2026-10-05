@@ -74,8 +74,7 @@ async function createWorkspaceDomain(
 
   const workspace = await agent.post('/api/workspaces').send({
     name: 'Alert Operations',
-    slug: `alert-operations-${Date.now()}-${fixtureId}`,
-  });
+    slug: `alert-operations-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
   expect(workspace.status).toBe(201);
   await grantPlan(workspace.body.id);
 

@@ -24,7 +24,7 @@ async function setup(plan: PlanTier = 'MOORING') {
   await prisma.user.update({ where: { email }, data: { emailVerified: true } });
   expect((await agent.post('/api/auth/sign-in/email').send({ email, password })).status).toBe(200);
 
-  const workspace = await agent.post('/api/workspaces').send({ name: 'Gate Agency', slug: `gate-${Date.now()}-${fixtureId}` });
+  const workspace = await agent.post('/api/workspaces').send({ name: 'Gate Agency', slug: `gate-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
   const organizationId = workspace.body.id as string;
   if (plan !== 'MOORING') {
     await grantPlan(organizationId, plan);

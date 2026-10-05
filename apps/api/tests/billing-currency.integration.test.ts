@@ -24,8 +24,7 @@ async function workspace(): Promise<{ agent: ReturnType<typeof request.agent>; o
 
   const created = await agent.post('/api/workspaces').send({
     name: 'Currency Workspace',
-    slug: `currency-${Date.now()}-${fixtureId}`,
-  });
+    slug: `currency-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
   expect(created.status).toBe(201);
 
   return { agent, organizationId: created.body.id as string };

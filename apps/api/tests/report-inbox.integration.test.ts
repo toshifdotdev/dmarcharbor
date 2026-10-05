@@ -78,8 +78,7 @@ async function setup(plan: 'MOORING' | 'FAIRWAY' | 'HARBOR' | 'ADMIRALTY' = 'HAR
 
   const workspace = await agent.post('/api/workspaces').send({
     name: 'Northgate Digital',
-    slug: `i-${Date.now()}-${fixtureId}`,
-  });
+    slug: `i-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
   const organizationId = workspace.body.id as string;
   if (plan !== 'MOORING') {
     await grantPlan(organizationId, plan);

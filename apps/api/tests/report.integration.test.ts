@@ -128,8 +128,7 @@ async function createVerifiedDomain(domainName: string): Promise<{
 
   const workspace = await agent.post('/api/workspaces').send({
     name: 'Report Operations',
-    slug: `report-operations-${Date.now()}-${fixtureId}`,
-  });
+    slug: `report-operations-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
   expect(workspace.status).toBe(201);
 
   const client = await agent.post(`/api/workspaces/${workspace.body.id}/clients`).send({

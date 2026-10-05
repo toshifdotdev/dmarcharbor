@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
+import { forensicRetentionDays, reportRetentionDays } from '../src/services/privacy.service.js';
 import { app } from '../src/index.js';
 import { grantPlan } from './helpers/plan.js';
 import { setOverride } from '../src/services/entitlements/entitlement.service.js';
@@ -44,7 +45,7 @@ async function setupWorkspace(plan: PlanTier = 'HARBOR') {
 
   const workspace = await agent
     .post('/api/workspaces')
-    .send({ name: 'Northgate Digital', slug: `northgate-${Date.now()}-${fixtureId}` });
+    .send({ name: 'Northgate Digital', slug: `northgate-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
   const organizationId = workspace.body.id as string;
 
   if (plan !== 'MOORING') {
@@ -180,17 +181,33 @@ describe('public Trust Center', () => {
     expect(JSON.stringify(afterRevoke.body)).not.toContain(email);
   });
 
-  it('quotes retention from the plan in force, not from marketing copy', async () => {
+  it('quotes the retention this deployment actually applies', async () => {
     const { agent, organizationId } = await setupWorkspace('HARBOR');
     const client = await addClient(agent, organizationId, 'Retained Client');
     const created = await agent.post(`/api/workspaces/${organizationId}/clients/${client.id}/trust-center`).send({});
 
     const response = await request(app).get(`/api/trust/${created.body.slug}`);
 
-    // Harbor is three years for data and audit.
-    expect(response.body.retention.data).toBe('1095 days');
-    expect(response.body.retention.audit).toBe('1095 days');
+    /**
+     * Harbor publishes 1095 days for data and audit. Neither figure governed
+     * anything: `dataRetentionDays` decides whether a dormant domain still counts
+     * toward the active domain quota, and `auditRetentionDays` is read by no code
+     * in the repository because nothing deletes an audit log. This assertion used
+     * to require the string '1095 days' on a public page, which is how a customer
+     * relying on a published number could hold us to one we did not implement.
+     *
+     * What is enforced is two separate windows, and the shorter one is the
+     * sensitive data.
+     */
+    expect(response.body.retention.data).toContain(`${reportRetentionDays()} days`);
+    expect(response.body.retention.data).toContain(`${forensicRetentionDays()} days`);
+    expect(response.body.retention.data).not.toContain('1095 days');
+
+    expect(response.body.retention.audit).toMatch(/deletion request/i);
     expect(response.body.retention.deletionWindow).toContain('7 days');
+
+    // Still the shape apps/web renders, which is the reason it was not renamed.
+    expect(Object.keys(response.body.retention).sort()).toEqual(['audit', 'data', 'deletionWindow']);
   });
 
   it('states whether named recipient data is held, following the plan', async () => {

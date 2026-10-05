@@ -70,8 +70,7 @@ async function setup(
 
   const workspace = await agent.post('/api/workspaces').send({
     name: 'Notify Agency',
-    slug: `notify-${Date.now()}-${fixtureId}`,
-  });
+    slug: `notify-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
   expect(workspace.status).toBe(201);
 
   const client = await agent.post(`/api/workspaces/${workspace.body.id}/clients`).send({

@@ -65,7 +65,7 @@ async function setup() {
   await prisma.user.update({ where: { email }, data: { emailVerified: true } });
   expect((await agent.post('/api/auth/sign-in/email').send({ email, password })).status).toBe(200);
 
-  const workspace = await agent.post('/api/workspaces').send({ name: 'Hook Agency', slug: `hook-${Date.now()}-${fixtureId}` });
+  const workspace = await agent.post('/api/workspaces').send({ name: 'Hook Agency', slug: `hook-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
   const organizationId = workspace.body.id as string;
   await grantPlan(organizationId, 'HARBOR');
 

@@ -38,8 +38,7 @@ async function createWorkspace(): Promise<{
 
   const workspace = await agent.post('/api/workspaces').send({
     name: 'Slack Workspace',
-    slug: `slack-workspace-${Date.now()}-${fixtureId}`,
-  });
+    slug: `slack-workspace-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
   expect(workspace.status).toBe(201);
   await grantPlan(workspace.body.id);
 

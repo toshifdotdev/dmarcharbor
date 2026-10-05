@@ -134,8 +134,7 @@ async function setup(policy: string | null = 'none') {
 
   const workspace = await agent.post('/api/workspaces').send({
     name: 'Sender Agency',
-    slug: `sender-${Date.now()}-${fixtureId}`,
-  });
+    slug: `sender-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
   expect(workspace.status).toBe(201);
 
   const client = await agent.post(`/api/workspaces/${workspace.body.id}/clients`).send({

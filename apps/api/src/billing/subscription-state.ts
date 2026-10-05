@@ -160,6 +160,7 @@ export async function applyBillingEvent(event: BillingEvent): Promise<ApplyEvent
         pendingPlan: true,
         pendingPlanInterval: true,
         lastEventAt: true,
+        firstChargeAt: true,
       },
     });
 
@@ -267,6 +268,26 @@ export async function applyBillingEvent(event: BillingEvent): Promise<ApplyEvent
     });
 
     await writePlan(tx, organizationId, resolvedPlan);
+
+    /**
+     * The purchase date, stamped once.
+     *
+     * The refund policy promises 30 days from the purchase and there was nowhere
+     * that recorded when a purchase happened. `BillingEvent` is the wrong place to
+     * read it from on demand: those rows are deduplicated and eventually purged, so
+     * an eligibility check reading them would quietly start answering differently
+     * as the table emptied.
+     *
+     * Only set when the subscription is actually paid, and never moved afterwards.
+     * A renewal is not a new purchase, and a customer who has been subscribed for a
+     * year should not gain a fresh 30 day window every month.
+     */
+    if (existing?.firstChargeAt === null && ['ACTIVE', 'TRIALING', 'PAST_DUE'].includes(status)) {
+      await tx.subscription.updateMany({
+        where: { organizationId, firstChargeAt: null },
+        data: { firstChargeAt: event.occurredAt },
+      });
+    }
 
     // Dropping a stored asset is the mirror image of never destroying data on a
     // failed payment: a customer must not have their brand left sitting in a

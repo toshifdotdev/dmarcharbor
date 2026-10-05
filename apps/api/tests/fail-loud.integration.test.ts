@@ -28,7 +28,7 @@ async function workspaceOwner(label: string) {
   const agent = request.agent(app);
   expect((await agent.post('/api/auth/sign-in/email').send({ email, password })).status).toBe(200);
 
-  const created = await agent.post('/api/workspaces').send({ name: 'Agency', slug: `${label}-${Date.now()}-${fixtureId}` });
+  const created = await agent.post('/api/workspaces').send({ name: 'Agency', slug: `${label}-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
   expect(created.status).toBe(201);
 
   return { email, agent, organizationId: created.body.id as string };

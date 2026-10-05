@@ -29,8 +29,7 @@ async function workspace(): Promise<{
 
   const created = await agent.post('/api/workspaces').send({
     name: 'Slug Workspace',
-    slug: `slug-workspace-${Date.now()}-${fixtureId}`,
-  });
+    slug: `slug-workspace-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
   expect(created.status).toBe(201);
   // Mooring allows two domains, and this file creates more than that.
   await grantPlan(created.body.id as string);

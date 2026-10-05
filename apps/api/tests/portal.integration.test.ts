@@ -33,7 +33,7 @@ async function setup(plan: 'MOORING' | 'FAIRWAY' | 'HARBOR' | 'ADMIRALTY' = 'HAR
   const ownerEmail = `owner-${Date.now()}-${fixtureId}@northgate.test`;
   const owner = await createUser(ownerEmail, 'Agency Owner');
 
-  const workspace = await owner.agent.post('/api/workspaces').send({ name: 'Northgate Digital', slug: `ng-${Date.now()}-${fixtureId}` });
+  const workspace = await owner.agent.post('/api/workspaces').send({ name: 'Northgate Digital', slug: `ng-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
   const organizationId = workspace.body.id as string;
   if (plan !== 'MOORING') {
     await grantPlan(organizationId, plan);

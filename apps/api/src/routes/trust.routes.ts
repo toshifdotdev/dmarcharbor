@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireSession } from '../middleware/auth.middleware.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
 import { requireFeature } from '../middleware/entitlement.middleware.js';
+import { compliancePackVerifyRateLimiter as publicVerifierRateLimiter } from '../middleware/rate-limit.middleware.js';
 import {
   createTrustCenterController,
   publicTrustCenterController,
@@ -33,7 +34,7 @@ trustRouter.get('/trust/:slug', publicTrustCenterController);
  * by the slug parameter, and a literal path that loses to a wildcard is the kind
  * of thing that only shows up as a confusing 404 in production.
  */
-trustRouter.get('/compliance-packs/verify', verifyCompliancePackController);
+trustRouter.get('/compliance-packs/verify', publicVerifierRateLimiter, verifyCompliancePackController);
 
 trustRouter.get(
   '/workspaces/:organizationId/clients/:clientId/trust-center',

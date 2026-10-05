@@ -27,7 +27,7 @@ async function setup() {
   await prisma.user.update({ where: { email }, data: { emailVerified: true } });
   expect((await agent.post('/api/auth/sign-in/email').send({ email, password })).status).toBe(200);
 
-  const workspace = await agent.post('/api/workspaces').send({ name: `Paying Agency ${fixtureId}`, slug: `paying-${fixtureId}` });
+  const workspace = await agent.post('/api/workspaces').send({ name: `Paying Agency ${fixtureId}`, slug: `paying-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
   return { agent, organizationId: workspace.body.id as string, email };
 }
 

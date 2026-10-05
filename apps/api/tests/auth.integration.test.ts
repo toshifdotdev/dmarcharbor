@@ -68,8 +68,7 @@ describe('authentication and workspaces', () => {
 
     const createWorkspace = await agent.post('/api/workspaces').send({
       name: 'Harbor Security',
-      slug: `harbor-security-${Date.now()}`,
-    });
+      slug: `harbor-security-${Date.now()}`, dpaHasRead: true, dpaConfirmsAuthority: true});
 
     expect(createWorkspace.status).toBe(201);
     expect(createWorkspace.body.name).toBe('Harbor Security');

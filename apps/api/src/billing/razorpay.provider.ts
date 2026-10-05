@@ -233,6 +233,49 @@ export class RazorpayBillingProvider implements BillingProvider {
     await this.call(() => razorpay().subscriptions.cancel(providerSubscriptionId, 0));
   }
 
+  /**
+   * Razorpay refunds a payment, not a subscription, so the captured payment has to
+   * be found first.
+   *
+   * `payments.all` is typed as accepting only `expand[]`, but Razorpay documents
+   * `subscription_id` as a filter and it is the only way to reach the charge from a
+   * subscription. The cast is therefore deliberate and confined to this call rather
+   * than spreading an untyped client across the adapter.
+   *
+   * Omitting `amount` is how Razorpay is told to refund in full, which is why the
+   * comparison is against the captured amount rather than a flag.
+   */
+  async refund(input: {
+    providerSubscriptionId: string;
+    amountMinor: number;
+    reason: string;
+  }): Promise<{ providerRefundId: string | null }> {
+    const payments = (await this.call(() =>
+      razorpay().payments.all({
+        subscription_id: input.providerSubscriptionId,
+        count: 1,
+      } as never),
+    )) as { items?: Array<{ id?: string; amount?: number }> };
+
+    const captured = payments.items?.find((payment) => Boolean(payment?.id));
+
+    if (!captured?.id) {
+      throw new BillingProviderError('No payment has been captured for that subscription.', 'PAYMENT_NOT_FOUND', 404);
+    }
+
+    const isFullRefund = input.amountMinor >= (captured.amount ?? 0);
+
+    const refunded = (await this.call(() =>
+      razorpay().payments.refund(captured.id as string, {
+        ...(isFullRefund ? {} : { amount: Math.round(input.amountMinor) }),
+        speed: 'optimum',
+        notes: { reason: input.reason.slice(0, 250), subscription_id: input.providerSubscriptionId },
+      }),
+    )) as { id?: string };
+
+    return { providerRefundId: refunded?.id ?? null };
+  }
+
   async fetchSubscription(providerSubscriptionId: string): Promise<ProviderSubscription | null> {
     try {
       const subscription = (await this.call(() => razorpay().subscriptions.fetch(providerSubscriptionId))) as RazorpaySubscriptionLike;
