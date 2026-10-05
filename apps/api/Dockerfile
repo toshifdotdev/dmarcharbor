@@ -78,15 +78,28 @@ USER node
 
 EXPOSE 4000
 
-# Readiness, not liveness.
+# Liveness, not readiness.
 #
-# `/ready` is the database check, so a container whose database is unreachable is
-# taken out of rotation instead of receiving traffic it cannot serve. It also
-# reports scheduler staleness, which is the only place a silently dead schedule
-# becomes visible. Using `/health` here would report "ok" for a replica that can
-# answer nothing, which is how a database outage turns into an outage everywhere.
-HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||4000)+'/api/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+# `/health` answers without touching the database. That is the right question for a
+# container healthcheck, which restarts the process, and the wrong one to answer with
+# the database in the path: a replica would be marked unhealthy every time Postgres
+# hiccups, and any autoheal would then cycle the whole fleet over a dependency it
+# cannot fix by restarting it.
+#
+# Readiness is `/ready`, which checks the database and reports scheduler staleness.
+# That is what a load balancer should poll, and it is why both exist. This earlier used
+# `/ready` here and was wrong.
+#
+# `wget` rather than `node -e`: busybox wget answers in about 90ms, while starting node
+# in this image takes around three seconds and occasionally exceeded the timeout, which
+# marked a perfectly healthy container unhealthy four times in a row.
+#
+# The start period is 90 seconds because the process does not listen immediately: the
+# entrypoint runs `prisma migrate deploy` first, and on a cold start that means
+# resolving the CLI, opening a connection and checking sixty two migrations. Measured on
+# this machine: about 60 seconds from `docker run` to the first accepted request.
+HEALTHCHECK --interval=15s --timeout=5s --start-period=90s --retries=3 \
+  CMD wget -q -O /dev/null "http://127.0.0.1:${PORT:-4000}/api/health" || exit 1
 
 ENTRYPOINT ["/sbin/tini", "--"]
 
