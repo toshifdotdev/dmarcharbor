@@ -10,6 +10,7 @@ import { paginationQuerySchema } from '../utils/pagination.js';
 import { sendError } from '../utils/api-error.js';
 import { openApiDocument } from '../openapi.js';
 import { capabilities } from '../services/capabilities.service.js';
+import { schedulerStatus } from '../scheduler/heartbeat.js';
 
 export const systemRouter = Router();
 
@@ -33,6 +34,7 @@ systemRouter.get('/health', (_request, response) => {
 
 systemRouter.get('/ready', async (_request, response) => {
   const startedAt = Date.now();
+  const schedulers = schedulerStatus();
 
   try {
     await Promise.race([
@@ -46,10 +48,26 @@ systemRouter.get('/ready', async (_request, response) => {
       }),
     ]);
 
+    /**
+     * Scheduler staleness is reported but does not fail readiness.
+     *
+     * Readiness means "this replica can serve requests", and a replica whose
+     * scheduler is idle because another one holds the lease is serving perfectly
+     * well. Failing here would take the whole fleet out of rotation over one slow
+     * job and turn a partial degradation into an outage.
+     *
+     * It is in the body because it is the signal a monitor needs: a failing schedule
+     * breaks nothing visible, so this is the only place it becomes observable.
+     */
     response.json({
       status: 'ready',
       checks: {
         database: { status: 'ok', latencyMs: Date.now() - startedAt },
+        schedulers: {
+          status: schedulers.staleJobs.length === 0 ? 'ok' : 'stale',
+          staleJobs: schedulers.staleJobs,
+          jobs: schedulers.jobs,
+        },
       },
     });
   } catch (error) {
@@ -59,6 +77,11 @@ systemRouter.get('/ready', async (_request, response) => {
         database: {
           status: 'error',
           error: error instanceof Error ? error.message : 'Database check failed.',
+        },
+        schedulers: {
+          status: schedulers.staleJobs.length === 0 ? 'ok' : 'stale',
+          staleJobs: schedulers.staleJobs,
+          jobs: schedulers.jobs,
         },
       },
     });

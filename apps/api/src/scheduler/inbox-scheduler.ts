@@ -2,6 +2,7 @@ import { env } from '../config/env.js';
 import { prisma } from '../database/prisma.js';
 import { pollInbox, recordInboxFailure } from '../services/report/imap-inbox.service.js';
 import { withJobLease } from './job-lease.service.js';
+import { recordJobFailure, recordJobSuccess } from './heartbeat.js';
 
 /**
  * Polling the emailed report mailboxes.
@@ -51,7 +52,7 @@ export async function runInboxPollOnce(): Promise<{ polled: number; accepted: nu
     // Each mailbox is also claimed individually, because two instances racing on
     // the same provider is exactly what gets an address blocked. This lease is
     // the coarser gate, so the fleet does not each walk the same candidate list.
-    await withJobLease('inbox-poll', async () => {
+    const ran = await withJobLease('inbox-poll', async () => {
     const inboxes = await prisma.reportInbox.findMany({
       where: { enabled: true },
       select: { organizationId: true },
@@ -77,10 +78,19 @@ export async function runInboxPollOnce(): Promise<{ polled: number; accepted: nu
         `[inbox] polled ${summary.polled} mailbox(es), ${summary.accepted} accepted, ${summary.duplicates} already held, ${summary.failed} failed`,
       );
     }
+
+    return true;
     });
+
+    // Skipped because another replica held the lease is neither success nor failure:
+    // the replica that did the work is the one that beats.
+    if (ran) {
+      recordJobSuccess('inbox-poll');
+    }
   } catch (error) {
     const detail = error instanceof Error ? error.message : 'Unknown inbox scheduler error.';
     console.error(`[inbox] poll cycle failed: ${detail}`);
+    recordJobFailure('inbox-poll');
   } finally {
     running = false;
   }

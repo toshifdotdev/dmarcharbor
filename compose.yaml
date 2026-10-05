@@ -15,5 +15,26 @@ services:
       timeout: 5s
       retries: 10
 
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      DATABASE_URL: postgresql://dmarcharbor:dmarcharbor@postgres:5432/dmarcharbor
+      # The entrypoint runs migrate deploy before the server, so the schema matches
+      # the binary. Compose waits for postgres to be healthy first, which is what
+      # makes that migration reliable on a cold start rather than a coin flip.
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "4000:4000"
+    restart: unless-stopped
+    # SIGTERM with a grace period longer than the service's own 30 second drain
+    # deadline, so the drain finishes and the backstop is never what actually runs.
+    stop_grace_period: 45s
+
 volumes:
   dmarcharbor-postgres:

@@ -1,0 +1,95 @@
+name: ci
+
+# Every gate this repository has, in the order that fails fastest.
+#
+# The ordering is the point. Typecheck and lint run first because they take seconds
+# and catch the most; the unit suite is next; integration last because it needs a
+# database and takes the best part of half an hour. A run that fails at the lint step
+# should cost about a minute, not half an hour.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  # A newer push makes an in-flight run for the same branch irrelevant. Without this a
+  # queue of stale runs delays the answer everyone is actually waiting for.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: dmarcharbor
+          POSTGRES_PASSWORD: dmarcharbor
+          POSTGRES_DB: dmarcharbor
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dmarcharbor -d dmarcharbor"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://dmarcharbor:dmarcharbor@localhost:5432/dmarcharbor
+      REPORT_INGEST_SECRET: ci-report-ingest-secret-not-a-real-value
+      STAFF_API_KEY: ci-staff-key-not-a-real-secret
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test --workspace @dmarcharbor/api
+
+      - name: Apply migrations
+        # Integration tests truncate tables rather than create them, so a run
+        # against an empty database fails in ways that have nothing to do with the
+        # change under test.
+        run: npm run db:deploy --workspace @dmarcharbor/api
+
+      - name: Integration tests
+        # Serialised. The suite shares one database and every file truncates the same
+        # tables, so parallel files fail each other in ways that look like product
+        # bugs.
+        run: npm run test:integration --workspace @dmarcharbor/api
+
+      - name: Build
+        run: npm run build --workspace @dmarcharbor/api
+
+      - name: Dependency audit
+        # Blocking, because it currently reports zero vulnerabilities for production
+        # dependencies and there is nothing to be lenient about.
+        #
+        # The usual argument for making this advisory rather than gating is that a
+        # pipeline blocked on every transitive advisory gets switched off, and a
+        # switched-off pipeline audits nothing. That argument is about a nonzero
+        # count. The first advisory to land will either be fixed or will need this
+        # line deliberately weakened, in which case the decision is visible in the
+        # diff instead of arriving quietly.
+        run: npm audit --audit-level=high --omit=dev
+
+      - name: Verify the container builds
+        # A Dockerfile that has never been built is a Dockerfile that does not work.
+        run: docker compose build api

@@ -1,5 +1,4 @@
-import { env } from '../config/env.js';
-import { prisma } from '../database/prisma.js';
+﻿import { env } from '../config/env.js';
 import { evaluateAlertRules, runAlertRollups } from '../services/alert.service.js';
 import { runReportDigests } from '../services/report-digest.service.js';
 import { executeDueErasures } from '../services/erasure/erasure.service.js';
@@ -8,6 +7,7 @@ import { purgeExpiredIdempotencyRecords } from '../services/api-key.service.js';
 import { runDunning, runReconciliation } from '../billing/dunning.js';
 import { repairWebhookEndpoints } from '../services/webhook.service.js';
 import { acquireDueLease, withJobLease } from './job-lease.service.js';
+import { recordJobFailure, recordJobSuccess } from './heartbeat.js';
 
 let timer: NodeJS.Timeout | undefined;
 let running = false;
@@ -35,17 +35,31 @@ export async function runAlertEvaluationOnce(): Promise<void> {
     // Every instance starts this scheduler on boot. The flag above only stops
     // one process overlapping itself, because Node is single threaded, so the
     // cross process gate has to live in the database.
-    await withJobLease('alert-evaluation', () => runAlertEvaluationPass());
+    const summary = await withJobLease('alert-evaluation', () => runAlertEvaluationPass());
+
+    /**
+     * Only after the work finished.
+     *
+     * A skipped run, because another replica held the lease, is not a failure and
+     * must not count as liveness either way: the replica doing the work is the one
+     * that beats.
+     */
+    if (summary !== undefined) {
+      recordJobSuccess('alert-evaluation');
+    }
   } catch (error) {
     const detail = error instanceof Error ? error.message : 'Unknown alert evaluation error.';
     console.error(`[alerts] evaluation failed: ${detail}`);
+    recordJobFailure('alert-evaluation');
   } finally {
     running = false;
   }
 }
 
 /** The work itself, run only by the instance that won the lease. */
-async function runAlertEvaluationPass(): Promise<void> {
+async function runAlertEvaluationPass(): Promise<{ completed: true }> {
+  // The return value is what distinguishes "this pass ran" from "the lease was
+  // held elsewhere", which is the distinction the heartbeat needs.
   {
     const results = await evaluateAlertRules();
     const triggered = results.filter((result) => result.outcome === 'triggered').length;
@@ -138,6 +152,8 @@ async function runAlertEvaluationPass(): Promise<void> {
     if (digestSent > 0) {
       console.info(`[digests] sent ${digestSent} client digest(s)`);
     }
+
+    return { completed: true };
   }
 }
 
@@ -164,7 +180,15 @@ export function stopAlertScheduler(): void {
   }
 }
 
+/**
+ * Not disconnecting the database.
+ *
+ * This used to close the Prisma pool here, and `server.ts` closes it again on the way
+ * out. Two owners for one shutdown step means whichever runs first wins and the other
+ * throws against an already closed pool, and on a SIGTERM during a deploy that is the
+ * difference between a clean exit and an unhandled rejection. The connection is
+ * process-wide, so it belongs in exactly one place.
+ */
 export async function shutdownAlertScheduler(): Promise<void> {
   stopAlertScheduler();
-  await prisma.$disconnect();
 }

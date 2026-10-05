@@ -1,7 +1,7 @@
-import { env } from '../config/env.js';
-import { prisma } from '../database/prisma.js';
+﻿import { env } from '../config/env.js';
 import { deliverDueWebhooks } from '../services/webhook.service.js';
 import { withJobLease } from './job-lease.service.js';
+import { recordJobFailure, recordJobSuccess } from './heartbeat.js';
 
 let timer: NodeJS.Timeout | undefined;
 let running = false;
@@ -38,10 +38,15 @@ export async function runWebhookDeliveryOnce(): Promise<{ delivered: number; ret
 
     // Undefined when another instance holds the lease, which is a skip rather
     // than a failure.
+    if (summary !== undefined) {
+      recordJobSuccess('webhook-delivery');
+    }
+
     return summary ?? { delivered: 0, retry: 0, failed: 0 };
   } catch (error) {
     const detail = error instanceof Error ? error.message : 'Unknown webhook delivery error.';
     console.error(`[webhooks] delivery failed: ${detail}`);
+    recordJobFailure('webhook-delivery');
     return { delivered: 0, retry: 0, failed: 0 };
   } finally {
     running = false;
@@ -70,5 +75,4 @@ export function stopWebhookScheduler(): void {
 
 export async function shutdownWebhookScheduler(): Promise<void> {
   stopWebhookScheduler();
-  await prisma.$disconnect();
 }

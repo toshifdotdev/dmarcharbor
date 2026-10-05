@@ -1,6 +1,7 @@
 import { env } from '../config/env.js';
 import { purgeExpiredData, type RetentionSweep } from '../services/retention.service.js';
 import { withJobLease } from './job-lease.service.js';
+import { recordJobFailure, recordJobSuccess } from './heartbeat.js';
 
 let timer: NodeJS.Timeout | undefined;
 let running = false;
@@ -52,10 +53,15 @@ export async function runRetentionOnce(): Promise<RetentionSweep> {
 
     // Undefined when another instance holds the lease, which is a skip rather than a
     // failure.
+    if (summary !== undefined) {
+      recordJobSuccess('retention-sweep');
+    }
+
     return summary ?? empty;
   } catch (error) {
     const detail = error instanceof Error ? error.message : 'Unknown retention sweep error.';
     console.error(`[retention] sweep failed: ${detail}`);
+    recordJobFailure('retention-sweep');
     return empty;
   } finally {
     running = false;
