@@ -39,7 +39,7 @@ async function setup(plan: 'MOORING' | 'FAIRWAY' | 'HARBOR' | 'ADMIRALTY' = 'HAR
     await grantPlan(organizationId, plan);
   }
 
-  const clients: { id: string; name: string; domainId: string }[] = [];
+  const clients: { id: string; name: string; domainId: string; domainName: string }[] = [];
   for (const [index, label] of ['Acme Corp', 'Beta Ltd', 'Gamma Inc'].entries()) {
     const client = await owner.agent.post(`/api/workspaces/${organizationId}/clients`).send({
       name: label,
@@ -47,13 +47,27 @@ async function setup(plan: 'MOORING' | 'FAIRWAY' | 'HARBOR' | 'ADMIRALTY' = 'HAR
     });
     expect(client.status).toBe(201);
 
+    /**
+     * Suffixed per fixture.
+     *
+     * This block resets in `beforeAll`, so the table carries over between tests, and
+     * `Domain.name` is now unique across every workspace. That constraint is what
+     * stops two tenants holding one name and both silently going dark for it, so a
+     * shared name across fixtures had every test after the first refused with a 409.
+     */
+    const domainName = `${label.split(' ')[0]!.toLowerCase()}-${fixtureId}.test`;
     const domain = await owner.agent
       .post(`/api/workspaces/${organizationId}/clients/${client.body.id}/domains`)
-      .send({ name: `${label.split(' ')[0]!.toLowerCase()}.test` });
+      .send({ name: domainName });
     expect(domain.status).toBe(201);
 
     await prisma.domain.update({ where: { id: domain.body.id }, data: { status: 'VERIFIED', verifiedAt: new Date(), dmarcPolicy: 'reject', score: 92 } });
-    clients.push({ id: client.body.id as string, name: label, domainId: domain.body.id as string });
+    clients.push({
+      id: client.body.id as string,
+      name: label,
+      domainId: domain.body.id as string,
+      domainName,
+    });
   }
 
   return { ...owner, organizationId, clients };
@@ -175,7 +189,7 @@ describe('client portal access', () => {
 
     const own = await contact.agent.get(`/api/portal/domains/${clients[0]!.domainId}`);
     expect(own.status).toBe(200);
-    expect(own.body.domain.name).toBe('acme.test');
+    expect(own.body.domain.name).toBe(clients[0]!.domainName);
 
     for (const other of [clients[1]!, clients[2]!]) {
       const attempt = await contact.agent.get(`/api/portal/domains/${other.domainId}`);

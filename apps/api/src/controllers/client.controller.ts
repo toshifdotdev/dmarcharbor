@@ -4,6 +4,7 @@ import { createClientSchema, createDomainSchema, resourceIdSchema } from '../mod
 import {
   createClient,
   createDomain,
+  DomainNameTakenError,
   listClients,
   listDomains,
   verifyDomain,
@@ -58,17 +59,35 @@ export async function createDomainController(request: Request, response: Respons
   }
 
   try {
-    const domain = await createDomain(response.locals.organizationId, clientId.data, parsed.data);
-    if (!domain) {
+    const outcome = await createDomain(response.locals.organizationId, clientId.data, parsed.data);
+
+    if (!outcome) {
       response.status(404).json({ error: { message: 'Client not found in this workspace.' } });
       return;
     }
-    response.status(201).json(domain);
+
+    /**
+     * 200 rather than 201 when nothing was created.
+     *
+     * Re-adding a name the client already holds returns that domain rather than
+     * making a second one, because two rows for one name used to be what silently
+     * blinded report routing. Answering "Created" for a row that already existed
+     * would be a small lie on a route whose whole job is to be truthful about
+     * uniqueness.
+     */
+    response.status(outcome.created ? 201 : 200).json(outcome.domain);
   } catch (error) {
     if (error instanceof DomainValidationError) {
       response.status(400).json({ error: { message: error.message } });
       return;
     }
+    if (error instanceof DomainNameTakenError) {
+      response.status(409).json({
+        error: { message: error.message, code: error.code, domain: error.domainName },
+      });
+      return;
+    }
+
     if (isUniqueConstraint(error)) {
       response.status(409).json({ error: { message: 'That domain is already attached to this client.' } });
       return;

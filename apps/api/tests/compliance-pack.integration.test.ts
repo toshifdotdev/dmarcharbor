@@ -358,10 +358,22 @@ describe('compliance pack', () => {
 describe('compliance pack reference', () => {
   beforeAll(resetDatabase);
 
+  let issued = 0;
+
   async function issue() {
     const { agent, organizationId } = await setupWorkspace('HARBOR');
     const client = await addClient(agent, organizationId, 'Acme Corporation');
-    await addDomain(agent, organizationId, client.id, 'acme.test');
+    /**
+     * Distinct per call.
+     *
+     * This block resets in `beforeAll`, so the table carries over between the eight
+     * tests here. `Domain.name` is unique across every workspace now, which is what
+     * stops two tenants holding one name and both going silent for it, so a shared
+     * default had the second test refused with a 409. These tests are about the
+     * reference, not about which domain it was issued for.
+     */
+    issued += 1;
+    await addDomain(agent, organizationId, client.id, `acme-${issued}.test`);
     const response = await agent.post(`/api/workspaces/${organizationId}/clients/${client.id}/compliance-packs`).send({});
     return { agent, organizationId, client, response };
   }

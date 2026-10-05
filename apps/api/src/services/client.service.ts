@@ -35,7 +35,37 @@ export async function listDomains(organizationId: string, clientId?: string) {
   });
 }
 
-export async function createDomain(organizationId: string, clientId: string, input: CreateDomainRequest) {
+/**
+ * Raised when a name is already held by another workspace.
+ *
+ * A separate error because the response is not a generic failure. "This domain is
+ * already monitored by another workspace" is the whole answer, and returning a bare
+ * conflict would leave the operator guessing whether they mistyped or whether
+ * something is wrong.
+ */
+export class DomainNameTakenError extends Error {
+  readonly code = 'DOMAIN_ALREADY_MONITORED';
+  readonly status = 409;
+
+  constructor(public readonly domainName: string) {
+    super(
+      `${domainName} is already monitored by another workspace. Remove it there first, or ask them to release it.`,
+    );
+    this.name = 'DomainNameTakenError';
+  }
+}
+
+export interface CreateDomainOutcome {
+  domain: Awaited<ReturnType<typeof prisma.domain.findUnique>>;
+  /** False when this name was already held by this client and nothing was created. */
+  created: boolean;
+}
+
+export async function createDomain(
+  organizationId: string,
+  clientId: string,
+  input: CreateDomainRequest,
+): Promise<CreateDomainOutcome | null> {
   const client = await prisma.client.findFirst({
     where: { id: clientId, organizationId },
     select: { id: true },
@@ -45,15 +75,49 @@ export async function createDomain(organizationId: string, clientId: string, inp
     return null;
   }
 
-  const name = normalizeDomain(input.name);
+  /**
+   * Lowercased, because a DNS name is case-insensitive and the unique constraint
+   * is plain rather than on `lower(name)`.
+   *
+   * Report routing already compared names without case, so `Example.com` and
+   * `example.com` used to resolve to the same domain and were two rows. Storing one
+   * canonical form is what lets the database enforce what the routing layer
+   * assumed.
+   */
+  const name = normalizeDomain(input.name).toLowerCase();
 
-  return prisma.domain.create({
-    data: {
-      clientId,
-      name,
-      slug: domainSlug(name),
-    },
-  });
+  /**
+   * Refused up front, with an explanation.
+   *
+   * Without this the collision was accepted, both rows reached VERIFIED, and report
+   * routing then found two domains for one name and returned `ambiguous_domain` —
+   * at which point *neither* workspace received another report for that domain and
+   * nothing on either dashboard said why. One tenant naming a domain another
+   * tenant monitors was enough to silently blind them.
+   */
+  const existing = await prisma.domain.findUnique({ where: { name }, select: { id: true, clientId: true } });
+
+  if (existing && existing.clientId !== clientId) {
+    throw new DomainNameTakenError(name);
+  }
+
+  if (existing) {
+    // Already held by this client. Returning the same row is what stops a second one
+    // being created, which is the state that used to make routing ambiguous inside a
+    // single workspace too.
+    return { domain: await prisma.domain.findUnique({ where: { id: existing.id } }), created: false };
+  }
+
+  return {
+    domain: await prisma.domain.create({
+      data: {
+        clientId,
+        name,
+        slug: domainSlug(name),
+      },
+    }),
+    created: true,
+  };
 }
 
 /**

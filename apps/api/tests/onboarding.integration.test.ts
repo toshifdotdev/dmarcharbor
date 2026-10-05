@@ -1,4 +1,4 @@
-import { AlertMetric, AlertOperator } from '@prisma/client';
+﻿import { AlertMetric, AlertOperator } from '@prisma/client';
 import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
@@ -125,7 +125,16 @@ async function createWorkspace(
   expect(client.status).toBe(201);
 
   const domain = await agent.post(`/api/workspaces/${workspace.body.id}/clients/${client.body.id}/domains`).send({
-    name: options.domainName ?? 'onboard-client.test',
+    /**
+     * Unique per fixture.
+     *
+     * These blocks reset in `beforeAll`, not `beforeEach`, so the table carries over
+     * between tests in one. `Domain.name` is now unique across every workspace, which
+     * is what stops two tenants holding one name and both going silent for it, so a
+     * shared default would have the second test refused with a 409. The tests are
+     * about onboarding state rather than about which domain it is on.
+     */
+    name: options.domainName ?? `onboard-client-${fixtureId}.test`,
   });
   expect(domain.status).toBe(201);
 
@@ -148,6 +157,7 @@ async function createWorkspace(
     organizationId: workspace.body.id as string,
     clientId: client.body.id as string,
     domainId: domain.body.id as string,
+    domainName: domain.body.name as string,
   };
 }
 
@@ -219,7 +229,7 @@ describe('onboarding state', () => {
   });
 
   it('moves through awaiting reports to monitoring', async () => {
-    const { agent, organizationId, domainId } = await createWorkspace();
+    const { agent, organizationId, domainId, domainName } = await createWorkspace();
 
     const before = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/onboarding`);
     expect(before.body.state).toBe('AWAITING_REPORTS');
@@ -227,7 +237,7 @@ describe('onboarding state', () => {
     expect(flowing.status).toBe('pending');
 
     await agent.post(`/api/workspaces/${organizationId}/domains/${domainId}/reports`).send({
-      xml: aggregateReport('onboard-client.test', 'ob-1', [{ ip: '192.0.2.1', count: 5000, dkim: 'pass', spf: 'pass' }]),
+      xml: aggregateReport(domainName, 'ob-1', [{ ip: '192.0.2.1', count: 5000, dkim: 'pass', spf: 'pass' }]),
     });
 
     const after = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/onboarding`);
@@ -236,12 +246,12 @@ describe('onboarding state', () => {
   });
 
   it('marks a domain needing attention when alerts are open', async () => {
-    const { agent, organizationId, domainId, } = await createWorkspace({
+    const { agent, organizationId, domainId, domainName, } = await createWorkspace({
       dmarcRecord: 'v=DMARC1; p=none; rua=mailto:dmarc-reports@reports.dmarcharbor.com',
     });
 
     await agent.post(`/api/workspaces/${organizationId}/domains/${domainId}/reports`).send({
-      xml: aggregateReport('onboard-client.test', 'ob-2', [{ ip: '45.83.12.9', count: 900, dkim: 'fail', spf: 'fail' }]),
+      xml: aggregateReport(domainName, 'ob-2', [{ ip: '45.83.12.9', count: 900, dkim: 'fail', spf: 'fail' }]),
     });
 
     const member = await prisma.member.findFirstOrThrow({ where: { organizationId } });
@@ -304,10 +314,10 @@ describe('policy readiness', () => {
   });
 
   it('blocks tightening when open alerts exist even with good volume', async () => {
-    const { agent, organizationId, domainId } = await createWorkspace();
+    const { agent, organizationId, domainId, domainName } = await createWorkspace();
 
     await agent.post(`/api/workspaces/${organizationId}/domains/${domainId}/reports`).send({
-      xml: aggregateReport('onboard-client.test', 'ready-1', [
+      xml: aggregateReport(domainName, 'ready-1', [
         { ip: '192.0.2.1', count: 20_000, dkim: 'pass', spf: 'pass' },
       ]),
     });
@@ -350,10 +360,10 @@ describe('client-facing report share', () => {
   beforeAll(resetDatabase);
 
   it('serves a public report with no authentication and no personal data', async () => {
-    const { agent, organizationId, domainId } = await createWorkspace();
+    const { agent, organizationId, domainId, domainName } = await createWorkspace();
 
     await agent.post(`/api/workspaces/${organizationId}/domains/${domainId}/reports`).send({
-      xml: aggregateReport('onboard-client.test', 'share-1', [
+      xml: aggregateReport(domainName, 'share-1', [
         { ip: '45.83.12.9', count: 900, dkim: 'fail', spf: 'fail' },
         { ip: '192.0.2.1', count: 9000, dkim: 'pass', spf: 'pass' },
       ]),
@@ -377,7 +387,7 @@ describe('client-facing report share', () => {
     expect(publicView.body.sharedFor).toEqual({
       organization: 'Onboarding Agency',
       client: 'Acme Corp',
-      domain: 'onboard-client.test',
+      domain: domainName,
     });
     expect(publicView.body.health.score).toBe(82);
     expect(publicView.body.reporting.reportsReceived).toBe(1);
@@ -399,10 +409,10 @@ describe('client-facing report share', () => {
   });
 
   it('omits forensic and source data when the share excludes it', async () => {
-    const { agent, organizationId, domainId } = await createWorkspace();
+    const { agent, organizationId, domainId, domainName } = await createWorkspace();
 
     await agent.post(`/api/workspaces/${organizationId}/domains/${domainId}/reports`).send({
-      xml: aggregateReport('onboard-client.test', 'share-2', [{ ip: '45.83.12.9', count: 900, dkim: 'fail', spf: 'fail' }]),
+      xml: aggregateReport(domainName, 'share-2', [{ ip: '45.83.12.9', count: 900, dkim: 'fail', spf: 'fail' }]),
     });
 
     const share = await agent.post(`/api/workspaces/${organizationId}/report-shares`).send({
@@ -488,14 +498,14 @@ describe('client-facing report share', () => {
   });
 
   it('lists shares and stops viewers creating them', async () => {
-    const { agent, organizationId, domainId, } = await createWorkspace();
+    const { agent, organizationId, domainId, domainName, } = await createWorkspace();
     const member = await prisma.member.findFirstOrThrow({ where: { organizationId } });
 
     await agent.post(`/api/workspaces/${organizationId}/report-shares`).send({ domainId });
     const listed = await agent.get(`/api/workspaces/${organizationId}/report-shares`);
     expect(listed.status).toBe(200);
     expect(listed.body.items).toHaveLength(1);
-    expect(listed.body.items[0].domain.name).toBe('onboard-client.test');
+    expect(listed.body.items[0].domain.name).toBe(domainName);
     expect(listed.body.items[0].client.name).toBe('Acme Corp');
 
     await prisma.member.updateMany({ where: { userId: member.userId }, data: { role: 'viewer' } });

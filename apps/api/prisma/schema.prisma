@@ -234,7 +234,21 @@ model Domain {
   slug                   String                @unique
   clientId               String
   client                 Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  name                   String
+  /**
+   * Globally unique, and this is load bearing.
+   *
+   * It was unique only per client, which meant two tenants could both add
+   * `victim.com` and both reach VERIFIED. Report routing then found two rows for
+   * the same name and returned `ambiguous_domain`, so *neither* tenant received
+   * another report for that domain, ever, with nothing on either dashboard. One
+   * tenant being able to add a name another tenant monitors was enough to
+   * silently blind them.
+   *
+   * A domain belongs to exactly one agency in this product. A collision is refused
+   * at the point of entry with an explanation, rather than being allowed to
+   * accumulate into an ingestion outage nobody can see.
+   */
+  name                   String                @unique
   status                 DomainStatus          @default(PENDING)
   verificationToken      String                @unique @default(uuid())
   verifiedAt             DateTime?
@@ -268,7 +282,9 @@ model Domain {
   auditEvents            AuditLog[]
   reportDigests          ReportDigest[]
 
-  @@unique([clientId, name])
+  /// The per client constraint is gone. Global uniqueness on `name` above
+  /// subsumes it: two rows in one client with the same name would violate the
+  /// global one anyway, so keeping both meant two indexes to keep in step.
   @@index([clientId])
   @@index([status])
   @@map("domain")

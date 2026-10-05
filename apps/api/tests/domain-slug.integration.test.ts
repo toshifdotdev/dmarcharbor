@@ -66,23 +66,44 @@ describe('domain URL identifier', () => {
     expect(stored.slug).not.toBe(stored.id);
   });
 
-  it('never issues the same slug to two workspaces watching one domain', async () => {
+  it('refuses a second workspace watching one domain, rather than giving it a second slug', async () => {
     const mine = await workspace();
     const theirs = await workspace();
 
     const first = await mine.agent
       .post(`/api/workspaces/${mine.organizationId}/clients/${mine.clientId}/domains`)
       .send({ name: 'Duplicate.test' });
+
+    expect(first.status).toBe(201);
+
+    /**
+     * This used to succeed, with a slug suffixed so both rows could exist. That was
+     * the defect: `Domain.name` was unique per client only, so two rows for one
+     * name were legal, and report routing resolves a name to a domain. Finding two
+     * returned `ambiguous_domain` and *both* workspaces silently stopped receiving
+     * reports for that domain, with nothing on either dashboard saying why.
+     *
+     * A distinct slug per row is the wrong protection. It keeps the URLs
+     * distinguishable and does nothing about the routing outage. One owner per name
+     * is what makes the lookup unambiguous in the first place.
+     */
     const second = await theirs.agent
       .post(`/api/workspaces/${theirs.organizationId}/clients/${theirs.clientId}/domains`)
       .send({ name: 'Duplicate.test' });
 
-    const a = await prisma.domain.findUniqueOrThrow({ where: { id: first.body.id } });
-    const b = await prisma.domain.findUniqueOrThrow({ where: { id: second.body.id } });
+    expect(second.status).toBe(409);
+    expect(second.body.error.message).toContain('already monitored by another workspace');
 
-    // Two agencies may legitimately watch the same domain, so a slug derived from
-    // the name alone would collide and take out whichever imported second.
-    expect(a.slug).not.toBe(b.slug);
+    // Nothing was created for the refused workspace, so there is no second row for
+    // routing to trip over later.
+    expect(await prisma.domain.count({ where: { name: 'duplicate.test' } })).toBe(1);
+
+    const a = await prisma.domain.findUniqueOrThrow({ where: { id: first.body.id } });
+    // Still derived from the name, which is what makes it readable in a URL and in
+    // a pasted link. The exact suffix form is covered elsewhere; what matters here
+    // is that refusing the second workspace did not disturb the first one's row.
+    expect(a.slug).toMatch(/^duplicate-test/);
+    expect(a.name).toBe('duplicate.test');
   });
 
   it('gives every domain in a bulk import its own slug', async () => {

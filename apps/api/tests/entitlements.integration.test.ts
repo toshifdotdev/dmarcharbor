@@ -142,7 +142,7 @@ describe('plan entitlements', () => {
     const client = await addClient(agent, organizationId);
     const clientId = client.body.id as string;
 
-    for (const name of ['one.test', 'two.test', 'three.test', 'four.test']) {
+    for (const name of ['parked-one.test', 'parked-two.test', 'parked-three.test', 'parked-four.test']) {
       expect((await addDomain(agent, organizationId, clientId, name)).status).toBe(201);
     }
 
@@ -162,9 +162,9 @@ describe('plan entitlements', () => {
     const client = await addClient(agent, organizationId);
     const clientId = client.body.id as string;
 
-    expect((await addDomain(agent, organizationId, clientId, 'one.test')).status).toBe(201);
-    expect((await addDomain(agent, organizationId, clientId, 'two.test')).status).toBe(201);
-    expect((await addDomain(agent, organizationId, clientId, 'three.test')).status).toBe(402);
+    expect((await addDomain(agent, organizationId, clientId, 'grace-one.test')).status).toBe(201);
+    expect((await addDomain(agent, organizationId, clientId, 'grace-two.test')).status).toBe(201);
+    expect((await addDomain(agent, organizationId, clientId, 'grace-three.test')).status).toBe(402);
   });
 
   it('keeps charging for a domain that still receives reports', async () => {

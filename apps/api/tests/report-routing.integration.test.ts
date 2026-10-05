@@ -80,7 +80,7 @@ async function workspaceWithDomain(domainName: string, opts: { verified?: boolea
     },
   });
 
-  return { agent, organizationId, domainId: domain.id };
+  return { agent, organizationId, clientId: client.id, domainId: domain.id };
 }
 
 describe('routing an emailed report to its owner', () => {
@@ -116,25 +116,85 @@ describe('routing an emailed report to its owner', () => {
     expect(await prisma.dmarcReport.count()).toBe(0);
   });
 
-  it('refuses to guess when two workspaces monitor the same domain', async () => {
-    // Deliberately the same domain under two different workspaces. The schema
-    // only enforces uniqueness per client, so this state is reachable.
-    const first = await workspaceWithDomain('shared-route.test');
-    const second = await workspaceWithDomain('shared-route.test');
+  it('still refuses to guess if two rows for one name somehow exist', async () => {
+    /**
+     * The state this used to reach routinely.
+     *
+     * `Domain.name` was unique per client only, so two workspaces could hold the
+     * same name. Both then went silent for that domain at once, which is how this
+     * branch got written. The constraint has since closed, and the entry points now
+     * refuse the collision before it reaches the database.
+     *
+     * The index is dropped here on purpose. Reaching this branch legitimately is no
+     * longer possible, and a test that could only run against a defect nobody can
+     * reproduce would quietly rot. Forcing the old state proves the guard is still
+     * standing for the case that gets in some other way: a hand written insert, a
+     * partial restore, a future migration.
+     */
+    await prisma.$executeRawUnsafe('DROP INDEX IF EXISTS "domain_name_key"');
 
-    expect(first.domainId).not.toBe(second.domainId);
+    // Confirms the drop before the fixtures are built. Without this, a failure later
+    // in the test reports as a duplicate key on insert, which reads as a product bug
+    // when it is really the index never having gone.
+    const indexRows = await prisma.$queryRawUnsafe<{ n: number }[]>(
+      "SELECT count(*)::int AS n FROM pg_indexes WHERE tablename = 'domain' AND indexname = 'domain_name_key'",
+    );
+    expect(indexRows[0]?.n).toBe(0);
 
-    const outcome = await ingestDmarcReportByPolicyDomain(aggregateReport('shared-route.test', 'r-3'));
+    try {
+      const first = await workspaceWithDomain('shared-route.test');
+      const second = await workspaceWithDomain('shared-route.test');
 
-    // Picking either one would hand one agency's mail traffic to the other.
-    // Refusing is the only safe answer, and this is a genuine operational
-    // conflict a human has to resolve, not something to paper over.
-    expect(outcome.status).toBe('ambiguous_domain');
-    expect(outcome.status === 'ambiguous_domain' && outcome.reportDomain).toBe('shared-route.test');
+      expect(first.domainId).not.toBe(second.domainId);
+      // Both rows really are there, which is what makes this a test of the guard
+      // rather than a test of the constraint.
+      expect(await prisma.domain.count({ where: { name: 'shared-route.test' } })).toBe(2);
 
-    // The important half of the assertion: nothing was written to either side.
-    expect(await prisma.dmarcReport.count({ where: { policyDomain: 'shared-route.test' } })).toBe(0);
-    expect(await prisma.dmarcReport.count()).toBe(0);
+      const outcome = await ingestDmarcReportByPolicyDomain(aggregateReport('shared-route.test', 'r-3'));
+
+      // Picking either one would hand one agency's mail traffic to the other, so
+      // refusing is the only safe answer. This is a real conflict needing a human,
+      // not something to paper over.
+      expect(outcome.status).toBe('ambiguous_domain');
+      expect(outcome.status === 'ambiguous_domain' && outcome.reportDomain).toBe('shared-route.test');
+
+      // The important half: nothing was written to either side.
+      expect(await prisma.dmarcReport.count({ where: { policyDomain: 'shared-route.test' } })).toBe(0);
+      expect(await prisma.dmarcReport.count()).toBe(0);
+    } finally {
+      /**
+       * The duplicates go before the index does.
+       *
+       * Rebuilding the unique index over two rows sharing a name fails with exactly
+       * the duplicate key error this test was written to provoke, which reads as the
+       * product misbehaving when it is only the teardown being out of order.
+       */
+      await prisma.domain.deleteMany({ where: { name: 'shared-route.test' } });
+      await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX IF NOT EXISTS "domain_name_key" ON "domain"("name")');
+    }
+  });
+
+  it('keeps one owner per domain name through the API, so routing never has to guess', async () => {
+    const first = await workspaceWithDomain('single-owner.test');
+    const other = await workspaceWithDomain('single-owner-other.test');
+
+    /**
+     * The same conflict, refused at the door instead. This is the state the schema
+     * change is meant to make unreachable, asserted at the layer a tenant actually
+     * touches.
+     */
+    const refused = await other.agent
+      .post(`/api/workspaces/${other.organizationId}/clients/${other.clientId}/domains`)
+      .send({ name: 'single-owner.test' });
+
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.message).toContain('already monitored by another workspace');
+
+    const outcome = await ingestDmarcReportByPolicyDomain(aggregateReport('single-owner.test', 'r-5'));
+
+    expect(outcome.status).not.toBe('ambiguous_domain');
+    expect(await prisma.dmarcReport.count({ where: { policyDomain: 'single-owner.test' } })).toBe(1);
+    expect(first.domainId).toBeTruthy();
   });
 
   it('does not route to a domain that was never verified', async () => {

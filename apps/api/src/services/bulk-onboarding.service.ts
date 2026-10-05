@@ -221,6 +221,37 @@ export async function bulkImportDomains(input: {
   const usage = await quotaUsage(input.organizationId, 'activeDomain', entitlements.plan);
   let slots = Math.max(0, usage.limit - usage.used);
 
+  /**
+   * Lowercased for the same reason single adds are: a DNS name is case insensitive
+   * and the global uniqueness constraint is plain, so one canonical stored form is
+   * what makes the constraint mean what routing assumed it meant.
+   */
+  const candidates = input.domains.map(normaliseDomain);
+  const wanted = [...new Set(candidates.filter((name): name is string => Boolean(name)).map((n) => n.toLowerCase()))];
+
+  /**
+   * One indexed query for the whole import rather than one per row.
+   *
+   * This is the path where a collision actually happens in volume: an agency's own
+   * domain list routinely overlaps another agency's, and an import of several
+   * hundred rows would otherwise be several hundred round trips.
+   *
+   * Held globally, because `Domain.name` is unique across the whole table, not per
+   * client. Before that constraint, a single name in a customer's CSV could land a
+   * second row against another workspace's verified domain and stop *both* of them
+   * receiving reports for it, with nothing on either dashboard.
+   */
+  const claimed = new Map<string, string>();
+  if (wanted.length > 0) {
+    const held = await prisma.domain.findMany({
+      where: { name: { in: wanted } },
+      select: { name: true, clientId: true },
+    });
+    for (const row of held) {
+      claimed.set(row.name, row.clientId);
+    }
+  }
+
   const existing = new Set(
     (
       await prisma.domain.findMany({
@@ -231,7 +262,7 @@ export async function bulkImportDomains(input: {
   );
 
   for (const [index, raw] of input.domains.entries()) {
-    const name = normaliseDomain(raw);
+    const name = candidates[index]?.toLowerCase();
 
     if (!name) {
       result.failed.push({ index, name: raw, reason: 'That is not a usable domain name.' });
@@ -240,6 +271,16 @@ export async function bulkImportDomains(input: {
 
     if (existing.has(name)) {
       result.failed.push({ index, name, reason: 'That domain is already in this workspace.' });
+      continue;
+    }
+
+    const owner = claimed.get(name);
+    if (owner !== undefined && owner !== client.id) {
+      result.failed.push({
+        index,
+        name,
+        reason: 'That domain is already monitored by another workspace. Remove it there first, or ask them to release it.',
+      });
       continue;
     }
 
@@ -258,6 +299,7 @@ export async function bulkImportDomains(input: {
     });
 
     existing.add(name);
+    claimed.set(name, client.id);
     slots -= 1;
 
     result.created.push({
