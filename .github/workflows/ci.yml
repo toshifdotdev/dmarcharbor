@@ -78,6 +78,21 @@ jobs:
       - name: Build
         run: npm run build --workspace @dmarcharbor/api
 
+      - name: Build the web application
+        # The web app is built here for the first time. It had never been built in CI,
+        # which is part of how a broken contract reached a user: the API was changed to
+        # require two fields on workspace creation, every backend test was updated to
+        # send them, and the web client kept sending the old shape. Nothing in this
+        # pipeline compiled the thing that was actually broken.
+        #
+        # A Next.js build also type checks, so this is the gate that catches a server
+        # action or client call that no longer matches the API's shape.
+        run: npm run build --workspace @dmarcharbor/web
+        env:
+          # The build must not need a live API. Anything that reaches for one at build
+          # time is a bug that would otherwise only appear on the deploy machine.
+          API_BASE_URL: http://localhost:4000
+
       - name: Dependency audit
         # Blocking, because it currently reports zero vulnerabilities for production
         # dependencies and there is nothing to be lenient about.
