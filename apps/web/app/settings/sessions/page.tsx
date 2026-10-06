@@ -1,20 +1,28 @@
+import { redirect } from "next/navigation";
 import { listSessions } from "@/lib/api-phase7";
 import { resolveActiveWorkspace } from "@/lib/session";
 import { Shell } from "@/components/shell";
 import { SettingsNav } from "@/components/settings-nav";
 import { SessionsPanel } from "@/components/sessions-client";
+import { ErrorState } from "@/components/data-states";
 
 /**
  * Sessions — account security, the surface an MSP reaches for when a laptop
  * is lost. "Sign out everywhere else" is the primary action and spares this
  * session; the confirm-gated "everywhere, including this device" is the
  * deliberate compromise-response control.
+ *
+ * A failed load is NOT "0 devices": this is the one screen whose silence would
+ * tell a reader their account is clean when we simply could not look. The
+ * failure renders as a failure with a retry.
  */
 export default async function SessionsSettingsPage() {
   const { workspaces, active } = await resolveActiveWorkspace();
-  if (!active) return null;
+  if (!active) redirect("/welcome");
 
-  const { sessions } = await listSessions().catch(() => ({ sessions: [] }));
+  const loaded = await listSessions()
+    .then((r) => ({ sessions: r.sessions ?? [], failed: false }))
+    .catch(() => ({ sessions: [], failed: true }));
 
   return (
     <Shell workspaces={workspaces} activeWorkspace={active}>
@@ -28,7 +36,14 @@ export default async function SessionsSettingsPage() {
           </p>
         </header>
         <SettingsNav current="sessions" />
-        <SessionsPanel sessions={sessions} />
+        {loaded.failed ? (
+          <ErrorState
+            what="the signed-in device list"
+            detail="Check for a device you do not recognise only once this loads: an empty list here would be a guess, not a finding."
+          />
+        ) : (
+          <SessionsPanel sessions={loaded.sessions} />
+        )}
       </div>
     </Shell>
   );

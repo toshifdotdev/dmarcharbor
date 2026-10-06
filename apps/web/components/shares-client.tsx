@@ -15,6 +15,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { EntitlementNotice } from "@/components/entitlement-gate";
 import { createReportShare, revokeReportShare } from "@/lib/ops-client";
+import { shareHref } from "@/lib/route-hrefs";
 import { ConfirmAction } from "@/components/confirm-action";
 import type { ApiErrorBody, ReportShareRow } from "@/lib/types";
 
@@ -58,8 +59,9 @@ export function ShareForm({
     setBusy(false);
     if (!res.ok) setError(res.error);
     else {
-      // The API returns the existing public path: link to it, never rebuild.
-      setCreated(res.data.url);
+      // The customer-facing link is the RENDERED page, not the JSON the API
+      // serves the page from. The token is the contract; the path is ours.
+      setCreated(shareHref(res.data.token));
       router.refresh();
     }
   }
@@ -170,13 +172,13 @@ export function ShareForm({
               style={{ borderColor: "rgba(255,255,255,0.055)" }}
             >
               <a
-                href={`/api/reports/share/${s.token}`}
+                href={shareHref(s.token)}
                 target="_blank"
                 rel="noreferrer"
                 className="num text-[11.5px] underline"
                 style={{ color: s.revokedAt ? "var(--color-ink-3)" : "var(--color-ink-2)" }}
               >
-                /api/reports/share/{s.token.slice(0, 10)}…
+                /share/{s.token.slice(0, 10)}…
               </a>
               <span className="num text-[10.5px]" style={{ color: "var(--color-ink-3)" }}>
                 {s.revokedAt

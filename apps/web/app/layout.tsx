@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { BrandApplier } from "@/components/brand-applier";
+import { requestOrigin } from "@/lib/metadata-origin";
 import "./globals.css";
 
 /**
@@ -15,14 +16,30 @@ const inter = Inter({
   display: "swap",
 });
 
-export const metadata: Metadata = {
-  title: {
-    default: "DMARC Harbor",
-    template: "%s · DMARC Harbor",
-  },
-  description:
-    "DMARC email-authentication monitoring for MSPs and IT agencies. Measurement and evidence: never control.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  // metadataBase + canonical against the REQUEST's own origin: this build
+  // serves the product domain and branded custom domains at once, so a
+  // hardcoded base would canonically claim the wrong host on every agency's
+  // site. openGraph rides the same origin so shared links resolve.
+  const origin = await requestOrigin();
+  return {
+    metadataBase: new URL(origin),
+    title: {
+      default: "DMARC Harbor",
+      template: "%s · DMARC Harbor",
+    },
+    description:
+      "DMARC email-authentication monitoring for MSPs and IT agencies. Measurement and evidence: never control.",
+    alternates: { canonical: "/" },
+    openGraph: {
+      siteName: "DMARC Harbor",
+      title: "DMARC Harbor",
+      description:
+        "DMARC email-authentication monitoring for MSPs and IT agencies. Measurement and evidence: never control.",
+      type: "website",
+    },
+  };
+}
 
 // Every route in this app renders per request: the session cookie picks the
 // workspace and the custom-Host header picks the brand. There is nothing to

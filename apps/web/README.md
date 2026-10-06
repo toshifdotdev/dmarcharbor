@@ -13,6 +13,17 @@ cd apps/api && npx prisma migrate deploy && npm run dev   # API on :4000
 cd apps/web && npm run dev                              # web on :3100
 ```
 
+## Environment
+
+The web app reads exactly one variable: `API_BASE_URL`, the API this console
+talks to, including its `/api` suffix (`http://localhost:4000`). It is read
+server-side in two places: `next.config.ts` (the `/api/*` rewrite, fixed at
+build time) and the fetch helpers in `lib/`. A production build **fails** if it
+is unset, because a build that succeeds and then 500s at runtime for the user
+is worse than a build that stops. Dev keeps a `http://localhost:4000` default.
+There are no `NEXT_PUBLIC_*` variables: the browser reaches the API through the
+same-origin rewrite, so the session cookie stays first-party.
+
 ## Sign in (local dev)
 
 | | |

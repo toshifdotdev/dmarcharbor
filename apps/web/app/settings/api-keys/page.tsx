@@ -1,16 +1,25 @@
+import { redirect } from "next/navigation";
 import { listApiKeys, getWorkspaceEntitlements } from "@/lib/api-ops";
 import { resolveActiveWorkspace } from "@/lib/session";
 import Link from "next/link";
 import { Shell } from "@/components/shell";
 import { SettingsNav } from "@/components/settings-nav";
 import { ApiKeysPanel } from "@/components/api-keys-client";
+import { ErrorState } from "@/components/data-states";
 
+/**
+ * API keys. A failed key list is NOT "no keys": on this screen the list IS
+ * the audit of who can call the public API, and a silent empty list would
+ * hide a key an operator is trying to find. Failure renders as failure.
+ */
 export default async function ApiKeysSettingsPage() {
   const { workspaces, active } = await resolveActiveWorkspace();
-  if (!active) return null;
+  if (!active) redirect("/welcome");
 
   const [keyRes, entitlements] = await Promise.all([
-    listApiKeys(active.id).catch(() => ({ apiKeys: [] })),
+    listApiKeys(active.id)
+      .then((r) => ({ keys: r.apiKeys ?? [], failed: false }))
+      .catch(() => ({ keys: [], failed: true })),
     getWorkspaceEntitlements(active.id).catch(() => null),
   ]);
   const allowApi = entitlements?.features["api.access"] === true;
@@ -27,8 +36,13 @@ export default async function ApiKeysSettingsPage() {
         </header>
         <SettingsNav current="api-keys" />
 
-        {allowApi ? (
-          <ApiKeysPanel organizationId={active.id} keys={keyRes.apiKeys ?? []} />
+        {keyRes.failed ? (
+          <ErrorState
+            what="the API key list"
+            detail="This list is the audit of who can call the public API: an empty list here would hide keys that exist, not show a clean account."
+          />
+        ) : allowApi ? (
+          <ApiKeysPanel organizationId={active.id} keys={keyRes.keys} />
         ) : (
           <section
             className="lift rounded-[2px] border p-5"

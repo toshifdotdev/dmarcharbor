@@ -1,12 +1,17 @@
+import { redirect } from "next/navigation";
 import Link from "next/link";
 import { listClients } from "@/lib/api";
-import { getWorkspaceEntitlements } from "@/lib/api-ops";
+import { getWorkspaceEntitlements, trustCenterStatus } from "@/lib/api-ops";
 import { listCompliancePacks as listPacksPhase7 } from "@/lib/api-phase7";
 import { complianceHref } from "@/lib/route-hrefs";
+import { requestOrigin } from "@/lib/metadata-origin";
 import { resolveActiveWorkspace } from "@/lib/session";
 import { Shell } from "@/components/shell";
 import { SettingsNav } from "@/components/settings-nav";
 import { CompliancePackPanel } from "@/components/compliance-client";
+import { TrustCenterPanel } from "@/components/trust-center-client";
+import { ErrorState } from "@/components/data-states";
+import type { TrustSlugStatus } from "@/lib/types";
 
 /**
  * Compliance packs and the Trust Center, per client — the artefacts an MSP
@@ -23,24 +28,46 @@ export default async function ComplianceSettingsPage({
   searchParams: Promise<{ client?: string }>;
 }) {
   const { workspaces, active } = await resolveActiveWorkspace();
-  if (!active) return null;
+  if (!active) redirect("/welcome");
 
   const { client: wantedClient } = await searchParams;
-  const [clients, entitlements] = await Promise.all([
-    listClients(active.id).catch(() => []),
+  // A failed client load must not read as "create a client first": the two are
+  // different facts and only one of them is true at a time.
+  const [clientsResult, entitlements] = await Promise.all([
+    listClients(active.id)
+      .then((rows) => ({ clients: rows, failed: false }))
+      .catch(() => ({ clients: [], failed: true })),
     getWorkspaceEntitlements(active.id).catch(() => null),
   ]);
+  const clients = clientsResult.clients;
+  const clientsFailed = clientsResult.failed;
 
   const selected =
     clients.find((c) => c.id === wantedClient) ?? clients[0] ?? null;
 
   let packs: Awaited<ReturnType<typeof listPacksPhase7>> = { packs: [] };
+  let packsFailed = false;
   if (selected) {
-    packs = await listPacksPhase7(active.id, selected.id).catch(() => ({ packs: [] }));
+    const loaded = await listPacksPhase7(active.id, selected.id)
+      .then((r) => ({ packs: r, failed: false }))
+      .catch(() => ({ packs: { packs: [] } as Awaited<ReturnType<typeof listPacksPhase7>>, failed: true }));
+    packs = loaded.packs;
+    packsFailed = loaded.failed;
   }
 
   const allowCompliance = entitlements?.features["reports.compliancePack"] === true;
   const allowTrust = entitlements?.features["trust.center"] === true;
+  const origin = await requestOrigin();
+
+  // The Trust Center status is per client and read server-side: the panel is
+  // publish/revoke state, not a description of it.
+  let trustStatus: TrustSlugStatus = { url: null, slug: null };
+  if (selected) {
+    trustStatus = await trustCenterStatus(active.id, selected.id).catch(() => ({
+      url: null,
+      slug: null,
+    }));
+  }
 
   return (
     <Shell workspaces={workspaces} activeWorkspace={active}>
@@ -55,7 +82,12 @@ export default async function ComplianceSettingsPage({
         </header>
         <SettingsNav current="compliance" />
 
-        {clients.length === 0 ? (
+        {clientsFailed ? (
+          <ErrorState
+            what="the client list"
+            detail="Packs are issued per client, so nothing can be issued or shown until this loads. This is a connection or API problem, not an empty workspace."
+          />
+        ) : clients.length === 0 ? (
           <p className="text-[13.5px]" style={{ color: "var(--color-ink-3)" }}>
             Create a client first: packs are issued per client.{" "}
             <Link href="/clients" className="underline" style={{ color: "var(--color-ink)" }}>
@@ -83,7 +115,12 @@ export default async function ComplianceSettingsPage({
             </div>
 
             {selected ? (
-              allowCompliance ? (
+              packsFailed ? (
+                <ErrorState
+                  what={`the compliance packs for ${selected.name}`}
+                  detail="The issued packs could not be listed. An empty list here would read as none issued, which is a different claim entirely."
+                />
+              ) : allowCompliance ? (
                 <CompliancePackPanel
                   organizationId={active.id}
                   clientId={selected.id}
@@ -111,36 +148,35 @@ export default async function ComplianceSettingsPage({
               )
             ) : null}
 
-            <section
-              className="lift rounded-[2px] border p-5"
-              style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
-              data-feature="trust.center"
-            >
-              <h2 className="text-[16px] font-semibold tracking-[-0.012em]">
-                Trust Center{selected ? `: ${selected.name}` : ""}
-              </h2>
-              {allowTrust ? (
-                <p className="mt-2 text-[13px]" style={{ color: "var(--color-ink-2)" }}>
-                  The Trust Center is published per client from the client
-                  workspace. Issuing a link gives {selected?.name} an
-                  unguessable public address an auditor opens with no account:
-                  withdrawing the link takes the page down immediately.
+            {selected && allowTrust ? (
+              <TrustCenterPanel
+                organizationId={active.id}
+                clientId={selected.id}
+                clientName={selected.name}
+                initial={trustStatus}
+                origin={origin}
+              />
+            ) : selected ? (
+              <section
+                className="lift rounded-[2px] border p-5"
+                style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
+                data-feature="trust.center"
+              >
+                <h2 className="text-[16px] font-semibold tracking-[-0.012em]">
+                  Trust Center: {selected.name}
+                </h2>
+                <p className="mt-2 text-[13.5px]" style={{ color: "var(--color-ink-2)" }}>
+                  The public Trust Center is not included in your current plan.
                 </p>
-              ) : (
-                <>
-                  <p className="mt-2 text-[13.5px]" style={{ color: "var(--color-ink-2)" }}>
-                    The public Trust Center is not included in your current plan.
-                  </p>
-                  <Link
-                    href="/billing"
-                    className="mt-2 inline-block text-[13px] font-semibold underline"
-                    style={{ color: "var(--color-ink)" }}
-                  >
-                    See plan options
-                  </Link>
-                </>
-              )}
-            </section>
+                <Link
+                  href="/billing"
+                  className="mt-2 inline-block text-[13px] font-semibold underline"
+                  style={{ color: "var(--color-ink)" }}
+                >
+                  See plan options
+                </Link>
+              </section>
+            ) : null}
           </>
         )}
       </div>

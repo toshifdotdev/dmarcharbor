@@ -31,13 +31,16 @@ import type {
   ExportJob,
   IssuedApiKey,
   PlanDefinition,
+  PortalGrant,
   ReportDigestRow,
   ReportInboxSettings,
   ReportShareRow,
   ResolvedEntitlements,
   SlackDestination,
   SsoConnectionRow,
+  TrustSlugStatus,
   VerifyDomainResult,
+  WorkspaceInvitation,
   WorkspaceMemberRow,
   PageEnvelope,
 } from "./types";
@@ -467,6 +470,16 @@ export function listWorkspaceMembers(
   );
 }
 
+/** GET /api/auth/organization/list-invitations — the pending invitations for
+ *  a workspace, straight from the organization plugin that created them. */
+export function listPendingInvitations(
+  organizationId: string,
+): Promise<WorkspaceInvitation[]> {
+  return opsFetch<WorkspaceInvitation[]>(
+    `/api/auth/organization/list-invitations?organizationId=${encodeURIComponent(organizationId)}`,
+  );
+}
+
 export function getBranding(
   organizationId: string,
 ): Promise<BrandingSettings> {
@@ -678,5 +691,28 @@ export function revokeReportShare(
   return opsFetch<void>(
     `/api/workspaces/${organizationId}/report-shares/${shareId}`,
     { method: "DELETE" },
+  );
+}
+
+// ─── portal access grants (agency side) ─────────────────────────────────────
+
+// ─── trust center (agency side) ─────────────────────────────────────────────
+
+/** GET /clients/:id/trust-center — the publish status for one client. */
+export function trustCenterStatus(
+  organizationId: string,
+  clientId: string,
+): Promise<TrustSlugStatus> {
+  return opsFetch<TrustSlugStatus>(
+    `/api/workspaces/${organizationId}/clients/${clientId}/trust-center`,
+  );
+}
+
+/** GET /portal-access — every grant in the workspace, active and revoked. */
+export function listPortalAccess(
+  organizationId: string,
+): Promise<{ grants: PortalGrant[] }> {
+  return opsFetch<{ grants: PortalGrant[] }>(
+    `/api/workspaces/${organizationId}/portal-access`,
   );
 }

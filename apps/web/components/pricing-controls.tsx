@@ -37,6 +37,7 @@ export function PricingControls({
   persistable,
   organizationId,
   availableCurrencies = CURRENCIES,
+  defaultCurrency = null,
 }: {
   currency: PricingCurrency;
   interval: PricingInterval;
@@ -47,6 +48,9 @@ export function PricingControls({
   /** The currencies this deployment can actually charge. One entry collapses
     *  the group to a single chip — a one-option toggle is noise. */
   availableCurrencies?: readonly PricingCurrency[];
+  /** The API's own default (capabilities.defaultCurrency). The note naming
+    *  the default renders only when this is known. */
+  defaultCurrency?: string | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -107,9 +111,15 @@ export function PricingControls({
                 {c === "INR" ? "₹ INR" : "$ USD"}
               </button>
             ))}
-            <span className="num text-[11px]" style={{ color: "var(--color-ink-3)" }}>
-              INR is the default
-            </span>
+            {/* The default is the API's own answer (capabilities.defaultCurrency),
+                never a hardcoded claim: a note that names the wrong default
+                misleads every reader who takes it at its word. No response, no
+                note. */}
+            {defaultCurrency ? (
+              <span className="num text-[11px]" style={{ color: "var(--color-ink-3)" }}>
+                {defaultCurrency} is the default
+              </span>
+            ) : null}
           </div>
         ) : (
           // The collapsed state: one currency is purchasable, so this is an

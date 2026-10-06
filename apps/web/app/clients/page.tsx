@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import Link from "next/link";
 import { listClients } from "@/lib/api";
 import { getWorkspaceEntitlements } from "@/lib/api-ops";
@@ -16,7 +17,7 @@ import { AddDomainForm, CreateClientForm } from "@/components/clients-client";
  */
 export default async function ClientsPage() {
   const { workspaces, active } = await resolveActiveWorkspace();
-  if (!active) return null;
+  if (!active) redirect("/welcome");
 
   // Three states, never two: a failed load must not render as "no clients
   // yet": that is a lie that costs someone an afternoon. Loading is a real

@@ -1,16 +1,16 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { listClients, getOnboardingState, ApiError } from "@/lib/api";
 import {
   listReportShares,
-  verifyDomain,
   OpsError,
 } from "@/lib/api-ops";
 import { resolveActiveWorkspace } from "@/lib/session";
-import type { OnboardingState, ReportShareRow, DomainRow, VerifyDomainResult } from "@/lib/types";
+import type { OnboardingState, ReportShareRow, DomainRow } from "@/lib/types";
 import { Shell } from "@/components/shell";
 import { VerifyControls } from "@/components/onboarding-client";
 import { ShareForm } from "@/components/shares-client";
+import { ErrorState } from "@/components/data-states";
 
 /**
  * The onboarding funnel: verify ownership → publish the DMARC record → await
@@ -33,11 +33,18 @@ export default async function OnboardingPage({
 }) {
   const { domainId } = await params;
   const { workspaces, active } = await resolveActiveWorkspace();
-  if (!active) return null;
+  if (!active) redirect("/welcome");
 
+  // A failed client list is an API problem, NOT a missing domain: rendering
+  // not-found here told an operator their domain was gone on every transient
+  // blip. Distinguish the two facts.
   let domain: DomainRow | null = null;
   let clientName = "";
-  const clients = await listClients(active.id).catch(() => []);
+  let clientsFailed = false;
+  const clients = await listClients(active.id).catch(() => {
+    clientsFailed = true;
+    return [];
+  });
   for (const c of clients) {
     const hit = c.domains.find((d) => d.id === domainId);
     if (hit) {
@@ -46,38 +53,62 @@ export default async function OnboardingPage({
       break;
     }
   }
+  // Three facts the old code blurred into one notFound(): the client list
+  // failed (an API problem), the domain is not yours (a real 404), and the
+  // domain exists. Only the middle one is a missing domain. This page used to
+  // POST a live DNS verification on EVERY RENDER, which mutated domain status,
+  // emitted a webhook and emailed the customer again per page view: the lookup
+  // now happens when the operator presses the button, never on render.
+  let onboarding: OnboardingState | null = null;
+  let stateFailed: string | null = null;
+
   if (!domain) notFound();
 
-  let onboarding: OnboardingState;
-  let verification: VerifyDomainResult["verification"] | null;
-
-  try {
-    onboarding = await getOnboardingState(active.id, domainId);
-    // The ownership record + live lookup status live in the verify response.
-    // Running it here (idempotent: it only emits events on a transition) is
-    // how the page can show the record to publish before the operator clicks
-    // anything; a fresh check on demand re-runs it through the same path.
-    // The server client returns the response directly and throws on failure;
-    // only the browser wrapper wraps results in { ok, data }.
-    const verified = await verifyDomain(active.id, domainId).catch(() => null);
-    verification = verified ? verified.verification : null;
-  } catch (error) {
-    // Two clients throw two error classes: getOnboardingState goes through
-    // lib/api (ApiError), verifyDomain through lib/api-ops (OpsError). A 404
-    // from either is "this domain is not yours" and renders not-found: an
-    // unrecognised class would 500 instead.
-    if (
-      (error instanceof OpsError || error instanceof ApiError) &&
-      error.status === 404
-    ) {
-      notFound();
+  if (domain) {
+    try {
+      onboarding = await getOnboardingState(active.id, domainId);
+    } catch (error) {
+      if (
+        (error instanceof OpsError || error instanceof ApiError) &&
+        error.status === 404
+      ) {
+        notFound();
+      }
+      // A transient failure is a failure state on this page, not a blank
+      // screen and not a not-found: the operator's domain did not go anywhere.
+      stateFailed =
+        error instanceof Error ? error.message : "The domain state could not be loaded.";
     }
-    throw error;
   }
   const shares: ReportShareRow[] = (await listReportShares(active.id).catch(() => ({ items: [] }))).items;
 
   const steps = onboarding?.steps ?? [];
   const suggested = onboarding?.suggestedRecord ?? null;
+
+  // A failed load is its own page, not a ternary branch inside this one: a
+  // fragment spanning the whole body is how JSX nesting breaks, and the
+  // failure deserves a full page of its own anyway.
+  if (clientsFailed) {
+    return (
+      <Shell workspaces={workspaces} activeWorkspace={active}>
+        <div className="mx-auto w-full max-w-[560px] px-6 py-16">
+          <ErrorState
+            what="the client list"
+            detail="This page could not confirm which domain this is. That is an API problem, not a missing domain: the domain is still yours."
+          />
+        </div>
+      </Shell>
+    );
+  }
+  if (stateFailed) {
+    return (
+      <Shell workspaces={workspaces} activeWorkspace={active}>
+        <div className="mx-auto w-full max-w-[560px] px-6 py-16">
+          <ErrorState what="this domain's state" detail={stateFailed} />
+        </div>
+      </Shell>
+    );
+  }
 
   return (
     <Shell workspaces={workspaces} activeWorkspace={active}>
@@ -136,7 +167,7 @@ export default async function OnboardingPage({
                 <VerifyControls
                   organizationId={active.id}
                   domainId={domainId}
-                  initial={verification}
+                  initial={null}
                   published={domain.status === "VERIFIED"}
                 />
               </div>

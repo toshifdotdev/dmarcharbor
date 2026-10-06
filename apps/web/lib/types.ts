@@ -628,6 +628,17 @@ export interface WorkspaceMemberRow {
   user?: { id: string; name: string; email: string };
 }
 
+/** GET /api/auth/organization/list-invitations — a pending invitation row from
+ *  better-auth's organization plugin. */
+export interface WorkspaceInvitation {
+  id: string;
+  email: string;
+  role: string;
+  status?: string;
+  expiresAt?: string | null;
+  organizationId?: string;
+}
+
 export interface BrandingSettings {
   brandLogoUrl: string | null;
   brandPrimaryColor: string | null;
@@ -739,6 +750,21 @@ export interface IssuedPackMeta {
 }
 
 // ─── client portal (Phase 4) ─────────────────────────────────────────────────
+
+/** POST/GET/DELETE /api/workspaces/{id}/portal-access — the agency-side
+ *  management surface. The grant is held against an email and activates the
+ *  first time that person signs in, covering one client only. */
+export interface PortalGrant {
+  id: string;
+  clientId: string;
+  clientName: string;
+  email: string;
+  displayName: string | null;
+  active: boolean;
+  bound: boolean;
+  firstSeenAt: string | null;
+  createdAt: string;
+}
 
 /** GET /api/portal — the contact's view. Verified domains only. NEVER
  *  forensic data: portal contacts are outside that boundary by contract. */

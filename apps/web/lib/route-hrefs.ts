@@ -35,3 +35,11 @@ export function portalDomainHref(domainId: string): string {
 export function complianceHref(clientId: string): string {
   return `/settings/compliance?client=${encodeURIComponent(clientId)}`;
 }
+
+/** The RENDERED public share page — the document a client contact opens. The
+ *  API's own /api/reports/share/:token serves the same data as JSON for the
+ *  page to render; linking customers to that raw endpoint shows them a wall of
+ *  JSON instead of a report. Customers get this path. */
+export function shareHref(token: string): string {
+  return `/share/${encodeURIComponent(token)}`;
+}

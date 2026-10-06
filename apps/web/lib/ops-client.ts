@@ -18,6 +18,7 @@ import type {
   ErasureCreated,
   ExportJob,
   IssuedApiKey,
+  PortalGrant,
   SlackDestination,
   VerifyDomainResult,
 } from "./types";
@@ -76,6 +77,49 @@ async function call<T>(
 
 const wsPath = (orgId: string, tail: string) =>
   `/api/workspaces/${orgId}${tail}`;
+
+// ─── portal access grants (agency side) ─────────────────────────────────────
+
+/** POST /portal-access — grant a contact access to ONE client's portal. The
+ *  grant is held against the email address and activates the first time that
+ *  person signs in with it. */
+export const grantPortalAccess = (
+  orgId: string,
+  clientId: string,
+  body: { email: string; displayName?: string },
+) =>
+  call<PortalGrant & { notice?: string }>(
+    `${wsPath(orgId, "")}/clients/${clientId}/portal-access`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+
+/** GET /portal-access — every grant in the workspace, active and revoked. */
+export const listPortalAccess = (orgId: string) =>
+  call<{ grants: PortalGrant[] }>(wsPath(orgId, "/portal-access"));
+
+/** DELETE /portal-access/:id — revoke a grant. The contact loses the portal
+ *  the next time they load it. */
+export const revokePortalAccess = (orgId: string, accessId: string) =>
+  call<void>(wsPath(orgId, `/portal-access/${accessId}`), { method: "DELETE" });
+
+// ─── trust center (agency side) ─────────────────────────────────────────────
+
+/** POST /clients/:id/trust-center — publish the public Trust Center. Gated on
+ *  the trust.center entitlement. */
+export const createTrustCenter = (orgId: string, clientId: string) =>
+  call<{ url: string; slug: string }>(
+    `${wsPath(orgId, "")}/clients/${clientId}/trust-center`,
+    { method: "POST" },
+  );
+
+/** DELETE /clients/:id/trust-center — withdraw the link. The page goes down
+ *  immediately; publishing again mints a NEW slug, so a leaked address stays
+ *  dead. */
+export const revokeTrustCenter = (orgId: string, clientId: string) =>
+  call<{ status: string }>(
+    `${wsPath(orgId, "")}/clients/${clientId}/trust-center`,
+    { method: "DELETE" },
+  );
 
 // ─── alerts ──────────────────────────────────────────────────────────────────
 

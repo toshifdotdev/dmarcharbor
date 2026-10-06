@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { listClients } from "@/lib/api";
 import { getWorkspaceEntitlements, listReportDigests } from "@/lib/api-ops";
 import { resolveActiveWorkspace } from "@/lib/session";
@@ -8,7 +9,7 @@ import { DigestActions, DigestForm } from "@/components/digests-client";
 
 export default async function DigestsPage() {
   const { workspaces, active } = await resolveActiveWorkspace();
-  if (!active) return null;
+  if (!active) redirect("/welcome");
 
   const entitlements = await getWorkspaceEntitlements(active.id).catch(() => null);
   const digestsEnabled = entitlements?.features["digests"] === true;

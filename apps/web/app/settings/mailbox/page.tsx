@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getReportInbox, getWorkspaceEntitlements } from "@/lib/api-ops";
 import { resolveActiveWorkspace } from "@/lib/session";
@@ -15,7 +16,7 @@ import { ReportInboxForm } from "@/components/settings-client";
  */
 export default async function MailboxSettingsPage() {
   const { workspaces, active } = await resolveActiveWorkspace();
-  if (!active) return null;
+  if (!active) redirect("/welcome");
 
   const [inbox, entitlements] = await Promise.all([
     getReportInbox(active.id).catch(() => null),

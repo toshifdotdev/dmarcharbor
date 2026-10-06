@@ -9,6 +9,25 @@ import { MarketingHome } from "@/components/marketing";
 import { PortfolioGrid, type PortfolioRow } from "@/components/portfolio";
 import { EmptyState, ErrorState, LoadingState } from "@/components/data-states";
 import { UpgradePrompt } from "@/components/upgrade-gate";
+import { requestOrigin } from "@/lib/metadata-origin";
+import type { Metadata } from "next";
+
+/** The root route serves two different readers (stranger and operator), and
+ *  the stranger's page is the one a search engine sees. Its metadata describes
+ *  the product, not the portfolio. */
+export async function generateMetadata(): Promise<Metadata> {
+  const origin = await requestOrigin();
+  const title = "DMARC reports for MSPs managing client domains";
+  const description =
+    "DMARC monitoring for agencies and MSPs: posture per client domain, evidence you can hand over, and a client portal in your brand. Measurement and evidence: never control.";
+  return {
+    metadataBase: new URL(origin),
+    title,
+    description,
+    alternates: { canonical: "/" },
+    openGraph: { siteName: "DMARC Harbor", title, description, type: "website" },
+  };
+}
 
 /**
  * The root route serves two audiences:

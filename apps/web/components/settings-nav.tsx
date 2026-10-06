@@ -40,6 +40,12 @@ const SECTIONS: Array<{ key: string; href: string; label: string; blurb: string 
     blurb: "sign in through your own identity provider",
   },
   {
+    key: "portal",
+    href: "/settings/portal",
+    label: "Client portal",
+    blurb: "grant client contacts a read-only portal: never forensic data",
+  },
+  {
     key: "api-keys",
     href: "/settings/api-keys",
     label: "API keys",

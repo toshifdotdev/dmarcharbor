@@ -1,7 +1,11 @@
-import { listWorkspaceMembers } from "@/lib/api-ops";
+import { redirect } from "next/navigation";
+import { listPendingInvitations, listWorkspaceMembers } from "@/lib/api-ops";
 import { resolveActiveWorkspace } from "@/lib/session";
 import { Shell } from "@/components/shell";
 import { SettingsNav } from "@/components/settings-nav";
+import { MembersManager } from "@/components/members-client";
+import { ErrorState } from "@/components/data-states";
+import type { WorkspaceInvitation } from "@/lib/types";
 
 /**
  * Members — read-only roster plus the role model named in full. Five roles,
@@ -11,6 +15,10 @@ import { SettingsNav } from "@/components/settings-nav";
  *
  * Invitations, role changes and offboarding go through better-auth
  * organization endpoints and are a separate surface.
+ *
+ * A failed roster load is NOT "0 members": a workspace cannot audit who has
+ * access while the list silently lies. Failure renders as failure with a
+ * retry.
  */
 const ROLE_BLURB: Record<string, string> = {
   owner: "full control, and the only role that can change the plan",
@@ -22,11 +30,18 @@ const ROLE_BLURB: Record<string, string> = {
 
 export default async function MembersSettingsPage() {
   const { workspaces, active } = await resolveActiveWorkspace();
-  if (!active) return null;
+  if (!active) redirect("/welcome");
 
-  const members = await listWorkspaceMembers(active.id)
-    .then((r) => r.members ?? [])
-    .catch(() => []);
+  const loaded = await Promise.all([
+    listWorkspaceMembers(active.id)
+      .then((r) => ({ members: r.members ?? [], failed: false }))
+      .catch(() => ({ members: [], failed: true })),
+    listPendingInvitations(active.id)
+      .then((rows) => ({ invitations: rows ?? [], failed: false }))
+      .catch(() => ({ invitations: [] as WorkspaceInvitation[], failed: false })),
+  ]);
+  const members = loaded[0].members;
+  const invitations = loaded[1].invitations;
 
   return (
     <Shell workspaces={workspaces} activeWorkspace={active}>
@@ -41,49 +56,27 @@ export default async function MembersSettingsPage() {
         </header>
         <SettingsNav current="members" />
 
+        {loaded[0].failed ? (
+          <ErrorState
+            what="the member list"
+            detail="Who can work in this workspace is a question worth a correct answer: nothing here means we could not look, not that the workspace is empty."
+          />
+        ) : (
+          <MembersManager
+            organizationId={active.id}
+            members={members}
+            invitations={invitations}
+          />
+        )}
+
+        {/* The role model named in full: a membership list only shows roles
+            people hold, so a role like `portal` would otherwise be invisible
+            exactly where someone needs to understand it. */}
         <section
           className="lift rounded-[2px] border"
           style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
         >
-          <header className="border-b px-5 py-3.5" style={{ borderColor: "var(--color-line)" }}>
-            <h2 className="text-[16px] font-semibold tracking-[-0.012em]">
-              {members.length} member{members.length === 1 ? "" : "s"}
-            </h2>
-          </header>
-          <ul>
-            {members.map((m) => (
-              <li
-                key={m.id}
-                className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b px-5 py-3.5"
-                style={{ borderColor: "rgba(255,255,255,0.055)" }}
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="text-[13.5px]" style={{ color: "var(--color-ink)" }}>
-                    {m.user?.name ?? m.user?.email ?? m.userId}
-                  </div>
-                  <div className="text-[12px]" style={{ color: "var(--color-ink-3)" }}>
-                    {m.user?.email}
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div
-                    className="num text-[10.5px] tracking-[0.14em] uppercase"
-                    style={{ color: "var(--color-accent)" }}
-                  >
-                    {m.role}
-                  </div>
-                  <div className="text-[11px]" style={{ color: "var(--color-ink-3)" }}>
-                    {ROLE_BLURB[m.role] ?? ""}
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-
-          {/* The role model named in full: a membership list only shows roles
-              people hold, so a role like `portal` would otherwise be invisible
-              exactly where someone needs to understand it. */}
-          <div className="border-t px-5 py-4" style={{ borderColor: "var(--color-line)" }}>
+          <div className="px-5 py-4">
             <div className="label">The five roles</div>
             <dl className="mt-2.5 grid grid-cols-1 gap-x-8 gap-y-1.5 sm:grid-cols-2">
               {Object.entries(ROLE_BLURB).map(([role, blurb]) => (

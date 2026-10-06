@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import {
   getBillingCurrency,
   getBillingStatus,
@@ -22,7 +23,7 @@ import { DunningPanel } from "@/components/dunning-client";
  */
 export default async function BillingPage() {
   const { workspaces, active } = await resolveActiveWorkspace();
-  if (!active) return null;
+  if (!active) redirect("/welcome");
 
   const entitlements = await getWorkspaceEntitlements(active.id).catch(() => null);
   const catalog = await getPlanCatalog().catch(() => null);

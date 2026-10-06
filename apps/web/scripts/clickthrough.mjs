@@ -1126,13 +1126,16 @@ if (funnelHref) {
     `(() => {
       const link = document.querySelector('[data-testid="share-link"]');
       const href = link ? link.getAttribute('href') : '';
-      return { href, onExistingSurface: href.includes('/api/reports/share/') };
+      // The customer-facing link is the RENDERED report page. The API's
+      // /api/reports/share/:token is the JSON the page renders from: linking a
+      // client to that shows them raw JSON instead of a report.
+      return { href, onRenderedPage: href.includes('/share/') && !href.includes('/api/') };
     })()`,
     (a) => a && a.href !== "",
   );
   check(
-    "share links use the existing public share surface",
-    Boolean(shareAudit && shareAudit.onExistingSurface),
+    "share links point at the rendered report page, not raw JSON",
+    Boolean(shareAudit && shareAudit.onRenderedPage),
     JSON.stringify(shareAudit),
   );
 
@@ -1162,7 +1165,7 @@ if (funnelHref) {
   check("unpublished DNS shows as pending, never as failed", false, "no domain created");
   check("onboarding renders the API's own DMARC record (never assembled client-side)", false, "no domain created");
   check("onboarding steps use the API's verbatim copy (configured ≠ collectable)", false, "no domain created");
-  check("share links use the existing public share surface", false, "no domain created");
+  check("share links point at the rendered report page, not raw JSON", false, "no domain created");
   check("share links can be revoked", false, "no domain created");
   console.log("phase 5 shots:", shotClients);
 }

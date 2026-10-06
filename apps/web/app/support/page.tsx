@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { readHostBrand } from "@/lib/host-brand";
-import { LEGAL_DOCS } from "@/lib/legal-docs";
+import { LEGAL_DOCS, LEGAL_VERSION, LEGAL_EFFECTIVE_DATE, SUPPORT_PHONE_PLACEHOLDER } from "@/lib/legal-docs";
 import {
   HostUnverifiedBanner,
   MarketingFooter,
   MarketingHeader,
+  brandName,
 } from "@/components/marketing";
 
 /**
@@ -29,7 +30,7 @@ export default async function SupportPage() {
 
       <main className="mx-auto w-full max-w-[720px] px-6 py-12">
         <header className="border-b pb-6" style={{ borderColor: "var(--color-line-strong)" }}>
-          <p className="label">DMARC Harbor · Support</p>
+          <p className="label">{brandName(brand)} · Support</p>
           <h1
             className="mt-2 text-[30px] font-semibold leading-[1.15] tracking-[-0.03em]"
             style={{ fontFamily: "var(--font-display)" }}
@@ -37,7 +38,7 @@ export default async function SupportPage() {
             How to reach us
           </h1>
           <p className="num mt-2 text-[11.5px]" style={{ color: "var(--color-ink-3)" }}>
-            version 1.0 · effective at launch
+            version {LEGAL_VERSION} · effective {LEGAL_EFFECTIVE_DATE}
           </p>
         </header>
 
@@ -76,15 +77,16 @@ export default async function SupportPage() {
           >
             Phone
           </h2>
-          {/* The phone number is the business's to supply — an invented contact
-              detail on a legal page is a worse defect than a visible
-              placeholder. This line is replaced verbatim when it lands. */}
+          {/* The phone number is the business's to supply: an invented contact
+              detail on a legal page is a worse defect than a visible gap. The
+              marker comes from the shared constant, so it is replaced in one
+              edit when the number lands. */}
           <p
             role="status"
             className="mt-3 text-[13.5px] leading-[1.8]"
             style={{ color: "var(--color-unverified)" }}
           >
-            [phone number: supplied by the business before launch]
+            {SUPPORT_PHONE_PLACEHOLDER}
           </p>
           <p className="mt-2 text-[13px] leading-[1.8]" style={{ color: "var(--color-ink-2)" }}>
             Phone support hours are published with the number. Email support runs

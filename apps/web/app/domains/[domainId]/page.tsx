@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import {
   ApiError,
   deriveSignals,
@@ -22,7 +22,10 @@ export default async function DomainPage({
 }) {
   const { domainId } = await params;
   const { workspaces, active } = await resolveActiveWorkspace();
-  if (!active) notFound();
+  // No workspace is an onboarding step, never a 404: a bookmark to a domain
+  // detail page must land somewhere useful, not a "not found" for a page that
+  // exists.
+  if (!active) redirect("/welcome");
 
   let insights;
   let onboarding;

@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { getSlackDestination } from "@/lib/api-ops";
 import { resolveActiveWorkspace } from "@/lib/session";
 import { Shell } from "@/components/shell";
@@ -6,7 +7,7 @@ import { SlackForm } from "@/components/slack-client";
 
 export default async function SlackSettingsPage() {
   const { workspaces, active } = await resolveActiveWorkspace();
-  if (!active) return null;
+  if (!active) redirect("/welcome");
 
   const destination = await getSlackDestination(active.id).catch(() => null);
 

@@ -5,7 +5,7 @@ import {
   getPlanCatalog,
   type DeploymentCapabilities,
 } from "@/lib/api-ops";
-import { formatMinor } from "@/lib/money";
+import { formatMajor, formatMinor } from "@/lib/money";
 import { featureLabel } from "@/lib/feature-label";
 import { readHostBrand } from "@/lib/host-brand";
 import { pickActiveWorkspace } from "@/lib/session";
@@ -18,6 +18,25 @@ import {
   brandName,
 } from "@/components/marketing";
 import { PricingControls, type PricingCurrency, type PricingInterval } from "@/components/pricing-controls";
+import { requestOrigin } from "@/lib/metadata-origin";
+import type { Metadata } from "next";
+
+/** Pricing is the page a buyer shares with their finance team: it needs a
+ *  canonical and an OG card like any other public route, against the host the
+ *  request actually came in on (custom domains included). */
+export async function generateMetadata(): Promise<Metadata> {
+  const origin = await requestOrigin();
+  const title = "Pricing";
+  const description =
+    "Every plan, every figure, before the prose. Monthly and annual, in the currencies this deployment can actually charge.";
+  return {
+    metadataBase: new URL(origin),
+    title,
+    description,
+    alternates: { canonical: "/pricing" },
+    openGraph: { siteName: "DMARC Harbor", title: `${title} · DMARC Harbor`, description, type: "website" },
+  };
+}
 
 /**
  * pricing.tsx route — "The Statement refit" (pricing-lab/15-the-statement-refit,
@@ -116,6 +135,31 @@ export default async function PricingPage({
     );
   }
 
+  // Capabilities failing is NOT a footnote: without it we do not know which
+  // currencies this deployment can charge, and quoting one the checkout
+  // refuses is the exact lie this whole mechanism exists to prevent. Refuse to
+  // render prices instead of guessing. The catalog is fine; the question is
+  // what we may quote.
+  if (!capabilities) {
+    return (
+      <div className="relative z-10 min-h-screen" data-host-brand={brand.state}>
+        {brand.state === "unverified" ? <HostUnverifiedBanner /> : null}
+        <MarketingHeader brand={brand} current="pricing" />
+        <section className="mx-auto w-full max-w-[1180px] px-6 pt-14">
+          <h1 className="text-[34px] font-semibold tracking-[-0.032em]" style={{ fontFamily: "var(--font-display)" }}>
+            Pricing
+          </h1>
+          <p role="alert" className="mt-4 max-w-[62ch] text-[14px]" style={{ color: "var(--color-ink-2)" }}>
+            The list of currencies we can actually charge did not load. Rather
+            than quote a price a checkout might refuse, nothing is shown. Try
+            again in a moment.
+          </p>
+        </section>
+        <MarketingFooter brand={brand} />
+      </div>
+    );
+  }
+
   const ordered = catalog.order
     .map((tier) => catalog.plans.find((p) => p.tier === tier))
     .filter((p): p is PlanDefinition => Boolean(p));
@@ -159,6 +203,7 @@ export default async function PricingPage({
             persistable={Boolean(organizationId)}
             organizationId={organizationId}
             availableCurrencies={purchasableCurrencies(capabilities)}
+            defaultCurrency={capabilities.defaultCurrency ?? null}
           />
         </div>
       </section>
@@ -235,7 +280,7 @@ export default async function PricingPage({
                   >
                     {currency === "USD" ? "$" : "₹"}
                   </span>
-                  <span data-testid={`plan-price-${plan.tier}`}>{shownMajor(lead, interval)}</span>
+                  <span data-testid={`plan-price-${plan.tier}`}>{formatMajor(shownMinor(lead, interval), currency)}</span>
                   {shownFraction(lead, interval) ? (
                     <span style={{ color: "var(--color-ink-2)", letterSpacing: "0", fontSize: "0.57em", lineHeight: 1 }}>
                       .{shownFraction(lead, interval)}
@@ -419,10 +464,6 @@ export default async function PricingPage({
 /** The price of the SELECTED interval, as one figure. */
 function shownMinor(price: PlanPriceMinor, interval: PricingInterval): number {
   return interval === "monthly" ? price.monthlyMinor : price.annualMinor;
-}
-
-function shownMajor(price: PlanPriceMinor, interval: PricingInterval): number {
-  return Math.trunc(shownMinor(price, interval) / 100);
 }
 
 function shownFraction(price: PlanPriceMinor, interval: PricingInterval): string {

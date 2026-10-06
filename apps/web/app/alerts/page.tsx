@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { listAlertEvents, listAlertRules, getWorkspaceEntitlements, listWorkspaceMembers } from "@/lib/api-ops";
 import { listClients } from "@/lib/api";
 import { resolveActiveWorkspace } from "@/lib/session";
@@ -9,7 +10,7 @@ import { AcknowledgeButton, AlertRuleActions, AlertRuleForm } from "@/components
 
 export default async function AlertsPage() {
   const { workspaces, active } = await resolveActiveWorkspace();
-  if (!active) return null;
+  if (!active) redirect("/welcome");
 
   let entitlements;
   try {

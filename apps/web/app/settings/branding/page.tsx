@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { getBranding, getWorkspaceEntitlements } from "@/lib/api-ops";
 import { resolveActiveWorkspace } from "@/lib/session";
 import { Shell } from "@/components/shell";
@@ -17,7 +18,7 @@ import { WhiteLabelForm } from "@/components/settings-client";
  */
 export default async function BrandingSettingsPage() {
   const { workspaces, active } = await resolveActiveWorkspace();
-  if (!active) return null;
+  if (!active) redirect("/welcome");
 
   const [branding, entitlements] = await Promise.all([
     getBranding(active.id).catch(() => null),

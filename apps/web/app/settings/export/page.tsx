@@ -1,9 +1,11 @@
+import { redirect } from "next/navigation";
 import { listClients } from "@/lib/api";
 import { listExports } from "@/lib/api-ops";
 import { resolveActiveWorkspace } from "@/lib/session";
 import { Shell } from "@/components/shell";
 import { SettingsNav } from "@/components/settings-nav";
 import { ExportPanel } from "@/components/export-client";
+import { ErrorState } from "@/components/data-states";
 
 /**
  * Data export — a data-subject right, free on every plan. The API's lifecycle
@@ -12,15 +14,23 @@ import { ExportPanel } from "@/components/export-client";
  */
 export default async function ExportSettingsPage() {
   const { workspaces, active } = await resolveActiveWorkspace();
-  if (!active) return null;
+  if (!active) redirect("/welcome");
 
   const [clients, exportsRes] = await Promise.all([
     listClients(active.id).catch(() => []),
-    listExports(active.id).catch(() => ({
-      exports: [],
-      linkDays: 7,
-      recordRetentionDays: 400,
-    })),
+    listExports(active.id)
+      .then((r) => ({
+        exports: r.exports ?? [],
+        linkDays: r.linkDays ?? 7,
+        recordRetentionDays: r.recordRetentionDays ?? 400,
+        failed: false,
+      }))
+      .catch(() => ({
+        exports: [],
+        linkDays: 7,
+        recordRetentionDays: 400,
+        failed: true,
+      })),
   ]);
 
   return (
@@ -34,12 +44,19 @@ export default async function ExportSettingsPage() {
           </p>
         </header>
         <SettingsNav current="export" />
-        <ExportPanel
-          organizationId={active.id}
-          jobs={exportsRes.exports ?? []}
-          linkDays={exportsRes.linkDays ?? 7}
-          clients={clients.map((c) => ({ id: c.id, name: c.name }))}
-        />
+        {exportsRes.failed ? (
+          <ErrorState
+            what="the export job list"
+            detail="A prepared export is a data-subject request somebody is waiting on: an empty list here would hide it, not show there are none."
+          />
+        ) : (
+          <ExportPanel
+            organizationId={active.id}
+            jobs={exportsRes.exports ?? []}
+            linkDays={exportsRes.linkDays ?? 7}
+            clients={clients.map((c) => ({ id: c.id, name: c.name }))}
+          />
+        )}
       </div>
     </Shell>
   );

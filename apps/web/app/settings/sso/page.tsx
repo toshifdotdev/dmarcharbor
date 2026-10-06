@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getWorkspaceEntitlements, listSsoConnections } from "@/lib/api-ops";
 import { resolveActiveWorkspace } from "@/lib/session";
@@ -15,7 +16,7 @@ import { SsoSection } from "@/components/settings-client";
  */
 export default async function SsoSettingsPage() {
   const { workspaces, active } = await resolveActiveWorkspace();
-  if (!active) return null;
+  if (!active) redirect("/welcome");
 
   const [entitlements, ssoRes] = await Promise.all([
     getWorkspaceEntitlements(active.id).catch(() => null),
