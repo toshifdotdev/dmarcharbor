@@ -21,6 +21,7 @@ const empty: RetentionSweep = {
   idempotencyRecords: 0,
   ssoAuthRequests: 0,
   billingPayloads: 0,
+  rateLimitBuckets: 0,
 };
 
 export async function runRetentionOnce(): Promise<RetentionSweep> {
@@ -40,11 +41,15 @@ export async function runRetentionOnce(): Promise<RetentionSweep> {
     const summary = await withJobLease('retention-sweep', async () => {
       const swept = await purgeExpiredData();
       const total =
-        swept.exportJobs + swept.idempotencyRecords + swept.ssoAuthRequests + swept.billingPayloads;
+        swept.exportJobs +
+        swept.idempotencyRecords +
+        swept.ssoAuthRequests +
+        swept.billingPayloads +
+        swept.rateLimitBuckets;
 
       if (total > 0) {
         console.info(
-          `[retention] removed ${swept.exportJobs} export job(s), ${swept.idempotencyRecords} idempotency record(s), ${swept.ssoAuthRequests} SSO request(s) and emptied ${swept.billingPayloads} billing payload(s)`,
+          `[retention] removed ${swept.exportJobs} export job(s), ${swept.idempotencyRecords} idempotency record(s), ${swept.ssoAuthRequests} SSO request(s), emptied ${swept.billingPayloads} billing payload(s) and dropped ${swept.rateLimitBuckets} expired rate limit bucket(s)`,
         );
       }
 

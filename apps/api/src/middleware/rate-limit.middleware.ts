@@ -1,17 +1,31 @@
 import rateLimit, { type RateLimitRequestHandler } from 'express-rate-limit';
 import { env } from '../config/env.js';
+import { rateLimitStoreFor } from './postgres-rate-limit-store.js';
 
 /**
- * Counter store.
+ * Counter stores, shared across replicas.
  *
- * Deliberately the default in-memory store for now. Two consequences, both
- * known and both accepted until a shared store is wired: counters reset on
- * every deploy, and behind N replicas the effective global limit is `limit * N`.
- * The failure mode of moving to a shared store later is that every key becomes
- * `ip:127.0.0.1` unless `trust proxy` is configured, so item 9 below is the
- * prerequisite for that change, not an optional extra.
+ * These were the library's default in-process `Map`, and behind a load balancer that
+ * means every replica enforces its own complete budget. A limit written as 600 per
+ * minute was 1800 across three replicas and 1800 across six, with nothing in the
+ * configuration to indicate it. The same Map reset on every deploy, which quietly made
+ * a rolling restart a way to exceed a budget repeatedly.
+ *
+ * The store is now a Postgres table. The service already depends on it, it is already
+ * required for any request to succeed, and there is no Redis here to introduce. The
+ * cost is a round trip per limited request, which is why these limiters are mounted
+ * only where they do work rather than on every route.
+ *
+ * One store instance per limiter, each carrying its own name, because the library does
+ * not tell a store which limiter is calling it. Sharing a single instance would have put
+ * every limiter's buckets in the same rows, so a client who exhausted their sign-in
+ * budget would silently exhaust their API budget as well.
+ *
+ * The prerequisite the old comment warned about is in place: `trust proxy` is set from
+ * `TRUST_PROXY_HOPS`, so every replica agrees on the client address and therefore on
+ * the bucket. Without it a shared store would have been worse than a per-process one,
+ * collapsing every client in the service into a single key.
  */
-const store = undefined;
 
 /**
  * A stable bucket for one client address.
@@ -53,7 +67,7 @@ export const scanRateLimiter = rateLimit({
   limit: 20,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
-  store,
+  store: rateLimitStoreFor('scan'),
   keyGenerator: clientKey,
 });
 
@@ -62,7 +76,7 @@ export const reportIngestRateLimiter = rateLimit({
   limit: 30,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
-  store,
+  store: rateLimitStoreFor('report-ingest'),
   keyGenerator: clientKey,
 });
 
@@ -71,7 +85,7 @@ export const secureSessionRouterRateLimiter = rateLimit({
   limit: 10,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
-  store,
+  store: rateLimitStoreFor('session-router'),
   keyGenerator: clientKey,
   message: {
     error: {
@@ -99,7 +113,7 @@ export function createAuthRateLimiter(limit = env.AUTH_RATE_LIMIT_PER_MINUTE): R
     limit,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    store,
+    store: rateLimitStoreFor('auth'),
     keyGenerator: clientKey,
     message: {
       error: {
@@ -139,7 +153,7 @@ export function createWorkspaceRateLimiter(
     limit,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    store,
+    store: rateLimitStoreFor('api-key'),
     keyGenerator: clientKey,
     message: {
       error: {
@@ -168,7 +182,7 @@ export const apiRateLimiter = rateLimit({
   limit: 300,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
-  store,
+  store: rateLimitStoreFor('api'),
   keyGenerator: clientKey,
   message: {
     error: {
@@ -191,7 +205,7 @@ export function createApiKeyRateLimiter(limit = env.API_RATE_LIMIT_PER_MINUTE): 
     limit,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    store,
+    store: rateLimitStoreFor('compliance-verify'),
     keyGenerator: (request, response) => {
       const keyId = (response?.locals as { apiKeyId?: string } | undefined)?.apiKeyId;
       return keyId ? `key:${keyId}` : `ip:${clientKey(request)}`;
@@ -227,7 +241,7 @@ export const compliancePackVerifyRateLimiter = rateLimit({
   limit: 10,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
-  store,
+  store: rateLimitStoreFor('workspace'),
   keyGenerator: clientKey,
   message: {
     error: {
@@ -237,17 +251,21 @@ export const compliancePackVerifyRateLimiter = rateLimit({
   },
 });
 
-export const publicReportRateLimiter = rateLimit({
-  windowMs: 60_000,
-  limit: 30,
-  standardHeaders: 'draft-7',
-  legacyHeaders: false,
-  store,
-  keyGenerator: clientKey,
-  message: {
-    error: {
-      code: 'RATE_LIMITED',
-      message: 'Too many report views. Try again shortly.',
+export function createPublicReportRateLimiter(
+  limit = env.PUBLIC_REPORT_RATE_LIMIT_PER_MINUTE,
+): RateLimitRequestHandler {
+  return rateLimit({
+    windowMs: 60_000,
+    limit,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    store: rateLimitStoreFor('public-report'),
+    keyGenerator: clientKey,
+    message: {
+      error: {
+        code: 'RATE_LIMITED',
+        message: 'Too many report views. Try again shortly.',
+      },
     },
-  },
-});
+  });
+}

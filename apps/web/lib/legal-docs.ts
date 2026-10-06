@@ -20,9 +20,19 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /** Paddle's mandated paragraph, word for word. A compliance requirement of the
- *  payment processor — not our copy to rewrite. */
+ *  payment processor - not our copy to rewrite.
+ *
+ *  Scoped to the orders Paddle actually processes, which is the change from the
+ *  previous wording. It used to say Paddle is "the Merchant of Record for all our
+ *  orders", and that paragraph was rendered unconditionally on the fallback Terms page.
+ *  The default currency is INR, INR routes to Razorpay, and Razorpay is a gateway
+ *  rather than a reseller - so the majority of customers were told a company that has
+ *  no record of their payment was their merchant of record. The real document has said
+ *  this correctly since the backend was fixed; only this fallback had not caught up,
+ *  which is the worst kind of drift because the fallback is what a page shows when
+ *  the document is missing. */
 export const PADDLE_ORDER_PROCESS_PARAGRAPH =
-  "Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders. Paddle provides all customer service inquiries and handles returns.";
+  "Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for the orders it processes. Paddle provides all customer service inquiries and handles returns for those orders.";
 
 /** The version of these documents. ONE constant: the acceptance record stores
  *  the DPA version (apps/api's currentDpaVersion), and a page that printed a
@@ -47,6 +57,21 @@ export const REGISTERED_ADDRESS_PLACEHOLDER = "[registered address: supplied by 
 
 /** The support email: supplied, so it substitutes as a real value. */
 export const SUPPORT_EMAIL = "support@dmarcharbor.com";
+
+/** The other half of the merchant-of-record section, so the fallback cannot mislead an
+ *  INR customer into believing the Paddle paragraph above applies to them.
+ *
+ *  Declared after the two constants it interpolates, and mirroring section 6 of
+ *  docs/TERMS-OF-SERVICE.md. The fallback used to carry only the Paddle paragraph,
+ *  which is how a page shown *instead of* the real document was the one place still
+ *  telling every customer the wrong merchant. */
+export const RAZORPAY_ORDER_PROCESS_PARAGRAPH =
+  `Razorpay processes the payment as our payment gateway. Razorpay is not the seller and does not handle your purchase. The contracting party is ${LEGAL_ENTITY_PLACEHOLDER}, and enquiries and returns for these orders go to ${SUPPORT_EMAIL}.`;
+
+/** Stated before either paragraph, so a reader does not have to work out which one
+ *  applies to them. */
+export const MERCHANT_OF_RECORD_PREAMBLE =
+  "Which company sells to you depends on the currency you paid in. They are not the same company, and the distinction decides who you contact about a payment.";
 
 /** Tokens in the supplied documents, replaced as the markdown is rendered.
  *  Supplied values substitute as themselves; unsupplied ones become
@@ -87,8 +112,12 @@ export const LEGAL_DOCS: LegalDoc[] = [
     ],
     required: [
       {
-        heading: "Merchant of Record",
-        paragraphs: [PADDLE_ORDER_PROCESS_PARAGRAPH],
+        heading: "Order process and merchant of record",
+        paragraphs: [
+          MERCHANT_OF_RECORD_PREAMBLE,
+          `**Purchases in US dollars, through Paddle:** ${PADDLE_ORDER_PROCESS_PARAGRAPH}`,
+          `**Purchases in Indian rupees, through Razorpay:** ${RAZORPAY_ORDER_PROCESS_PARAGRAPH}`,
+        ],
       },
       {
         heading: "The parties",
@@ -175,22 +204,45 @@ export const LEGAL_DOCS: LegalDoc[] = [
 export const LEGAL_BY_SLUG = new Map(LEGAL_DOCS.map((d) => [d.slug, d]));
 
 /** The document body: the file when it exists, the honest placeholder when it
- *  does not. Never both — a placeholder must not survive its file. */
-/** The document body: the file when it exists, the honest placeholder when it
  *  does not. Never both — a placeholder must not survive its file. Supplied
  *  facts substitute as the body is read, so one constant change lands on every
  *  page instead of leaving a hand-edited copy in each document. */
 export function legalBody(doc: LegalDoc): { kind: "file" | "placeholder"; text: string } {
   if (doc.sourceFile) {
+    let raw: string;
+
     try {
-      const raw = readFileSync(join(process.cwd(), "..", "..", "docs", doc.sourceFile), "utf8");
-      let text = raw;
-      for (const [pattern, value] of LEGAL_SUBSTITUTIONS) text = text.replace(pattern, value);
-      return { kind: "file", text };
-    } catch {
-      // The file has not landed yet: fall through to the placeholder.
+      raw = readFileSync(join(process.cwd(), "..", "..", "docs", doc.sourceFile), "utf8");
+    } catch (cause) {
+      /**
+       * A document that declares a source file and cannot read it is a build
+       * problem, not a missing document.
+       *
+       * This used to fall through to the placeholder, which is honest in development
+       * and catastrophic in production: the file is read from `../../docs`, a path that
+       * resolves in this monorepo checkout and does not exist in an image that ships
+       * only `apps/web`. The catch fired, every legal page rendered "This document is
+       * being finalised and will be published before launch", and nothing anywhere
+       * failed. An auditor opening /terms on a live site gets a placeholder that no
+       * error ever mentioned.
+       *
+       * So it throws. The document's own comment already says a placeholder must not
+       * survive its file, and this is the enforcement of that.
+       */
+      throw new Error(
+        `Legal document "${doc.slug}" declares sourceFile "${doc.sourceFile}" and it could not be read ` +
+          `(looked in ${join(process.cwd(), "..", "..", "docs", doc.sourceFile)}). ` +
+          "A legal page must never silently fall back to a placeholder: ship docs/ with the build, " +
+          "or set sourceFile to null if the document genuinely does not exist yet.",
+        { cause },
+      );
     }
+
+    let text = raw;
+    for (const [pattern, value] of LEGAL_SUBSTITUTIONS) text = text.replace(pattern, value);
+    return { kind: "file", text };
   }
+
   return {
     kind: "placeholder",
     text: (doc.placeholder ?? ["This document is being finalised and will be published before launch."]).join(

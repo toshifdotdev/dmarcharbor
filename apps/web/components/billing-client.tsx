@@ -36,6 +36,7 @@ export function PlanPicker({
   provider,
   cancelAtPeriodEnd,
   account,
+  retention,
 }: {
   organizationId: string;
   plans: PlanDefinition[];
@@ -52,6 +53,19 @@ export function PlanPicker({
    *  The checkout contact is this — the API validates name (min 2) and a real
    *  email, so an empty payload is a guaranteed 400. */
   account: { name: string; email: string } | null;
+  /**
+   * The retention this deployment actually enforces, from `GET /api/meta`.
+   *
+   * Replaces `plan.dataRetentionDays` and `plan.auditRetentionDays`, which were
+   * printed here as "Data retention" and "Audit retention" and mean nothing. The
+   * first is a quota input about dormant domains; the second is read by no code at
+   * all. They are identical on every plan, which is the tell: a real per-plan
+   * retention limit would differ.
+   *
+   * Null while it loads. Rather than print the old figures, the row is omitted, so
+   * the worst case is a missing number rather than a false one.
+   */
+  retention: { reportDays: number; forensicDays: number; forensicPiiDays: number } | null;
 }) {
   const router = useRouter();
   const [interval, setInterval] = useState<"monthly" | "annual">("monthly");
@@ -346,9 +360,37 @@ export function PlanPicker({
                   <Limit label="Clients" value={plan.maxClients} />
                   <Limit label="Active domains" value={plan.maxActiveDomains} />
                   <Limit label="Members" value={plan.maxMembers} />
-                  <Limit label="Data retention" value={`${plan.dataRetentionDays}d`} />
-                  <Limit label="Audit retention" value={`${plan.auditRetentionDays}d`} />
+
+                  {/*
+                    The enforced windows, and only when the service has told us what
+                    they are. Same on every plan, because retention is a property of the
+                    deployment rather than of the tier - which is exactly why these
+                    numbers do not belong on a plan card at all, and are shown once
+                    beneath the comparison instead.
+                  */}
                 </dl>
+
+                {/*
+                  One retention statement for the whole comparison, because it is one
+                  fact about the deployment rather than four facts about the tiers.
+
+                  It used to be printed on every plan card, where four identical
+                  figures read as a per-plan allowance nobody could identify. The audit
+                  trail is named as having no automatic expiry rather than being given
+                  a number, because no number is true of it: nothing deletes an audit
+                  log, and claiming a window would be the same defect again.
+                */}
+                {retention ? (
+                  <p
+                    className="mt-3 text-[12.5px] leading-relaxed"
+                    style={{ color: "var(--color-ink-3)" }}
+                  >
+                    Retention, on every plan: aggregate reports {retention.reportDays} days,
+                    forensic reports {retention.forensicDays} days, named forensic recipient
+                    data {retention.forensicPiiDays} days. The audit trail has no automatic
+                    expiry.
+                  </p>
+                ) : null}
 
                 <button
                   type="button"

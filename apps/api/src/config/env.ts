@@ -153,6 +153,8 @@ const envSchema = z.object({
   AUTH_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(10_000).default(20),
   /** Authenticated requests allowed per API key per minute. */
   API_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(100_000).default(300),
+  /** Unauthenticated report share views allowed per client per minute. */
+  PUBLIC_REPORT_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(100_000).default(30),
 });
 
 const parsed = envSchema.safeParse(process.env);

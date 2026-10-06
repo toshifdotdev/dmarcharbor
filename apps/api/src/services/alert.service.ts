@@ -1092,7 +1092,34 @@ export async function runAlertRollups(now = new Date()): Promise<RollupResult[]>
     const subject = `[DMARC Harbor] ${outstanding.length} unacknowledged alert${outstanding.length === 1 ? '' : 's'}`;
 
     for (const event of outstanding) {
-      const rollupLevel = event.ownerRollupLevel + 1;
+      /**
+       * The counter is incremented by the database, not computed here.
+       *
+       * This used to be `const rollupLevel = event.ownerRollupLevel + 1` followed by
+       * writing that number back, which is a read-modify-write on a value read before
+       * the deliveries. Two replicas rolling the same event up at the same moment both
+       * read 0, both computed 1, and both wrote 1. The escalation level is what decides
+       * how loudly an unacknowledged alert keeps chasing the owner, so a lost increment
+       * is a customer who stops being chased one step earlier than they should.
+       *
+       * `increment` is atomic, and the value it returns is the one to record, so the
+       * delivery label and the stored level cannot disagree.
+       */
+      const claimed = await prisma.alertEvent.updateMany({
+        where: { id: event.id, lastOwnerNotifiedAt: event.lastOwnerNotifiedAt },
+        data: { lastOwnerNotifiedAt: now, ownerRollupLevel: { increment: 1 } },
+      });
+
+      // Another replica took this rollup first. Sending a second one would be the
+      // duplicate customer contact the increment was added to prevent.
+      if (claimed.count !== 1) {
+        continue;
+      }
+
+      const bumped = await prisma.alertEvent.findUniqueOrThrow({
+        where: { id: event.id },
+        select: { ownerRollupLevel: true },
+      });
 
       for (const member of admins) {
         await deliverToUser(member.user, {
@@ -1101,15 +1128,10 @@ export async function runAlertRollups(now = new Date()): Promise<RollupResult[]>
           subject,
           body,
           risk: 'high',
-          reminderLevel: rollupLevel,
+          reminderLevel: bumped.ownerRollupLevel,
           now,
         });
       }
-
-      await prisma.alertEvent.update({
-        where: { id: event.id },
-        data: { lastOwnerNotifiedAt: now, ownerRollupLevel: rollupLevel },
-      });
     }
 
     results.push({ organizationId, notified: true, eventCount: outstanding.length, markedStale: stale.count });

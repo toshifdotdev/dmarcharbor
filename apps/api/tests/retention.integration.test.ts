@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { purgeExpiredData } from '../src/services/retention.service.js';
 import { runRetentionOnce } from '../src/scheduler/retention-scheduler.js';
+import { rateLimitStoreFor } from '../src/middleware/postgres-rate-limit-store.js';
 
 /**
  * Retention for the tables that hold customer data.
@@ -249,7 +250,44 @@ describe('data retention sweep', () => {
       idempotencyRecords: 0,
       ssoAuthRequests: 0,
       billingPayloads: 0,
+      rateLimitBuckets: 0,
     });
+  });
+
+  it('removes expired rate limit counters and leaves live ones alone', async () => {
+    /**
+     * Shared counters are the one thing in this table set that is not customer data:
+     * a row is a request count against an IP or an identifier, and it decides whether
+     * the next request is allowed. Nothing reads it for reporting, so the only correct
+     * end of a row is the moment its window closes.
+     *
+     * The mistake to avoid is sweeping live windows as well as expired ones. A counter
+     * whose `resetAt` is in the future is an enforced limit, and deleting it hands the
+     * caller a fresh allowance - so a sweep that clears them converts a rate limit into
+     * no rate limit at exactly the moment traffic is high enough to need one.
+     */
+    const store = rateLimitStoreFor('retention-probe');
+    const expired = `retention-expired-${Date.now()}`;
+    const live = `retention-live-${Date.now()}`;
+
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO "rate_limit_bucket" ("key", "limiter", "hits", "resetAt")
+       VALUES ($1, 'retention-probe', 9, $2), ($3, 'retention-probe', 2, $4)`,
+      expired,
+      new Date(Date.now() - day),
+      live,
+      new Date(Date.now() + day),
+    );
+
+    expect((await purgeExpiredData()).rateLimitBuckets).toBeGreaterThanOrEqual(1);
+
+    const survivors = await prisma.$queryRawUnsafe<Array<{ key: string }>>(
+      `SELECT "key" FROM "rate_limit_bucket" WHERE "key" = ANY($1::text[])`,
+      [expired, live],
+    );
+    expect(survivors.map((row) => row.key)).toEqual([live]);
+
+    await store.resetAll();
   });
 
   it('is safe to run twice, which is what a scheduler and a manual call will do', async () => {

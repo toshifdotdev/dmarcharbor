@@ -5,6 +5,7 @@ import {
   getPlanCatalog,
   type DeploymentCapabilities,
 } from "@/lib/api-ops";
+import { getServiceMeta } from "@/lib/api-public";
 import { formatMajor, formatMinor } from "@/lib/money";
 import { featureLabel } from "@/lib/feature-label";
 import { readHostBrand } from "@/lib/host-brand";
@@ -80,6 +81,15 @@ export default async function PricingPage({
   const name = brandName(brand);
   const catalog = await getPlanCatalog().catch(() => null);
   const capabilities = await getCapabilities().catch(() => null);
+
+  /**
+   * The retention this deployment enforces, for the note under the comparison table.
+   *
+   * Read from the API rather than from any plan, because the plan fields were never
+   * retention limits. Caught to null so a failure omits the note rather than
+   * substituting a figure that means something else.
+   */
+  const meta = await getServiceMeta().catch(() => null);
 
   // The quoted currency: the workspace's stored preference (the value a later
   // checkout charges) when signed in, INR by default until Paddle is approved.
@@ -413,8 +423,22 @@ export default async function PricingPage({
               <CompareRow label="Clients" ordered={ordered} cell={(p) => String(p.maxClients)} />
               <CompareRow label="Active domains" ordered={ordered} cell={(p) => String(p.maxActiveDomains)} />
               <CompareRow label="Members" ordered={ordered} cell={(p) => String(p.maxMembers)} />
-              <CompareRow label="Data retention" ordered={ordered} cell={(p) => `${p.dataRetentionDays} days`} />
-              <CompareRow label="Audit retention" ordered={ordered} cell={(p) => `${p.auditRetentionDays} days`} />
+              {/*
+                Retention is deliberately not a comparison row.
+
+                `dataRetentionDays` and `auditRetentionDays` were both printed here as
+                per-plan allowances and neither governs anything. The first is read in
+                exactly one place in the service, and it is a quota rule deciding
+                whether a dormant domain still counts against the active-domain limit.
+                The second is read nowhere at all, because nothing deletes an audit log.
+                The identical values down every column were the tell that these were not
+                allowances.
+
+                Retention is one fact about the deployment, so it is stated once beneath
+                the table, sourced from the API rather than from a plan. A prospect
+                comparing tiers should not be shown four different retention numbers
+                that all mean the same non-thing.
+              */}
               {keys.map((key) => (
                 <CompareRow
                   key={key}
@@ -425,6 +449,27 @@ export default async function PricingPage({
               ))}
             </tbody>
           </table>
+
+          {/*
+            Stated once, under the table, because it is one fact about the deployment
+            rather than four facts about the tiers. Named as having no automatic expiry
+            rather than given a number: no number is true of it, and inventing one is
+            the defect this replaces.
+
+            Absent when the API cannot be reached, rather than falling back to a plan
+            figure. A marketing page is exactly where a plausible invented number does
+            the most damage.
+          */}
+          {meta ? (
+            <p className="mt-4 max-w-[70ch] text-[13px] leading-relaxed" style={{ color: "var(--color-ink-3)" }}>
+              <strong style={{ color: "var(--color-ink-2)" }}>Data retention is the same on every plan.</strong>{" "}
+              Aggregate reports are kept for {meta.retention.reportDays} days, forensic reports for{" "}
+              {meta.retention.forensicDays} days, and named forensic recipient data for{" "}
+              {meta.retention.forensicPiiDays} days. The audit trail has no automatic expiry. Full
+              detail is in the <Link href="/privacy">Privacy Policy</Link> and on your{" "}
+              <Link href="/settings/export">export and deletion</Link> screens.
+            </p>
+          ) : null}
         </div>
       </section>
 

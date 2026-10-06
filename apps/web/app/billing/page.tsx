@@ -12,6 +12,7 @@ import { featureLabel } from "@/lib/feature-label";
 import { Shell } from "@/components/shell";
 import { PlanPicker } from "@/components/billing-client";
 import { DunningPanel } from "@/components/dunning-client";
+import { getServiceMeta } from "@/lib/api-public";
 
 /**
  * Billing renders from two API reads only:
@@ -37,6 +38,18 @@ export default async function BillingPage() {
     me?.user?.name && me?.user?.email
       ? { name: me.user.name, email: me.user.email }
       : null;
+
+  /**
+   * The retention this deployment enforces.
+   *
+   * Public and unauthenticated, so this costs nothing extra, and it is the only
+   * source that is true. The plan's own `dataRetentionDays` and `auditRetentionDays`
+   * were being shown here as retention limits and govern nothing: the first is a
+   * quota input about dormant domains, the second is read nowhere at all. Caught to
+   * null, because a missing number is better than a wrong one on a page someone may
+   * rely on when deciding what to buy.
+   */
+  const meta = await getServiceMeta().catch(() => null);
 
   // The currency a checkout will charge is the stored preference (INR by
   // default until Paddle is approved), not the provider of an existing
@@ -150,7 +163,17 @@ export default async function BillingPage() {
                 <div className="label">What it covers</div>
                 <div className="num mt-1 text-[15px]" style={{ color: "var(--color-ink-2)" }}>
                   {entitlements.maxClients} clients · {entitlements.maxActiveDomains} active domains ·{" "}
-                  {entitlements.maxMembers} members · {entitlements.dataRetentionDays}d data retention
+                  {entitlements.maxMembers} members · reports kept{" "}
+                  {/*
+                    The enforced aggregate report window, not `dataRetentionDays`.
+
+                    That plan field is read in exactly one place in the whole service,
+                    and it is a quota rule deciding whether a dormant domain still
+                    counts against the active-domain limit. It is not a retention
+                    window and printing it as one was the same false statement the plan
+                    cards were making.
+                  */}
+                  {meta ? `${meta.retention.reportDays} days` : "per the retention policy"}
                 </div>
               </div>
             </div>
@@ -201,6 +224,7 @@ export default async function BillingPage() {
             provider={billing?.provider ?? "NONE"}
             cancelAtPeriodEnd={entitlements?.cancelAtPeriodEnd ?? false}
             account={account}
+            retention={meta?.retention ?? null}
           />
         ) : (
           <p role="alert" className="text-[15px]" style={{ color: "var(--color-block)" }}>

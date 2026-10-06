@@ -1,3 +1,4 @@
+import { API_BASE, apiFetch } from "./api-fetch";
 import { cookies } from "next/headers";
 import type { PortalBranding, PortalOverview, PortalDomainDetail } from "./types";
 
@@ -9,7 +10,6 @@ import type { PortalBranding, PortalOverview, PortalDomainDetail } from "./types
  * speculatively behind a guard.
  */
 
-const API_BASE = process.env.API_BASE_URL ?? "http://localhost:4000";
 
 export class PortalError extends Error {
   readonly status: number;
@@ -29,7 +29,7 @@ async function portalFetch<T>(path: string): Promise<T> {
   const session = jar.get("better-auth.session_token");
   if (session) header.set("cookie", `better-auth.session_token=${session.value}`);
 
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await apiFetch(`${API_BASE}${path}`, {
     headers: header,
     cache: "no-store",
     credentials: "include",

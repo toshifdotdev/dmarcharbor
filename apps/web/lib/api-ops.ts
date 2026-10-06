@@ -12,6 +12,7 @@
  * lib/api.ts::getAllDomainSignals when the bulk endpoint lands.
  */
 
+import { API_BASE, apiFetch } from "./api-fetch";
 import { cookies } from "next/headers";
 import type {
   AlertEventRow,
@@ -45,7 +46,6 @@ import type {
   PageEnvelope,
 } from "./types";
 
-const API_BASE = process.env.API_BASE_URL ?? "http://localhost:4000";
 
 export class OpsError extends Error {
   readonly status: number;
@@ -70,7 +70,7 @@ async function opsFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const session = jar.get("better-auth.session_token");
   if (session) header.set("cookie", `better-auth.session_token=${session.value}`);
 
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await apiFetch(`${API_BASE}${path}`, {
     ...init,
     headers: header,
     cache: "no-store",

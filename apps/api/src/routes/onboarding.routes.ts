@@ -10,7 +10,7 @@ import {
 } from '../controllers/onboarding.controller.js';
 import { requireSession } from '../middleware/auth.middleware.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
-import { publicReportRateLimiter } from '../middleware/rate-limit.middleware.js';
+import { createPublicReportRateLimiter } from '../middleware/rate-limit.middleware.js';
 import { senderBreakdownController } from '../controllers/sender.controller.js';
 
 const onboardingJsonParser = express.json({ limit: '16kb' });
@@ -63,4 +63,4 @@ onboardingRouter.delete(
 
 export const publicReportRouter = Router();
 
-publicReportRouter.get('/reports/share/:token', publicReportRateLimiter, publicReportController);
+publicReportRouter.get('/reports/share/:token', createPublicReportRateLimiter(), publicReportController);

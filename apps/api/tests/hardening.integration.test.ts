@@ -1,8 +1,10 @@
 import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
+import express from 'express';
 import { prisma } from '../src/database/prisma.js';
 import { grantPlan } from './helpers/plan.js';
 import { app } from '../src/index.js';
+import { createPublicReportRateLimiter } from '../src/middleware/rate-limit.middleware.js';
 import { resolveRequestId } from '../src/middleware/request-context.middleware.js';
 import { buildPage, resolveLimit } from '../src/utils/pagination.js';
 import { errorBody } from '../src/utils/api-error.js';
@@ -206,25 +208,44 @@ describe('paginated report history', () => {
 });
 
 describe('public share rate limiting', () => {
-  beforeAll(resetDatabase);
+    beforeAll(resetDatabase);
 
-  it('limits repeated unauthenticated views of a share link', async () => {
-    const { agent, organizationId, domainId } = await setup();
+    it('limits repeated unauthenticated views of a share link', async () => {
+      const { agent, organizationId, domainId } = await setup();
 
-    const share = await agent.post(`/api/workspaces/${organizationId}/report-shares`).send({ domainId });
-    expect(share.status).toBe(201);
+      const share = await agent.post(`/api/workspaces/${organizationId}/report-shares`).send({ domainId });
+      expect(share.status).toBe(201);
 
-    const statuses: number[] = [];
-    for (let attempt = 0; attempt < 40; attempt += 1) {
-      const response = await request(app).get(share.body.url);
-      statuses.push(response.status);
-      if (response.status === 429) {
-        expect(response.body.error.code).toBe('RATE_LIMITED');
-        break;
+      /**
+       * Mounted on its own router rather than driven through `app`.
+       *
+       * The shared application builds its limiters from `env`, and the integration
+       * config raises those budgets to 100000 so that fifty three files cannot trip a
+       * limit that has nothing to do with what any of them assert. That is the right
+       * trade for the suite as a whole and the wrong trade for this test, whose entire
+       * subject is the budget engaging. So it names the limit itself and builds an
+       * app around it, which tests the middleware and the real store at the production
+       * number instead of at whatever the suite happens to allow.
+       */
+      const limit = 30;
+      const isolated = express();
+      isolated.get('/share', createPublicReportRateLimiter(limit), (_req, res) => {
+        res.status(200).json({ ok: true });
+      });
+
+      const statuses: number[] = [];
+      for (let attempt = 0; attempt < limit + 10; attempt += 1) {
+        const response = await request(isolated).get('/share');
+        statuses.push(response.status);
+        if (response.status === 429) {
+          expect(response.body.error.code).toBe('RATE_LIMITED');
+          break;
+        }
       }
-    }
 
-    expect(statuses).toContain(429);
-    expect(statuses.filter((status) => status === 200).length).toBeLessThanOrEqual(30);
+      expect(statuses).toContain(429);
+      // Exactly the budget, then refusal: an off-by-one here means a customer is locked
+      // out of a report they are entitled to read, or a shared link is not a limit.
+      expect(statuses.filter((status) => status === 200).length).toBe(limit);
+    });
   });
-});

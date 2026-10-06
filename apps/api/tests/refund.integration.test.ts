@@ -1,8 +1,8 @@
 import request from 'supertest';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
-import { refundEligibility, refundGuaranteeDays } from '../src/billing/refund.service.js';
+import { refundEligibility, refundGuaranteeDays, issueRefund, RefundError } from '../src/billing/refund.service.js';
 
 /**
  * The read half of the refund feature.
@@ -13,6 +13,24 @@ import { refundEligibility, refundGuaranteeDays } from '../src/billing/refund.se
  * date in a provider dashboard. These cases pin the arithmetic and, more
  * importantly, the cases where the right answer is "we do not know".
  */
+
+/**
+ * Razorpay has no keys here and cannot have any, so the real adapter throws "Razorpay
+ * is not configured" before it reaches the network. Left alone, every issuance test
+ * would exercise exactly one path: the refusal.
+ *
+ * `billingProviders()` builds a fresh provider on each call, so there is no singleton to
+ * spy on and the class itself has to be replaced.
+ */
+vi.mock('../src/billing/razorpay.provider.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../src/billing/razorpay.provider.js')>();
+  class ConfiguredRazorpay extends original.RazorpayBillingProvider {
+    override async refund() {
+      return { providerRefundId: 'rfnd_test_disposition' };
+    }
+  }
+  return { ...original, RazorpayBillingProvider: ConfiguredRazorpay };
+});
 
 let fixtureId = 0;
 const password = 'correct-horse-battery-staple';
@@ -222,5 +240,82 @@ describe('refund routes are staff only', () => {
     expect(response.body.eligibleUntil).toBeTruthy();
     // Reading eligibility must never itself record anything.
     expect(await prisma.refundRecord.count({ where: { organizationId } })).toBe(0);
+  });
+});
+
+/**
+ * The write half, which had no coverage at all.
+ *
+ * `issueRefund` writes to `refund_record` and then to `audit_log`, and the audit action
+ * it used existed only in `schema.prisma`: no migration had ever added `REFUND_ISSUED` to
+ * the PostgreSQL enum, so the first customer refund would have thrown an invalid input
+ * value for enum "AuditAction" after the provider had already taken the money.
+ *
+ * The gap was that every test above stopped at eligibility or at route authorisation.
+ * Those are the parts worth checking, and they are also the parts that never touch the
+ * two writes, so the suite was green against a path that could not run.
+ *
+ * Both dispositions are covered, because the interesting difference between them is not
+ * the amount but the claim: `REFUND_ISSUED` asserts money moved, `REFUND_REFUSED` records
+ * that nothing is known about whether money moved.
+ */
+describe('issuing a refund', () => {
+  it('records the money and the audit trail when the provider accepts', async () => {
+    const { organizationId } = await paidWorkspace('refund-issue', new Date());
+
+    const outcome = await issueRefund({ organizationId, reason: 'Customer asked.' });
+
+    expect(outcome.refunded).toBe(true);
+    expect(outcome.providerRefundId).toBe('rfnd_test_disposition');
+    expect(outcome.amountMinor).toBeGreaterThan(0);
+
+    const record = await prisma.refundRecord.findFirst({ where: { organizationId } });
+    expect(record?.providerRefundId).toBe('rfnd_test_disposition');
+
+    const events = await prisma.auditLog.findMany({ where: { organizationId, action: 'REFUND_ISSUED' } });
+    expect(events).toHaveLength(1);
+    // The amount and the provider's own identifier are what an auditor asks for later,
+    // so they have to be in the trail rather than only in the refund row.
+    expect(events[0].detail).toMatchObject({
+      amountMinor: outcome.amountMinor,
+      providerRefundId: 'rfnd_test_disposition',
+      withinGuarantee: true,
+    });
+  });
+
+  it('refuses without claiming money moved when the guarantee has lapsed', async () => {
+    const lapsed = new Date(Date.now() - (refundGuaranteeDays + 5) * 24 * 60 * 60 * 1000);
+    const { organizationId } = await paidWorkspace('refund-lapsed', lapsed);
+
+    await expect(issueRefund({ organizationId, reason: 'Too late.' })).rejects.toBeInstanceOf(RefundError);
+
+    const record = await prisma.refundRecord.findFirst({ where: { organizationId } });
+    expect(record?.providerRefundId).toBeNull();
+    expect(record?.refusalReason).toBeTruthy();
+
+    const events = await prisma.auditLog.findMany({ where: { organizationId, action: 'REFUND_REFUSED' } });
+    expect(events).toHaveLength(1);
+    // Nothing may be asserted about a refund that did not happen.
+    expect(events[0].detail).toMatchObject({ providerRefundId: null });
+  });
+
+  it('does not pay the same purchase twice', async () => {
+    const { organizationId } = await paidWorkspace('refund-twice', new Date());
+
+    await issueRefund({ organizationId, reason: 'First.' });
+
+    await expect(issueRefund({ organizationId, reason: 'Second.' })).rejects.toThrow();
+
+    /**
+     * Two rows is the correct outcome, not one: the second attempt is refused, and a
+     * refusal is written down so support can see the decision rather than infer it from
+     * silence. What must not happen is a second payment, so the invariant is on the
+     * provider identifier rather than on the row count.
+     */
+    const paid = await prisma.refundRecord.count({
+      where: { organizationId, providerRefundId: { not: null } },
+    });
+    expect(paid).toBe(1);
+    expect(await prisma.refundRecord.count({ where: { organizationId } })).toBe(2);
   });
 });

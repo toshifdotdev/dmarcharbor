@@ -1,11 +1,11 @@
-﻿/**
+/**
  * api-writes.ts â€” server-side mutations. Kept separate from api.ts so any
  * page importing a mutation does so explicitly.
  */
 
+import { API_BASE, apiFetch } from "./api-fetch";
 import { cookies } from "next/headers";
 
-const API_BASE = process.env.API_BASE_URL ?? "http://localhost:4000";
 
 /** POST /api/workspaces/:id/dpa-acceptance â€” records an acceptance against a
  *  workspace that already exists.
@@ -29,7 +29,7 @@ export async function acceptDpa(
   const session = jar.get("better-auth.session_token");
   if (session) header.set("cookie", `better-auth.session_token=${session.value}`);
 
-  const res = await fetch(
+  const res = await apiFetch(
     `${API_BASE}/api/workspaces/${organizationId}/dpa-acceptance`,
     {
       method: "POST",
@@ -75,7 +75,7 @@ export async function createWorkspace(body: {
   const session = jar.get("better-auth.session_token");
   if (session) header.set("cookie", `better-auth.session_token=${session.value}`);
 
-  const res = await fetch(`${API_BASE}/api/workspaces`, {
+  const res = await apiFetch(`${API_BASE}/api/workspaces`, {
     method: "POST",
     headers: header,
     body: JSON.stringify(body),

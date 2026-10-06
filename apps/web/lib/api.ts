@@ -15,6 +15,7 @@
  * getAllDomainSignals as the single place to collapse when the endpoint lands.
  */
 
+import { API_BASE, apiFetch as apiRequest } from "./api-fetch";
 import { cookies } from "next/headers";
 import type {
   ApiErrorBody,
@@ -28,7 +29,6 @@ import type {
   WorkspaceSummary,
 } from "./types";
 
-const API_BASE = process.env.API_BASE_URL ?? "http://localhost:4000";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -51,7 +51,15 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const session = jar.get("better-auth.session_token");
   if (session) header.set("cookie", `better-auth.session_token=${session.value}`);
 
-  const res = await fetch(`${API_BASE}${path}`, {
+  /**
+   * Through the shared requester, so every call from this module inherits its
+   * deadline and its two distinct failure errors.
+   *
+   * The recursion here used to be a self-call: naming the wrapper and the transport
+   * the same thing made the timeout impossible to add without first noticing that
+   * `apiFetch` already meant something else here. Aliased at the import instead.
+   */
+  const res = await apiRequest(`${API_BASE}${path}`, {
     ...init,
     headers: header,
     cache: "no-store",

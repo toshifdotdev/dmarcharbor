@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { env } from '../config/env.js';
 import { prisma } from '../database/prisma.js';
 import { sendEmail } from '../email/email.service.js';
 import { withJobLease } from '../scheduler/job-lease.service.js';
@@ -82,6 +83,29 @@ export async function enqueueEmail(input: QueueInput, now = new Date()): Promise
 
     const detail = error instanceof Error ? error.message : 'Unknown email queue error.';
     console.error(`[email] could not queue "${input.kind}" to ${input.to}: ${detail}`);
+    return;
+  }
+
+  /**
+   * In development, delivered now rather than on the next tick.
+   *
+   * The queue exists so a provider outage does not destroy a password reset, and it
+   * costs a sign-up nothing in production, where the scheduler runs every thirty
+   * seconds. In development it costs something real: the verification email is the
+   * only thing standing between someone and the sign-in screen, it is printed to this
+   * process's console, and there is no inbox to look in. Waiting up to thirty seconds
+   * for it reads as "sign-up is broken" rather than as a queue.
+   *
+   * Scoped to `development` exactly, not to "not production". Under test the console
+   * provider is also configured, and draining there silently emptied rows the suite had
+   * deliberately left pending - the tests asserting a retry schedule watched their own
+   * fixtures get delivered out from under them.
+   *
+   * Not awaited, because the caller's request must not wait on the provider, and a
+   * failure here has already been written down and will be retried by the scheduler.
+   */
+  if (env.NODE_ENV === 'development' && env.EMAIL_PROVIDER === 'console') {
+    void drainEmailQueue(5).catch(() => undefined);
   }
 }
 

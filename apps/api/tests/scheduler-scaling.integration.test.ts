@@ -388,16 +388,86 @@ describe('domain re-verification under two instances', () => {
   beforeAll(resetDatabase);
   beforeEach(resetDatabase);
 
-  it('checks each domain once', async () => {
+  /**
+   * The concurrent form of this test passed locally against the broken claim and
+   * failed on CI, because whether it reproduces depends entirely on whether the two
+   * list queries interleave before or after each other's claim. A regression test
+   * whose failure depends on that is a coin flip, so the invariant is asserted
+   * directly instead: a second pass that starts immediately after a first must find
+   * the domain already claimed and refuse it.
+   *
+   * That is exactly the CI ordering. Its list query landed after the other instance's
+   * claim, so it read the freshly written `recheckedAt` and its compare-and-swap
+   * matched the very value it was meant to exclude.
+   */
+  it('refuses a domain another instance claimed moments ago', async () => {
     const { domainId } = await setup();
 
-    await prisma.domain.update({ where: { id: domainId }, data: { status: 'PENDING', verifiedAt: null, createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000) } });
+    await prisma.domain.update({
+      where: { id: domainId },
+      data: { status: 'PENDING', verifiedAt: null, createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000) },
+    });
+
+    const first = await reverifyUnverifiedDomains();
+    expect(first.checked).toBe(1);
+
+    /**
+     * Immediately after, with no wait.
+     *
+     * The row is still eligible by the schedule - the domain is three days old and
+     * still pending - so the list query returns it again. What must stop it is the
+     * claim, not the schedule. Under the old predicate this second call read
+     * `recheckedAt` from its own list query, matched it in the CAS, and checked the
+     * domain a second time, emailing the customer a second time.
+     */
+    const second = await reverifyUnverifiedDomains();
+
+    expect(second.checked).toBe(0);
+  });
+
+  it('checks each domain once when two passes genuinely overlap', async () => {
+    const { domainId } = await setup();
+
+    await prisma.domain.update({
+      where: { id: domainId },
+      data: { status: 'PENDING', verifiedAt: null, createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000) },
+    });
 
     const [a, b] = await Promise.all([reverifyUnverifiedDomains(), reverifyUnverifiedDomains()]);
 
-    // The claim is a conditional write on recheckedAt, so the DNS lookup and the
-    // resulting customer email happen once rather than once per replica.
+    // Kept as well as the deterministic case above, because the overlap is the real
+    // production shape and this is the assertion that reads as the requirement.
     expect(a.checked + b.checked).toBeLessThanOrEqual(1);
+  });
+
+  it('claims again once the row is genuinely stale, so a domain is never stranded', async () => {
+    const { domainId } = await setup();
+
+    await prisma.domain.update({
+      where: { id: domainId },
+      data: { status: 'PENDING', verifiedAt: null, createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000) },
+    });
+
+    expect((await reverifyUnverifiedDomains()).checked).toBe(1);
+
+    /**
+     * The other half of the invariant.
+     *
+     * A window that is safe against overlap but too long would make a domain
+     * permanently un-reverifiable: every pass would find the row checked inside the
+     * window and skip it. So aged past the window - twenty minutes for an unverified
+     * domain - it must be claimable again.
+     *
+     * Aged five seconds rather than twenty-one minutes is the assertion that matters
+     * here, and getting it wrong is what proved the window is genuinely enforced: an
+     * earlier version of this test aged by five seconds, failed, and was correct to.
+     */
+    await prisma.domain.update({
+      where: { id: domainId },
+      data: { recheckedAt: new Date(Date.now() - 21 * 60 * 1000) },
+    });
+
+    expect((await reverifyUnverifiedDomains()).checked).toBe(1);
   });
 });
 
@@ -405,26 +475,26 @@ describe('owner rollups under two instances', () => {
   beforeAll(resetDatabase);
   beforeEach(resetDatabase);
 
-  it('does not throw when both instances roll up the same event', async () => {
+  async function outstandingEvent() {
     const { organizationId, domainId, userId } = await setup();
 
-    await prisma.alertEvent.create({
+    const rule = await prisma.alertRule.create({
       data: {
-        ruleId: (
-          await prisma.alertRule.create({
-            data: {
-              organizationId,
-              domainId,
-              createdById: userId,
-              name: 'R',
-              metric: 'FAILURE_RATE',
-              operator: 'GREATER_THAN',
-              threshold: 100,
-              windowMinutes: 1440,
-              recipients: { create: { userId } },
-            },
-          })
-        ).id,
+        organizationId,
+        domainId,
+        createdById: userId,
+        name: 'R',
+        metric: 'FAILURE_RATE',
+        operator: 'GREATER_THAN',
+        threshold: 100,
+        windowMinutes: 1440,
+        recipients: { create: { userId } },
+      },
+    });
+
+    const event = await prisma.alertEvent.create({
+      data: {
+        ruleId: rule.id,
         organizationId,
         domainId,
         metric: 'FAILURE_RATE',
@@ -433,13 +503,80 @@ describe('owner rollups under two instances', () => {
         threshold: 100,
         windowMinutes: 1440,
         summary: 'test',
+        // Old enough that the rollup interval has certainly elapsed.
+        triggeredAt: new Date(Date.now() - 48 * 60 * 60 * 1000),
       },
+      select: { id: true },
     });
 
-    // Both instances read the same outstanding event and both try to deliver the
-    // same rollup level. The unique key makes the loser's write fail, and that
-    // failure used to propagate and kill the tick.
+    return { eventId: event.id, organizationId };
+  }
+
+  /**
+   * The counter is the escalation level, so a lost increment is a customer who stops
+   * being chased one step earlier than they should. It used to be computed in the
+   * application and written back, which loses an increment whenever two replicas roll
+   * the same event up together.
+   *
+   * The previous test here only asserted that two concurrent rollups did not throw.
+   * That is why the read-modify-write survived: a test that checks for the absence of
+   * an exception cannot see a counter that quietly went up by one instead of two.
+   */
+  it('advances the rollup level by exactly one per rollup, even when two overlap', async () => {
+    const { eventId } = await outstandingEvent();
+
+    await Promise.all([runAlertRollups(), runAlertRollups()]);
+
+    const afterFirstPair = await prisma.alertEvent.findUniqueOrThrow({
+      where: { id: eventId },
+      select: { ownerRollupLevel: true },
+    });
+
+    /**
+     * One, not two.
+     *
+     * Whichever replica loses the claim must not have incremented. Under the old code
+     * both read 0, both computed 1, and both wrote 1, so this assertion would have
+     * passed by accident while the deliveries were duplicated.
+     */
+    expect(afterFirstPair.ownerRollupLevel).toBe(1);
+  });
+
+  it('keeps advancing on later rollups, so escalation is not stuck', async () => {
+    const { eventId } = await outstandingEvent();
+
+    await runAlertRollups();
+
+    // Backdate the notification marker so the next rollup is due rather than
+    // suppressed by the interval.
+    await prisma.alertEvent.update({
+      where: { id: eventId },
+      data: { lastOwnerNotifiedAt: new Date(Date.now() - 48 * 60 * 60 * 1000) },
+    });
+
+    await runAlertRollups();
+
+    const event = await prisma.alertEvent.findUniqueOrThrow({
+      where: { id: eventId },
+      select: { ownerRollupLevel: true },
+    });
+
+    /**
+     * Two, having sent two rollups.
+     *
+     * A fix that stops the duplicate by refusing to increment at all would satisfy the
+     * test above and silently disable escalation. This is the half that says the
+     * counter still moves.
+     */
+    expect(event.ownerRollupLevel).toBe(2);
+  });
+
+  it('does not throw when both instances roll up the same event', async () => {
+    const { eventId } = await outstandingEvent();
+
     await expect(Promise.all([runAlertRollups(), runAlertRollups()])).resolves.toBeDefined();
+
+    expect(await prisma.alertEvent.count({ where: { id: eventId } })).toBe(1);
   });
 });
 

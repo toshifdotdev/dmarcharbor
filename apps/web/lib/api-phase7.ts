@@ -1,3 +1,4 @@
+import { API_BASE, apiFetch } from "./api-fetch";
 import { cookies } from "next/headers";
 import type {
   ApiErrorBody,
@@ -14,7 +15,6 @@ import type {
  * the session and pack calls forward the session cookie like lib/api-ops.
  */
 
-const API_BASE = process.env.API_BASE_URL ?? "http://localhost:4000";
 
 export class OpsError extends Error {
   readonly status: number;
@@ -35,7 +35,7 @@ async function authedFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const session = jar.get("better-auth.session_token");
   if (session) header.set("cookie", `better-auth.session_token=${session.value}`);
 
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await apiFetch(`${API_BASE}${path}`, {
     ...init,
     headers: header,
     cache: "no-store",
@@ -111,7 +111,7 @@ export async function issueCompliancePack(
   const session = jar.get("better-auth.session_token");
   if (session) header.set("cookie", `better-auth.session_token=${session.value}`);
 
-  const res = await fetch(
+  const res = await apiFetch(
     `${API_BASE}/api/workspaces/${organizationId}/clients/${clientId}/compliance-packs`,
     { method: "POST", headers: header, cache: "no-store", credentials: "include" },
   );
@@ -145,7 +145,7 @@ export async function issueCompliancePack(
 export async function getPublicShareReport(
   token: string,
 ): Promise<PublicShareReport | null> {
-  const res = await fetch(
+  const res = await apiFetch(
     `${API_BASE}/api/reports/share/${encodeURIComponent(token)}`,
     { cache: "no-store", credentials: "omit", headers: { accept: "application/json" } },
   );

@@ -151,6 +151,15 @@ model Organization {
   webhookEndpoints      WebhookEndpoint[]
 
   @@unique([slug])
+  /// Reads the document version rather than the column being null, so the sweep
+  /// for workspaces on an outdated version is an index lookup rather than a
+  /// table scan over every tenant.
+  ///
+  /// Created by migration `20261002210000_dpa_acceptance` but missing here until
+  /// now, which made it drift: `prisma migrate diff` reported it as removable and
+  /// the next `prisma migrate dev` would have dropped the index a compliance
+  /// sweep depends on.
+  @@index([dpaVersion])
   @@index([plan])
   @@index([customDomain])
   @@map("organization")
@@ -1181,6 +1190,42 @@ model BillingEvent {
   @@index([providerSubscriptionId])
   @@index([createdAt])
   @@map("billing_event")
+}
+
+model RateLimitBucket {
+  /// The key `express-rate-limit` generated for this client, e.g. an IP address or
+  /// an API key fingerprint.
+  key       String
+  /// The limiter that owns the bucket.
+  ///
+  /// Part of the primary key, not a plain column, because the limiters enforce
+  /// different budgets for different reasons. Sharing one namespace would let an
+  /// API key that has spent its report quota also spend the login limiter's budget.
+  limiter   String
+  hits      Int       @default(0)
+  /// When the current window closes and the count becomes meaningless.
+  ///
+  /// Doubles as the sweep predicate, which is why the sweeper can delete expired
+  /// buckets without tracking a separate expiry column. No database default: the
+  /// window is always derived from the request that opened the bucket, so a
+  /// defaulted value would only ever be wrong.
+  resetAt   DateTime
+  createdAt DateTime  @default(now())
+
+  /// Read and written exclusively through raw SQL.
+  ///
+  /// The increment is a single `INSERT ... ON CONFLICT DO UPDATE SET hits =
+  /// "hits" + 1 RETURNING hits`, because read-modify-write is not atomic and a
+  /// limiter that loses a race is a limiter that undercounts. Prisma has no
+  /// upsert-and-return expression, so the model is declared here for schema
+  /// parity while the queries stay in the store.
+  ///
+  /// Declared rather than omitted deliberately: a table that exists in the
+  /// migrations but not in this file reads as drift to `prisma migrate diff` and
+  /// gets dropped by the next `prisma migrate dev` on someone's machine.
+  @@id([key, limiter])
+  @@index([resetAt])
+  @@map("rate_limit_bucket")
 }
 
 model IdempotencyRecord {
