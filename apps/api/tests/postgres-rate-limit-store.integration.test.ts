@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { PostgresRateLimitStore } from '../src/middleware/postgres-rate-limit-store.js';
 
@@ -179,5 +179,39 @@ describe('shared rate limit store', () => {
 
     expect(rows.length).toBeGreaterThan(0);
     expect(rows[0]!.hits).toBeGreaterThanOrEqual(1);
+  });
+
+  it('keeps serving requests when the counter store is unreachable', async () => {
+    const { app } = await import('../src/index.js');
+    const store = new PostgresRateLimitStore('auth');
+    await store.resetAll();
+
+    /**
+     * Found by breaking it, not by reasoning about it.
+     *
+     * With Postgres down, every route returned 500 - including `/api/health` - because
+     * the limiter rejected the request before a handler ran. Moving counters out of
+     * process memory had quietly turned a counting table into a hard dependency of
+     * every endpoint, so a storage blip became a total outage.
+     *
+     * Asserted against the real app rather than the store in isolation: the property
+     * worth protecting is that a customer-visible endpoint keeps answering, which is
+     * exactly what the failure took away.
+     */
+    const realQuery = prisma.$queryRawUnsafe.bind(prisma);
+    vi.spyOn(prisma, '$queryRawUnsafe').mockImplementation((async () => {
+      throw new Error('connection refused');
+    }) as typeof prisma.$queryRawUnsafe);
+
+    try {
+      const response = await request(app).get('/api/auth/get-session');
+
+      // A 500 here is the defect: the limiter answered instead of the route.
+      expect(response.status).not.toBe(500);
+      expect([200, 401]).toContain(response.status);
+    } finally {
+      vi.restoreAllMocks();
+      await realQuery('TRUNCATE TABLE "rate_limit_bucket"');
+    }
   });
 });

@@ -110,26 +110,54 @@ async incrementWithWindow(key: string, resetAtMs: number): Promise<{ totalHits: 
   const limiter = this.limiterName;
   const bucketKey = key;
 
-  const rows = await prisma.$queryRawUnsafe<BucketRow[]>(
-    `INSERT INTO "rate_limit_bucket" ("key", "limiter", "hits", "resetAt")
-     VALUES ($1, $2, 1, $3)
-     ON CONFLICT ("key", "limiter") DO UPDATE
-       SET "hits" = CASE WHEN "rate_limit_bucket"."resetAt" <= NOW() THEN 1
-                         ELSE "rate_limit_bucket"."hits" + 1 END,
-           "resetAt" = CASE WHEN "rate_limit_bucket"."resetAt" <= NOW() THEN $3
-                            ELSE "rate_limit_bucket"."resetAt" END
-     RETURNING "hits", "resetAt"`,
-    bucketKey,
-    limiter,
-    resetAt,
-  );
+  /**
+   * Fails open, deliberately.
+   *
+   * Moving the counters from process memory into the database made this store part of
+   * the request path, and the first thing that does is let a storage problem decide
+   * whether unrelated endpoints work. Observed while writing this: with Postgres down,
+   * every route including `/api/health` returned 500, because the limiter rejected the
+   * request before any handler ran.
+   *
+   * A rate limit is a protective measure, not a correctness requirement. Failing closed
+   * would mean a brief blip in a counting table turns into a total outage of the
+   * service, which is strictly worse than the abuse it prevents: the endpoints that
+   * matter most are the ones whose real authentication already depends on the same
+   * database, so they are unavailable either way, and the ones that would keep serving
+   * are the ones a counter outage should not be able to take down.
+   *
+   * The cost is real and is why this is logged rather than silent: during an outage the
+   * limits are not being enforced, so a burst is not being shed. The warning is the
+   * signal to alert on, and it carries the limiter name so the operator knows which
+   * budget is not holding.
+   */
+  try {
+    const rows = await prisma.$queryRawUnsafe<BucketRow[]>(
+      `INSERT INTO "rate_limit_bucket" ("key", "limiter", "hits", "resetAt")
+       VALUES ($1, $2, 1, $3)
+       ON CONFLICT ("key", "limiter") DO UPDATE
+         SET "hits" = CASE WHEN "rate_limit_bucket"."resetAt" <= NOW() THEN 1
+                           ELSE "rate_limit_bucket"."hits" + 1 END,
+             "resetAt" = CASE WHEN "rate_limit_bucket"."resetAt" <= NOW() THEN $3
+                              ELSE "rate_limit_bucket"."resetAt" END
+       RETURNING "hits", "resetAt"`,
+      bucketKey,
+      limiter,
+      resetAt,
+    );
 
-  const row = rows[0];
+    const row = rows[0];
 
-  return {
-    totalHits: row?.hits ?? 1,
-    resetTime: row?.resetAt ?? resetAt,
-  };
+    return {
+      totalHits: row?.hits ?? 1,
+      resetTime: row?.resetAt ?? resetAt,
+    };
+  } catch (error) {
+    logRateLimitStoreFailure(this.limiterName, error);
+
+    // Reported as an empty window so the request is allowed through.
+    return { totalHits: 0, resetTime: resetAt };
+  }
 }
 
   async decrement(key: string): Promise<void> {
@@ -196,7 +224,33 @@ async incrementWithWindow(key: string, resetAtMs: number): Promise<{ totalHits: 
   async resetAll(): Promise<void> {
     await prisma.$executeRawUnsafe('TRUNCATE TABLE "rate_limit_bucket"');
   }
+}
 
+/**
+ * One warning per limiter per interval.
+ *
+ * Without the throttle, an unreachable database produces one line per request, which
+ * turns a dependency problem into a log flood that pushes the line that says what is
+ * actually wrong off the front of the tail. The interval also gives a slow recovery a
+ * chance to stop warning before it is finished, so "last warned 4 seconds ago" cannot
+ * be read as "still broken" when it is not.
+ */
+const lastFailureWarningAt = new Map<string, number>();
+const FAILURE_WARNING_INTERVAL_MS = 30_000;
+
+function logRateLimitStoreFailure(limiter: string, error: unknown): void {
+  const now = Date.now();
+  const previous = lastFailureWarningAt.get(limiter) ?? 0;
+
+  if (now - previous < FAILURE_WARNING_INTERVAL_MS) {
+    return;
+  }
+  lastFailureWarningAt.set(limiter, now);
+
+  const reason = error instanceof Error ? error.message : String(error);
+  // Matches the shape server.ts and app.ts already use, so this arrives in the same
+  // stream an operator is already reading rather than in a second logging dialect.
+  console.warn(`[rate-limit] counter store unavailable, limiter "${limiter}" is allowing requests: ${reason}`);
 }
 
 /**
