@@ -78,6 +78,14 @@ async function call<T>(
 const wsPath = (orgId: string, tail: string) =>
   `/api/workspaces/${orgId}${tail}`;
 
+/**
+ * Exported so a feature client that is its own file (webhooks-client.ts) runs on
+ * this exact call rather than writing a second copy of the error shaping. A
+ * second implementation would be a second thing to keep correct: a 402 routed by
+ * a differently parsed `feature` key silently stops offering the upgrade prompt.
+ */
+export const opsCall = call;
+
 // ─── portal access grants (agency side) ─────────────────────────────────────
 
 /** POST /portal-access — grant a contact access to ONE client's portal. The

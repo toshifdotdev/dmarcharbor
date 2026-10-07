@@ -22,6 +22,12 @@ const SECTIONS: Array<{ key: string; href: string; label: string; blurb: string 
     blurb: "every signed-in device: revoke anything you do not recognise",
   },
   {
+    key: "audit",
+    href: "/settings/audit",
+    label: "Audit trail",
+    blurb: "who changed what, and whether it was allowed",
+  },
+  {
     key: "slack",
     href: "/settings/slack",
     label: "Slack alerts",
@@ -50,6 +56,12 @@ const SECTIONS: Array<{ key: string; href: string; label: string; blurb: string 
     href: "/settings/api-keys",
     label: "API keys",
     blurb: "keys for the public API, with read and write scopes",
+  },
+  {
+    key: "webhooks",
+    href: "/settings/webhooks",
+    label: "Webhooks",
+    blurb: "signed events posted to your own systems, with a delivery log",
   },
   {
     key: "export",

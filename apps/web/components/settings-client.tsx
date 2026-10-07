@@ -23,6 +23,7 @@
 import { ActionButton } from "@/components/action-button";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { pollReportInboxNow } from "@/lib/notifications-client";
 import { EntitlementNotice } from "@/components/entitlement-gate";
 import {
   createSsoConnection,
@@ -369,11 +370,69 @@ export function ReportInboxForm({
           ) : null}
         </div>
       </form>
+      {inbox.configured ? <PollInboxNow organizationId={organizationId} /> : null}
       <p className="text-[12.5px]" style={{ color: "var(--color-ink-3)" }}>
         Ports 993, 143 and 2525 only: the API refuses others. The password is
         write-only: it is never returned and never stored in this browser.
       </p>
     </section>
+  );
+}
+
+/**
+ * Polls the mailbox immediately.
+ *
+ * The endpoint has existed with no control for it anywhere, which made the only
+ * way to check a mailbox was to point a rua tag at it and wait for the next
+ * automatic run. That is the wrong order: a wrong host, port or password is
+ * discovered by a customer whose reports quietly never arrive.
+ *
+ * A failure is not silent here. The API records it against the mailbox so the
+ * status above shows it, and this reports it as well, because "checked 0
+ * mailboxes" and "the mailbox is broken" are otherwise indistinguishable.
+ */
+function PollInboxNow({ organizationId }: { organizationId: string }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [outcome, setOutcome] = useState<string | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+
+  async function poll() {
+    setBusy(true);
+    const result = await pollReportInboxNow(organizationId);
+    setBusy(false);
+
+    if (!result.ok) {
+      setFailed(result.error.message ?? "The mailbox could not be read.");
+      return;
+    }
+    setFailed(null);
+    setOutcome(
+      `Checked ${result.data.checked} mailbox${result.data.checked === 1 ? "" : "es"}, received ${result.data.received} new report${result.data.received === 1 ? "" : "s"}.`,
+    );
+    router.refresh();
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <ActionButton
+        label="Poll the mailbox now"
+        loadingLabel="Polling"
+        busy={busy}
+        variant="ghost"
+        onClick={poll}
+      />
+      {outcome ? (
+        <p className="text-[12.5px]" style={{ color: "var(--color-ink-2)" }}>
+          {outcome}
+        </p>
+      ) : null}
+      {failed ? (
+        <p className="text-[12.5px]" style={{ color: "var(--color-danger, #b4232a)" }}>
+          {failed}
+        </p>
+      ) : null}
+    </div>
   );
 }
 

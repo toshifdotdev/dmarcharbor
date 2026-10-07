@@ -305,6 +305,62 @@ export interface IssuedApiKey {
   notice?: string;
 }
 
+/**
+ * The four events an endpoint can subscribe to. Kept as a literal union so the
+ * UI offers exactly what the API's `webhookEvents` enum accepts, and the list
+ * endpoint is still the source of truth for rendering order.
+ */
+export type WebhookEventName =
+  | "domain.verified"
+  | "alert.triggered"
+  | "report.received"
+  | "entitlement.exceeded";
+
+/** GET /webhooks — one row per registered endpoint. `active` is already the
+ *  effective state (paused OR auto-suspended), so the UI never re-derives it.
+ *  The signing secret is NOT here and never will be. */
+export interface WebhookEndpointRow {
+  id: string;
+  name: string;
+  url: string;
+  events: WebhookEventName[];
+  active: boolean;
+  /** Set when the endpoint was auto-suspended after too many failures. */
+  suspendedAt: string | null;
+  failureCount: number;
+  lastDeliveryAt: string | null;
+  createdAt: string;
+}
+
+/** POST /webhooks — the ONLY response carrying `secret`. It is shown once and
+ *  is not retrievable afterwards, so the UI must present it before anything
+ *  else. */
+export interface RegisteredWebhook extends WebhookEndpointRow {
+  secret: string;
+  notice?: string;
+}
+
+export type WebhookDeliveryStatus =
+  | "PENDING"
+  | "IN_FLIGHT"
+  | "DELIVERED"
+  | "FAILED"
+  | "SUSPENDED";
+
+/** GET /webhook-deliveries — one row per event per endpoint, newest first. */
+export interface WebhookDeliveryRow {
+  id: string;
+  endpointId: string;
+  event: string;
+  status: WebhookDeliveryStatus;
+  attempts: number;
+  /** The endpoint's own HTTP status, or null when the request never landed. */
+  responseCode: number | null;
+  lastError: string | null;
+  deliveredAt: string | null;
+  createdAt: string;
+}
+
 /** An export is a REQUEST that is prepared, then available — not an instant
  *  download. */
 export interface ExportJob {
@@ -619,6 +675,118 @@ export interface ReportDigestRow {
   includeForensics: boolean;
   enabled: boolean;
   lastSentAt: string | null;
+}
+
+// ─── audit trail ──────────────────────────────────────────────────────────────
+
+/**
+ * Every value of the API's AuditAction enum, mirrored from
+ * apps/api/prisma/schema.prisma. Closed on purpose: listAuditEvents casts the
+ * `action` query parameter straight into the Prisma enum with no validation, so
+ * a string the database does not recognise is a database error and a 500 rather
+ * than a 400. A filter typed against this union cannot carry one.
+ */
+export type AuditAction =
+  | "FORENSIC_IDENTITY_ENABLED"
+  | "FORENSIC_IDENTITY_DISABLED"
+  | "FORENSIC_PURGE_SINGLE"
+  | "FORENSIC_PURGE_DOMAIN"
+  | "REPORT_SHARE_CREATED"
+  | "REPORT_SHARE_REVOKED"
+  | "REPORT_DIGEST_CREATED"
+  | "REPORT_DIGEST_UPDATED"
+  | "REPORT_DIGEST_DELETED"
+  | "ALERT_RULE_CREATED"
+  | "ALERT_RULE_UPDATED"
+  | "ALERT_RULE_DELETED"
+  | "ALERT_ACKNOWLEDGED"
+  | "SESSION_REVOKED"
+  | "SESSIONS_REVOKED_OTHERS"
+  | "SESSIONS_REVOKED_ALL"
+  | "PASSWORD_CHANGED"
+  | "PLAN_CHANGED"
+  | "ENTITLEMENT_OVERRIDE_SET"
+  | "ENTITLEMENT_OVERRIDE_REMOVED"
+  | "EXPORT_REQUESTED"
+  | "EXPORT_DOWNLOADED"
+  | "EXPORT_REVOKED"
+  | "ERASURE_REQUESTED"
+  | "ERASURE_CANCELLED"
+  | "ERASURE_COMPLETED"
+  | "API_KEY_CREATED"
+  | "API_KEY_REVOKED"
+  | "CLIENTS_BULK_IMPORTED"
+  | "DOMAINS_BULK_IMPORTED"
+  | "REFUND_ISSUED"
+  | "REFUND_REFUSED"
+  | "WEBHOOK_ENDPOINT_CREATED"
+  | "WEBHOOK_ENDPOINT_UPDATED"
+  | "WEBHOOK_ENDPOINT_DELETED"
+  | "WEBHOOK_ENDPOINT_SUSPENDED"
+  | "WEBHOOK_ENDPOINT_PROBED"
+  | "PORTAL_ACCESS_GRANTED"
+  | "PORTAL_ACCESS_REVOKED"
+  | "SUBSCRIPTION_UPDATED"
+  | "BILLING_CHECKOUT_STARTED"
+  | "BILLING_PLAN_CHANGE_REQUESTED"
+  | "BILLING_PLAN_CHANGE_REFUSED"
+  | "BILLING_CANCELLED"
+  | "BILLING_RESUMED"
+  | "DPA_ACCEPTED"
+  | "TRUST_CENTER_CREATED"
+  | "TRUST_CENTER_REVOKED"
+  | "COMPLIANCE_PACK_ISSUED"
+  | "PAYMENT_FAILED"
+  | "BRANDING_UPDATED"
+  | "CUSTOM_DOMAIN_VERIFIED"
+  | "REPORT_INBOX_CONFIGURED"
+  | "REPORT_INBOX_REMOVED"
+  | "SSO_CONNECTION_CREATED"
+  | "SSO_CONNECTION_REMOVED"
+  | "SSO_SIGN_IN";
+
+/**
+ * AuditOutcome is SUCCESS or DENIED. There is no FAILED value: the trail records
+ * whether an action was permitted, so the two real states are "it happened" and
+ * "it was refused". An attempt that threw before the row was written leaves no
+ * trace here at all, which is a different gap from a recorded refusal and is
+ * why the UI never implies the log is complete.
+ */
+export type AuditOutcome = "SUCCESS" | "DENIED";
+
+/** Prisma's Json column, as it arrives over the wire. */
+export type AuditDetail =
+  | string
+  | number
+  | boolean
+  | null
+  | AuditDetail[]
+  | { [key: string]: AuditDetail };
+
+/**
+ * GET /api/workspaces/{organizationId}/audit-events — the response is
+ * `{ items }` and nothing else: no hasMore and no nextCursor, because the
+ * service takes a limit and ignores the cursor the route parses.
+ *
+ * `ipAddress` is recorded on the table and deliberately NOT selected by
+ * listAuditEvents, so there is nothing here to render. A row that does not show
+ * an address is a gap in the read, not a gap in the record.
+ *
+ * `actorUser` is null when actorUserId is null, and the relation is SetNull on
+ * delete, so null means either a platform task or a member who has since been
+ * removed. The API cannot tell those apart and neither can this type.
+ */
+export interface AuditEventRow {
+  id: string;
+  action: AuditAction;
+  outcome: AuditOutcome;
+  targetType: string;
+  targetId: string | null;
+  detail: AuditDetail;
+  requestId: string | null;
+  createdAt: string;
+  domain: { id: string; name: string } | null;
+  actorUser: { id: string; name: string; email: string } | null;
 }
 
 export interface WorkspaceMemberRow {

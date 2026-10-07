@@ -14,6 +14,7 @@ import { readHostBrand } from "@/lib/host-brand";
 import { PierMark } from "@/components/mark";
 import { LEGAL_FOOTER_LINKS } from "@/components/marketing";
 import { SignOutButton } from "@/components/sign-out";
+import { UnreadBadge } from "@/components/unread-badge";
 import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 
 export async function Shell({
@@ -85,6 +86,12 @@ export async function Shell({
           <NavLink href="/clients">Clients</NavLink>
           <NavLink href="/alerts">Alerts</NavLink>
           <NavLink href="/digests">Digests</NavLink>
+          <NavLink href="/notifications">
+            <span className="flex items-center gap-1.5">
+              Notifications
+              <UnreadBadge />
+            </span>
+          </NavLink>
           <NavLink href="/settings">Settings</NavLink>
           <NavLink href="/billing">Billing</NavLink>
         </nav>

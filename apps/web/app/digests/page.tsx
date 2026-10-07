@@ -6,6 +6,7 @@ import { Shell } from "@/components/shell";
 import { UpgradePrompt } from "@/components/upgrade-gate";
 import { EmptyState, ErrorState } from "@/components/data-states";
 import { DigestActions, DigestForm } from "@/components/digests-client";
+import { DigestRunControls, RunAllDigestsButton } from "@/components/digest-controls";
 
 export default async function DigestsPage() {
   const { workspaces, active } = await resolveActiveWorkspace();
@@ -36,19 +37,32 @@ export default async function DigestsPage() {
           </p>
         </header>
 
-        {!digestsEnabled ? (
-          <UpgradePrompt
-            error={{
-              feature: "digests",
-              message: entitlements
-                ? "Scheduled digests are not included in this plan."
-                : "Scheduled digests require an entitlement the current plan does not carry.",
-            }}
-            context="The API owns which plan carries digests; this workspace's current plan does not."
-          />
-        ) : (
-          <>
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+{!digestsEnabled ? (
+            <UpgradePrompt
+              error={{
+                feature: "digests",
+                message: entitlements
+                  ? "Scheduled digests are not included in this plan."
+                  : "Scheduled digests require an entitlement the current plan does not carry.",
+              }}
+              context="The API owns which plan carries digests; this workspace's current plan does not."
+            />
+          ) : (
+            <>
+              <section className="panel p-5">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="max-w-xl">
+                    <h2 className="text-[15px] font-semibold">Send without waiting</h2>
+                    <p className="mt-1 text-[13px]" style={{ color: "var(--color-ink-2)" }}>
+                      Useful the first time you set a digest up, when the only other
+                      way to find out whether it works is to wait for the schedule.
+                    </p>
+                  </div>
+                  <RunAllDigestsButton organizationId={active.id} />
+                </div>
+              </section>
+
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <DigestForm
                 organizationId={active.id}
                 domains={domains}
@@ -104,8 +118,15 @@ export default async function DigestsPage() {
                         >
                           {d.enabled ? "active" : "paused"}
                         </span>
-                        <DigestActions organizationId={active.id} digest={d} />
-                      </li>
+<DigestActions organizationId={active.id} digest={d} />
+                          <div className="basis-full">
+                            <DigestRunControls
+                              organizationId={active.id}
+                              digestId={d.id}
+                              digestLabel={d.domain?.name ?? "this digest"}
+                            />
+                          </div>
+                        </li>
                     ))}
                   </ul>
                 )}

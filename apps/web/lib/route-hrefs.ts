@@ -36,6 +36,27 @@ export function complianceHref(clientId: string): string {
   return `/settings/compliance?client=${encodeURIComponent(clientId)}`;
 }
 
+/**
+ * The audit trail, optionally narrowed.
+ *
+ * `action` and `domainId` are the two filters the API actually applies, so they
+ * are the only two that travel. `outcome` is not one of them: the API has no
+ * such filter, so it narrows the events already loaded rather than shaping the
+ * request, and it stays out of the URL to keep that distinction visible.
+ */
+export function auditHref(filters: {
+  action?: string;
+  domain?: string;
+  limit?: number;
+} = {}): string {
+  const query = new URLSearchParams();
+  if (filters.action) query.set("action", filters.action);
+  if (filters.domain) query.set("domain", filters.domain);
+  if (filters.limit !== undefined) query.set("limit", String(filters.limit));
+  const search = query.toString();
+  return search ? `/settings/audit?${search}` : "/settings/audit";
+}
+
 /** The RENDERED public share page — the document a client contact opens. The
  *  API's own /api/reports/share/:token serves the same data as JSON for the
  *  page to render; linking customers to that raw endpoint shows them a wall of

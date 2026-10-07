@@ -19,6 +19,8 @@ import type {
   AlertRuleRow,
   ApiErrorBody,
   ApiKeyRow,
+  AuditAction,
+  AuditEventRow,
   BillingStatus,
   BillingCurrencyPreference,
   BrandingSettings,
@@ -41,6 +43,9 @@ import type {
   SsoConnectionRow,
   TrustSlugStatus,
   VerifyDomainResult,
+  WebhookDeliveryRow,
+  WebhookEndpointRow,
+  WebhookEventName,
   WorkspaceInvitation,
   WorkspaceMemberRow,
   PageEnvelope,
@@ -241,6 +246,61 @@ export function acknowledgeAlert(
   );
 }
 
+// ─── audit trail ──────────────────────────────────────────────────────────────
+
+/**
+ * GET /audit-events — the append-only trail, newest first.
+ *
+ * READ ONLY, and deliberately so. The service exposes no update and no delete,
+ * and the operations suite asserts both answer 404: a row that can be edited is
+ * not evidence. Nothing in this file may grow a write against this route.
+ *
+ * The response is `{ items }` with no hasMore and no nextCursor. The route parses
+ * a cursor out of the query and then never passes it to the service, so this is
+ * the newest `limit` rows and the way to reach anything older is a narrower
+ * filter, never a next page.
+ *
+ * `action` is typed as AuditAction because the API casts the raw query string
+ * into the Prisma enum without validating it: an unknown value is a database
+ * error and a 500, not a 400. Only real enum values may be sent.
+ *
+ * `domainId` is omitted rather than sent empty. Prisma treats `domainId: ''` as
+ * a real filter for a domain whose id is the empty string, so a cleared filter
+ * would quietly return nothing at all.
+ */
+export interface AuditEventQuery {
+  domainId?: string;
+  action?: AuditAction;
+  limit?: number;
+}
+
+/** What the API clamps `limit` to (apps/api/src/services/audit.service.ts). */
+export const AUDIT_LIMIT_MIN = 1;
+export const AUDIT_LIMIT_MAX = 200;
+/** The service's own default when the query carries no limit. */
+export const AUDIT_LIMIT_DEFAULT = 100;
+
+export function listAuditEvents(
+  organizationId: string,
+  options: AuditEventQuery = {},
+): Promise<{ items: AuditEventRow[] }> {
+  const query = new URLSearchParams();
+  if (options.domainId) query.set("domainId", options.domainId);
+  if (options.action) query.set("action", options.action);
+  query.set(
+    "limit",
+    String(
+      Math.min(
+        Math.max(options.limit ?? AUDIT_LIMIT_DEFAULT, AUDIT_LIMIT_MIN),
+        AUDIT_LIMIT_MAX,
+      ),
+    ),
+  );
+  return opsFetch<{ items: AuditEventRow[] }>(
+    `/api/workspaces/${organizationId}/audit-events?${query.toString()}`,
+  );
+}
+
 // ─── digests ─────────────────────────────────────────────────────────────────
 
 export function listReportDigests(
@@ -300,6 +360,50 @@ export function deleteReportDigest(
 }
 
 // ─── settings: members, branding, mailbox, SSO ───────────────────────────────
+
+// ─── settings: webhooks ───────────────────────────────────────────────────────
+
+/**
+ * GET /webhooks — the endpoint list, plus the event catalogue and the events
+ * the API subscribes by default.
+ *
+ * `events` is returned by the API rather than hardcoded here, so the checkboxes
+ * are always exactly what the backend will accept. `defaultEvents` exists for
+ * the same reason: the API decided that report.received is opt in because a
+ * large agency gets hundreds a day, and the create form must start from that
+ * decision instead of re-making it.
+ *
+ * The signing secret is never in this response.
+ */
+export function listWebhookEndpoints(
+  organizationId: string,
+): Promise<{
+  endpoints: WebhookEndpointRow[];
+  events: WebhookEventName[];
+  defaultEvents: WebhookEventName[];
+}> {
+  return opsFetch<{
+    endpoints: WebhookEndpointRow[];
+    events: WebhookEventName[];
+    defaultEvents: WebhookEventName[];
+  }>(`/api/workspaces/${organizationId}/webhooks`);
+}
+
+/**
+ * GET /webhook-deliveries — the delivery log, newest first, capped at 50 by the
+ * API. Passing endpointId narrows it to one endpoint, which is how the page
+ * answers "is this specific integration healthy" without a client side filter
+ * that could hide a row.
+ */
+export function listWebhookDeliveries(
+  organizationId: string,
+  endpointId?: string,
+): Promise<{ deliveries: WebhookDeliveryRow[] }> {
+  const query = endpointId ? `?endpointId=${encodeURIComponent(endpointId)}` : "";
+  return opsFetch<{ deliveries: WebhookDeliveryRow[] }>(
+    `/api/workspaces/${organizationId}/webhook-deliveries${query}`,
+  );
+}
 
 // ─── settings sections (Phase 6) ─────────────────────────────────────────────
 
