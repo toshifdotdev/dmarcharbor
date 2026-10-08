@@ -34,6 +34,7 @@ import { sessionManagementRouter } from './routes/session-management.routes.js';
 import { systemRouter } from './routes/system.routes.js';
 import { requestContext } from './middleware/request-context.middleware.js';
 import { createAuthRateLimiter, createWorkspaceRateLimiter } from './middleware/rate-limit.middleware.js';
+import { requireCurrentDpa } from './middleware/dpa-consent.middleware.js';
 import { sendError } from './utils/api-error.js';
 import helmet from 'helmet';
 
@@ -142,6 +143,23 @@ export function createApp(): express.Express {
    */
   app.use('/api', createWorkspaceRateLimiter());
 
+  /**
+   * An agreement the business has superseded is not agreement enough to keep
+   * operating under.
+   *
+   * `dpaAcceptanceFor` already computed `requiresReconsent` and nothing read it,
+   * so a published change to the agreement took effect for nobody. This is the
+   * enforcement: it refuses a workspace-scoped request whose acceptance names an
+   * older version, writes included.
+   *
+   * Mounted once, ahead of the workspace routers, and safe there because it
+   * reads the path rather than `request.params` - which an `app.use` cannot see
+   * - and because it is inert for any path without a workspace in it.
+   * `dpaRouter` below is the one router deliberately left outside it, since that
+   * is where the new acceptance is recorded.
+   */
+  app.use('/api', requireCurrentDpa());
+
   app.use('/api', clientRouter);
   app.use('/api', entitlementRouter);
   app.use('/api', exportRouter);
@@ -154,8 +172,11 @@ export function createApp(): express.Express {
   app.use('/api', refundRouter);
   app.use('/api', trustRouter);
   app.use('/api', reportInboxRouter);
-app.use('/api', slackRouter);
-app.use('/api', dpaRouter);
+  app.use('/api', slackRouter);
+
+  // Deliberately not through the guard above: this is the route that records the
+  // acceptance, and it has to stay reachable for someone stuck on the old one.
+  app.use('/api', dpaRouter);
 // RFC 9116 requires this at the host root, and a header-only document should not
 // depend on a JavaScript runtime starting up to be found.
 app.use(wellKnownRouter);

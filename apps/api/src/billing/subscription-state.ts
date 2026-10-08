@@ -281,8 +281,15 @@ export async function applyBillingEvent(event: BillingEvent): Promise<ApplyEvent
      * Only set when the subscription is actually paid, and never moved afterwards.
      * A renewal is not a new purchase, and a customer who has been subscribed for a
      * year should not gain a fresh 30 day window every month.
+     *
+     * `PAST_DUE` is not a purchase. A declined card produces a `PAST_DUE`
+     * subscription whose first fee never settled, and including it here granted a
+     * 30 day money back window on money that never left the customer - so the
+     * guarantee was neither honoured nor refused, it was simply inapplicable, and
+     * a refund could be issued against a payment that had failed. It stays out
+     * until a fee actually settles, which is what `ACTIVE` and `TRIALING` mean.
      */
-    if (existing?.firstChargeAt === null && ['ACTIVE', 'TRIALING', 'PAST_DUE'].includes(status)) {
+    if (existing?.firstChargeAt === null && ['ACTIVE', 'TRIALING'].includes(status)) {
       await tx.subscription.updateMany({
         where: { organizationId, firstChargeAt: null },
         data: { firstChargeAt: event.occurredAt },

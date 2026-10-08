@@ -165,7 +165,7 @@ export function createWorkspaceRateLimiter(
     limit,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    store: rateLimitStoreFor('api-key'),
+    store: rateLimitStoreFor('workspace'),
     keyGenerator: clientKey,
     message: {
       error: {
@@ -217,7 +217,7 @@ export function createApiKeyRateLimiter(limit = env.API_RATE_LIMIT_PER_MINUTE): 
     limit,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    store: rateLimitStoreFor('compliance-verify'),
+    store: rateLimitStoreFor('api-key'),
     keyGenerator: (request, response) => {
       const keyId = (response?.locals as { apiKeyId?: string } | undefined)?.apiKeyId;
       return keyId ? `key:${keyId}` : `ip:${clientKey(request)}`;
@@ -253,7 +253,7 @@ export const compliancePackVerifyRateLimiter = rateLimit({
   limit: 10,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
-  store: rateLimitStoreFor('workspace'),
+  store: rateLimitStoreFor('compliance-verify'),
   keyGenerator: clientKey,
   message: {
     error: {

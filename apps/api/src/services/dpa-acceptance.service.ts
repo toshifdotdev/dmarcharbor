@@ -128,3 +128,32 @@ export async function recordDpaAcceptance(input: {
   return dpaAcceptanceFor(input.organizationId);
 }
 
+/**
+ * Undoes a workspace whose acceptance could not be recorded.
+ *
+ * The workspace is created by Better Auth, which owns the transaction that
+ * writes it, so the acceptance cannot join that transaction. A throw between the
+ * two therefore leaves a workspace with `dpaVersion: null` - which is not a
+ * workspace missing an optional field, it is a workspace reporting
+ * `requiresReconsent: true` for ever, with no route through the API that can
+ * clear it. The only remedy was manual intervention on the database.
+ *
+ * Deleting the member row alongside the organisation is what makes the rollback
+ * complete. Better Auth links the acting user to the organisation through
+ * `member`, which cascades from `organization` but not the other way: leaving the
+ * member behind would make the user an orphaned member of a workspace that no
+ * longer exists.
+ *
+ * Best effort, and deliberately so. If this delete also fails the workspace
+ * survives in the stuck state, which is bad, but a failed response is still
+ * better than a 201 claiming a workspace was created with its agreement
+ * recorded when it was not.
+ */
+export async function rollbackWorkspaceWithoutAcceptance(organizationId: string): Promise<void> {
+  try {
+    await prisma.organization.delete({ where: { id: organizationId } });
+  } catch {
+    // Nothing further can be done here; the caller reports the original failure.
+  }
+}
+

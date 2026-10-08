@@ -79,6 +79,45 @@ export async function runDomainScan(input: RunDomainScanInput): Promise<RunDomai
 
   try {
     const result = await scanDomain(domain.name);
+
+    /**
+     * A scan that could not reach DNS is not a scan that found nothing.
+     *
+     * `scanDomain` answers with `status: 'error'` and `score: 0` when its lookups
+     * fail rather than throwing, so this looked like an ordinary completed scan
+     * and was stored as one. The row then read "completed, score 0" - a measured
+     * zero - and the domain's recorded DMARC policy was overwritten with this
+     * scan's `unknown`, quietly replacing a real answer from a scan that worked
+     * with no answer from one that never ran.
+     *
+     * Stored as FAILED, with the reason preserved, and the domain row left
+     * exactly as the previous scan left it.
+     *
+     * `error` is the only status that means this. `missing` and
+     * `needs_attention` are findings, not failures: a domain that publishes no
+     * DMARC record at all is exactly what the scan exists to report, and
+     * treating it as an error would mean a healthy scan of a badly configured
+     * domain was never recorded.
+     */
+    if (result.status === 'error') {
+      const reason =
+        (result.issues.length > 0 && result.issues[0].message) ||
+        'The lookups did not return an answer.';
+
+      const failedScan = await prisma.scan.update({
+        where: { id: scan.id },
+        data: {
+          status: 'FAILED',
+          error: reason,
+          result: toJson(result),
+          completedAt: new Date(result.scannedAt),
+        },
+        include: scanInclude,
+      });
+
+      return { status: 'failed', scan: failedScan, error: reason };
+    }
+
     const completedAt = new Date(result.scannedAt);
     const persistedScan = await prisma.$transaction(async (transaction) => {
       await transaction.scan.update({

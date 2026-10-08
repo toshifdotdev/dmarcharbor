@@ -687,6 +687,32 @@ export function listWorkspaceMembers(
   );
 }
 
+/**
+ * GET /api/workspaces/:id/dpa-acceptance — what this workspace has agreed to,
+ * and whether what it agreed to is still what the business publishes.
+ *
+ * Read on every screen through the Shell, and the only reason the re-consent
+ * banner can exist. Until the API enforced `requiresReconsent` the flag had no
+ * consumer at all, so a revised agreement changed nothing for anybody; now that
+ * it blocks workspace requests, this read is what tells the reader there is
+ * something to accept instead of leaving them at a 409 with no explanation.
+ */
+export function getDpaAcceptance(
+  organizationId: string,
+): Promise<{
+  accepted: boolean;
+  version: string | null;
+  currentVersion: string;
+  requiresReconsent: boolean;
+}> {
+  return opsFetch<{
+    accepted: boolean;
+    version: string | null;
+    currentVersion: string;
+    requiresReconsent: boolean;
+  }>(`/api/workspaces/${organizationId}/dpa-acceptance`);
+}
+
 /** GET /api/auth/organization/list-invitations — the pending invitations for
  *  a workspace, straight from the organization plugin that created them. */
 export function listPendingInvitations(

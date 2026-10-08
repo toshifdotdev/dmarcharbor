@@ -16,6 +16,8 @@ import { LEGAL_FOOTER_LINKS } from "@/components/marketing";
 import { SignOutButton } from "@/components/sign-out";
 import { UnreadBadge } from "@/components/unread-badge";
 import { WorkspaceSwitcher } from "@/components/workspace-switcher";
+import { DpaReconsentBanner } from "@/components/dpa-reconsent-banner";
+import { getDpaAcceptance } from "@/lib/api-ops";
 
 export async function Shell({
   workspaces,
@@ -38,11 +40,40 @@ export async function Shell({
   const hostBrand = await readHostBrand();
   const branded = hostBrand.state === "verified";
 
+  /**
+   * Whether this workspace is operating under a superseded agreement.
+   *
+   * Read here so the banner is on every screen, and read on the server rather
+   * than from the client because the API's enforcement is server side: a client
+   * that only learns of the gap when one of its requests 409s has already been
+   * refused. A failed read renders nothing, because a problem reaching the
+   * agreement state is not proof that the agreement is out of date.
+   */
+  const dpaOutOfDate = activeWorkspace
+    ? await getDpaAcceptance(activeWorkspace.id)
+        .then((acceptance) =>
+          acceptance.requiresReconsent
+            ? {
+                acceptedVersion: acceptance.version,
+                currentVersion: acceptance.currentVersion,
+              }
+            : null,
+        )
+        .catch(() => null)
+    : null;
+
   return (
     <div
       className="relative z-10 flex min-h-screen flex-col"
       data-host-brand={hostBrand.state}
     >
+      {dpaOutOfDate ? (
+        <DpaReconsentBanner
+          organizationId={activeWorkspace!.id}
+          acceptedVersion={dpaOutOfDate.acceptedVersion}
+          currentVersion={dpaOutOfDate.currentVersion}
+        />
+      ) : null}
       {hostBrand.state === "unverified" ? (
         <div
           role="status"

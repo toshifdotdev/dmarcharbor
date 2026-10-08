@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { refundEligibility, refundGuaranteeDays, issueRefund, RefundError } from '../src/billing/refund.service.js';
+import { planCatalog } from '../src/services/entitlements/plan-catalog.js';
 
 /**
  * The read half of the refund feature.
@@ -42,7 +43,7 @@ async function resetDatabase(): Promise<void> {
   );
 }
 
-async function paidWorkspace(label: string, firstChargeAt: Date | null, plan = 'HARBOR') {
+async function paidWorkspace(label: string, firstChargeAt: Date | null, plan = 'HARBOR', periodDays = 30) {
   fixtureId += 1;
   const email = `${label}-${Date.now()}-${fixtureId}@example.com`;
   expect((await request(app).post('/api/auth/sign-up/email').send({ name: 'Owner', email, password })).status).toBe(200);
@@ -66,7 +67,7 @@ async function paidWorkspace(label: string, firstChargeAt: Date | null, plan = '
       status: 'ACTIVE',
       provider: 'RAZORPAY',
       providerSubscriptionId: `sub_${label}_${fixtureId}`,
-      currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      currentPeriodEnd: new Date(Date.now() + periodDays * 24 * 60 * 60 * 1000),
       firstChargeAt,
     },
     update: { plan: plan as never, status: 'ACTIVE', firstChargeAt },
@@ -113,9 +114,37 @@ describe('refund eligibility against the published guarantee', () => {
   });
 
   /**
-   * The boundary. A day either side of it, because a guarantee that is off by one
-   * at the edge is a support argument.
+   * An annual customer is owed the annual price, and was owed a tenth of it.
+   *
+   * `amountMinor` read `prices.monthlyMinor` and `interval` was the literal
+   * 'monthly', so a Harbor annual customer who paid 1,24,990 was quoted a refund
+   * of 12,499. The endpoint is staff only and the amount decides whether money
+   * moves, so the number a support operator reads has to be the number on the
+   * customer's bank statement. Paid today, so a full annual period is still
+   * outstanding and the interval is readable.
    */
+  it('refunds an annual purchase at the annual price, and labels what it is charging', async () => {
+    const { organizationId } = await paidWorkspace('refund-annual', new Date(), 'HARBOR', 365);
+
+    const eligibility = await refundEligibility(organizationId);
+
+    expect(eligibility.eligible).toBe(true);
+    expect(eligibility.interval).toBe('annual');
+    expect(eligibility.amountMinor).toBe(planCatalog.HARBOR.prices.INR.annualMinor);
+    expect(eligibility.amountMinor).not.toBe(planCatalog.HARBOR.prices.INR.monthlyMinor);
+    expect(eligibility.amountLabel).toBe('1 annual charge');
+  });
+
+  it('refunds a monthly purchase at the monthly price, and labels what it is charging', async () => {
+    const { organizationId } = await paidWorkspace('refund-monthly', new Date(), 'ADMIRALTY', 30);
+
+    const eligibility = await refundEligibility(organizationId);
+
+    expect(eligibility.eligible).toBe(true);
+    expect(eligibility.interval).toBe('monthly');
+    expect(eligibility.amountMinor).toBe(planCatalog.ADMIRALTY.prices.INR.monthlyMinor);
+    expect(eligibility.amountLabel).toBe('1 monthly charge');
+  });
   it('accepts the last day and refuses the day after', async () => {
     const inside = await paidWorkspace(
       'refund-edge-inside',

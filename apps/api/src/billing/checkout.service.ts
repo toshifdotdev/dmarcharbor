@@ -12,6 +12,7 @@ import { quotaUsage } from '../services/entitlements/entitlement.service.js';
 import type { BillingInterval, ProviderName } from './provider.js';
 import { resolveProviderForCheckout } from './registry.js';
 import { planSyncReport, requireStoredPlan } from './plans.js';
+import { resolveBillingInterval } from './interval.js';
 import { sendPlanChangedEmail, sendSubscriptionCancelledEmail } from '../email/mailer.js';
 
 /**
@@ -511,6 +512,7 @@ export async function billingStatus(organizationId: string): Promise<{
           cancelAtPeriodEnd: true,
           pendingPlan: true,
           pendingPlanInterval: true,
+          firstChargeAt: true,
           dunningStage: true,
           graceEndsAt: true,
         },
@@ -529,7 +531,23 @@ export async function billingStatus(organizationId: string): Promise<{
     organization.preferredCurrency ?? (organization.subscription?.provider === 'PADDLE' ? 'USD' : 'INR');
 
   const periodEnd = organization.subscription?.currentPeriodEnd ?? null;
-  const interval: StoredBillingInterval = isAnnualPeriod(periodEnd) ? 'ANNUAL' : 'MONTHLY';
+  /**
+   * The price for the interval being billed.
+   *
+   * This reported `monthlyMinor` unconditionally, so an annual Harbor customer
+   * who paid 1,24,990 was shown "12,499" on their own billing page: the
+   * screen understated the charge by ten times, in the one number they use to
+   * check whether they have been overcharged. The interval now comes from that
+   * shared resolver rather than a local guess, and `refundEligibility` reads the
+   * same one, because quoting an annual refund from a monthly price is the same
+   * defect on a screen that moves money.
+   */
+  const resolved = resolveBillingInterval(
+    periodEnd,
+    organization.subscription?.firstChargeAt ?? null,
+    new Date(),
+  );
+  const interval = toStoredInterval(resolved.interval);
 
   const prices = planCatalog[organization.plan].prices[currency];
 
@@ -560,22 +578,6 @@ export async function billingStatus(organizationId: string): Promise<{
     dunningStage: organization.subscription?.dunningStage ?? 'NONE',
     graceEnds: organization.subscription?.graceEndsAt?.toISOString() ?? null,
   };
-}
-
-/**
- * True when the paid period is long enough to be a year.
- *
- * Nine months is the midpoint between a year and the longest plausible monthly
- * run, so anything past it cannot be a monthly subscription. The catalog makes
- * annual exactly ten months of monthly, and monthly periods are a month, so there
- * is a wide gap and no realistic value lands near the boundary.
- */
-function isAnnualPeriod(currentPeriodEnd: Date | null): boolean {
-  if (!currentPeriodEnd) {
-    return false;
-  }
-  const remainingMs = currentPeriodEnd.getTime() - Date.now();
-  return remainingMs > 237 * 24 * 60 * 60 * 1000;
 }
 
 /** Tells an operator which provider plans still need creating. */

@@ -77,6 +77,45 @@ function event(organizationId: string, overrides: Partial<BillingEvent> = {}): B
 describe('subscription state machine', () => {
   beforeAll(resetDatabase);
 
+  /**
+   * A declined card is not a purchase.
+   *
+   * `PAST_DUE` was in the set of statuses that stamps `firstChargeAt`, so a
+   * subscription whose very first fee never settled was recorded as having been
+   * purchased. That does not merely misreport the history: the refund guarantee
+   * is measured from `firstChargeAt`, so a 30 day money back window opened on a
+   * payment that failed, and `refundEligibility` said "eligible" for a charge
+   * that never happened.
+   */
+  it('does not stamp a purchase date on a subscription whose first payment failed', async () => {
+    const { organizationId } = await setupWorkspace();
+
+    const declined = await applyBillingEvent(
+      event(organizationId, {
+        type: 'subscription.updated',
+        status: 'past_due',
+        plan: 'HARBOR',
+      }),
+    );
+    expect(declined.applied).toBe(true);
+
+    const afterDecline = await prisma.subscription.findUniqueOrThrow({ where: { organizationId } });
+    expect(afterDecline.status).toBe('PAST_DUE');
+    expect(afterDecline.firstChargeAt).toBeNull();
+
+    // And the guarantee cannot be evaluated, rather than being open.
+    const { refundEligibility } = await import('../src/billing/refund.service.js');
+    const eligibility = await refundEligibility(organizationId);
+    expect(eligibility.eligible).toBe(false);
+    expect(eligibility.reason).toMatch(/no completed purchase/i);
+
+    // Once a fee actually settles the date is stamped from that event, not
+    // backdated to the failed attempt.
+    await applyBillingEvent(event(organizationId, { type: 'subscription.activated', status: 'active' }));
+    const afterPayment = await prisma.subscription.findUniqueOrThrow({ where: { organizationId } });
+    expect(afterPayment.firstChargeAt).not.toBeNull();
+  });
+
   it('moves a workspace onto the paid plan and records the change', async () => {
     const { organizationId, userId } = await setupWorkspace();
 

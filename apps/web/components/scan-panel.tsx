@@ -249,7 +249,18 @@ export function ScanPanel({
                     style={{ color: STATUS_TONE[scan.status] }}
                   >
                     {scan.status.toLowerCase()}
-                    {scan.score !== null ? ` · ${scan.score}` : ""}
+                    {/*
+                      Score only alongside a status it could belong to. A scan
+                      stored as COMPLETED with score 0 was a scan whose lookups
+                      failed, and printing "completed · 0" claimed a measured
+                      zero. The API now stores those as FAILED; this guard is
+                      kept because a 0 is also a legitimate finding for a
+                      domain that publishes nothing at all, so it is the status
+                      that decides whether the number means anything.
+                    */}
+                    {scan.status.toUpperCase() === "COMPLETED" && scan.score !== null
+                      ? ` · ${scan.score}`
+                      : ""}
                   </span>
                   <ActionButton
                     label={openId === scan.id ? "Close detail" : "View detail"}

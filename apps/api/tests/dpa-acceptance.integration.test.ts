@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { currentDpaVersion, dpaPath } from '../src/services/dpa-acceptance.service.js';
@@ -39,7 +39,79 @@ describe('Data Processing Agreement acceptance', () => {
   beforeAll(resetDatabase);
 
   /**
- * A workspace created through the product records its acceptance as part of
+   * The workspace does not survive a failure to record the agreement.
+   *
+   * Better Auth commits the organisation inside its own call, so the acceptance
+   * cannot join that transaction. Until this was fixed a throw between the two
+   * left a workspace with `dpaVersion: null`, which is not a missing optional
+   * field but a workspace answering `requiresReconsent: true` for ever with no
+   * API route able to clear it. The number of organisations after the failure is
+   * the assertion that matters: the workspace has to be gone, not merely left
+   * in a warning state.
+   */
+  it('leaves no workspace behind when the acceptance cannot be recorded', async () => {
+    fixtureId += 1;
+    const agent = request.agent(app);
+    const email = `dpa-rollback-${Date.now()}-${fixtureId}@example.com`;
+    expect((await agent.post('/api/auth/sign-up/email').send({ name: 'Rollback Owner', email, password })).status).toBe(200);
+    await prisma.user.update({ where: { email }, data: { emailVerified: true } });
+    expect((await agent.post('/api/auth/sign-in/email').send({ email, password })).status).toBe(200);
+
+    const before = await prisma.organization.count({ where: { members: { some: { user: { email } } } } });
+    expect(before).toBe(0);
+
+    /**
+     * Simulate the failure from the outside rather than by mocking, so the
+     * rollback path under test is the real one: the route's own catch, calling
+     * the real delete, not a stub that agrees with the assertion.
+     */
+    const database = await import('../src/database/prisma.js');
+    vi.spyOn(database.prisma.auditLog, 'create').mockImplementation(() => {
+      throw new Error('audit write failed');
+    });
+
+    try {
+      const failed = await agent.post('/api/workspaces').send({
+        name: 'Half Created Workspace',
+        slug: `dpa-rollback-${Date.now()}-${fixtureId}`,
+        dpaHasRead: true,
+        dpaConfirmsAuthority: true,
+      });
+      expect(failed.status).toBe(500);
+      // And it says nothing was created, rather than only that something failed.
+      expect(failed.body.error.message).toMatch(/nothing has been created/i);
+    } finally {
+      vi.restoreAllMocks();
+    }
+
+    // The workspace is gone, and the member row that linked the acting user to
+    // it with it, so the user is not left attached to an organisation that no
+    // longer exists.
+    const survived = await prisma.organization.count({
+      where: { members: { some: { user: { email } } } },
+    });
+    expect(survived).toBe(0);
+    expect(await prisma.member.count({ where: { user: { email } } })).toBe(0);
+
+    // Which also means the user can try again rather than being stuck.
+    const retried = await agent.post('/api/workspaces').send({
+      name: 'Second Attempt',
+      slug: `dpa-retry-${Date.now()}-${fixtureId}`,
+      dpaHasRead: true,
+      dpaConfirmsAuthority: true,
+    });
+    expect(retried.status).toBe(201);
+
+    const recreated = await prisma.organization.findUniqueOrThrow({ where: { id: retried.body.id } });
+    expect(recreated.dpaAcceptedAt).not.toBeNull();
+    expect(recreated.dpaVersion).toBe(currentDpaVersion);
+
+    // And the spy never really wrote anything, so the count reflects a clean run.
+    expect(await database.prisma.auditLog.count({ where: { organizationId: retried.body.id, action: 'DPA_ACCEPTED' } })).toBe(1);
+  });
+
+  /**
+   * A workspace created through the product records its acceptance as part of
  * creation.
  *
  * This used to assert the opposite, and the opposite was the defect: creation had
@@ -196,6 +268,71 @@ describe('Data Processing Agreement acceptance', () => {
     expect(response.body.accepted).toBe(true);
     expect(response.body.version).toBe('0.9');
     expect(response.body.requiresReconsent).toBe(true);
+  });
+
+  /**
+   * The version gap is enforced, not only reported.
+   *
+   * `dpaAcceptanceFor` computed `requiresReconsent` for a long time with nothing
+   * reading it, which meant a published change to the agreement took effect for
+   * nobody and the only trace was a field on a record nobody was required to
+   * look at. This asserts the enforcement actually bites on routes that do the
+   * product's work, and not only that the flag exists.
+   */
+  it('refuses workspace requests that are still operating under an older version', async () => {
+    const { agent, organizationId } = await workspace();
+
+    // Reading the acceptance itself still answers, because it is what tells a
+    // client there is something to accept, and which version to accept.
+    const acceptance = await agent.get(`/api/workspaces/${organizationId}/dpa-acceptance`);
+    expect(acceptance.status).toBe(200);
+    expect(acceptance.body.requiresReconsent).toBe(false);
+
+    await prisma.organization.update({
+      where: { id: organizationId },
+      data: { dpaAcceptedAt: new Date(), dpaVersion: '0.9', dpaAcceptedByEmail: 'earlier@example.com' },
+    });
+
+    const stillAnswered = await agent.get(`/api/workspaces/${organizationId}/dpa-acceptance`);
+    expect(stillAnswered.status).toBe(200);
+    expect(stillAnswered.body.requiresReconsent).toBe(true);
+
+    // And every route that does work on the workspace refuses, with the reason
+    // and the route to the document the caller is missing.
+    for (const path of [
+      `/api/workspaces/${organizationId}/clients`,
+      `/api/workspaces/${organizationId}/entitlements`,
+      `/api/workspaces/${organizationId}/api-keys`,
+      `/api/workspaces/${organizationId}/webhooks`,
+      `/api/workspaces/${organizationId}/export-jobs`,
+      `/api/workspaces/${organizationId}/billing`,
+    ]) {
+      const refused = await agent.get(path);
+      expect(refused.status, `${path} refused for a superseded agreement`).toBe(409);
+      expect(refused.body.error.code).toBe('DPA_RECONSENT_REQUIRED');
+      expect(refused.body.error.dpaUrl).toBe(dpaPath);
+      expect(refused.body.error.acceptedVersion).toBe('0.9');
+      expect(refused.body.error.currentVersion).toBe(currentDpaVersion);
+    }
+
+    // A write is refused too, because the agreement governs what may be done
+    // with the data as much as what may be read.
+    const refusedWrite = await agent.post(`/api/workspaces/${organizationId}/clients`).send({
+      name: 'New Client',
+      slug: `refused-${Date.now()}`,
+    });
+    expect(refusedWrite.status).toBe(409);
+
+    // Accepting the current version from the same place clears it, so the
+    // enforcement cannot become a lockout.
+    const accepted = await agent
+      .post(`/api/workspaces/${organizationId}/dpa-acceptance`)
+      .send({ hasRead: true, confirmsAuthority: true });
+    expect(accepted.status).toBe(200);
+    expect(accepted.body.version).toBe(currentDpaVersion);
+    expect(accepted.body.requiresReconsent).toBe(false);
+
+    expect((await agent.get(`/api/workspaces/${organizationId}/clients`)).status).toBe(200);
   });
 
   it('does not let one workspace record acceptance for another', async () => {

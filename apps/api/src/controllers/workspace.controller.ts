@@ -2,7 +2,11 @@ import { fromNodeHeaders } from 'better-auth/node';
 import type { Request, Response } from 'express';
 import { auth } from '../auth/auth.config.js';
 import { createWorkspaceSchema, workspaceIdSchema } from '../models/auth.model.js';
-import { dpaPath, recordDpaAcceptance } from '../services/dpa-acceptance.service.js';
+import {
+  dpaPath,
+  recordDpaAcceptance,
+  rollbackWorkspaceWithoutAcceptance,
+} from '../services/dpa-acceptance.service.js';
 
 export async function listWorkspaces(request: Request, response: Response): Promise<void> {
   const workspaces = await auth.api.listOrganizations({ headers: fromNodeHeaders(request.headers) });
@@ -46,7 +50,26 @@ export async function createWorkspace(request: Request, response: Response): Pro
   });
 
   const organizationId = (workspace as { id?: unknown }).id;
-  if (typeof organizationId === 'string') {
+  if (typeof organizationId !== 'string') {
+    // Better Auth did not hand back an id, so there is nothing the caller could
+    // use and nothing for us to record against. Answering 201 would leave the
+    // client believing a workspace exists.
+    response.status(502).json({ error: { message: 'The workspace could not be created.' } });
+    return;
+  }
+
+  /**
+   * The acceptance is recorded on the same request, and if it fails the
+   * workspace does not survive.
+   *
+   * Better Auth commits the organisation inside its own call, so the acceptance
+   * cannot join that transaction. A throw between them therefore left the
+   * workspace existing with `dpaVersion: null` - which is not a missing optional
+   * field but a workspace reporting `requiresReconsent: true` for ever, with no
+   * API route that could clear it. Rolling the workspace back leaves nothing
+   * behind instead of something half-created.
+   */
+  try {
     const session = await auth.api.getSession({ headers: fromNodeHeaders(request.headers) });
     await recordDpaAcceptance({
       organizationId,
@@ -56,6 +79,20 @@ export async function createWorkspace(request: Request, response: Response): Pro
       confirmsAuthority: true,
       ipAddress: request.ip ?? null,
     });
+  } catch (error) {
+    await rollbackWorkspaceWithoutAcceptance(organizationId);
+
+    console.error(
+      `[workspace] rolling back ${organizationId} because the DPA acceptance could not be recorded:`,
+      error instanceof Error ? error.message : error,
+    );
+
+    response.status(500).json({
+      error: {
+        message: 'The workspace could not be created because the agreement could not be recorded. Nothing has been created.',
+      },
+    });
+    return;
   }
 
   response.status(201).json(workspace);

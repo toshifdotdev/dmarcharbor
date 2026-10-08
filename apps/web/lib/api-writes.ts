@@ -1,5 +1,5 @@
 /**
- * api-writes.ts â€” server-side mutations. Kept separate from api.ts so any
+ * api-writes.ts - server-side mutations. Kept separate from api.ts so any
  * page importing a mutation does so explicitly.
  */
 
@@ -7,7 +7,7 @@ import { API_BASE, apiFetch } from "./api-fetch";
 import { cookies } from "next/headers";
 
 
-/** POST /api/workspaces/:id/dpa-acceptance â€” records an acceptance against a
+/** POST /api/workspaces/:id/dpa-acceptance - records an acceptance against a
  *  workspace that already exists.
  *
  *  NOT used by onboarding any more. Workspace creation now sends both confirmations on
@@ -16,10 +16,11 @@ import { cookies } from "next/headers";
  *  anything failed in between.
  *
  *  It exists for re-consent: when the agreement is revised, `dpaAcceptanceFor()` reports
- *  `requiresReconsent` for everyone who accepted the previous version, and someone has
- *  to be able to record the new acceptance. That flow has no UI yet, which is why this
- *  function currently has no caller. It is left here rather than deleted so the endpoint
- *  has a client the moment that screen is built, and so its contract is visible. */
+ *  `requiresReconsent` for everyone who accepted the previous version, and the API now
+ *  refuses their workspace requests until it is recorded again. Called from
+ *  `components/dpa-reconsent-banner.tsx`, which is what makes the flag mean something:
+ *  it had no UI and so the enforcement would otherwise have blocked workspaces with
+ *  nothing on screen explaining why. */
 export async function acceptDpa(
   organizationId: string,
   body: { hasRead: boolean; confirmsAuthority: boolean },

@@ -4,6 +4,7 @@ import { recordAuditEvent } from '../services/audit.service.js';
 import { providerFor } from './registry.js';
 import { planCatalog, type BillingCurrency } from '../services/entitlements/plan-catalog.js';
 import { BillingProviderError } from './provider.js';
+import { intervalLabel, resolveBillingInterval } from './interval.js';
 
 /**
  * Refunds against the published 30 day money back guarantee.
@@ -92,6 +93,10 @@ export async function refundEligibility(
       providerSubscriptionId: true,
       plan: true,
       firstChargeAt: true,
+      // Needed to decide the billing cycle, which is what the refund amount for
+      // an annual plan depends on. Not on the row before, which is why annual
+      // refunds quoted a month.
+      currentPeriodEnd: true,
     },
   });
 
@@ -132,16 +137,27 @@ export async function refundEligibility(
 
   const alreadyRefunded = organization?.refunds.length !== 0;
 
+  /**
+   * The interval is read from the shape of the billing cycle, not assumed.
+   *
+   * `prices.monthlyMinor` was used unconditionally and `interval` was the
+   * literal 'monthly', so an annual Harbor customer who paid 1,24,990 was quoted
+   * a refund of 12,499 and shown an amount label of "". Both numbers are the
+   * ones a customer compares against their bank statement, and both were wrong
+   * for every annual workspace on the platform. See billing/interval.ts for how
+   * the interval is derived.
+   */
+  const { interval } = resolveBillingInterval(subscription.currentPeriodEnd, firstChargeAt, now);
   const prices = planCatalog[subscription.plan as PlanTier].prices[currency];
-  const amountMinor = prices.monthlyMinor;
-  const interval: 'monthly' | 'annual' = 'monthly';
+  const amountMinor = interval === 'annual' ? prices.annualMinor : prices.monthlyMinor;
+  const amountLabel = `1 ${intervalLabel(interval)} charge`;
 
   const base = {
     organizationId,
     plan,
     currency,
     amountMinor,
-    amountLabel: '',
+    amountLabel,
     firstChargeAt: firstChargeAt?.toISOString() ?? null,
     eligibleUntil: eligibleUntil?.toISOString() ?? null,
     daysSincePurchase,
