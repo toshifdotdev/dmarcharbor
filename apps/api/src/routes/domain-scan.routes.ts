@@ -6,7 +6,7 @@ import {
 } from '../controllers/domain-scan.controller.js';
 import { requireSession } from '../middleware/auth.middleware.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
-import { scanRateLimiter } from '../middleware/rate-limit.middleware.js';
+import { createScanRateLimiter } from '../middleware/rate-limit.middleware.js';
 
 export const domainScanRouter = Router();
 
@@ -14,7 +14,7 @@ domainScanRouter.post(
   '/workspaces/:organizationId/domains/:domainId/scans',
   requireSession,
   requireOrganizationPermission('domain', 'update'),
-  scanRateLimiter,
+  createScanRateLimiter(),
   createDomainScanController,
 );
 domainScanRouter.get(

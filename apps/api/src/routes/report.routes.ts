@@ -6,7 +6,7 @@ import {
 } from '../controllers/report.controller.js';
 import { requireSession } from '../middleware/auth.middleware.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
-import { reportIngestRateLimiter } from '../middleware/rate-limit.middleware.js';
+import { createReportIngestRateLimiter } from '../middleware/rate-limit.middleware.js';
 
 const reportJsonParser = express.json({ limit: '5mb' });
 
@@ -17,7 +17,7 @@ reportRouter.post(
   requireSession,
   requireOrganizationPermission('report', 'ingest'),
   reportJsonParser,
-  reportIngestRateLimiter,
+  createReportIngestRateLimiter(),
   ingestReportController,
 );
 reportRouter.get(

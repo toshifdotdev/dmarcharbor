@@ -155,6 +155,12 @@ const envSchema = z.object({
   API_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(100_000).default(300),
   /** Unauthenticated report share views allowed per client per minute. */
   PUBLIC_REPORT_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(100_000).default(30),
+  /** On-demand domain scans allowed per client per minute. */
+  SCAN_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(100_000).default(20),
+  /** Inbound DMARC report deliveries accepted per client per minute. */
+  REPORT_INGEST_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(100_000).default(30),
+  /** SSO start and callback requests allowed per client per minute. */
+  SESSION_ROUTER_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(100_000).default(10),
 });
 
 const parsed = envSchema.safeParse(process.env);

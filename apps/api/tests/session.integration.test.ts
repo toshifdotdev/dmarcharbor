@@ -1,7 +1,10 @@
+import express, { Router } from 'express';
 import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
+import { createSecureSessionRouterRateLimiter } from '../src/middleware/rate-limit.middleware.js';
+import { rateLimitStoreFor } from '../src/middleware/postgres-rate-limit-store.js';
 
 let fixtureId = 0;
 const password = 'correct-horse-battery-staple';
@@ -226,12 +229,39 @@ describe('session management', () => {
   });
 
   it('rate limits repeated revoke attempts', async () => {
-    const { email } = await createUser();
-    const agent = await signIn(email);
+    /**
+     * Named explicitly rather than raised globally.
+     *
+     * The integration config lifts most budgets to 100000 because the shared
+     * counters now survive between test files, and a limiter that is under test
+     * cannot be lifted along with them. So this one is built at its own number
+     * on a router of its own: the limit under test is the real limit, and the
+     * library's own double-count protection still applies because a fresh store
+     * instance is created for it.
+     */
+    const limit = 10;
+
+    // Emptied first, and it has to be. The store is shared and lives in Postgres,
+    // so the bucket survives both the rest of this run and the previous one. On
+    // the second run the very first request was already over budget and the test
+    // measured its own history rather than the limiter.
+    await rateLimitStoreFor('session-router').resetAll();
+
+    const isolated = Router();
+    isolated.post('/revoke-others', (_request, response) => {
+      response.json({ revoked: 0 });
+    });
+
+    // A bare Router is not something supertest can drive, so it is mounted on an
+    // app. The limiter sits in front of the handler rather than being called per
+    // request, which is how the real routes use it.
+    const harness = express();
+    harness.use(createSecureSessionRouterRateLimiter(limit));
+    harness.use(isolated);
 
     const statuses: number[] = [];
-    for (let attempt = 0; attempt < 15; attempt += 1) {
-      const response = await agent.post('/api/me/sessions/revoke-others');
+    for (let attempt = 0; attempt < limit + 5; attempt += 1) {
+      const response = await request(harness).post('/revoke-others');
       statuses.push(response.status);
       if (response.status === 429) {
         expect(response.body.error.code).toBe('RATE_LIMITED');
@@ -240,5 +270,8 @@ describe('session management', () => {
     }
 
     expect(statuses).toContain(429);
+    // Exactly the budget, then refusal. An off-by-one either locks a legitimate
+    // user out of revoking their own sessions or leaves the limit unenforced.
+    expect(statuses.filter((status) => status === 200).length).toBe(limit);
   });
 });

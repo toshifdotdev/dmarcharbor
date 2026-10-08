@@ -6,7 +6,7 @@ import {
   revokeSessionController,
 } from '../controllers/session-management.controller.js';
 import { requireSession } from '../middleware/auth.middleware.js';
-import { secureSessionRouterRateLimiter } from '../middleware/rate-limit.middleware.js';
+import { createSecureSessionRouterRateLimiter } from '../middleware/rate-limit.middleware.js';
 
 export const sessionManagementRouter = Router();
 
@@ -15,12 +15,12 @@ sessionManagementRouter.delete('/me/sessions/:sessionId', requireSession, revoke
 sessionManagementRouter.post(
   '/me/sessions/revoke-others',
   requireSession,
-  secureSessionRouterRateLimiter,
+  createSecureSessionRouterRateLimiter(),
   revokeOtherSessionsController,
 );
 sessionManagementRouter.post(
   '/me/sessions/revoke-all',
   requireSession,
-  secureSessionRouterRateLimiter,
+  createSecureSessionRouterRateLimiter(),
   revokeAllSessionsController,
 );

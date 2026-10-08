@@ -62,38 +62,50 @@ export function clientKey(request: { ip?: string; socket?: { remoteAddress?: str
   return `v6:${groups.slice(0, 4).map((group) => group.padStart(4, '0')).join(':')}::/64`;
 }
 
-export const scanRateLimiter = rateLimit({
-  windowMs: 60_000,
-  limit: 20,
-  standardHeaders: 'draft-7',
-  legacyHeaders: false,
-  store: rateLimitStoreFor('scan'),
-  keyGenerator: clientKey,
-});
+export function createScanRateLimiter(
+  limit = env.SCAN_RATE_LIMIT_PER_MINUTE,
+): RateLimitRequestHandler {
+  return rateLimit({
+    windowMs: 60_000,
+    limit,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    store: rateLimitStoreFor('scan'),
+    keyGenerator: clientKey,
+  });
+}
 
-export const reportIngestRateLimiter = rateLimit({
-  windowMs: 60_000,
-  limit: 30,
-  standardHeaders: 'draft-7',
-  legacyHeaders: false,
-  store: rateLimitStoreFor('report-ingest'),
-  keyGenerator: clientKey,
-});
+export function createReportIngestRateLimiter(
+  limit = env.REPORT_INGEST_RATE_LIMIT_PER_MINUTE,
+): RateLimitRequestHandler {
+  return rateLimit({
+    windowMs: 60_000,
+    limit,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    store: rateLimitStoreFor('report-ingest'),
+    keyGenerator: clientKey,
+  });
+}
 
-export const secureSessionRouterRateLimiter = rateLimit({
-  windowMs: 60_000,
-  limit: 10,
-  standardHeaders: 'draft-7',
-  legacyHeaders: false,
-  store: rateLimitStoreFor('session-router'),
-  keyGenerator: clientKey,
-  message: {
-    error: {
-      code: 'RATE_LIMITED',
-      message: 'Too many security requests. Wait a minute and try again.',
+export function createSecureSessionRouterRateLimiter(
+  limit = env.SESSION_ROUTER_RATE_LIMIT_PER_MINUTE,
+): RateLimitRequestHandler {
+  return rateLimit({
+    windowMs: 60_000,
+    limit,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    store: rateLimitStoreFor('session-router'),
+    keyGenerator: clientKey,
+    message: {
+      error: {
+        code: 'RATE_LIMITED',
+        message: 'Too many security requests. Wait a minute and try again.',
+      },
     },
-  },
-});
+  });
+}
 
 /**
  * Sign-in, sign-up, password reset and email verification.

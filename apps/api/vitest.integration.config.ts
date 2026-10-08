@@ -32,6 +32,13 @@ export default defineConfig({
       // only ever saw one file's traffic; shared buckets carry the whole run, and
       // every file requests share links from the same 127.0.0.1.
       PUBLIC_REPORT_RATE_LIMIT_PER_MINUTE: '100000',
+      // Same reason again, and these three were found by CI rather than locally:
+      // report ingest at 30 per minute is under the number of deliveries a single
+      // suite posts, so a later file inherited an exhausted bucket and failed on a
+      // 429 that had nothing to do with what it asserted.
+      SCAN_RATE_LIMIT_PER_MINUTE: '100000',
+      REPORT_INGEST_RATE_LIMIT_PER_MINUTE: '100000',
+      SESSION_ROUTER_RATE_LIMIT_PER_MINUTE: '100000',
     },
   },
 });
