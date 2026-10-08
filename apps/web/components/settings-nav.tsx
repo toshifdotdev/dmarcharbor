@@ -28,6 +28,12 @@ const SECTIONS: Array<{ key: string; href: string; label: string; blurb: string 
     blurb: "who changed what, and whether it was allowed",
   },
   {
+    key: "forensics",
+    href: "/settings/forensics",
+    label: "Forensics",
+    blurb: "per-message failure reports: collection, named recipients, and erasing them",
+  },
+  {
     key: "slack",
     href: "/settings/slack",
     label: "Slack alerts",

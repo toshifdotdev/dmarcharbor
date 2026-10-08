@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { purgeExpiredForensicReports } from '../src/services/forensic-report.service.js';
+import { setOrganizationPlan } from '../src/services/entitlements/entitlement.service.js';
 import { grantPlan } from './helpers/plan.js';
 
 let fixtureId = 0;
@@ -261,6 +262,57 @@ describe('forensic report ingestion', () => {
     const allowed = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/forensics`);
     expect(allowed.status).toBe(200);
     expect(allowed.body.items).toHaveLength(1);
+  });
+
+  /**
+   * The licence check and the role check are different questions, and a route
+   * that asks only one of them is wrong in a way that is invisible from the UI.
+   *
+   * Four of these routes asked only "does this role hold forensic:*" and never
+   * "is this workspace paying for forensics". That is not a cosmetic gap: a Mooring
+   * workspace, which deliberately excludes forensics from the free plan, could
+   * turn collection on and then delete a domain's entire forensic history, while
+   * being unable to read a single report back. Destroying evidence is strictly
+   * worse than collecting it, so the purges now ask for the licence too.
+   */
+  it('refuses to destroy forensic data on a plan that does not include it', async () => {
+    const { agent, organizationId, domainId } = await createWorkspaceDomain('licence.test');
+    await postSignedInbound(forensicEmail('licence.test', { messageId: 'licence-1@spammer.test' }));
+    const stored = await prisma.dmarcForensicReport.findFirstOrThrow({ where: { domainId } });
+
+    // Admin holds every permission, so only the licence can refuse this.
+    await prisma.member.updateMany({ where: { organizationId }, data: { role: 'admin' } });
+    await setOrganizationPlan(organizationId, 'MOORING');
+
+    const list = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/forensics`);
+    expect(list.status).toBe(402);
+    expect(list.body.error.feature).toBe('reports.forensic');
+
+    const detail = await agent.get(`/api/workspaces/${organizationId}/forensics/${stored.id}`);
+    expect(detail.status).toBe(402);
+
+    const purgeOne = await agent.delete(`/api/workspaces/${organizationId}/forensics/${stored.id}`);
+    expect(purgeOne.status).toBe(402);
+
+    const purgeAll = await agent.delete(`/api/workspaces/${organizationId}/domains/${domainId}/forensics`);
+    expect(purgeAll.status).toBe(402);
+
+    // The refusal has to have cost nothing, or the gate is theatre.
+    expect(await prisma.dmarcForensicReport.count({ where: { domainId } })).toBe(1);
+
+    const collection = await agent
+      .patch(`/api/workspaces/${organizationId}/domains/${domainId}/forensics`)
+      .send({ collectForensicReports: false });
+    expect(collection.status).toBe(402);
+
+    // Same workspace, same admin, one plan higher: everything works.
+    await setOrganizationPlan(organizationId, 'FAIRWAY');
+    expect(
+      (await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/forensics`)).status,
+    ).toBe(200);
+    expect(
+      (await agent.delete(`/api/workspaces/${organizationId}/forensics/${stored.id}`)).status,
+    ).toBe(204);
   });
 
   it('lets only forensic purge holders delete forensic data', async () => {

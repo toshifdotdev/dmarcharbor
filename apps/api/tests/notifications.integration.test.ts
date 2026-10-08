@@ -144,6 +144,63 @@ describe('in-app notifications', () => {
     expect(listed.body.unread).toBe(1);
   });
 
+  /**
+   * Quiet hours are a pair or they are nothing.
+   *
+   * "Start at 22:00" with no end is not a window, it is an alert suppression
+   * that never lifts, so a half-configured pair is refused. Turning both off
+   * again has to work, though, and it did not: the guard tested the truthiness
+   * of what arrived, so an explicit `null` read as absent and clearing quiet
+   * hours was rejected with the same message as a half pair. Once set, they
+   * could not be unset.
+   */
+  it('refuses half a quiet-hours window and allows both halves or neither', async () => {
+    const { agent, userId } = await setup({ domainName: 'quiet-hours.test' });
+
+    const half = await agent
+      .patch(`/api/me/${userId}/notification-preferences`)
+      .send({ quietHoursStart: '22:00' });
+    expect(half.status).toBe(400);
+
+    const both = await agent
+      .patch(`/api/me/${userId}/notification-preferences`)
+      .send({ quietHoursStart: '22:00', quietHoursEnd: '07:00' });
+    expect(both.status).toBe(200);
+    expect(both.body.quietHoursStart).toBe('22:00');
+    expect(both.body.quietHoursEnd).toBe('07:00');
+
+    // The case that was broken: switching them back off.
+    const cleared = await agent
+      .patch(`/api/me/${userId}/notification-preferences`)
+      .send({ quietHoursStart: null, quietHoursEnd: null });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.quietHoursStart).toBeNull();
+    expect(cleared.body.quietHoursEnd).toBeNull();
+
+    const reread = await agent.get(`/api/me/${userId}/notification-preferences`);
+    expect(reread.body.quietHoursStart).toBeNull();
+
+    // With both cleared, supplying one end is a half pair again and is refused.
+    // This is the same refusal as the very first call, which is the point: the
+    // rule is about the resulting state, not about having cleared once before.
+    const halfAgain = await agent
+      .patch(`/api/me/${userId}/notification-preferences`)
+      .send({ quietHoursStart: '22:00' });
+    expect(halfAgain.status).toBe(400);
+
+    // Nor may one end be cleared while the other is still set.
+    await agent
+      .patch(`/api/me/${userId}/notification-preferences`)
+      .send({ quietHoursStart: '22:00', quietHoursEnd: '07:00' });
+    const halfCleared = await agent
+      .patch(`/api/me/${userId}/notification-preferences`)
+      .send({ quietHoursEnd: null });
+    expect(halfCleared.status).toBe(400);
+    expect(
+      (await agent.get(`/api/me/${userId}/notification-preferences`)).body.quietHoursEnd,
+    ).toBe('07:00');
+  });
+
   it('creates notifications even when email alerts are switched off', async () => {
     const { agent, organizationId, domainId, userId } = await setup({ domainName: 'muted-notify.test' });
 

@@ -8,11 +8,14 @@ import {
   listClients,
   listDomainReports,
 } from "@/lib/api";
+import { listDomainScans } from "@/lib/api-ops";
+import { instantLabel } from "@/lib/instant";
 import { resolvePosture, fmtVolume, POSTURE_META, policyLabel } from "@/lib/posture";
 import { resolveActiveWorkspace } from "@/lib/session";
-import type { SenderRow, ReportRow, PolicyReadiness } from "@/lib/types";
+import type { SenderRow, ReportRow, PolicyReadiness, ScanRow } from "@/lib/types";
 import { Shell } from "@/components/shell";
 import { PostureBadge } from "@/components/posture";
+import { ScanPanel, type ScanHistoryRow } from "@/components/scan-panel";
 import { TrendChart } from "@/components/trend-chart";
 
 export default async function DomainPage({
@@ -77,6 +80,21 @@ export default async function DomainPage({
     resolved.posture === "stale" || resolved.posture === "unmeasured"
       ? resolved.posture
       : null;
+
+  /**
+   * The scan history, read separately and deliberately outside the block above.
+   *
+   * Everything in that try/catch shares one fate: if any of it fails, the page
+   * says so rather than showing evidence it could not load. That is right for
+   * the domain's own measurements and wrong here, because a scan history is a
+   * different claim from the domain's report evidence, and losing a per-domain
+   * list must not take the whole domain page down with it. So it carries its own
+   * failure flag and renders as a failure, never as an empty history.
+   */
+  const scanHistory = await listDomainScans(active.id, domainId).then(
+    (rows: ScanRow[]) => ({ rows, failed: false }),
+    () => ({ rows: [] as ScanRow[], failed: true }),
+  );
 
   return (
     <Shell workspaces={workspaces} activeWorkspace={active}>
@@ -169,9 +187,47 @@ export default async function DomainPage({
           </div>
 
         <ReportsPanel reports={reports} />
+
+        {/*
+         * The only control that can put a measured DMARC policy on a domain.
+         * `domain.dmarcPolicy` is written by the scan service and by nothing
+         * else, which is why an unscanned domain has no policy recorded at all.
+         */}
+        <ScanPanel
+          organizationId={active.id}
+          domainId={domainId}
+          domainName={insights.domain.name}
+          domainStatus={insights.domain.status}
+          scans={buildScanRows(scanHistory.rows)}
+          loadFailed={scanHistory.failed}
+        />
       </div>
     </Shell>
   );
+}
+
+/**
+ * Scans as rows this page can render without reading a clock.
+ *
+ * The timestamps are written here, on the server, and handed over as strings.
+ * Formatting them inside the client panel would produce a different string in
+ * the browser than the one React hydrated, which is a mismatch on every row.
+ */
+function buildScanRows(scans: ScanRow[]): ScanHistoryRow[] {
+  return scans.map((scan) => ({
+    id: scan.id,
+    status: scan.status,
+    score: scan.score,
+    startedLabel: instantLabel(scan.startedAt),
+    completedLabel: scan.completedAt ? instantLabel(scan.completedAt) : null,
+    // A scan with no member behind it was run by a scheduler or a migration, and
+    // the row says so rather than blaming a person who is not there.
+    requestedBy:
+      scan.requestedBy?.name?.trim() ||
+      scan.requestedBy?.email?.trim() ||
+      "an automated job",
+    error: scan.error,
+  }));
 }
 
 // ─── sections ─────────────────────────────────────────────────────────────────

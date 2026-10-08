@@ -1031,6 +1031,279 @@ export interface PortalBranding {
   branded: boolean;
 }
 
+// ─── DNS scans ────────────────────────────────────────────────────────────────
+
+/** Prisma's ScanRunStatus. RUNNING is the row created before the DNS lookups
+ *  start, so a row can legitimately be seen mid-flight. */
+export type ScanRunStatus = "RUNNING" | "COMPLETED" | "FAILED";
+
+export type ScanLookupStatus = "found" | "missing" | "error";
+
+/** The scanner's own health verdict, which is NOT the same as the row status: a
+ *  COMPLETED scan can carry status "missing" when nothing was found, and an
+ *  "error" verdict means the DNS lookups ran and found nothing usable. */
+export type ScanHealthStatus = "healthy" | "needs_attention" | "missing" | "error";
+
+/** `unknown` is real and load bearing: it is what a domain with no readable
+ *  DMARC record scans as, and it must never be rendered as `p=none`. */
+export type ScanDmarcPolicy = "none" | "quarantine" | "reject" | "unknown";
+
+export interface ScanDmarcDetail {
+  status: ScanLookupStatus;
+  record?: string;
+  policy: ScanDmarcPolicy;
+  tags: Record<string, string>;
+  hasAggregateReports: boolean;
+  /** A published ruf= address. Without one the API refuses to ingest forensic
+   *  reports for the domain, so this is the answer to "why is nothing arriving". */
+  hasForensicReports: boolean;
+  aggregateMailtoTargets: string[];
+  /** Report addresses we cannot receive, because they are web endpoints. */
+  aggregateWebTargets: string[];
+  error?: string;
+}
+
+export interface ScanSpfDetail {
+  status: ScanLookupStatus;
+  record?: string;
+  valid: boolean;
+  lookupCount: number;
+  error?: string;
+}
+
+export interface ScanDkimDetail {
+  status: ScanLookupStatus;
+  selectors: string[];
+  checkedSelectors: string[];
+  records: Record<string, string>;
+  discoveredVia?: Record<string, string>;
+  /** Candidates the lookup budget excluded. Reported so "we checked 25 and gave
+   *  up" is never read as "we checked everything". */
+  skippedSelectors?: string[];
+  error?: string;
+}
+
+export interface ScanMxEntry {
+  exchange: string;
+  priority: number;
+}
+
+export interface ScanMxDetail {
+  status: ScanLookupStatus;
+  records: ScanMxEntry[];
+  error?: string;
+}
+
+export interface ScanIssue {
+  severity: "info" | "warning" | "error";
+  code: string;
+  title: string;
+  message: string;
+  recommendation?: string;
+}
+
+export interface ScanScoreFactor {
+  code: string;
+  label: string;
+  points: number;
+  description: string;
+}
+
+export interface ScanScoreBreakdown {
+  base: number;
+  final: number;
+  factors: ScanScoreFactor[];
+}
+
+/** The scanner's result, as stored in Scan.result. Null on a row that never got
+ *  that far: a FAILED scan records the reason in `error` and nothing else. */
+export interface ScanResultPayload {
+  domain: string;
+  scannedAt: string;
+  status: ScanHealthStatus;
+  score: number;
+  scoreBreakdown: ScanScoreBreakdown;
+  dmarc: ScanDmarcDetail;
+  spf: ScanSpfDetail;
+  dkim: ScanDkimDetail;
+  mx: ScanMxDetail;
+  issues: ScanIssue[];
+  recommendations: string[];
+}
+
+/**
+ * One row of GET /workspaces/:id/domains/:domainId/scans.
+ *
+ * The row, not the live DNS answer. A scan is a point-in-time record and this is
+ * what was seen then; re-reading it must never be presented as current state.
+ * The include carries the domain and the member who asked for it, because a scan
+ * is an action somebody took and "who" is part of the evidence.
+ */
+export interface ScanRow {
+  id: string;
+  domainId: string;
+  requestedById: string | null;
+  status: ScanRunStatus;
+  score: number | null;
+  result: ScanResultPayload | null;
+  error: string | null;
+  startedAt: string;
+  completedAt: string | null;
+  updatedAt: string;
+  domain: {
+    id: string;
+    name: string;
+    status: string;
+    client: { id: string; name: string; slug: string };
+  };
+  requestedBy: { id: string; name: string; email: string } | null;
+}
+
+// ─── forensics ────────────────────────────────────────────────────────────────
+
+/**
+ * The retention windows the API applies, echoed on the list and both writes.
+ * `piiRetentionDays` is the shorter and the more sensitive one: it is the clock
+ * on named recipient data, and it is what a legal basis conversation is about.
+ */
+export interface ForensicRetentionSummary {
+  retentionDays: number;
+  piiRetentionDays: number;
+  redactionVersion: number;
+}
+
+export interface ForensicAuthResult {
+  type: "DKIM" | "SPF";
+  domain?: string;
+  selector?: string;
+  scope?: string;
+  result: string;
+}
+
+/**
+ * One forensic report, as presentForensic renders it.
+ *
+ * The identity fields are the whole point of the shape and they have four real
+ * states, which must never be collapsed:
+ *
+ *   recipientAddresses/subjectLine/envelopeFrom present  identities retained and
+ *                                                        this caller holds
+ *                                                        forensic:identify
+ *   piiWithheld === true                                  identities retained,
+ *                                                        withheld from this
+ *                                                        caller's role
+ *   piiRetained === false                                 never stored: the
+ *                                                        report arrived with
+ *                                                        pseudonyms only
+ *
+ * The pseudonyms are always present in all three. They are the pseudonymized
+ * evidence that survives an identity purge, so a report whose identities are
+ * gone is still a report.
+ */
+export interface ForensicReportRow {
+  id: string;
+  domainId: string;
+  /** Unique per message. Two deliveries of the same report share it, which is
+   *  how the API decides a duplicate. */
+  fingerprint: string;
+  feedbackType: string;
+  reportedDomain: string;
+  sourceIp: string;
+  sourcePort: number | null;
+  disposition: string | null;
+  deliveryAction: string | null;
+  deliveryStatus: string | null;
+  dkimResult: string | null;
+  spfResult: string | null;
+  authResults: ForensicAuthResult[] | null;
+  reportingMta: string | null;
+  dsnGateway: string | null;
+  remoteMta: string | null;
+  userAgent: string | null;
+  diagnosticCodes: string[] | null;
+  recipientCount: number;
+  recipientPseudonyms: string[] | null;
+  envelopeFromPseudonym: string | null;
+  messageIdPseudonym: string | null;
+  subjectPseudonym: string | null;
+  originalMessageDate: string | null;
+  arrivedAt: string | null;
+  hasOriginalHeaders: boolean;
+  hasOriginalMessageIncluded: boolean;
+  piiRetained: boolean;
+  recipientAddresses: string[] | null;
+  subjectLine: string | null;
+  envelopeFrom: string | null;
+  redactionVersion: number;
+  retentionExpiresAt: string;
+  receivedAt: string;
+  domain: {
+    id: string;
+    name: string;
+    status: string;
+    collectForensicReports: boolean;
+    client: { id: string; name: string; slug: string };
+  };
+  /** At least one identity survived redaction for this report. */
+  piiAvailable: boolean;
+  /** Identities exist but this caller's role may not read them. */
+  piiWithheld?: boolean;
+}
+
+/**
+ * GET /domains/:domainId/forensics. A page, not an array: the API applies the
+ * limit and hands back a cursor, so a list that is treated as complete is a
+ * claim the API never made.
+ */
+export interface ForensicListResponse extends ForensicRetentionSummary {
+  items: ForensicReportRow[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+/** PATCH /domains/:domainId/forensics — the collection opt in. */
+export interface ForensicCollectionSettings {
+  domain: {
+    id: string;
+    name: string;
+    collectForensicReports: boolean;
+    rufConfigured: boolean;
+  };
+  retentionDays: number;
+  piiRetentionDays: number;
+  redactionVersion: number;
+}
+
+/**
+ * PATCH /domains/:domainId/forensics/identities.
+ *
+ * `purgedIdentities` is the count of reports whose stored recipient addresses,
+ * subject lines and envelope senders were destroyed by this call. It is the
+ * number the confirmation promised, so it is rendered rather than summarised.
+ */
+export interface ForensicIdentitySettings extends ForensicRetentionSummary {
+  domain: {
+    id: string;
+    name: string;
+    collectForensicReports: boolean;
+    retainForensicPii: boolean;
+    rufConfigured: boolean;
+    forensicPiiEnabledAt: string | null;
+  };
+  purgedIdentities: number;
+}
+
+/** POST /domains/:domainId/forensics — 201 when stored, 200 when a duplicate. */
+export interface ForensicIngestResult {
+  duplicate: boolean;
+  forensic: ForensicReportRow;
+}
+
+/** DELETE /domains/:domainId/forensics — the whole domain's forensic rows. */
+export interface ForensicPurgeResult {
+  deleted: number;
+}
+
 export interface ApiErrorBody {
   error: {
     code?: string;
@@ -1051,5 +1324,12 @@ export interface ApiErrorBody {
     overage?: PlanOverageRow[];
     from?: string;
     to?: string;
+    /**
+     * set on the 400 the identity route answers when a named-recipient purge
+     * was asked for without `confirmNamePurge`. The flag is what tells the UI
+     * the refusal is about the confirmation rather than about the request being
+     * malformed, so it can offer the confirmation instead of quoting an error.
+     */
+    requiresNamePurgeConfirmation?: boolean;
   };
 }

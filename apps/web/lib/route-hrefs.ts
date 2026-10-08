@@ -57,6 +57,30 @@ export function auditHref(filters: {
   return search ? `/settings/audit?${search}` : "/settings/audit";
 }
 
+/**
+ * The forensics section, scoped to one domain and optionally one page of it.
+ *
+ * The domain travels in the query rather than the path because the section is
+ * one page with a domain picker, not a route per domain: every forensic
+ * endpoint except the single-report reads is domain-scoped, so the domain IS the
+ * selection, and a path segment would imply a resource that does not exist.
+ *
+ * `cursor` is the API's own page cursor, taken from a previous response. It is
+ * passed through untouched rather than reconstructed: the cursor is a report id
+ * the API minted, and a page built from a guessed cursor would skip or repeat
+ * rows in a list of evidence. Changing the domain drops it, because page two of
+ * one domain says nothing about another.
+ */
+export function forensicsHref(
+  filters: { domain?: string; cursor?: string } = {},
+): string {
+  const query = new URLSearchParams();
+  if (filters.domain) query.set("domain", filters.domain);
+  if (filters.cursor) query.set("cursor", filters.cursor);
+  const search = query.toString();
+  return search ? `/settings/forensics?${search}` : "/settings/forensics";
+}
+
 /** The RENDERED public share page — the document a client contact opens. The
  *  API's own /api/reports/share/:token serves the same data as JSON for the
  *  page to render; linking customers to that raw endpoint shows them a wall of

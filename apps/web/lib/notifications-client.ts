@@ -50,6 +50,16 @@ export interface Me {
 }
 
 /**
+ * `GET /api/me` returns the whole session object, `{ session, user }`, rather than
+ * a bare user. Typed as the shape actually on the wire, then flattened by `getMe`
+ * below so callers get an `id` instead of having to remember which level of the
+ * response it lives at.
+ */
+interface MeResponse {
+  user?: { id?: string; email?: string; name?: string | null } | null;
+}
+
+/**
  * Reads and writes through the same transport `ops-client.ts` uses, including its
  * timeout and its handling of the API's two error envelope shapes.
  *
@@ -75,9 +85,32 @@ async function call<T>(path: string, init?: RequestInit): Promise<OpsResult<T>> 
 /**
  * Reads the signed-in user, which is the only way to reach the preferences
  * endpoints: they spell out the user id in the path.
+ *
+ * Unwraps `{ session, user }` here rather than leaving the nesting for every
+ * caller, and fails loudly when the user is absent rather than handing back an
+ * object with an undefined id. A preferences form keyed on `undefined` would
+ * produce a 403 from the API and read as "you cannot change your preferences",
+ * which is not the same thing at all.
  */
 export async function getMe(): Promise<OpsResult<Me>> {
-  return call<Me>("/api/me");
+  const result = await call<MeResponse>("/api/me");
+  if (!result.ok) return result;
+
+  const user = result.data.user;
+  if (!user?.id) {
+    // 200 with no user in it. Not a transport failure, so there is no status to
+    // carry over; the message has to stand on its own.
+    return {
+      ok: false,
+      status: 200,
+      error: { message: "The signed-in user could not be read from the session." },
+    };
+  }
+
+  return {
+    ok: true,
+    data: { id: user.id, email: user.email ?? "", name: user.name ?? null },
+  };
 }
 
 export async function listNotifications(

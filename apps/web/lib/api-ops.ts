@@ -32,6 +32,8 @@ import type {
   ErasurePreview,
   ErasureRequestRow,
   ExportJob,
+  ForensicListResponse,
+  ForensicReportRow,
   IssuedApiKey,
   PlanDefinition,
   PortalGrant,
@@ -39,6 +41,7 @@ import type {
   ReportInboxSettings,
   ReportShareRow,
   ResolvedEntitlements,
+  ScanRow,
   SlackDestination,
   SsoConnectionRow,
   TrustSlugStatus,
@@ -298,6 +301,116 @@ export function listAuditEvents(
   );
   return opsFetch<{ items: AuditEventRow[] }>(
     `/api/workspaces/${organizationId}/audit-events?${query.toString()}`,
+  );
+}
+
+// ─── DNS scans ─────────────────────────────────────────────────────────────────
+
+/**
+ * GET /domains/:domainId/scans — the scan history for one domain, newest first.
+ *
+ * A bare array, not a page. The route has no limit, no cursor and no offset, so
+ * this is every scan the workspace has run against the domain. It is a history,
+ * never a claim about current DNS: only the newest row describes the domain as
+ * it was at that moment.
+ *
+ * NO ENTITLEMENT, and that is read from the route rather than assumed.
+ * domain-scan.routes.ts carries requireSession plus
+ * requireOrganizationPermission('domain', 'update') for the POST and
+ * ('domain', 'read') for both reads, and nothing else. There is no
+ * requireFeature on any of the three and no scan key exists in
+ * plan-catalog.ts's EntitlementKey union, so gating this call on any feature
+ * would hide a control every plan's API answers.
+ */
+export function listDomainScans(
+  organizationId: string,
+  domainId: string,
+): Promise<ScanRow[]> {
+  return opsFetch<ScanRow[]>(
+    `/api/workspaces/${organizationId}/domains/${domainId}/scans`,
+  );
+}
+
+/**
+ * GET /scans/:scanId — one scan, in the workspace. Not gated on the domain, so
+ * a scan id is enough to reach the row it belongs to.
+ */
+export function getDomainScan(
+  organizationId: string,
+  scanId: string,
+): Promise<ScanRow> {
+  return opsFetch<ScanRow>(`/api/workspaces/${organizationId}/scans/${scanId}`);
+}
+
+/**
+ * POST /domains/:domainId/scans — runs the authenticated scan now.
+ *
+ * Synchronous: the call resolves after the DNS lookups finish, so a 201 means
+ * the scan completed and the domain row has already been rewritten with the
+ * policy, score, SPF record, DKIM selectors and MX records it found. That write
+ * is the only place `domain.dmarcPolicy` is ever set, which is why this exists
+ * as a control at all.
+ *
+ * Three refusals are real answers rather than failures:
+ *   409 the domain is not VERIFIED, so there is nothing to scan
+ *   502 the scan ran and failed; the FAILED row is in the body alongside the error
+ *   429 twenty scans a minute, from scanRateLimiter
+ */
+export function createDomainScan(
+  organizationId: string,
+  domainId: string,
+): Promise<ScanRow> {
+  return opsFetch<ScanRow>(
+    `/api/workspaces/${organizationId}/domains/${domainId}/scans`,
+    { method: "POST" },
+  );
+}
+
+// ─── forensics ────────────────────────────────────────────────────────────────
+
+/**
+ * GET /domains/:domainId/forensics — the forensic reports held for one domain,
+ * newest first, with the retention windows the API applies.
+ *
+ * There is NO workspace-wide list. Every forensic route is scoped to a domain
+ * (or to one report id), so a workspace-level index would have to fan out one
+ * request per domain and would silently truncate at this page size for each.
+ * That is why the forensics section is per domain: it is the shape the API has.
+ *
+ * Gated by the API on requireFeature('reports.forensic') and
+ * requireOrganizationPermission('forensic', 'read'), so a 402 here is a plan
+ * answer and a 403 is a role answer. Both are real states and neither is an
+ * empty list: OpsError carries the status for the caller to tell them apart.
+ */
+export function listDomainForensics(
+  organizationId: string,
+  domainId: string,
+  options: { limit?: number; cursor?: string } = {},
+): Promise<ForensicListResponse> {
+  const query = new URLSearchParams();
+  // Clamped here to the API's own bounds (utils/pagination.ts) so a hand-edited
+  // page size cannot turn into a request the API answers with a 400.
+  const limit = Math.min(Math.max(options.limit ?? 25, 1), 200);
+  query.set("limit", String(limit));
+  if (options.cursor) query.set("cursor", options.cursor);
+  return opsFetch<ForensicListResponse>(
+    `/api/workspaces/${organizationId}/domains/${domainId}/forensics?${query.toString()}`,
+  );
+}
+
+/**
+ * GET /forensics/:forensicId — one report, read on demand.
+ *
+ * Carries no requireFeature, unlike the list. A workspace whose plan no longer
+ * carries reports.forensic can therefore still open a single report it already
+ * holds, which is the API's decision and not one this app second-guesses.
+ */
+export function getForensicReport(
+  organizationId: string,
+  forensicId: string,
+): Promise<ForensicReportRow> {
+  return opsFetch<ForensicReportRow>(
+    `/api/workspaces/${organizationId}/forensics/${forensicId}`,
   );
 }
 

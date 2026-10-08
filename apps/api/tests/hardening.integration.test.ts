@@ -5,6 +5,7 @@ import { prisma } from '../src/database/prisma.js';
 import { grantPlan } from './helpers/plan.js';
 import { app } from '../src/index.js';
 import { createPublicReportRateLimiter } from '../src/middleware/rate-limit.middleware.js';
+import { rateLimitStoreFor } from '../src/middleware/postgres-rate-limit-store.js';
 import { resolveRequestId } from '../src/middleware/request-context.middleware.js';
 import { buildPage, resolveLimit } from '../src/utils/pagination.js';
 import { errorBody } from '../src/utils/api-error.js';
@@ -212,6 +213,19 @@ describe('public share rate limiting', () => {
 
     it('limits repeated unauthenticated views of a share link', async () => {
       const { agent, organizationId, domainId } = await setup();
+
+      /**
+       * The counter is emptied first, and it has to be.
+       *
+       * These buckets are shared and now live in Postgres, which is the point:
+       * a limit that resets on every deploy is not a limit. The cost is that
+       * they survive between tests in the same run as well as between requests,
+       * so this file's own earlier share reads are still counted against this
+       * test's budget. Asserting an exact number of successes without clearing
+       * first measured how many requests the rest of the suite had made, which
+       * is not what this test is about.
+       */
+      await rateLimitStoreFor('public-report').resetAll();
 
       const share = await agent.post(`/api/workspaces/${organizationId}/report-shares`).send({ domainId });
       expect(share.status).toBe(201);

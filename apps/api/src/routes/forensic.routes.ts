@@ -36,6 +36,10 @@ forensicRouter.patch(
   '/workspaces/:organizationId/domains/:domainId/forensics',
   requireSession,
   requireOrganizationPermission('forensic', 'ingest'),
+  // Collection has to write a DMARC record. Gating on reports.forensicNamed
+  // instead, as the identity route does, let a Mooring workspace turn forensic
+  // collection on for a domain it cannot then list or ingest into.
+  requireFeature('reports.forensic'),
   forensicJsonParser,
   setForensicCollectionController,
 );
@@ -59,17 +63,23 @@ forensicRouter.delete(
   '/workspaces/:organizationId/domains/:domainId/forensics',
   requireSession,
   requireOrganizationPermission('forensic', 'purge'),
+  // Purging destroys the evidence a report exists to produce, so it is gated on
+  // the same licence as reading it. A role check alone let any workspace with
+  // the purge permission destroy reports it was not entitled to collect.
+  requireFeature('reports.forensic'),
   purgeForensicsController,
 );
 forensicRouter.get(
   '/workspaces/:organizationId/forensics/:forensicId',
   requireSession,
   requireOrganizationPermission('forensic', 'read'),
+  requireFeature('reports.forensic'),
   getForensicReportController,
 );
 forensicRouter.delete(
   '/workspaces/:organizationId/forensics/:forensicId',
   requireSession,
   requireOrganizationPermission('forensic', 'purge'),
+  requireFeature('reports.forensic'),
   deleteForensicReportController,
 );

@@ -57,8 +57,25 @@ export async function updateNotificationPreference(
     onlyHighRiskAlerts: changes.onlyHighRiskAlerts ?? current.onlyHighRiskAlerts,
   };
 
+  /**
+   * A half-configured quiet-hours window has to be refused, because "start at
+   * 22:00 with no end" is not a window, it is an alert suppression that never
+   * lifts.
+   *
+   * Clearing both to null is not that case and used to be rejected by accident:
+   * the guard tested truthiness of the incoming fields, so `null` read as
+   * "missing" rather than "explicitly off". A user who had once set quiet hours
+   * could not turn them off again, and the only way out was a different browser.
+   * The check is on presence instead, which distinguishes an absent field from
+   * a deliberate null.
+   */
   if (changes.quietHoursStart !== undefined || changes.quietHoursEnd !== undefined) {
-    if (!changes.quietHoursStart || !changes.quietHoursEnd) {
+    const clearingBoth =
+      changes.quietHoursStart === null &&
+      changes.quietHoursEnd === null;
+    const settingOne = Boolean(changes.quietHoursStart) !== Boolean(changes.quietHoursEnd);
+
+    if (!clearingBoth && settingOne) {
       throw new Error('Provide both quietHoursStart and quietHoursEnd together, or neither.');
     }
   }
