@@ -11,7 +11,23 @@ const optionalSecret = z.preprocess(
   z.string().trim().min(1).optional(),
 );
 const envSchema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  /**
+   * Fails closed on anything unrecognised, including absent.
+   *
+   * This defaulted to `development`, and every production guard below is nested
+   * inside `if (NODE_ENV === 'production')`. So a deploy that forgot the variable
+   * - a platform that injects nothing, `node dist/server.js` instead of the
+   * entrypoint, a `docker run` that overrides only DATABASE_URL - booted green with
+   * every guard off, and signed session cookies with the development secret below.
+   * Anyone who has read this repository could mint a session for any user.
+   *
+   * Treating absent as `production` is the safe direction to be wrong in: a local
+   * checkout that has not set NODE_ENV gets a loud refusal and sets it, whereas the
+   * other direction is a working deployment with no guards and no signal. The dev
+   * container and compose set it explicitly, as does vitest, so nothing legitimate
+   * depends on the old default.
+   */
+  NODE_ENV: z.enum(['development', 'test', 'production']).catch('production'),
   PORT: z.coerce.number().int().positive().default(4000),
   DATABASE_URL: z.string().url().default('postgresql://dmarcharbor:dmarcharbor@localhost:5432/dmarcharbor'),
   BETTER_AUTH_SECRET: z.string().min(32).default(developmentSecret),
