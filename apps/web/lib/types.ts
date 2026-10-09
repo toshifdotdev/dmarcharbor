@@ -366,14 +366,24 @@ export interface WebhookDeliveryRow {
 export interface ExportJob {
   id: string;
   scope: "ORGANIZATION" | "CLIENT" | "DOMAIN";
-  targetId: string | null;
+  scopeLabel: string;
   format: "JSON" | "CSV";
-  state: string;
+  /**
+   * READY, REVOKED or EXPIRED, straight from the API. An export is built before
+   * the row exists, so there is no "preparing" state to model here.
+   */
+  state: "READY" | "REVOKED" | "EXPIRED";
+  downloadExpiresAt: string | null;
+  downloadedAt: string | null;
+  createdAt: string;
+  /**
+   * Only ever present on the response that created the export, and only there by
+   * design: the API stores the token as a hash and no endpoint returns it again.
+   * The UI keeps it in state so a link the operator just created still works;
+   * it cannot be recovered for an export created in an earlier session, which is
+   * why the copy below says so rather than showing a dead control.
+   */
   downloadUrl?: string;
-  token?: string;
-  expiresAt: string;
-  createdAt?: string;
-  revokedAt?: string | null;
 }
 
 export interface PlannedAction {
@@ -468,6 +478,14 @@ export interface SessionRow {
 /** Issued packs for a client, newest first. */
 export interface CompliancePackRow {
   id: string;
+  /**
+   * The human-quotable document reference, e.g. `DMARC-20261004-ACME-8P1709`.
+   *
+   * What the public verifier looks a pack up by. Carried here because the API
+   * returns it in the list row specifically so a working verify link can be
+   * built; passing the row id instead is what made that link 404.
+   */
+  reference: string;
   hash: string;
   issuedAt: string;
   asOf: string;
@@ -840,6 +858,24 @@ export interface SsoConnectionRow {
    *  broken feature. */
   allowedEmailDomains: string[];
   createdAt: string;
+  /**
+   * Where this provider must send the user back to, for both protocols.
+   *
+   * An administrator configuring an IdP cannot copy a value they were never
+   * given. The API computes these and used to throw them away, which is why the
+   * settings copy promised a callback URL "shown on the connection after it is
+   * created" and then never showed one.
+   */
+  callbackUrls: { saml: string; oidc: string };
+  /**
+   * The remaining values an IdP console asks for. `entityId` is ours as the
+   * service provider, `idpEntityId` is what the IdP expects to be handed, and
+   * `loginUrl` is the entry point a user is sent to. None is a secret, and
+   * none is derivable from the callback URL.
+   */
+  entityId: string;
+  idpEntityId: string;
+  loginUrl: string;
 }
 
 export interface CheckoutRequest {
@@ -894,10 +930,16 @@ export interface CompliancePackRecord {
   sha256: string;
   byteSize: number;
   pageCount: number;
-  asOf: string;
-  createdAt: string;
-  supersededAt: string | null;
   documentVersion: string;
+  /** When the facts in the pack were true, not when the PDF was rendered. */
+  dataAsOf: string;
+  issuedAt: string;
+  /**
+   * A boolean, not a timestamp: a superseded pack is still fully verifiable, and
+   * what changed is that a newer one exists. Reading this as `supersededAt` made
+   * every older pack render as current.
+   */
+  superseded: boolean;
 }
 
 /** GET /api/workspaces/{id}/clients/{clientId}/trust-center */

@@ -36,6 +36,16 @@ export function ExportPanel({
   const [error, setError] = useState<ApiErrorBody["error"] | null>(null);
   const [busy, setBusy] = useState(false);
   const [justCreated, setJustCreated] = useState<string | null>(null);
+  /**
+   * The link for the export this session just created, kept by id.
+   *
+   * The API stores the download token as a hash and no endpoint returns it again,
+   * so the create response is the only place a usable link ever exists. Dropping
+   * it here is what made data export unreachable: every row rendered "preparing"
+   * forever and the download control never appeared. It is keyed by id so the list
+   * below can show it for that row and only that row.
+   */
+  const [liveLinks, setLiveLinks] = useState<Record<string, string>>({});
 
   async function request(e: React.FormEvent) {
     e.preventDefault();
@@ -51,6 +61,9 @@ export function ExportPanel({
     if (!res.ok) setError(res.error);
     else {
       setJustCreated(res.data.id);
+      if (res.data.downloadUrl) {
+        setLiveLinks((previous) => ({ ...previous, [res.data.id]: res.data.downloadUrl as string }));
+      }
       router.refresh();
     }
   }
@@ -65,9 +78,11 @@ export function ExportPanel({
           Request a data export
         </h2>
         <p className="mt-2 text-[13px] leading-relaxed" style={{ color: "var(--color-ink-2)" }}>
-          An export is <strong style={{ color: "var(--color-ink)" }}>prepared, then
-          made available</strong>: it is not an instant download. Once it is ready
-          its link works for {linkDays} days, then expires. Available on{" "}
+          An export is prepared before it can be downloaded, and its link is
+          issued once, when you request it. That is deliberate rather than a
+          limitation of this screen: the link carries a token the platform stores
+          only as a hash, so it cannot be shown again afterwards. Keep the link
+          for {linkDays} days, then it expires. Available on{" "}
           <strong style={{ color: "var(--color-ink)" }}>every plan at no cost</strong>:
           export of personal data is a right, not a paid feature.
         </p>
@@ -79,7 +94,8 @@ export function ExportPanel({
         ) : null}
         {justCreated ? (
           <p role="status" className="mt-3 text-[13px]" style={{ color: "var(--color-pass)" }}>
-            Request received. The export appears below as soon as it is prepared.
+            The export is ready and its download link is shown below. Save it now:
+            this is the only time the link is available.
           </p>
         ) : null}
 
@@ -168,9 +184,14 @@ export function ExportPanel({
         ) : (
           <ul className="mt-3">
             {jobs.map((j) => {
-              const expired = new Date(j.expiresAt).getTime() < Date.now();
-              const revoked = Boolean(j.revokedAt);
-              const ready = Boolean(j.downloadUrl) && !expired && !revoked;
+              const expired =
+                j.state === "EXPIRED" ||
+                (j.downloadExpiresAt !== null &&
+                  new Date(j.downloadExpiresAt).getTime() < Date.now());
+              const revoked = j.state === "REVOKED";
+              const hasLink = liveLinks[j.id] !== undefined && !expired && !revoked;
+              const downloadUrl = liveLinks[j.id];
+
               return (
                 <li
                   key={j.id}
@@ -180,20 +201,22 @@ export function ExportPanel({
                   <div className="min-w-0 flex-1">
                     <div className="num text-[12.5px]" style={{ color: "var(--color-ink)" }}>
                       {j.scope.toLowerCase()} · {j.format}
-                    </div>
-                    <div className="num text-[11px]" style={{ color: "var(--color-ink-3)" }}>
-                      {ready
-                        ? `link live until ${new Date(j.expiresAt).toLocaleString("en-GB")}`
-                        : revoked
-                          ? "revoked"
-                          : expired
-                            ? "expired"
-                            : "preparing"}
+                    </div>                    <div className="num text-[11px]" style={{ color: "var(--color-ink-3)" }}>
+                      {revoked
+                        ? "revoked"
+                        : expired
+                          ? "expired"
+                          : hasLink
+                            ? `link live until ${new Date(j.downloadExpiresAt ?? "").toLocaleString("en-GB")}`
+                            : j.downloadedAt
+                              ? `downloaded ${new Date(j.downloadedAt).toLocaleDateString("en-GB")}`
+                              : "link was issued when you requested it"}
                     </div>
                   </div>
-                  {ready ? (
+                  {hasLink ? (
                     <a
-                      href={j.downloadUrl}
+                      href={downloadUrl}
+                      download
                       className="rounded-[2px] border px-3.5 py-1.5 text-[12px] font-semibold"
                       style={{ borderColor: "var(--color-line-strong)", color: "var(--color-ink-2)" }}
                       data-testid="export-download"
@@ -205,7 +228,7 @@ export function ExportPanel({
                       className="num text-[10px] tracking-[0.12em] uppercase"
                       style={{ color: "var(--color-ink-3)" }}
                     >
-                      {revoked ? "revoked" : expired ? "expired" : "preparing"}
+                      {revoked ? "revoked" : expired ? "expired" : "ready"}
                     </span>
                   )}
                   {!revoked ? (
