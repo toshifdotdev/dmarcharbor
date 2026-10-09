@@ -174,12 +174,21 @@ export function CompliancePackPanel({
                 >
                   copy SHA-256
                 </button>
+                {/*
+                  The reference, not the row id. The public verifier looks a pack
+                  up by `where: { reference }`, so the id produced a 404 on every
+                  issued pack. The API returns `reference` in this list row
+                  precisely so this link can be built, and it is also the value
+                  a customer would quote over the phone, so showing it is the
+                  point rather than a convenience.
+                */}
                 <a
-                  href={`/verify?reference=${encodeURIComponent(p.id)}`}
+                  href={`/verify?reference=${encodeURIComponent(p.reference)}`}
                   target="_blank"
                   rel="noreferrer"
                   className="text-[11px] underline"
                   style={{ color: "var(--color-ink-2)" }}
+                  data-testid="pack-verify-link"
                 >
                   verify link
                 </a>

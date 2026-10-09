@@ -192,19 +192,75 @@ export const removeReportDigest = (orgId: string, digestId: string) =>
 
 // ─── settings: branding ──────────────────────────────────────────────────────
 
+/**
+ * Saves the two brand colours.
+ *
+ * The read side and the write side spell these differently, and the write side is
+ * the one that matters: `brandingSchema` accepts `primaryColor` and `accentColor`
+ * (branding.controller.ts:16-20), while the workspace row and the settings screen
+ * call them `brandPrimaryColor` and `brandAccentColor`. zod strips unknown keys
+ * rather than rejecting them, so passing the read-side names validated as an empty
+ * object, Prisma wrote nothing, and the route answered 200 - so the screen
+ * reported "Brand colours saved." and changed nothing on every plan. The mapping
+ * lives here, at the transport, so no caller has to know the two disagree.
+ */
 export const patchBranding = (
   orgId: string,
   body: { brandPrimaryColor?: string | null; brandAccentColor?: string | null },
-) => call(wsPath(orgId, "/branding"), { method: "PATCH", body: JSON.stringify(body) });
+) =>
+  call(wsPath(orgId, "/branding"), {
+    method: "PATCH",
+    body: JSON.stringify({
+      ...(body.brandPrimaryColor === undefined ? {} : { primaryColor: body.brandPrimaryColor }),
+      ...(body.brandAccentColor === undefined ? {} : { accentColor: body.brandAccentColor }),
+    }),
+  });
+
+/**
+ * Claims a custom domain.
+ *
+ * The response carries the TXT record the operator has to publish, which is the
+ * only time it is ever available: `setCustomDomain` generates a fresh random
+ * token on every call, so after this response neither the host nor the value can
+ * be shown again. Typing this as `unknown` and discarding the body meant the
+ * branding screen said "publish the TXT record at your DNS provider" without
+ * saying which record, which is a control that cannot be used.
+ */
+export interface CustomDomainInstructions {
+  customDomain: string | null;
+  /** The host to create, e.g. `_dmarc-harbor-branding.reports.acme.test`. */
+  verificationHost: string | null;
+  /** The TXT value, e.g. `dmarc-harbor-branding=<token>`. */
+  verificationValue: string | null;
+  /** Human-readable guidance from the API, shown alongside the record. */
+  notice: string | null;
+}
 
 export const setCustomDomain = (orgId: string, customDomain: string | null) =>
-  call(wsPath(orgId, "/branding/custom-domain"), {
+  call<CustomDomainInstructions>(wsPath(orgId, "/branding/custom-domain"), {
     method: "PUT",
     body: JSON.stringify({ customDomain }),
   });
 
+/**
+ * Re-reads the TXT record.
+ *
+ * `verified` is a boolean in its own right, not implied by the status code: a 200
+ * can mean the record was found, or that it is missing, or that the lookup timed
+ * out, and `lookupStatus` is what tells those apart. Reading only `res.ok` let
+ * this print "the custom domain is live" on a hostname that resolves to
+ * nothing.
+ */
+export interface CustomDomainVerification {
+  verified: boolean;
+  lookupStatus: string;
+  error?: string;
+}
+
 export const verifyCustomDomain = (orgId: string) =>
-  call(wsPath(orgId, "/branding/custom-domain/verify"), { method: "POST" });
+  call<CustomDomainVerification>(wsPath(orgId, "/branding/custom-domain/verify"), {
+    method: "POST",
+  });
 
 /**
  * The three-step logo upload. A typed logo URL is never rendered anywhere in

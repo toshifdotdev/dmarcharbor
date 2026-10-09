@@ -92,11 +92,11 @@ export default async function VerifyPage({
             <ul className="mt-5 flex flex-col gap-4">
               {result.packs.map((p) => (
                 <li
-                  key={`${p.reference}-${p.createdAt}`}
+                  key={p.reference}
                   className="border p-4"
                   style={{
-                    borderColor: p.supersededAt ? "var(--line)" : "var(--line-strong)",
-                    opacity: p.supersededAt ? 0.6 : 1,
+                    borderColor: p.superseded ? "var(--line)" : "var(--line-strong)",
+                    opacity: p.superseded ? 0.6 : 1,
                   }}
                 >
                   <div className="flex items-baseline justify-between gap-4">
@@ -109,12 +109,10 @@ export default async function VerifyPage({
                     <span
                       className="num text-[10.5px] tracking-[0.14em] uppercase"
                       style={{
-                        color: p.supersededAt ? "var(--color-unmeasured)" : "var(--color-pass)",
+                        color: p.superseded ? "var(--color-unmeasured)" : "var(--color-pass)",
                       }}
                     >
-                      {p.supersededAt
-                        ? `superseded ${new Date(p.supersededAt).toLocaleDateString("en-GB")}`
-                        : "current"}
+                      {p.superseded ? "superseded" : "current"}
                     </span>
                   </div>
                   <p
@@ -126,8 +124,8 @@ export default async function VerifyPage({
                   </p>
                   <p className="num mt-2 text-[11px]" style={{ color: "var(--ink-3)" }}>
                     {p.pageCount} page{p.pageCount === 1 ? "" : "s"} · {p.byteSize} bytes ·{" "}
-                    issued {new Date(p.createdAt).toLocaleDateString("en-GB")} · as of{" "}
-                    {new Date(p.asOf).toLocaleDateString("en-GB")}
+                    issued {new Date(p.issuedAt).toLocaleDateString("en-GB")} · as of{" "}
+                    {new Date(p.dataAsOf).toLocaleDateString("en-GB")}
                   </p>
                 </li>
               ))}
