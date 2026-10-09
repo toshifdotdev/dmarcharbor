@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getPortalOverview, PortalError } from "@/lib/api-portal";
 import { portalDomainHref } from "@/lib/route-hrefs";
 import { PortalDenied } from "@/components/portal-denied";
+import { SignOutButton } from "@/components/sign-out";
 
 /**
  * The client portal. A contact sees their own organization's verified domains
@@ -67,13 +68,17 @@ export default async function PortalPage() {
               client reports
             </div>
           </div>
-          <a
-            href="/api/auth/sign-out"
-            className="num ml-auto text-[10px] tracking-[0.16em] uppercase"
-            style={{ color: "var(--ink-3)" }}
-          >
-            sign out
-          </a>
+          {/*
+            The same control the operator chrome uses, rather than a link.
+            Better Auth registers /api/auth/sign-out as POST only, so the <a>
+            this replaced was a GET against it: a 405, and the only sign-out on
+            this screen silently did nothing. `SignOutButton` posts correctly and
+            redirects, so there is one implementation of signing out rather than
+            two that can drift.
+          */}
+          <span className="ml-auto">
+            <SignOutButton />
+          </span>
         </div>
       </header>
 
