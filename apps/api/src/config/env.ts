@@ -6,6 +6,9 @@ config();
 const developmentSecret = 'dmarcharbor-development-only-secret-change-me';
 const developmentForensicSecret = 'dmarcharbor-development-only-forensic-secret-change-me';
 const developmentPiiKey = 'dmarcharbor-development-only-pii-encryption-key-change-me';
+const developmentEmailFrom = 'DMARC Harbor <no-reply@dmarcharbor.com>';
+const developmentAggregateAddress = 'dmarc-reports@reports.dmarcharbor.com';
+const developmentForensicAddress = 'dmarc-forensics@reports.dmarcharbor.com';
 const optionalSecret = z.preprocess(
   (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
   z.string().trim().min(1).optional(),
@@ -265,6 +268,68 @@ if (parsed.data.NODE_ENV === 'production') {
     if (!value.startsWith('https://')) {
       throw new Error(`${name} must be an https URL in production.`);
     }
+  }
+
+  /**
+   * The browser origin, for the same reason as the two above but worse.
+   *
+   * It defaulted to localhost, so a deploy that omitted it started green with
+   * every browser request from the real web origin failing CORS preflight and
+   * better-auth rejecting the origin outright. Server-to-server still worked,
+   * which is exactly what makes it look fine: an SRE's curl passes and only
+   * customers see nothing.
+   */
+  const origins = parsed.data.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean);
+  if (origins.length === 0) {
+    throw new Error('CORS_ORIGIN must name at least one origin in production.');
+  }
+  for (const origin of origins) {
+    if (!origin.startsWith('https://') && !origin.startsWith('http://localhost:') && !origin.startsWith('http://127.0.0.1:')) {
+      throw new Error('CORS_ORIGIN must contain an https URL in production.');
+    }
+  }
+
+  /**
+   * Where DMARC reports are delivered.
+   *
+   * Both default to `*.dmarcharbor.com`, so a deployment that did not override
+   * them instructed every customer to route their reports to a mail domain they
+   * do not own. The outcome is either a silent disclosure of their mail volume
+   * and sending IPs to whoever holds that domain, or a deployment whose IMAP
+   * poller never sees the reports - which reads as "my domain is broken" rather
+   * than "this deployment is misconfigured". Staging is the worse case, because
+   * it routes real customer traffic to the production mailbox.
+   */
+  if (parsed.data.REPORT_AGGREGATE_ADDRESS === developmentAggregateAddress) {
+    throw new Error('REPORT_AGGREGATE_ADDRESS must be set in production.');
+  }
+  if (parsed.data.REPORT_FORENSIC_ADDRESS === developmentForensicAddress) {
+    throw new Error('REPORT_FORENSIC_ADDRESS must be set in production.');
+  }
+
+  /**
+   * The sender every outgoing email claims, which Resend verifies against the
+   * account's domain. The default is `@dmarcharbor.com` on a deployment that may
+   * not own it, and Resend then refuses every send - so sign-up verification,
+   * password reset, domain verification, export-ready and both erasure notices
+   * reach nobody while the queue quietly retries and dead-letters them.
+   */
+  if (parsed.data.EMAIL_FROM === developmentEmailFrom) {
+    throw new Error('EMAIL_FROM must be set in production.');
+  }
+
+  /**
+   * How many proxies sit in front of this service.
+   *
+   * Zero meant every IP-keyed limiter saw the load balancer's address, so the
+   * auth limiter's 20 per minute became 20 sign-ins per minute for the entire
+   * customer base. The app warns rather than refusing because a wrong non-zero
+   * value is the more dangerous setting of the two: it lets a client forge
+   * `X-Forwarded-For` and get a fresh bucket per request. So the refusal is on
+   * absence, which is the only case where the operator has said nothing.
+   */
+  if (!process.env.TRUST_PROXY_HOPS) {
+    throw new Error('TRUST_PROXY_HOPS must be set explicitly in production.');
   }
 }
 
