@@ -14,6 +14,7 @@ import {
   type NotificationPreference,
 } from "@/lib/notifications-client";
 import type { OpsResult } from "@/lib/ops-client";
+import { domainHref } from "@/lib/route-hrefs";
 import { ErrorState } from "@/components/data-states";
 import { ActionButton } from "@/components/action-button";
 
@@ -190,11 +191,18 @@ export function NotificationCenter() {
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    {row.domainId ? (
+                    {/*
+                      From alertEvent.domainId, where the API puts it. Reading
+                      row.domainId found nothing because it is not a column on
+                      the row, so this link never rendered on any notification
+                      and every alert was a dead end.
+                    */}
+                    {row.alertEvent?.domainId ? (
                       <Link
-                        href={`/domains/${row.domainId}`}
+                        href={domainHref(row.alertEvent.domainId)}
                         className="text-[13px] underline"
                         style={{ color: "var(--color-accent)" }}
+                        data-testid="notification-domain-link"
                       >
                         Open domain
                       </Link>
