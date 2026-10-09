@@ -78,6 +78,52 @@ jobs:
       - name: Build
         run: npm run build --workspace @dmarcharbor/api
 
+      # A migration that runs mid-rotation breaks the old binary.
+      #
+      # The container's entrypoint applies migrations before it listens, and the
+      # previous replicas are still serving, so the new replica migrates the
+      # schema while the old code is still writing against the previous one.
+      # `20261002150000_domain_slug` took `slug` to NOT NULL with no default and
+      # the old binary's INSERT omits the column, so every domain-creating route
+      # 500s for the whole roll window while /health says ok.
+      #
+      # This check rejects that shape in any migration newer than the marker, so
+      # it does not retroactively fail the ones before it. Adding a migration that
+      # needs to be exempt is a decision to record, hence the marker prefix.
+      - name: Migrations are expand/contract safe
+        run: >
+          sh -c '
+            set -e
+            cd apps/api/prisma/migrations
+            marker="$(ls -d [0-9]*_expand_contract_baseline 2>/dev/null | head -n 1 || true)"
+            if [ -z "$marker" ]; then
+              echo "::error title=Migration barrier::no expand_contract_baseline marker directory exists"
+              exit 1
+            fi
+            reached=false
+            failed=0
+            for dir in [0-9]*/; do
+              # The glob yields a trailing slash and ls -d does not, so compare stripped.
+              name="${dir%/}"
+              if $reached; then
+                file="$name/migration.sql"
+                [ -f "$file" ] || continue
+                hits="$(grep -nE "ALTER COLUMN \"[^\"]+\" SET NOT NULL|DROP COLUMN|DROP INDEX|^UPDATE \"" "$file" | grep -v "expand-contract: approved" || true)"
+                if [ -n "$hits" ]; then
+                  failed=1
+                  echo "  --- $name"
+                  echo "$hits"
+                fi
+              fi
+              [ "$name" = "$marker" ] && reached=true
+            done
+            if [ "$failed" -ne 0 ]; then
+              echo "::error title=Unsafe migration::migrations newer than the baseline use SET NOT NULL, DROP COLUMN, DROP INDEX or a whole-table UPDATE. The previous release is still serving when these run. Ship them as add, deploy the binary that writes it, then remove in a later release; or approve one with an inline comment."
+              exit 1
+            fi
+            echo "No unsafe migrations after the baseline."
+          '
+
       - name: Build the web application
         # The web app is built here for the first time. It had never been built in CI,
         # which is part of how a broken contract reached a user: the API was changed to
