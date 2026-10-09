@@ -183,15 +183,17 @@ jobs:
           EMAIL_PROVIDER: resend
           RESEND_API_KEY: "ci-resend-key"
           TRUST_PROXY_HOPS: "0"
+          # The container runs on the compose network, so the job's Postgres
+          # service is reachable by its service name rather than by `localhost`.
+          DATABASE_URL: "postgresql://dmarcharbor:dmarcharbor@postgres:5432/dmarcharbor"
         run: |
           set -e
-          docker compose up -d postgres
-          for i in $(seq 1 30); do
-            if docker inspect --format '{{.State.Health.Status}}' dmarcharbor-postgres-1 2>/dev/null | grep -q healthy; then break; fi
-            sleep 5
-          done
-          # `--no-deps` so compose does not start its own postgres on top of the
-          # one just brought up, and `--service-ports` so 4000 is published.
+          # The job's Postgres service already owns 5432, and `docker compose run`
+          # attaches to the same project network without an explicit flag, so the
+          # container reaches it as `postgres`. `--no-deps` stops compose starting
+          # a second Postgres on the same port, and `--service-ports` publishes
+          # 4000 so `curl` can reach it from the runner.
+          #
           # `run -d` prints the container it created, which is the only reliable
           # handle: `docker compose ps -q api` answers nothing for a `run`
           # container.
@@ -206,7 +208,6 @@ jobs:
           # success it is the record of migrations having run in the entrypoint.
           docker logs "$container" || true
           docker compose rm -f -s -v api 2>/dev/null || true
-          docker compose down --volumes
           if [ "$ok" != "200" ]; then
             echo "The API container never reported a successful readiness check."
             exit 1

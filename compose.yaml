@@ -16,48 +16,54 @@ services:
       retries: 10
 
   api:
-      build:
-        context: .
-        dockerfile: apps/api/Dockerfile
-      environment:
-        NODE_ENV: production
-        PORT: "4000"
-        DATABASE_URL: postgresql://dmarcharbor:dmarcharbor@postgres:5432/dmarcharbor
-        # The entrypoint runs migrate deploy before the server, so the schema matches
-        # the binary. Compose waits for postgres to be healthy first, which is what
-        # makes that migration reliable on a cold start rather than a coin flip.
-        #
-        # Required with the variable name spelled as ${VAR:?} so an operator who runs
-        # `docker compose up` without exporting it gets "variable is not set" instead
-        # of a container that boots on the development secret and refuses every
-        # browser. Each of these is asserted to be present and non-default when
-        # NODE_ENV=production; that check is the only reason this file can no longer
-        # start with them missing.
-        BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET must be set to run the api container}
-        BETTER_AUTH_URL: ${BETTER_AUTH_URL:?BETTER_AUTH_URL must be an https URL}
-        APP_URL: ${APP_URL:?APP_URL must be an https URL}
-        CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN must name at least one https origin}
-        REPORT_INGEST_SECRET: ${REPORT_INGEST_SECRET:?REPORT_INGEST_SECRET must be set}
-        FORENSIC_PSEUDONYM_SECRET: ${FORENSIC_PSEUDONYM_SECRET:?FORENSIC_PSEUDONYM_SECRET must be set}
-        FORENSIC_PII_ENCRYPTION_KEY: ${FORENSIC_PII_ENCRYPTION_KEY:?FORENSIC_PII_ENCRYPTION_KEY must be set}
-        REPORT_AGGREGATE_ADDRESS: ${REPORT_AGGREGATE_ADDRESS:?REPORT_AGGREGATE_ADDRESS must be set}
-        REPORT_FORENSIC_ADDRESS: ${REPORT_FORENSIC_ADDRESS:?REPORT_FORENSIC_ADDRESS must be set}
-        EMAIL_FROM: ${EMAIL_FROM:?EMAIL_FROM must be set}
-        EMAIL_PROVIDER: resend
-        RESEND_API_KEY: ${RESEND_API_KEY:?RESEND_API_KEY must be set when EMAIL_PROVIDER=resend}
-        # Number of proxies in front of the API. Zero means every IP-keyed limiter
-        # sees the load balancer's address and the sign-in limit becomes a single
-        # shared budget for the whole customer base, so an operator has to state it.
-        TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:?TRUST_PROXY_HOPS must be set}
-      depends_on:
-        postgres:
-          condition: service_healthy
-      ports:
-        - "4000:4000"
-      restart: unless-stopped
-      # SIGTERM with a grace period longer than the service's own 30 second drain
-      # deadline, so the drain finishes and the backstop is never what actually runs.
-      stop_grace_period: 45s
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      # Named as a variable rather than hardcoded, so the same file can run the
+      # stack as a whole (where `postgres` is a service on the compose network)
+      # and a single API container published to the host (where the Postgres
+      # service is reachable on `localhost:5432`).
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set}
+
+      # The entrypoint runs migrate deploy before the server, so the schema matches
+      # the binary. Compose waits for postgres to be healthy first, which is what
+      # makes that migration reliable on a cold start rather than a coin flip.
+      #
+      # Required with the variable name spelled as ${VAR:?} so an operator who runs
+      # `docker compose up` without exporting it gets "variable is not set" instead
+      # of a container that boots on the development secret and refuses every
+      # browser. Each of these is asserted to be present and non-default when
+      # NODE_ENV=production; that check is the only reason this file can no longer
+      # start with them missing.
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET must be set to run the api container}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:?BETTER_AUTH_URL must be an https URL}
+      APP_URL: ${APP_URL:?APP_URL must be an https URL}
+      CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN must name at least one https origin}
+      REPORT_INGEST_SECRET: ${REPORT_INGEST_SECRET:?REPORT_INGEST_SECRET must be set}
+      FORENSIC_PSEUDONYM_SECRET: ${FORENSIC_PSEUDONYM_SECRET:?FORENSIC_PSEUDONYM_SECRET must be set}
+      FORENSIC_PII_ENCRYPTION_KEY: ${FORENSIC_PII_ENCRYPTION_KEY:?FORENSIC_PII_ENCRYPTION_KEY must be set}
+      REPORT_AGGREGATE_ADDRESS: ${REPORT_AGGREGATE_ADDRESS:?REPORT_AGGREGATE_ADDRESS must be set}
+      REPORT_FORENSIC_ADDRESS: ${REPORT_FORENSIC_ADDRESS:?REPORT_FORENSIC_ADDRESS must be set}
+      EMAIL_FROM: ${EMAIL_FROM:?EMAIL_FROM must be set}
+      EMAIL_PROVIDER: resend
+      RESEND_API_KEY: ${RESEND_API_KEY:?RESEND_API_KEY must be set when EMAIL_PROVIDER=resend}
+
+      # Number of proxies in front of the API. Zero means every IP-keyed limiter
+      # sees the load balancer's address and the sign-in limit becomes a single
+      # shared budget for the whole customer base, so an operator has to state it.
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:?TRUST_PROXY_HOPS must be set}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "4000:4000"
+    restart: unless-stopped
+    # SIGTERM with a grace period longer than the service's own 30 second drain
+    # deadline, so the drain finishes and the backstop is never what actually runs.
+    stop_grace_period: 45s
 
 volumes:
   dmarcharbor-postgres:
