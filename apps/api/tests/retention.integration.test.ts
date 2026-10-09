@@ -17,7 +17,7 @@ import { rateLimitStoreFor } from '../src/middleware/postgres-rate-limit-store.j
 
 async function resetDatabase(): Promise<void> {
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE "billing_event", "subscription", "idempotency_record", "sso_auth_request", "sso_connection", "export_job", "erasure_request", "audit_log", "notification", "report_digest", "report_share", "alert_delivery", "alert_event", "alert_recipient", "alert_rule", "notification_preference", "dmarc_forensic_report", "dmarc_auth_result", "dmarc_report_record", "dmarc_report", "scan", "domain", "client", "organization", invitation, member, session, account, verification, "user" CASCADE',
+    'TRUNCATE TABLE "billing_event", "subscription", "idempotency_record", "sso_auth_request", "sso_connection", "export_job", "erasure_request", "audit_log", "notification", "report_digest", "report_share", "alert_delivery", "alert_event", "alert_recipient", "alert_rule", "notification_preference", "dmarc_forensic_report", "dmarc_auth_result", "dmarc_report_record", "dmarc_report", "scan", "domain", "client", "organization", invitation, member, session, account, verification, "user", "rate_limit_bucket" CASCADE',
   );
 }
 
