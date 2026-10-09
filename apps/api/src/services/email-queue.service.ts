@@ -129,7 +129,11 @@ export async function drainEmailQueue(limit = 25, now = new Date()): Promise<Ema
     const due = await prisma.emailDelivery.findFirst({
       where: { state: 'PENDING', nextAttemptAt: { lte: now } },
       orderBy: { nextAttemptAt: 'asc' },
-      select: { id: true },
+      // The attempt count is read before the claim so the backoff this claim
+      // schedules is derived from it. Reading it after would require a second
+      // round trip and would return the incremented value, scheduling the wrong
+      // interval for the failure it is meant to represent.
+      select: { id: true, attempts: true },
     });
 
     if (!due) {
@@ -138,7 +142,25 @@ export async function drainEmailQueue(limit = 25, now = new Date()): Promise<Ema
 
     const claim = await prisma.emailDelivery.updateMany({
       where: { id: due.id, state: 'PENDING' },
-      data: { lastAttemptAt: now, attempts: { increment: 1 } },
+      /**
+       * The claim schedules its own retry, rather than leaving the row due now.
+       *
+       * The previous version counted the attempt and left `nextAttemptAt` where it
+       * was, which meant a process dying between here and the outcome write left
+       * the row still PENDING, still due, and with one attempt already spent.
+       * The next pass claimed it again with no attempt having been made at all, so
+       * each rolling deploy that terminated mid drain burned an attempt for free -
+       * and eight of them move a stack of password resets to DEAD with nothing
+       * having ever been sent.
+       *
+       * The backoff is derived from the attempt number this claim creates, so a
+       * crash costs one interval exactly as a real failure does.
+       */
+      data: {
+        lastAttemptAt: now,
+        attempts: { increment: 1 },
+        nextAttemptAt: new Date(now.getTime() + backoffFor(due.attempts)),
+      },
     });
 
     // Another instance took it between the read and the claim.
