@@ -24,6 +24,7 @@ import { billingRouter } from './routes/billing.routes.js';
 import { refundRouter } from './routes/refund.routes.js';
 import { trustRouter } from './routes/trust.routes.js';
 import { portalErrorHandler } from './middleware/portal.middleware.js';
+import { globalErrorHandler } from './middleware/global-error.middleware.js';
 import { domainScanRouter } from './routes/domain-scan.routes.js';
 import { forensicRouter } from './routes/forensic.routes.js';
 import { inboundReportRouter } from './routes/inbound-report.routes.js';
@@ -189,6 +190,17 @@ app.use(wellKnownRouter);
   app.use('/api', (_request, response) => {
     sendError(response, 404, 'The requested endpoint does not exist.');
   });
+
+  /**
+   * Last, after every router, and after the catch-all above.
+   *
+   * Ordering is the whole point of it. An `app.use` error handler placed before a
+   * router never sees the errors that router raises, which is what left
+   * `apiV1Router`, `domainScanRouter` and `scanRouter` answering with Express's
+   * default `text/plain` body. This sits beneath all of them, so nothing can
+   * bypass it.
+   */
+  app.use(globalErrorHandler);
 
   return app;
 }
