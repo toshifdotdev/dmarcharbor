@@ -6,7 +6,7 @@ import { reverifyUnverifiedDomains } from '../services/domain-reverify.service.j
 import { purgeExpiredIdempotencyRecords } from '../services/api-key.service.js';
 import { runDunning, runReconciliation } from '../billing/dunning.js';
 import { repairWebhookEndpoints } from '../services/webhook.service.js';
-import { acquireDueLease, withJobLease } from './job-lease.service.js';
+import { withDueLease, withJobLease } from './job-lease.service.js';
 import { recordJobFailure, recordJobSuccess } from './heartbeat.js';
 
 let timer: NodeJS.Timeout | undefined;
@@ -95,57 +95,49 @@ async function runAlertEvaluationPass(): Promise<{ completed: true }> {
       console.info(`[api] cleared ${expiredIdempotency} expired idempotency record(s)`);
     }
 
-    // Dunning and reconciliation are leased on their own schedule rather than on
+    // Dunning and reconciliation are run on their own schedule rather than on
     // the alert tick, because they make provider API calls and must not run more
     // often than the interval says. The schedule lives in the database, so a
     // deploy neither loses it nor turns six hours into six minutes.
-    const dunningLease = await acquireDueLease(
+    await withDueLease(
       'billing-dunning',
       Math.max(env.BILLING_DUNNING_INTERVAL_MINUTES, 1) * 60 * 1000,
+      async () => {
+        lastDunningAt = Date.now();
+        const dunning = await runDunning();
+        if (dunning.warned > 0 || dunning.downgraded > 0) {
+          console.info(
+            `[billing] dunning examined ${dunning.examined}, ${dunning.warned} still retrying, ${dunning.downgraded} moved to the free plan`,
+          );
+        }
+      },
     );
 
-    if (dunningLease.acquired) {
-      lastDunningAt = Date.now();
-      const dunning = await runDunning();
-      if (dunning.warned > 0 || dunning.downgraded > 0) {
-        console.info(
-          `[billing] dunning examined ${dunning.examined}, ${dunning.warned} still retrying, ${dunning.downgraded} moved to the free plan`,
-        );
-      }
-
-      await dunningLease.release();
-    }
-
-    const reconcileLease = await acquireDueLease(
+    await withDueLease(
       'billing-reconciliation',
       Math.max(env.BILLING_RECONCILE_INTERVAL_MINUTES, 1) * 60 * 1000,
+      async () => {
+        lastReconcileAt = Date.now();
+        const reconciled = await runReconciliation();
+        if (reconciled.repaired > 0 || reconciled.unreachable > 0) {
+          console.info(
+            `[billing] reconciliation examined ${reconciled.examined}, ${reconciled.repaired} repaired, ${reconciled.unreachable} unreachable`,
+          );
+        }
+      },
     );
-
-    if (reconcileLease.acquired) {
-      lastReconcileAt = Date.now();
-      const reconciled = await runReconciliation();
-      if (reconciled.repaired > 0 || reconciled.unreachable > 0) {
-        console.info(
-          `[billing] reconciliation examined ${reconciled.examined}, ${reconciled.repaired} repaired, ${reconciled.unreachable} unreachable`,
-        );
-      }
-
-      await reconcileLease.release();
-    }
 
     // Repairs a webhook integration that has died permanently, which nothing
     // else would ever look at again. On the persisted schedule so it is not
     // re-examined on every tick, and leased so the fleet does not all probe.
-    const repairLease = await acquireDueLease('webhook-repair', 60 * 60 * 1000);
-    if (repairLease.acquired) {
+    await withDueLease('webhook-repair', 60 * 60 * 1000, async () => {
       const repaired = await repairWebhookEndpoints();
       if (repaired.endpointsProbed > 0 || repaired.deliveriesRequeued > 0) {
         console.info(
           `[webhooks] probed ${repaired.endpointsProbed} suspended endpoint(s), requeued ${repaired.deliveriesRequeued} dead delivery(ies)`,
         );
       }
-      await repairLease.release();
-    }
+    });
 
     const digests = await runReportDigests();
     const digestSent = digests.filter((result) => result.sent).length;

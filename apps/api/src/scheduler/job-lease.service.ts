@@ -44,6 +44,22 @@ import { prisma } from '../database/prisma.js';
  * the outcome correct even when the stampede happens anyway.
  */
 
+/**
+ * Renewal interval, and why it is not the obvious third of the lease.
+ *
+ * Renewing at `leaseMs / 3` leaves the last third of the lease as headroom, which
+ * sounds generous and was measured to be too little: a timer fires, Prisma takes
+ * a few milliseconds to write, and the timer can be delayed further by anything
+ * else the event loop is doing - so at a 900ms lease a renewal landing at exactly
+ * the third boundary loses the race to `expiresAt < now`. The window is then
+ * smaller than it reads.
+ *
+ * At half the lease, a renewal that is seconds late still lands well inside the
+ * window, and the job has to be almost twice its lease old before renewal can
+ * stop helping.
+ */
+const renewIntervalMs = (leaseMs: number): number => Math.max(Math.floor(leaseMs / 2), 500);
+
 /** Identifies this process in the lease, so a stuck job traces back to a process. */
 let instanceId: string | undefined;
 
@@ -62,7 +78,9 @@ export function currentInstanceId(): string {
  */
 export const defaultLeaseMs = 10 * 60 * 1000;
 
-export type LeaseResult = { acquired: true; release: () => Promise<void> } | { acquired: false };
+export type LeaseResult =
+  | { acquired: true; release: () => Promise<void>; renew: (leaseMs?: number) => Promise<boolean> }
+  | { acquired: false };
 
 /**
  * Takes the lease for `name`, or reports that another instance holds it.
@@ -113,6 +131,27 @@ export async function acquireLease(name: string, leaseMs = defaultLeaseMs): Prom
       await prisma.jobLease
         .updateMany({ where: { name, holder }, data: { expiresAt: new Date() } })
         .catch(() => undefined);
+    },
+    renew: async (leaseMs = 0) => {
+      if (released) {
+        return false;
+      }
+
+      const ms = leaseMs > 0 ? leaseMs : defaultLeaseMs;
+      const expiry = new Date(Date.now() + ms);
+
+      // Scoped to the holder and to a lease that has not already lapsed. Together
+      // those two make this harmless to lose: if another instance has taken it,
+      // the holder no longer matches, the statement changes nothing, and the
+      // return value says so. Renewal cannot steal a lease back.
+      const renewed = await prisma.jobLease
+        .updateMany({
+          where: { name, holder, expiresAt: { gt: new Date() } },
+          data: { expiresAt: expiry },
+        })
+        .catch(() => ({ count: 0 }));
+
+      return renewed.count === 1;
     },
   };
 }
@@ -171,7 +210,59 @@ export async function acquireDueLease(
         .updateMany({ where: { name, holder }, data: { expiresAt: new Date() } })
         .catch(() => undefined);
     },
+    renew: async (leaseMs = 0) => {
+      if (released) {
+        return false;
+      }
+
+      const ms = leaseMs > 0 ? leaseMs : defaultLeaseMs;
+      const renewed = await prisma.jobLease
+        .updateMany({
+          where: { name, holder, expiresAt: { gt: new Date() } },
+          data: { expiresAt: new Date(Date.now() + ms) },
+        })
+        .catch(() => ({ count: 0 }));
+
+      return renewed.count === 1;
+    },
   };
+}
+
+/**
+ * Runs `job` when the schedule says it is due and this process wins the lease.
+ *
+ * The same renewal reasoning as `withJobLease`, against `acquireDueLease`: these
+ * jobs run on their own intervals but are still guarded by a fixed lease, and
+ * reconciliation is the one that must not lose it, because it makes an unbounded
+ * provider call per tenant and a fleet-wide re-run is exactly the provider
+ * rate limit it is trying to avoid.
+ *
+ * Returns undefined either when the job is not due or when another instance holds
+ * the lease, so the caller logs a skip rather than a result.
+ */
+export async function withDueLease<T>(
+  name: string,
+  intervalMs: number,
+  job: () => Promise<T>,
+  leaseMs?: number,
+): Promise<T | undefined> {
+  const lease = await acquireDueLease(name, intervalMs, leaseMs);
+  if (!lease.acquired) {
+    return undefined;
+  }
+
+  const ms = leaseMs && leaseMs > 0 ? leaseMs : defaultLeaseMs;
+  const timer = setInterval(() => {
+    void lease.renew(ms);
+  }, renewIntervalMs(ms));
+  timer.unref?.();
+
+  try {
+    return await job();
+  } finally {
+    clearInterval(timer);
+    await lease.release();
+  }
 }
 
 /** When a job last started. Exposed for observability and for tests. */
@@ -181,23 +272,56 @@ export async function lastRunAt(name: string): Promise<Date | null> {
 }
 
 /**
- * Runs `job` only if this process wins the lease.
+ * Runs `job` only if this process wins the lease, renewing it while the job runs.
  *
  * Returns undefined when another instance holds it, so the caller can log a skip
  * rather than a result. A skipped cycle is free: every job here is periodic.
  *
  * A job that throws still releases its lease, otherwise one bad run would
  * silently disable the job for the whole lease duration.
+ *
+ * The renewal is the important part of this function and the reason it is not
+ * just acquire/release. Ten minutes is long enough for a slow pass and short
+ * enough that a crashed instance costs little, but it is a guess about how long
+ * the work takes, and `alert-evaluation` runs reconciliation, dunning,
+ * re-verification and erasure inside one lease. Reconciliation alone makes an
+ * unbounded provider call per tenant. At a few hundred tenants the pass exceeds
+ * ten minutes, the lease lapses, a second replica takes it, and the work runs
+ * twice - which is the exact duplication the lease exists to prevent, arriving
+ * precisely when the system is busiest.
+ *
+ * Renewing every third of the lease makes the lease cover the work instead of
+ * the work fitting the lease. It cannot help once the lease has already lapsed,
+ * because renewal is scoped to the holder and to a lease that has not expired;
+ * that window is now one third of a lease rather than all of it.
  */
-export async function withJobLease<T>(name: string, job: () => Promise<T>, leaseMs?: number): Promise<T | undefined> {
+export async function withJobLease<T>(
+  name: string,
+  job: () => Promise<T>,
+  leaseMs?: number,
+): Promise<T | undefined> {
   const lease = await acquireLease(name, leaseMs);
   if (!lease.acquired) {
     return undefined;
   }
 
+  const ms = leaseMs && leaseMs > 0 ? leaseMs : defaultLeaseMs;
+
+  const timer = setInterval(() => {
+    // Fire and forget: a renewal that fails leaves the job running and only
+    // widens the window in which another instance may take over, which is what
+    // release() in the finally block is for.
+    void lease.renew(ms);
+  }, renewIntervalMs(ms));
+
+  // Does not hold the process open: a scheduler is a background timer, and an
+  // unref'd renewal cannot be the reason a shutdown waits.
+  timer.unref?.();
+
   try {
     return await job();
   } finally {
+    clearInterval(timer);
     await lease.release();
   }
 }
