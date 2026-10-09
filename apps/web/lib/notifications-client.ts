@@ -26,8 +26,17 @@ export interface NotificationRow {
   kind: string;
   readAt: Date | null;
   createdAt: Date;
-  domainId?: string | null;
-  organizationId?: string | null;
+  link: string | null;
+  severity: string | null;
+  alertEventId: string | null;
+  /**
+   * The domain that triggered the alert, when this notification came from one.
+   *
+   * Not a top-level `domainId`: the API returns it nested under `alertEvent`,
+   * so reading it from the row directly produced `undefined` and the
+   * jump-to-evidence link never rendered on any notification.
+   */
+  alertEvent: { id: string; domainId: string | null } | null;
 }
 
 export interface NotificationInbox {
@@ -201,11 +210,28 @@ export async function runAllReportDigests(
  * For the case this exists for: a rua tag has just been pointed at us and
  * somebody wants to know now whether the mailbox is correct, rather than
  * discovering it is wrong after the next automatic run.
+ *
+ * The counts are the ones the API reports, not the ones this function used to
+ * expect. It declared `checked` and `received`, so the success line printed
+ * "Checked undefined mailboxes, received undefined new reports" on a poll that
+ * had actually worked.
  */
+export interface InboxPollOutcome {
+  /** Messages the mailbox handed over on this pass. */
+  messages: number;
+  /** Reports accepted into the system. */
+  accepted: number;
+  /** Already seen. Not a failure, but it is why a re-run finds nothing new. */
+  duplicates: number;
+  /** Not addressed to a domain we monitor. Worth reporting: it is the usual
+   *  reason a customer's own rua tag appears to work while nothing arrives. */
+  unmatched: number;
+}
+
 export async function pollReportInboxNow(
   organizationId: string,
-): Promise<OpsResult<{ checked: number; received: number }>> {
-  return call<{ checked: number; received: number }>(
+): Promise<OpsResult<InboxPollOutcome>> {
+  return call<InboxPollOutcome>(
     `/api/workspaces/${organizationId}/report-inbox/poll`,
     { method: "POST" },
   );

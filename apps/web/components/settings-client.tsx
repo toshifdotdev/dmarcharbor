@@ -66,6 +66,17 @@ export function WhiteLabelForm({
   const [error, setError] = useState<ApiErrorBody["error"] | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /**
+   * The TXT record to publish, held only for this session.
+   *
+   * `setCustomDomain` generates a fresh random token on every call and no
+   * endpoint returns it again, so this leaves with the page. That is why it is
+   * shown the moment it is issued and why the copy says so.
+   */
+  const [instructions, setInstructions] = useState<{
+    host: string;
+    value: string;
+  } | null>(null);
 
   async function saveColours() {
     setBusy(true);
@@ -104,7 +115,20 @@ export function WhiteLabelForm({
     setBusy(false);
     if (!res.ok) setError(res.error);
     else {
-      setNote("Custom domain saved. A TXT record must verify before it serves.");
+      /**
+       * Keep the record the API just generated.
+       *
+       * `setCustomDomain` mints a new random token on every call, so this is the
+       * only moment the TXT host and value exist. Letting it fall through meant
+       * the operator was told to "publish the TXT record" with no record to
+       * publish, and no way to reach one afterwards.
+       */
+      setInstructions(
+        res.data.verificationHost && res.data.verificationValue
+          ? { host: res.data.verificationHost, value: res.data.verificationValue }
+          : null,
+      );
+      setNote("Custom domain saved. Publish the record below, then verify it.");
       router.refresh();
     }
   }
@@ -114,11 +138,33 @@ export function WhiteLabelForm({
     setError(null);
     const res = await verifyCustomDomain(organizationId);
     setBusy(false);
-    if (!res.ok) setError(res.error);
-    else {
-      setNote("TXT record verified: the custom domain is live.");
-      router.refresh();
+    if (!res.ok) {
+      setError(res.error);
+      return;
     }
+
+    /**
+     * The answer is in the body, not in the status code.
+     *
+     * A 200 here can mean the record was found, that it is missing, or that
+     * the lookup timed out, and `verified` plus `lookupStatus` are what tell
+     * those apart. Reading only `res.ok` printed "the custom domain is live"
+     * on a hostname that resolves to nothing, which is the worst possible
+     * thing to claim on a paid feature: the customer reconfigures their DNS,
+     * waits for propagation, and is told it worked.
+     */
+    if (res.data.verified) {
+      setNote("TXT record verified: the custom domain is live.");
+      setInstructions(null);
+    } else {
+      setInstructions(null);
+      setError({
+        message:
+          res.data.error ??
+          "The TXT record was not found yet. Publish it, allow it to propagate, then verify again.",
+      });
+    }
+    router.refresh();
   }
 
   return (
@@ -224,7 +270,41 @@ export function WhiteLabelForm({
                 onClick={saveDomain}
                 variant="ghost"
               />
-              {branding.customDomain && !branding.customDomainVerifiedAt ? (
+                {instructions ? (
+                  <div
+                    className="mt-3 border p-3"
+                    style={{ borderColor: "var(--color-unverified)" }}
+                    data-testid="custom-domain-record"
+                  >
+                    <p
+                      className="text-[11px] tracking-[0.12em] uppercase"
+                      style={{ color: "var(--color-ink-3)" }}
+                    >
+                      Publish this TXT record at your DNS provider
+                    </p>
+                    <dl className="mt-2 flex flex-col gap-1.5 text-[12px]">
+                      <div>
+                        <dt style={{ color: "var(--color-ink-3)" }}>Host</dt>
+                        <dd className="num break-all" style={{ color: "var(--color-ink)" }}>
+                          {instructions.host}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt style={{ color: "var(--color-ink-3)" }}>Value</dt>
+                        <dd className="num break-all" style={{ color: "var(--color-ink)" }}>
+                          {instructions.value}
+                        </dd>
+                      </div>
+                    </dl>
+                    <p className="mt-2 text-[11.5px]" style={{ color: "var(--color-ink-3)" }}>
+                      This record is shown once, when the domain is saved. Save it
+                      before leaving this page: the token is not recoverable, and
+                      saving again issues a different one.
+                    </p>
+                  </div>
+                ) : null}
+
+                {branding.customDomain && !branding.customDomainVerifiedAt ? (
                 <ActionButton
                   label="verify TXT record"
                   loadingLabel="Verifying…"
@@ -388,8 +468,8 @@ export function ReportInboxForm({
  * discovered by a customer whose reports quietly never arrive.
  *
  * A failure is not silent here. The API records it against the mailbox so the
- * status above shows it, and this reports it as well, because "checked 0
- * mailboxes" and "the mailbox is broken" are otherwise indistinguishable.
+ * status above shows it, and this reports it as well, because "read 0 messages"
+ * and "the mailbox is broken" are otherwise indistinguishable.
  */
 function PollInboxNow({ organizationId }: { organizationId: string }) {
   const router = useRouter();
@@ -407,9 +487,12 @@ function PollInboxNow({ organizationId }: { organizationId: string }) {
       return;
     }
     setFailed(null);
-    setOutcome(
-      `Checked ${result.data.checked} mailbox${result.data.checked === 1 ? "" : "es"}, received ${result.data.received} new report${result.data.received === 1 ? "" : "s"}.`,
-    );
+
+    const { messages, accepted, duplicates, unmatched } = result.data;
+    const parts = [`Read ${messages} message${messages === 1 ? "" : "s"}`, `${accepted} new report${accepted === 1 ? "" : "s"}`];
+    if (duplicates > 0) parts.push(`${duplicates} already seen`);
+    if (unmatched > 0) parts.push(`${unmatched} not for a monitored domain`);
+    setOutcome(`${parts.join(", ")}.`);
     router.refresh();
   }
 
@@ -528,6 +611,23 @@ export function SsoSection({
               >
                 delete
               </button>
+              {/*
+                The values an IdP console asks the administrator for. The API has
+                always computed these, and the copy below promised the callback
+                URL would be "shown on the connection after it is created" while
+                nothing rendered it - so a connection existed that could not
+                actually be configured. None of these is a secret and none is
+                derivable from the others, which is why all four are shown.
+              */}
+              <dl
+                data-testid="sso-connection-config"
+                className="basis-full pt-1 text-[11.5px]"
+              >
+                <SsoConfigRow label={c.protocol === "SAML" ? "ACS URL (SAML)" : "Redirect URL (OIDC)"} value={c.callbackUrls[c.protocol.toLowerCase() as "saml" | "oidc"]} />
+                <SsoConfigRow label="Entity ID" value={c.entityId} />
+                <SsoConfigRow label="IdP entity ID" value={c.idpEntityId} />
+                <SsoConfigRow label="IdP sign-in URL" value={c.loginUrl} />
+              </dl>
             </li>
           ))}
         </ul>
@@ -621,10 +721,10 @@ export function SsoSection({
 
         <p className="text-[12.5px]" style={{ color: "var(--color-ink-3)" }}>
           The provider secret is write-only: it is stored server-side and never
-          returned. The callback URL to give your identity provider is shown on
-          the connection after it is created: it comes from the connection
-          itself, never constructed here. Owner is never a default role; the API
-          does not accept it.
+          returned. The callback URL and the rest of the values your identity
+          provider asks for are shown on each connection below, and come from the
+          connection itself rather than being constructed here. Owner is never a
+          default role; the API does not accept it.
         </p>
 
         <ActionButton
@@ -640,8 +740,27 @@ export function SsoSection({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+/**
+ * One value an administrator has to copy into their identity provider.
+ *
+ * Selectable rather than plain text because these get pasted into a form in
+ * another tab, and re-typing a URL by hand is how a connection ends up pointing
+ * at a mistyped host.
+ */
+function SsoConfigRow({ label, value }: { label: string; value: string }) {
   return (
+    <div className="flex flex-wrap items-baseline gap-x-2">
+      <dt className="num text-[10.5px] tracking-[0.12em] uppercase" style={{ color: "var(--color-ink-3)" }}>
+        {label}
+      </dt>
+      <dd className="num select-all break-all" style={{ color: "var(--color-ink-2)" }}>
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {  return (
     <label className="flex flex-col gap-1.5">
       <span className="label">{label}</span>
       {children}
