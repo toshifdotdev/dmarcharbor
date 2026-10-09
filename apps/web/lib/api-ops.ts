@@ -671,14 +671,6 @@ export function cancelErasure(
   );
 }
 
-/** Manual mailbox poll — the scheduler runs this on its own; the route exists
- *  so a just-configured mailbox can be tested now. */
-export function pollReportInbox(organizationId: string): Promise<unknown> {
-  return opsFetch(`/api/workspaces/${organizationId}/report-inbox/poll`, {
-    method: "POST",
-  });
-}
-
 export function listWorkspaceMembers(
   organizationId: string,
 ): Promise<{ members: WorkspaceMemberRow[] }> {
@@ -727,19 +719,6 @@ export function getBranding(
   organizationId: string,
 ): Promise<BrandingSettings> {
   return opsFetch<BrandingSettings>(`/api/workspaces/${organizationId}/branding`);
-}
-
-/** Colours only. The logo is the three-step upload flow below — a typed
- *  logo URL is NEVER rendered (security rule: they are filtered out of
- *  client-facing responses server-side). */
-export function updateBranding(
-  organizationId: string,
-  body: { brandPrimaryColor?: string | null; brandAccentColor?: string | null },
-): Promise<BrandingSettings> {
-  return opsFetch<BrandingSettings>(
-    `/api/workspaces/${organizationId}/branding`,
-    { method: "PATCH", body: JSON.stringify(body) },
-  );
 }
 
 export function setCustomDomain(
