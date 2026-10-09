@@ -134,3 +134,63 @@ jobs:
       - name: Verify the container builds
         # A Dockerfile that has never been built is a Dockerfile that does not work.
         run: docker compose build api
+
+      # A container that has never been started is a container that does not start.
+      #
+      # The entrypoint runs `prisma migrate deploy` before `node dist/server.js`,
+      # and the readiness gate in server.ts refuses to listen on an unfinished
+      # schema. Neither is executed by anything else here: the other steps run the
+      # source in place, and "Build" compiles the TypeScript but never runs the
+      # process. A broken entrypoint - a missing openssl, a command typo, an
+      # env guard that fires on a valid production config - ships otherwise.
+      #
+      # The base variables need the same `?` treatment as compose.yaml so a
+      # missing one reads as a configuration error rather than as a container
+      # crash.
+      - name: Verify the container boots and reports readiness
+        # The variables come from compose.yaml's `${VAR:?}` list, so they have to
+        # exist in the step too; without them compose refuses to start at all and
+        # the step would pass for the wrong reason.
+        env:
+          BETTER_AUTH_SECRET: "ci-better-auth-secret-not-used-for-real-auth"
+          BETTER_AUTH_URL: "https://api.ci.local.test"
+          APP_URL: "https://app.ci.local.test"
+          CORS_ORIGIN: "https://app.ci.local.test"
+          REPORT_INGEST_SECRET: "ci-report-ingest-secret-not-used-for-real"
+          FORENSIC_PSEUDONYM_SECRET: "ci-forensic-pseudonym-secret-not-used-for-real"
+          FORENSIC_PII_ENCRYPTION_KEY: "ci-forensic-pii-encryption-key-not-used-for-real"
+          REPORT_AGGREGATE_ADDRESS: "reports@ci.local.test"
+          REPORT_FORENSIC_ADDRESS: "forensics@ci.local.test"
+          EMAIL_FROM: "no-reply@ci.local.test"
+          EMAIL_PROVIDER: resend
+          RESEND_API_KEY: "ci-resend-key"
+          TRUST_PROXY_HOPS: "0"
+        run: |
+          set -e
+          docker compose up -d postgres
+          for i in $(seq 1 30); do
+            if docker inspect --format '{{.State.Health.Status}}' dmarcharbor-postgres-1 2>/dev/null | grep -q healthy; then break; fi
+            sleep 5
+          done
+          # `--no-deps` so compose does not start its own postgres on top of the
+          # one just brought up, and `--service-ports` so 4000 is published.
+          # `run -d` prints the container it created, which is the only reliable
+          # handle: `docker compose ps -q api` answers nothing for a `run`
+          # container.
+          container="$(docker compose run -d --no-deps --service-ports api | tail -n 1)"
+          ok=""
+          for i in $(seq 1 40); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' http://localhost:4000/api/ready || true)"
+            if [ "$code" = "200" ]; then ok="$code"; break; fi
+            sleep 5
+          done
+          # Always dump the log: on failure it is the only explanation, and on
+          # success it is the record of migrations having run in the entrypoint.
+          docker logs "$container" || true
+          docker compose rm -f -s -v api 2>/dev/null || true
+          docker compose down --volumes
+          if [ "$ok" != "200" ]; then
+            echo "The API container never reported a successful readiness check."
+            exit 1
+          fi
+          echo "Container booted and /api/ready answered 200."
