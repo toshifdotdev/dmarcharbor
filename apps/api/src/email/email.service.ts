@@ -1,6 +1,7 @@
 import { Resend } from 'resend';
 import { env } from '../config/env.js';
 import { enqueueEmail } from '../services/email-queue.service.js';
+import { EMAIL_SEND_TIMEOUT_MS, withGenericTimeout } from '../billing/provider-timeout.js';
 import type { RenderedEmail } from './templates.js';
 
 /**
@@ -33,15 +34,32 @@ export async function sendEmail(message: EmailMessage): Promise<void> {
     }
 
     const resend = new Resend(env.RESEND_API_KEY);
-    const result = await resend.emails.send(
-      {
-        from: env.EMAIL_FROM,
-        to: message.to,
-        subject: message.subject,
-        html: message.html,
-        text: message.text,
-      },
-      message.idempotencyKey ? { idempotencyKey: message.idempotencyKey } : undefined,
+    /**
+     * Bounded, because the SDK exposes no `signal` and its fetch therefore has no
+     * deadline at all.
+     *
+     * This matters more here than anywhere else in the codebase, and not because
+     * of the request that triggered it: the queue claims a row, sends it, and
+     * marks the outcome. A provider that accepts the connection and then stalls
+     * holds that claim for ever, so every pass after it claims the same row and
+     * waits on the same socket. One hung provider response stops password
+     * resets for every tenant on the system, and the heartbeat only reports the
+     * email job stale after half an hour.
+     */
+    const result = await withGenericTimeout(
+      () =>
+        resend.emails.send(
+          {
+            from: env.EMAIL_FROM,
+            to: message.to,
+            subject: message.subject,
+            html: message.html,
+            text: message.text,
+          },
+          message.idempotencyKey ? { idempotencyKey: message.idempotencyKey } : undefined,
+        ),
+      EMAIL_SEND_TIMEOUT_MS,
+      'Resend',
     );
 
     if (result.error) {

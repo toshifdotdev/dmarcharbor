@@ -12,6 +12,7 @@ import {
   type ProviderSubscriptionStatus,
 } from './provider.js';
 import { expectedPlans, findStoredPlan, findStoredPlanByProviderPlanId, requireStoredPlan, saveStoredPlan } from './plans.js';
+import { PROVIDER_TIMEOUT_MS, withTimeout } from './provider-timeout.js';
 import { prisma } from '../database/prisma.js';
 import type { PlanTier } from '@prisma/client';
 
@@ -364,7 +365,21 @@ export class RazorpayBillingProvider implements BillingProvider {
    */
   private async call<T>(operation: () => Promise<T>): Promise<T> {
     try {
-      return await operation();
+      /**
+       * Bounded because the SDK's HTTP client has no timeout.
+       *
+       * The Razorpay SDK builds its axios instance without one, and axios's
+       * default is 0, meaning it will wait for a connection that never answers
+       * for as long as the socket stays open. That turns a slow provider into a
+       * hung request: checkout, plan change and refund all sit inside
+       * `call`, so a provider that accepts TCP and then stalls takes those
+       * requests, the connections behind them, and eventually the process's
+       * capacity with them.
+       *
+       * The error is mapped rather than propagated, so a timeout answers as a
+       * 502 like any other provider failure rather than as a raw abort.
+       */
+      return await withTimeout(operation, PROVIDER_TIMEOUT_MS, 'Razorpay');
     } catch (error) {
       if (error instanceof BillingProviderError) {
         throw error;

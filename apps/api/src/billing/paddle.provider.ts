@@ -14,6 +14,7 @@ import {
   type ProviderSubscriptionStatus,
 } from './provider.js';
 import { expectedPlans, findStoredPlan, findStoredPlanByProviderPlanId, requireStoredPlan, saveStoredPlan } from './plans.js';
+import { PROVIDER_TIMEOUT_MS, withTimeout } from './provider-timeout.js';
 import type { PlanTier } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
 
@@ -493,7 +494,13 @@ async refund(input: {
    */
   private async call<T>(operation: () => Promise<T>): Promise<T> {
     try {
-      return await operation();
+      /**
+       * Bounded, like Razorpay, and for the same reason: the SDK is constructed
+       * with an environment and nothing else, so its fetch has no timeout and
+       * accepts a connection that never answers for as long as it stays open.
+       * Checkout, plan change and refund all sit inside `call`.
+       */
+      return await withTimeout(operation, PROVIDER_TIMEOUT_MS, 'Paddle');
     } catch (error) {
       throw toProviderError(error);
     }
