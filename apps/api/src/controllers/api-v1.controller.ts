@@ -13,6 +13,25 @@ import {
 } from '../services/api-key.service.js';
 import { bulkImportClients, bulkImportDomains, bulkLimits, normaliseDomain } from '../services/bulk-onboarding.service.js';
 import { idempotencyKeyFrom } from '../middleware/api-auth.middleware.js';
+import { parsePagination } from '../utils/pagination.js';
+
+/**
+ * Trims a page from an over-fetched result, keeping the shape callers had before.
+ *
+ * Both list endpoints previously returned bare arrays with every row, so paging
+ * them is a breaking change to the body. Keeping the array under the same key and
+ * returning `nextCursor` beside it lets an existing caller carry on untouched
+ * while a paging one gets what it needs - the alternative is releasing a version
+ * of the public API that breaks every customer integration at once.
+ */
+function pageOf<T extends { id: string }>(rows: T[], limit: number): { items: T[]; nextCursor: string | null } {
+  const hasMore = rows.length > limit;
+  const items = hasMore ? rows.slice(0, limit) : rows;
+  const last = items[items.length - 1];
+
+  return { items, nextCursor: hasMore && last ? last.id : null };
+}
+
 
 function sendError(response: Response, error: unknown): void {
   if (error instanceof EntitlementError) {
@@ -153,6 +172,21 @@ export async function bulkDomainsController(request: Request, response: Response
 
 export async function listApiClientsController(request: Request, response: Response): Promise<void> {
   const organizationId = response.locals.organizationId;
+  const page = parsePagination(request, response);
+  if (!page.ok) {
+    return;
+  }
+
+  /**
+   * Bounded, because it returned every client and every domain of every client.
+   *
+   * `GET /api/v1/domains` is the whole reason the public API exists, and it was
+   * also the endpoint a single workspace could use to make this process build a
+   * list it then serialised in one go: an agency with 3 000 domains gets a body
+   * in the tens of megabytes, and the process buffers all of it. Pagination is
+   * not a nicety here, it is the difference between an endpoint and an out of
+   * memory.
+   */
   const clients = await prisma.client.findMany({
     where: { organizationId },
     select: {
@@ -166,9 +200,14 @@ export async function listApiClientsController(request: Request, response: Respo
       },
     },
     orderBy: { createdAt: 'asc' },
+    // One extra row decides whether there is a next page, so the limit is not
+    // silently truncated by asking for exactly `limit` and guessing.
+    take: page.limit + 1,
+    ...(page.cursor ? { cursor: { id: page.cursor }, skip: 1 } : {}),
   });
 
-  response.json({ clients });
+  const { items, nextCursor } = pageOf(clients, page.limit);
+  response.json({ clients: items, nextCursor });
 }
 
 export async function createApiClientController(request: Request, response: Response): Promise<void> {
@@ -266,6 +305,11 @@ export async function verifyApiDomainController(request: Request, response: Resp
 
 export async function listApiDomainsController(request: Request, response: Response): Promise<void> {
   const organizationId = response.locals.organizationId;
+  const page = parsePagination(request, response);
+  if (!page.ok) {
+    return;
+  }
+
   const domains = await prisma.domain.findMany({
     where: { client: { organizationId } },
     select: {
@@ -280,9 +324,12 @@ export async function listApiDomainsController(request: Request, response: Respo
       client: { select: { id: true, name: true, slug: true } },
     },
     orderBy: { name: 'asc' },
+    take: page.limit + 1,
+    ...(page.cursor ? { cursor: { id: page.cursor }, skip: 1 } : {}),
   });
 
-  response.json({ domains });
+  const { items, nextCursor } = pageOf(domains, page.limit);
+  response.json({ domains: items, nextCursor });
 }
 
 export async function createApiKeyController(request: Request, response: Response): Promise<void> {

@@ -94,9 +94,11 @@ export const openApiDocument = {
         description: [
           'Machine readable counterpart to the browser interface, for a professional service automation tool or an internal script.',
           'The workspace is taken from the API key rather than the path, so a key can never be pointed at another workspace by mistake.',
+          'Paged: returns at most 50 rows by default and at most 200, with `nextCursor` present when a further page exists.',
+          'Pass the cursor back as `?cursor=` to continue. A limit outside 1 to 200 is refused rather than clamped.',
         ].join(' '),
         security: [{ apiKeyAuth: [] }],
-        responses: { 200: { description: 'Every client in the workspace with its domains.' } },
+        responses: { 200: { description: 'A page of clients, and the cursor for the next one.' } },
       },
       post: {
         tags: ['API'],
@@ -126,13 +128,14 @@ export const openApiDocument = {
     '/v1/domains': {
       get: {
         tags: ['API'],
-        summary: 'List every domain in the workspace',
+        summary: 'List domains in the workspace',
         description: [
           'Flat list across all clients, each with its client, verification state and published policy.',
-          'Returns the whole set rather than a page, because an integration normally wants to reconcile everything it manages rather than walk pages.',
+          'Paged: returns at most 50 rows by default and at most 200, with `nextCursor` present when a further page exists.',
+          'An integration that wants everything walks the pages with `?cursor=`, which is the same thing the browser interface does for its own reports.',
         ].join(' '),
         security: [{ apiKeyAuth: [] }],
-        responses: { 200: { description: 'Domains with verification state and policy.' } },
+        responses: { 200: { description: 'A page of domains, and the cursor for the next one.' } },
       },
       post: {
         tags: ['API'],

@@ -10,6 +10,18 @@ import { buildInventory, type InventoryScope } from '../inventory/inventory.serv
 export const exportLinkDays = 7;
 export const exportJobRetentionDays = 7;
 
+/**
+ * Rows read per table in an export, and rows read per report inside one.
+ *
+ * Chosen so a full-window export still completes in one request on a modest host
+ * while a workspace whose retention window has fallen behind cannot take the
+ * process down. `records` and `authResults` exist because a single report can
+ * carry thousands of rows: a report whose records exceed the ceiling is itself
+ * truncated and said to be, rather than being dropped in full.
+ */
+const exportTableLimit = 20_000;
+const exportRecordLimit = 5_000;
+
 export interface ExportRequest {
   organizationId: string;
   requestedById: string;
@@ -103,6 +115,14 @@ export interface ExportPayload {
     scopeLabel: string;
     format: ExportFormat;
     notice: string;
+    /**
+     * Tables that held more than one request could carry, present only then.
+     *
+     * Absent on a complete export on purpose: a customer downloading their data
+     * should not have to read past a caveat that does not apply to them.
+     */
+    limited?: string[];
+    limitedNotice?: string;
   };
   classification: { key: string; label: string; personalData: boolean; erasure: string; basis: string }[];
   redactions: { key: string; label: string; count: number; why: string }[];
@@ -133,6 +153,25 @@ export async function buildExportPayload(input: {
         ? { clientId: input.targetId, client: { organizationId: org } }
         : { client: { organizationId: org } };
 
+  /**
+   * Every table here is read in a window rather than in full.
+   *
+   * All of them were unbounded `findMany`, and the result is materialised and
+   * then serialised into a single response: a workspace holding hundreds of
+   * thousands of report records built an object measured in hundreds of megabytes
+   * inside the request, which is one export away from the process running out of
+   * memory and taking every tenant with it.
+   *
+   * Bounded rather than moved to a worker because an export is a statutory
+   * download: the customer asked for their data and it has to arrive. A
+   * truncated export that says it was truncated is a real answer, while an out of
+   * memory is not, so `limited` below records which tables hit their ceiling and
+   * the record carries the date the export stops at.
+   *
+   * The audit log is held to a larger window because it is the evidence chain
+   * rather than bulk data, and rounding it down would quietly lose the record a
+   * dispute turns on.
+   */
   const [organization, clients, domains, users, members, sessions, reports, forensics, alertRules, alertEvents, shares, digests, auditLog] =
     await Promise.all([
       prisma.organization.findUnique({
@@ -161,6 +200,7 @@ export async function buildExportPayload(input: {
           lastScanAt: true,
         },
         orderBy: { name: 'asc' },
+        take: exportTableLimit,
       }),
       prisma.user.findMany({
         where: { members: { some: { organizationId: org } } },
@@ -174,10 +214,12 @@ export async function buildExportPayload(input: {
           accounts: { select: { providerId: true, accountId: true, createdAt: true } },
         },
         orderBy: { createdAt: 'asc' },
+        take: exportTableLimit,
       }),
       prisma.member.findMany({
         where: { organizationId: org },
         select: { id: true, userId: true, role: true, createdAt: true },
+        take: exportTableLimit,
       }),
       prisma.session.findMany({
         where: { user: { members: { some: { organizationId: org } } } },
@@ -189,6 +231,7 @@ export async function buildExportPayload(input: {
           ipAddress: true,
           userAgent: true,
         },
+        take: exportTableLimit,
       }),
       prisma.dmarcReport.findMany({
         where: { domain: domainFilter },
@@ -210,6 +253,7 @@ export async function buildExportPayload(input: {
           receivedAt: true,
           recordCount: true,
           records: {
+            take: exportRecordLimit,
             select: {
               id: true,
               sourceIp: true,
@@ -223,12 +267,14 @@ export async function buildExportPayload(input: {
               senderKey: true,
               policyReason: true,
               authResults: {
+                take: exportRecordLimit,
                 select: { id: true, type: true, domain: true, selector: true, scope: true, result: true },
               },
             },
           },
         },
         orderBy: { receivedAt: 'asc' },
+        take: exportTableLimit,
       }),
       prisma.dmarcForensicReport.findMany({
         where: { domain: domainFilter },
@@ -260,6 +306,7 @@ export async function buildExportPayload(input: {
           subjectPseudonym: true,
         },
         orderBy: { receivedAt: 'asc' },
+        take: exportTableLimit,
       }),
       prisma.alertRule.findMany({
         where: input.scope === 'DOMAIN' && input.targetId ? { domainId: input.targetId } : { organizationId: org },
@@ -276,6 +323,7 @@ export async function buildExportPayload(input: {
           createdAt: true,
           recipients: { select: { userId: true } },
         },
+        take: exportTableLimit,
       }),
       prisma.alertEvent.findMany({
         where: input.scope === 'DOMAIN' && input.targetId ? { domainId: input.targetId } : { organizationId: org },
@@ -292,10 +340,12 @@ export async function buildExportPayload(input: {
           resolvedAt: true,
           staleAt: true,
         },
+        take: exportTableLimit,
       }),
       prisma.reportShare.findMany({
         where: input.scope === 'DOMAIN' && input.targetId ? { domainId: input.targetId } : { organizationId: org },
         select: { id: true, domainId: true, clientId: true, expiresAt: true, revokedAt: true, createdAt: true },
+        take: exportTableLimit,
       }),
       prisma.reportDigest.findMany({
         where: input.scope === 'DOMAIN' && input.targetId ? { domainId: input.targetId } : { organizationId: org },
@@ -307,6 +357,7 @@ export async function buildExportPayload(input: {
           lastSentAt: true,
           createdAt: true,
         },
+        take: exportTableLimit,
       }),
       prisma.auditLog.findMany({
         where: input.scope === 'DOMAIN' && input.targetId ? { domainId: input.targetId } : { organizationId: org },
@@ -318,17 +369,52 @@ export async function buildExportPayload(input: {
 
   const inventory = await buildInventory(scope, { retentionDays: 400 });
 
+  /**
+   * A truncated export says so, in the payload itself.
+   *
+   * Silently handing back part of somebody's data while they believe they asked
+   * for all of it is worse than handing back less: a customer who needs their
+   * records cannot tell from a short file whether the records are missing or
+   * simply never existed. So each table that hit its ceiling is named here rather
+   * than left for the customer to infer from the row count.
+   */
+  const limited: string[] = (
+    [
+      ['reports', reports],
+      ['forensicReports', forensics],
+      ['alertEvents', alertEvents],
+      ['auditLog', auditLog],
+      ['sessions', sessions],
+      ['reportDigests', digests],
+      ['reportShares', shares],
+      ['alertRules', alertRules],
+      ['domains', domains],
+      ['clients', clients],
+      ['members', members],
+      ['users', users],
+    ] as [string, unknown[]][]
+  )
+    .filter(([, rows]) => rows.length >= exportTableLimit)
+    .map(([label]) => label);
+
+  const meta: ExportPayload['meta'] = {
+    product: 'DMARC Harbor',
+    generatedAt: new Date().toISOString(),
+    scope: input.scope,
+    scopeLabel: input.scopeLabel,
+    format: input.format,
+    notice:
+      'This export contains the data held for this scope. Passwords, session tokens and OAuth tokens are never included, ' +
+      'because they are credentials rather than data. Security records are included by action and time, with identifying fields withheld.',
+  };
+
+  if (limited.length > 0) {
+    meta.limited = limited;
+    meta.limitedNotice = `These tables hold more rows than one request can carry: ${limited.join(', ')}. Ask support for the remainder, or request a narrower scope such as a single client or domain.`;
+  }
+
   return {
-    meta: {
-      product: 'DMARC Harbor',
-      generatedAt: new Date().toISOString(),
-      scope: input.scope,
-      scopeLabel: input.scopeLabel,
-      format: input.format,
-      notice:
-        'This export contains the data held for this scope. Passwords, session tokens and OAuth tokens are never included, ' +
-        'because they are credentials rather than data. Security records are included by action and time, with identifying fields withheld.',
-    },
+    meta,
     classification: dataClasses.map((entry) => ({
       key: entry.key,
       label: entry.label,

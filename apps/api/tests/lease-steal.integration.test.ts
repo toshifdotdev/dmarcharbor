@@ -27,6 +27,7 @@ describe('a second instance cannot take a lease that is being renewed', () => {
 
     const held = await acquireLease(job, shortLease);
     expect(held.acquired).toBe(true);
+    if (!held.acquired) return;
 
     // Work that takes much longer than the lease, with no renewal.
     await new Promise((resolve) => setTimeout(resolve, shortLease * 2));
@@ -36,6 +37,7 @@ describe('a second instance cannot take a lease that is being renewed', () => {
     // bug the renewal fixes, demonstrated rather than described.
     const stolen = await acquireLease(job, shortLease);
     expect(stolen.acquired).toBe(true);
+    if (!stolen.acquired) return;
     expect((await row(job)).expiresAt.getTime()).toBeLessThan(Date.now() + shortLease * 2);
     await stolen.release();
   });
@@ -61,8 +63,7 @@ describe('a second instance cannot take a lease that is being renewed', () => {
           return;
         }
         await new Promise((resolve) => setTimeout(resolve, 120));
-      }
-    })();
+      }    })();
 
     // The worker renews on the same schedule the helper uses.
     const timer = setInterval(() => {
