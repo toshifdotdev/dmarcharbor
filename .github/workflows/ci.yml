@@ -133,6 +133,24 @@ jobs:
 
       - name: Verify the container builds
         # A Dockerfile that has never been built is a Dockerfile that does not work.
+        #
+        # The variables come from compose.yaml's `${VAR:?}` list, so they have to
+        # exist here too. Without them compose refuses to start and the step fails
+        # for a configuration reason rather than a build reason.
+        env:
+          BETTER_AUTH_SECRET: "ci-better-auth-secret-not-used-for-real-auth"
+          BETTER_AUTH_URL: "https://api.ci.local.test"
+          APP_URL: "https://app.ci.local.test"
+          CORS_ORIGIN: "https://app.ci.local.test"
+          REPORT_INGEST_SECRET: "ci-report-ingest-secret-not-used-for-real"
+          FORENSIC_PSEUDONYM_SECRET: "ci-forensic-pseudonym-secret-not-used-for-real"
+          FORENSIC_PII_ENCRYPTION_KEY: "ci-forensic-pii-encryption-key-not-used-for-real"
+          REPORT_AGGREGATE_ADDRESS: "reports@ci.local.test"
+          REPORT_FORENSIC_ADDRESS: "forensics@ci.local.test"
+          EMAIL_FROM: "no-reply@ci.local.test"
+          EMAIL_PROVIDER: resend
+          RESEND_API_KEY: "ci-resend-key"
+          TRUST_PROXY_HOPS: "0"
         run: docker compose build api
 
       # A container that has never been started is a container that does not start.
