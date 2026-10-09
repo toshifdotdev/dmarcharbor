@@ -1,4 +1,4 @@
-import { readdirSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { prisma } from '../database/prisma.js';
 
@@ -33,13 +33,22 @@ export interface SchemaCheck {
  * constant is wrong the first time a migration is added elsewhere, and the CLI needs
  * network access and a working `npx`.
  *
+ * Only directories that actually contain a `migration.sql` are counted, because a
+ * directory on its own is not a migration. `20261009000000_expand_contract_baseline`
+ * is the case that forced this: it is a marker that carries a README so the migration
+ * safety barrier in CI has an anchor, and counting it made this function report one
+ * more migration than the database had applied, which is a build that refuses to start
+ * for a reason that is not true.
+ *
  * Returns null when the directory is absent, which is the case in some test and
  * bundling environments. The check then falls back to "are any migrations applied at
  * all", which still catches the empty database this exists to prevent.
  */
 export function shippedMigrationCount(prismaDir = join(process.cwd(), 'prisma', 'migrations')): number | null {
   try {
-    return readdirSync(prismaDir, { withFileTypes: true }).filter((entry) => entry.isDirectory()).length;
+    return readdirSync(prismaDir, { withFileTypes: true }).filter(
+      (entry) => entry.isDirectory() && existsSync(join(prismaDir, entry.name, 'migration.sql')),
+    ).length;
   } catch {
     return null;
   }
