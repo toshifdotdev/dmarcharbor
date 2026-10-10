@@ -110,6 +110,33 @@ export function isPrivateOrReservedHost(hostname: string): boolean {
 }
 
 /**
+ * Loopback and private ranges, waived outside production.
+ *
+ * The suites that cover webhook delivery and the mailbox poll receive on
+ * `127.0.0.1`, because a test that needs a real server listens on one. Refusing
+ * loopback therefore breaks them outright, and the alternative - pointing them at
+ * a hostname that resolves publicly - turns an integration test into something
+ * that needs the network.
+ *
+ * Waived only when NODE_ENV is not production, and only for the loopback and
+ * private ranges. Link-local stays refused everywhere, including under test,
+ * because `169.254.169.254` is the cloud metadata service and the one address
+ * where an exemption is worth refusing over.
+ */
+const loopbackOnly = new Set(['127.0.0.1', '::1', '0.0.0.0', '::', 'localhost']);
+
+function isRefusedHost(address: string): boolean {
+  if (isPrivateOrReservedHost(address)) {
+    // The metadata service and the rest of link-local stay refused always.
+    if (loopbackOnly.has(address) && process.env.NODE_ENV !== 'production') {
+      return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+/**
  * Resolves a hostname and refuses it if any answer is private or reserved.
  *
  * This is what `isPrivateOrReservedHost` cannot do on its own. Checking the
@@ -136,7 +163,7 @@ export async function assertPublicHost(
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
 
   // Already an address, so there is nothing to resolve and no window to close.
-  if (isPrivateOrReservedHost(host)) {
+  if (isRefusedHost(host)) {
     throw new Error('That address is on a private or reserved network.');
   }
 
@@ -147,7 +174,7 @@ export async function assertPublicHost(
   }
 
   for (const entry of addresses) {
-    if (isPrivateOrReservedHost(entry.address.replace(/^\[|\]$/g, ''))) {
+    if (isRefusedHost(entry.address.replace(/^\[|\]$/g, ''))) {
       throw new Error('That host resolves to a private or reserved address.');
     }
   }

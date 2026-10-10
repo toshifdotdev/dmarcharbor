@@ -78,4 +78,13 @@ describe('the host check resolves before allowing a connection', () => {
       ).rejects.toThrow(/private or reserved/i);
     }
   });
+
+  it('still refuses link-local in test, where loopback is waived', async () => {
+    // The waiver covers loopback because tests listen on it. It deliberately does
+    // not cover link-local: `169.254.169.254` returns cloud credentials and is the
+    // address the whole guard exists for.
+    await expect(
+      assertPublicHost('rebind.attacker.test', lookupReturning([{ address: '169.254.169.254' }])),
+    ).rejects.toThrow(/private or reserved/i);
+  });
 });
