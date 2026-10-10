@@ -71,12 +71,29 @@ systemRouter.get('/ready', async (_request, response) => {
       },
     });
   } catch (error) {
+    /**
+     * Logged, with the reason. Returned, without it.
+     *
+     * A Prisma error string carries the host, the port, the database name and
+     * sometimes a statement fragment, which is exactly the detail the production
+     * guards in config/env.ts exist to keep off the wire. `/ready` is
+     * unauthenticated and meant to be polled, so it is reachable by anyone who can
+     * reach the service at all.
+     *
+     * The caller still needs to know the database is what failed, because the
+     * answer changes what the operator looks at first; the fixed string does that
+     * while leaving the specifics in the log, where the request id ties them to
+     * the caller and the line that recorded them.
+     */
+    const reason = error instanceof Error ? error.message : 'Unknown database error';
+    console.error(`[ready] database check failed: ${reason}`);
+
     response.status(503).json({
       status: 'not_ready',
       checks: {
         database: {
           status: 'error',
-          error: error instanceof Error ? error.message : 'Database check failed.',
+          error: 'The database did not answer.',
         },
         schedulers: {
           status: schedulers.staleJobs.length === 0 ? 'ok' : 'stale',

@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { purgeExpiredReports } from '../src/services/report.service.js';
@@ -106,6 +106,37 @@ describe('system probes', () => {
     expect(response.body.status).toBe('ready');
     expect(response.body.checks.database.status).toBe('ok');
     expect(typeof response.body.checks.database.latencyMs).toBe('number');
+  });
+
+  /**
+   * A failing readiness check says the database failed without naming it.
+   *
+   * `/ready` is unauthenticated and polled, so it is reachable by anyone who can
+   * reach the service at all. A Prisma error string carries the host, the port,
+   * the database name and sometimes a statement fragment, and the reason it is
+   * kept off the wire everywhere else applies here with more force, not less.
+   *
+   * Forced by making the raw query reject the way a real failure does.
+   */
+  it('refuses to tell an anonymous caller why the database failed', async () => {
+    vi.spyOn(prisma, '$queryRawUnsafe').mockRejectedValue(
+      new Error("Can't reach database server at `postgres:5432`"),
+    );
+
+    try {
+      const response = await request(app).get('/api/ready');
+
+      expect(response.status).toBe(503);
+      expect(response.body.status).toBe('not_ready');
+      expect(response.body.checks.database.status).toBe('error');
+      // The answer is that it failed, which is what the caller acts on, and not
+      // the address, which is what an attacker wants.
+      expect(response.body.checks.database.error).toBe('The database did not answer.');
+      expect(JSON.stringify(response.body)).not.toContain('5432');
+      expect(JSON.stringify(response.body)).not.toContain('postgres');
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 
   it('exposes the effective retention and alerting configuration', async () => {
