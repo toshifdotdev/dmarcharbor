@@ -109,7 +109,7 @@ describe('job lease', () => {
   it('lets exactly one holder acquire a free lease', async () => {
     const [a, b] = await Promise.all([acquireLease('test-job'), acquireLease('test-job')]);
 
-    const winners = [a, b].filter((result): result is { acquired: true; release: () => Promise<void> } => result.acquired);
+    const winners = [a, b].flatMap((result) => (result.acquired ? [result] : []));
     expect(winners).toHaveLength(1);
 
     await winners[0]?.release();
