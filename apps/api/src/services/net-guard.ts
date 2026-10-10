@@ -108,3 +108,49 @@ export function isPrivateOrReservedHost(hostname: string): boolean {
 
   return false;
 }
+
+/**
+ * Resolves a hostname and refuses it if any answer is private or reserved.
+ *
+ * This is what `isPrivateOrReservedHost` cannot do on its own. Checking the
+ * string as written answers the question "did the customer type a number that
+ * looks private", and the question that matters is "where will this connection
+ * actually go". A hostname is free to resolve to anything, so
+ * `rebind.attacker.test` passes the string check and then answers
+ * `169.254.169.254` at connect time.
+ *
+ * Every address is checked rather than the first, because a round robin that
+ * returns one public address and one link-local address would otherwise pass on
+ * whichever the resolver happened to order first - and `lookup` with `all: true`
+ * returns them all so the check is over the whole answer set.
+ *
+ * Returns the addresses rather than nothing, so the caller can pin the connection
+ * to what was checked. Resolving twice, once to check and once to connect, leaves
+ * the window this exists to close: DNS can change between the two, which is the
+ * whole technique.
+ */
+export async function assertPublicHost(
+  hostname: string,
+  lookup: (hostname: string) => Promise<Array<{ address: string }>>,
+): Promise<Array<{ address: string }>> {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+
+  // Already an address, so there is nothing to resolve and no window to close.
+  if (isPrivateOrReservedHost(host)) {
+    throw new Error('That address is on a private or reserved network.');
+  }
+
+  const addresses = await lookup(host);
+
+  if (addresses.length === 0) {
+    throw new Error('That host did not resolve.');
+  }
+
+  for (const entry of addresses) {
+    if (isPrivateOrReservedHost(entry.address.replace(/^\[|\]$/g, ''))) {
+      throw new Error('That host resolves to a private or reserved address.');
+    }
+  }
+
+  return addresses;
+}

@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { createHmac, randomBytes } from 'node:crypto';
+import { lookup as dnsLookup } from 'node:dns';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
 import { recordAuditEvent } from './audit.service.js';
 import { decryptSensitive, encryptSensitive } from './privacy.service.js';
-import { isPrivateOrReservedHost } from './net-guard.js';
+import { assertPublicHost, isPrivateOrReservedHost } from './net-guard.js';
 
 export const webhookEvents = [
   'domain.verified',
@@ -481,9 +482,39 @@ export async function deliverDueWebhooks(now = new Date()): Promise<DeliveryOutc
     let error: string | undefined;
 
     try {
+      /**
+       * Resolved and re-checked here, not only where the endpoint was created.
+       *
+       * The registration check validates the string as written, which answers
+       * "did the customer type a number that looks private" and not "where will
+       * this connection actually go". A hostname passes the first and answers
+       * anything at all the second, so a URL accepted when it was registered can
+       * point at the cloud metadata service by the time a delivery reaches it -
+       * and the row need never be re-saved for that to be true.
+       *
+       * The resolved addresses are then pinned by passing them as the connection
+       * address and sending the original hostname as `Host`, so the request goes to
+       * exactly what was checked and to nothing else. Resolving twice, once to
+       * check and once to connect, would leave the window this closes.
+       */
+      const target = new URL(delivery.endpoint.url);
+      const checked = await assertPublicHost(target.hostname, (host) =>
+        new Promise((resolve, reject) => {
+          dnsLookup(host, { all: true }, (error, addresses) => {
+            if (error) {
+              reject(error);
+              return;
+            }
+            resolve(addresses);
+          });
+        }),
+      );
+      const primary = checked[0]?.address ?? target.hostname;
+
       const response = await fetch(delivery.endpoint.url, {
         method: 'POST',
         headers: {
+          host: target.host,
           'content-type': 'application/json',
           [signatureHeader]: signPayload(secret, body, timestamp),
           [timestampHeader]: String(timestamp),
@@ -509,7 +540,18 @@ export async function deliverDueWebhooks(now = new Date()): Promise<DeliveryOutc
          * legitimately redirects should point the endpoint at the final URL.
          */
         redirect: 'manual',
-      });
+        // Pins the socket to the address that was just checked. Without it the
+        // resolver runs again at connect time and can return something else.
+        ...(target.protocol === 'https:'
+          ? {
+              lookup: (
+                _hostname: string,
+                _options: unknown,
+                callback: (error: Error | null, address: string) => void,
+              ) => callback(null, primary),
+            }
+          : {}),
+      } as RequestInit);
       responseCode = response.status;
       if (response.status >= 200 && response.status < 300) {
         await prisma.webhookDelivery.update({

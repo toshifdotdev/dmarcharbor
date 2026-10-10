@@ -1,4 +1,5 @@
 import { ImapFlow } from 'imapflow';
+import { lookup as dnsLookup } from 'node:dns';
 import { prisma } from '../../database/prisma.js';
 import { decryptSensitive, encryptSensitive } from '../privacy.service.js';
 import { processInboundDmarcEmail } from '../inbound-report.service.js';
@@ -70,6 +71,39 @@ function assertAllowedHost(host: string): void {
       400,
     );
   }
+}
+
+/**
+ * Resolves the configured host and refuses it if any answer is private.
+ *
+ * Used by the poll, where the connection is actually made, because a hostname
+ * check without resolution cannot answer where a connection will go.
+ */
+async function assertPublicHostForPoll(host: string): Promise<Array<{ address: string }>> {
+  const lower = host.trim().toLowerCase();
+  assertAllowedHost(lower);
+
+  const addresses = await new Promise<Array<{ address: string }>>((resolve, reject) => {
+    dnsLookup(lower, { all: true }, (error, found) => {
+      if (error) {
+        reject(new InboxError('That mail server could not be resolved.', 'INBOX_HOST_UNRESOLVED', 400));
+        return;
+      }
+      resolve(found);
+    });
+  });
+
+  for (const entry of addresses) {
+    if (isPrivateOrReservedHost(entry.address)) {
+      throw new InboxError(
+        'That mail server resolves to a private or reserved address.',
+        'INBOX_HOST_REFUSED',
+        400,
+      );
+    }
+  }
+
+  return addresses;
 }
 
 export interface InboxSettings {
@@ -167,14 +201,34 @@ export async function pollInbox(organizationId: string): Promise<PollOutcome> {
     throw new InboxError('The stored mailbox password could not be read.', 'INBOX_CREDENTIALS_UNREADABLE', 500);
   }
 
+  /**
+   * Resolved and re-checked here, not only where the mailbox was configured.
+   *
+   * A hostname is checked as written at configuration time and can answer
+   * differently at connection time, so a host accepted when it was saved can
+   * point at a private address by the time a poll reaches it - and the poll is
+   * what sends the stored credentials there. The addresses are pinned onto the
+   * connection so the socket goes to what was checked.
+   *
+   * The module's own comment states the consequence: this feature is a port
+   * scanner pointed wherever a tenant tells it, and a poll receives both the
+   * connection outcome and the credentials. Closing the resolution window is
+   * what makes the port check worth having.
+   */
+  const checked = await assertPublicHostForPoll(inbox.host);
+  const primary = checked[0]?.address ?? inbox.host;
+
   const client = new ImapFlow({
-    host: inbox.host,
+    host: primary,
     port: inbox.port,
     secure: inbox.secure,
     auth: { user: inbox.username, pass: password },
     logger: false,
     // A mailbox that hangs must not hold a scheduler slot open.
     socketTimeout: 60_000,
+    // SNI and the advertised login still use the real name, so the certificate
+    // matches what the customer configured even though the socket is pinned.
+    servername: inbox.host,
   });
 
   // Claimed before connecting. Every instance starts the inbox scheduler on
