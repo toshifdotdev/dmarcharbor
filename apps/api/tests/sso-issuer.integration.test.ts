@@ -87,17 +87,41 @@ describe('an SSO connection cannot be given any string as its issuer', () => {
     expect(response.status).toBe(400);
   });
 
-  it('refuses an issuer carrying a path', async () => {
+  it('refuses an OIDC issuer carrying a path', async () => {
     const { agent, organizationId } = await setup();
 
-    // The discovery document is fetched by trimming a trailing slash and
-    // appending the well-known path, so a base URL with a path relocates the
-    // request to a subdirectory the administrator did not choose.
+    // Discovery is fetched by appending the well-known path to the issuer, so a
+    // base URL carrying a path relocates that request to a subdirectory.
     const response = await agent
       .post(`/api/workspaces/${organizationId}/sso-connections`)
       .send(body('https://northgate.okta.com/oauth2/default'));
 
     expect(response.status).toBe(400);
+    expect(response.body.error.message).toMatch(/base URL|no path/i);
+  });
+
+  it('allows a SAML issuer carrying a path, which is the shape of a SAML entity id', async () => {
+    const { agent, organizationId } = await setup();
+
+    // The mirror of the case above, and the reason the path check is scoped by
+    // protocol. A SAML entity id conventionally *is* a path, so a rule that
+    // refused paths here would refuse every ordinary Okta configuration.
+    const response = await agent
+      .post(`/api/workspaces/${organizationId}/sso-connections`)
+      .send({
+        ...body('https://okta.test/entity'),
+        protocol: 'SAML',
+        entryPoint: 'https://okta.test/sso',
+      });
+
+    expect(response.status).toBe(201);
+
+    // Read it back rather than reading the create response: creation deliberately
+    // does not echo the issuer back, so asserting on `response.body` would test
+    // the wrong thing.
+    const listed = await agent.get(`/api/workspaces/${organizationId}/sso-connections`);
+    const stored = listed.body.connections.find((c: { id: string }) => c.id === response.body.id);
+    expect(stored?.issuer).toBe('https://okta.test/entity');
   });
 
   it('stores nothing when the issuer is refused', async () => {

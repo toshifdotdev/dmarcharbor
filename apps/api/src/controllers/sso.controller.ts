@@ -39,13 +39,14 @@ const createSchema = z.object({
     // An absolute https URL, and nothing else.
     //
     // `min(1)` accepted any non-empty string, so `https://` and `not-a-url` were
-    // both stored. The value is later passed to `new URL(...)` and then fetched, so
-    // an arbitrary string either throws at first sign-in or, for anything the URL
-    // parser happens to accept, silently points discovery somewhere nobody chose.
+    // both stored. The value is later passed to `new URL(...)` and, for OIDC,
+    // fetched - so an arbitrary string either throws at first sign-in or, for
+    // anything the URL parser happens to accept, silently points discovery
+    // somewhere nobody chose.
     //
-    // Refining it in zod rather than adding a check at the call site keeps the rule
-    // at the boundary, where every other field's rule already lives.
-    .refine((value) => isHttpsIssuer(value), {
+    // Refining here rather than at the call site keeps the rule at the boundary,
+    // where every other field's rule already lives.
+    .refine((value) => isHttpsUrl(value), {
       message: "The issuer must be an absolute https URL, for example https://accounts.example.com.",
     }),
   entryPoint: z.string().trim().url(),
@@ -67,22 +68,25 @@ function fail(response: Response, error: unknown): void {
   response.status(500).json({ error: { code: 'SSO_ERROR', message: 'Single sign on is not configured correctly.' } });
 }
 
+function isHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 /**
- * True when an issuer is an absolute https URL.
+ * True when an OIDC issuer must be a bare base URL.
  *
- * `z.string().url()` is deliberately not used for this field. It accepts any
- * scheme, including `http:` and protocols a URL parser understands but a request
- * should never be made over, and it accepts a bare origin while the value is also
- * used as the base of a discovery request that appends a path.
+ * SAML entity ids conventionally carry a path, so a rule that refused paths
+ * would refuse every ordinary Okta configuration. The rule only applies to the
+ * protocol whose discovery document is fetched by appending to this URL.
  */
-function isHttpsIssuer(value: string): boolean {
+export function isBareOrigin(value: string): boolean {
   try {
     const parsed = new URL(value);
-    // No path beyond a single trailing slash: the discovery document is fetched by
-    // trimming the trailing slash and appending `/.well-known/openid-configuration`,
-    // and a base URL carrying a path silently relocates that to a subdirectory of
-    // wherever the administrator happened to point.
-    return parsed.protocol === 'https:' && ["/", ""].includes(parsed.pathname);
+    return ["/", ""].includes(parsed.pathname);
   } catch {
     return false;
   }
@@ -122,6 +126,29 @@ export async function createSsoConnectionController(request: Request, response: 
       error: {
         code: 'INVALID_REQUEST',
         message: issue?.message ?? 'The connection details are not usable.',
+      },
+    });
+    return;
+  }
+
+  /**
+   * An OIDC issuer is a discovery base URL, so it must not carry a path.
+   *
+   * The document is fetched by trimming a trailing slash and appending
+   * `/.well-known/openid-configuration`, and a base URL carrying a path relocates
+   * that request to a subdirectory of wherever the administrator happened to
+   * point. SAML is deliberately exempt: a SAML entity id conventionally *is* a
+   * path, and this check would refuse an ordinary Okta configuration.
+   *
+   * Checked here rather than in the schema because the two fields have to be read
+   * together, which a per-field zod refine cannot see.
+   */
+  if (body.data.protocol === 'OIDC' && !isBareOrigin(body.data.issuer)) {
+    response.status(400).json({
+      error: {
+        code: 'INVALID_REQUEST',
+        message:
+          'The OIDC issuer must be your provider base URL with no path, for example https://accounts.example.com.',
       },
     });
     return;
