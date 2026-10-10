@@ -1,7 +1,9 @@
 import type { Request, Response } from 'express';
+import { fromNodeHeaders } from 'better-auth/node';
 import { z } from 'zod';
 import { prisma } from '../database/prisma.js';
 import { env } from '../config/env.js';
+import { auth } from '../auth/auth.config.js';
 import { recordAuditEvent } from '../services/audit.service.js';
 import { SsoError, createSsoConnection, deleteSsoConnection, listSsoConnections } from '../services/sso/sso.service.js';
 import {
@@ -30,7 +32,22 @@ import {
 const createSchema = z.object({
   label: z.string().trim().min(1).max(120),
   protocol: z.enum(['SAML', 'OIDC']),
-  issuer: z.string().trim().min(1).max(500),
+  issuer: z
+    .string()
+    .trim()
+    .max(500)
+    // An absolute https URL, and nothing else.
+    //
+    // `min(1)` accepted any non-empty string, so `https://` and `not-a-url` were
+    // both stored. The value is later passed to `new URL(...)` and then fetched, so
+    // an arbitrary string either throws at first sign-in or, for anything the URL
+    // parser happens to accept, silently points discovery somewhere nobody chose.
+    //
+    // Refining it in zod rather than adding a check at the call site keeps the rule
+    // at the boundary, where every other field's rule already lives.
+    .refine((value) => isHttpsIssuer(value), {
+      message: "The issuer must be an absolute https URL, for example https://accounts.example.com.",
+    }),
   entryPoint: z.string().trim().url(),
   clientId: z.string().trim().min(1).max(300),
   clientSecret: z.string().min(1).max(1000),
@@ -50,14 +67,63 @@ function fail(response: Response, error: unknown): void {
   response.status(500).json({ error: { code: 'SSO_ERROR', message: 'Single sign on is not configured correctly.' } });
 }
 
+/**
+ * True when an issuer is an absolute https URL.
+ *
+ * `z.string().url()` is deliberately not used for this field. It accepts any
+ * scheme, including `http:` and protocols a URL parser understands but a request
+ * should never be made over, and it accepts a bare origin while the value is also
+ * used as the base of a discovery request that appends a path.
+ */
+function isHttpsIssuer(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    // No path beyond a single trailing slash: the discovery document is fetched by
+    // trimming the trailing slash and appending `/.well-known/openid-configuration`,
+    // and a base URL carrying a path silently relocates that to a subdirectory of
+    // wherever the administrator happened to point.
+    return parsed.protocol === 'https:' && ["/", ""].includes(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
 export async function listSsoConnectionsController(_request: Request, response: Response): Promise<void> {
   response.json({ connections: await listSsoConnections(response.locals.organizationId) });
+}
+
+/**
+ * The caller's own workspace, or none.
+ *
+ * Reads the session rather than requiring one, because `ssoStartController`
+ * serves users who have just been sent here by their identity provider and have
+ * no session yet. Using the session when it exists narrows that endpoint without
+ * locking out the person it is really for.
+ */
+async function callerOrganizationId(headers: NodeJS.Dict<string | string[] | undefined>): Promise<string | undefined> {
+  const organizations = await auth.api.listOrganizations({ headers: fromNodeHeaders(headers) });
+
+  // Only a member of exactly one workspace can be scoped by their session. A
+  // person holding two cannot have "the" organization derived from the session
+  // alone, and guessing one would refuse a legitimate sign-in for a reason the
+  // caller cannot see or act on.
+  return organizations.length === 1 ? organizations[0]?.id : undefined;
 }
 
 export async function createSsoConnectionController(request: Request, response: Response): Promise<void> {
   const body = createSchema.safeParse(request.body);
   if (!body.success) {
-    response.status(400).json({ error: { code: 'INVALID_REQUEST', message: 'The connection details are not usable.' } });
+    // The refinement's own message is returned rather than a generic one. A
+    // connection that cannot be created has to say why in the words the
+    // administrator will read while filling the form in, and "the details are not
+    // usable" sends them back to a field that was already fine.
+    const issue = body.error.issues[0];
+    response.status(400).json({
+      error: {
+        code: 'INVALID_REQUEST',
+        message: issue?.message ?? 'The connection details are not usable.',
+      },
+    });
     return;
   }
 
@@ -106,9 +172,12 @@ export async function deleteSsoConnectionController(request: Request, response: 
 }
 
 /** Everything a user needs to sign in through a named connection, and nothing more. */
-async function describeConnection(connectionId: string) {
+async function describeConnection(connectionId: string, organizationId?: string) {
   const connection = await prisma.ssoConnection.findFirst({
-    where: { id: connectionId, enabled: true },
+    // Scoped to the workspace when the caller has one, so a member of one tenant
+    // cannot read another's connection details. Unscoped where a browser reaches
+    // this directly, which is what `ssoInfoController` serves.
+    where: { id: connectionId, enabled: true, ...(organizationId ? { organizationId } : {}) },
     select: { id: true, label: true, protocol: true, organization: { select: { name: true } } },
   });
 
@@ -128,10 +197,22 @@ export async function ssoStartController(request: Request, response: Response): 
   const connectionId = request.params.connectionId as string;
 
   try {
-    const connection = await describeConnection(connectionId);
+    /**
+     * Scoped to the caller's session when one is present, but never required.
+     *
+     * The endpoint is reached directly by a browser a provider has just
+     * redirected, so it cannot use `requireSession`: the session is a legitimate
+     * reason to be here and its absence is not. What it can do is use a session
+     * when there is one, so a member of one workspace who is signed in and pokes
+     * at another's connection id is refused rather than redirected to that
+     * provider. The resolution check in `oidcConfiguration` is what bounds the
+     * remainder.
+     */
+    const organizationId = await callerOrganizationId(request.headers);
+    const connection = await describeConnection(connectionId, organizationId);
     const url = connection.protocol === 'OIDC'
-      ? await beginOidcSignIn(connectionId)
-      : await samlEntryPoint(connectionId);
+      ? await beginOidcSignIn(connectionId, organizationId)
+      : await samlEntryPoint(connectionId, organizationId);
 
     response.redirect(url);
   } catch (error) {

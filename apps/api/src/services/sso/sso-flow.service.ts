@@ -11,6 +11,8 @@ import {
 } from 'openid-client';
 import { prisma } from '../../database/prisma.js';
 import { env } from '../../config/env.js';
+import { lookup as dnsLookup } from 'node:dns';
+import { assertPublicHost } from '../net-guard.js';
 import { decryptSensitive, encryptSensitive } from '../privacy.service.js';
 import { recordAuditEvent } from '../audit.service.js';
 import { SsoError, assertMayProvision, normalizeEmailDomain } from './sso.service.js';
@@ -106,22 +108,41 @@ async function purgeExpiredRequests(): Promise<void> {
 
 type Connection = Awaited<ReturnType<typeof loadConnection>>;
 
-async function loadConnection(connectionId: string) {
-  const connection = await prisma.ssoConnection.findUnique({
-    where: { id: connectionId },
-    include: { connections: { select: { domain: true } }, organization: { select: { id: true, name: true } } },
-    // clientId is needed to build the provider configuration, so it has to come
-    // back with the connection rather than being looked up separately.
-  });
+    async function loadConnection(
+      connectionId: string,
+      /**
+       * The workspace that must own the connection, when the caller knows it.
+       *
+       * Unscoped, this looks the connection up by id alone, so anyone who knows
+       * or guesses a connection id can drive another tenant's sign-in - and on the
+       * OIDC path, make this service fetch whatever issuer that workspace
+       * configured. A cuid is not a secret, and ids appear in URLs that a browser
+       * address bar, a log line and a bookmark will happily repeat.
+       *
+       * The unauthenticated routes cannot scope this: a callback arrives from a
+       * provider that only knows the id. Those are the flows where the id is the
+       * identifier by design, and the harm is bounded by the resolution check
+       * above rather than by the lookup.
+       */
+      organizationId?: string,
+    ) {
+      const connection = await prisma.ssoConnection.findUnique({
+        where: organizationId
+          ? { id: connectionId, organizationId }
+          : { id: connectionId },
+        include: { connections: { select: { domain: true } }, organization: { select: { id: true, name: true } } },
+        // clientId is needed to build the provider configuration, so it has to come
+        // back with the connection rather than being looked up separately.
+      });
 
-  if (!connection || !connection.enabled) {
-    // The same answer for a connection that does not exist and one that is
-    // disabled, so the endpoint cannot be used to probe which ids are real.
-    throw new SsoError('No such single sign on connection.', 'SSO_NOT_FOUND', 404);
-  }
+      if (!connection || !connection.enabled) {
+        // The same answer for a connection that does not exist and one that is
+        // disabled, so the endpoint cannot be used to probe which ids are real.
+        throw new SsoError('No such single sign on connection.', 'SSO_NOT_FOUND', 404);
+      }
 
-  return connection;
-}
+      return connection;
+    }
 
 function requireSecret(connection: { clientSecretEncrypted: string }): string {
   const secret = decryptSensitive(connection.clientSecretEncrypted);
@@ -326,21 +347,68 @@ export async function createSessionForUser(
  * against a key the provider retired.
  */
 async function oidcConfiguration(connection: NonNullable<Connection>) {
-  if (!connection.issuer) {
-    throw new SsoError('The connection has no issuer.', 'SSO_CONFIG_INVALID', 500);
-  }
+      if (!connection.issuer) {
+        throw new SsoError('The connection has no issuer.', 'SSO_CONFIG_INVALID', 500);
+      }
 
-  const redirectUri = connection.entryPoint;
+      const redirectUri = connection.entryPoint;
 
-  const configuration = await discovery(
-    new URL(connection.issuer),
-    connection.clientId,
-    { client_secret: requireSecret(connection), redirect_uris: [redirectUri] },
-    ClientSecretPost(requireSecret(connection)),
-  );
+      /**
+       * Resolved and re-checked, because discovery is a fetch.
+       *
+       * The issuer is validated as an https URL when the connection is created,
+       * which is a check on the string. `openid-client` then fetches
+       * `<issuer>/.well-known/openid-configuration`, and a hostname that answers a
+       * link-local address reaches the cloud metadata service - over https, since
+       * the scheme was already constrained. That is metadata disclosure in a
+       * service that treats SSO as the enterprise feature.
+       *
+       * Invalid JSON from a resolution failure is surfaced as an error the owner can
+       * act on rather than a stack trace inside a library.
+       */
+      const issuerUrl = new URL(connection.issuer);
+      const resolvedIssuerAddress = await assertPublicHost(issuerUrl.hostname, (host) =>
+        new Promise((resolve, reject) => {
+          dnsLookup(host, { all: true }, (error, addresses) =>
+            error ? reject(error) : resolve(addresses),
+          );
+        }),
+      ).catch((error: unknown) => {
+        throw new SsoError(
+          error instanceof Error ? error.message : "That issuer host is not reachable.",
+          'SSO_CONFIG_INVALID',
+          400,
+        );
+      });
 
-  return configuration;
-}
+      // The pinned address replaces the hostname for the connection, and the
+      // original name travels in `Host` so TLS SNI and the issuer's own routing
+      // still resolve to the same server. Without the pin, discovery resolves the
+      // hostname a second time and can connect to what the check refused.
+      const pinnedIssuer = new URL(issuerUrl.toString());
+      pinnedIssuer.hostname = resolvedIssuerAddress[0]?.address ?? issuerUrl.hostname;
+
+      const configuration = await discovery(
+        pinnedIssuer,
+        connection.clientId,
+        { client_secret: requireSecret(connection), redirect_uris: [redirectUri] },
+        ClientSecretPost(requireSecret(connection)),
+      );
+
+      // The issuer the provider claims must be the one configured. A discovery
+      // document served from a pinned address can name an issuer of its own
+      // choosing, and accepting that would let a connection point the whole trust
+      // decision at a document nobody configured.
+      if (configuration.serverMetadata().issuer !== connection.issuer.replace(/\/+$/, '')) {
+        throw new SsoError(
+          "That provider published a different issuer than the one configured.",
+          'SSO_CONFIG_INVALID',
+          400,
+        );
+      }
+
+      return configuration;
+    }
 
 /**
  * Where a connection's provider must send the user back to.
@@ -388,8 +456,8 @@ export function ssoIdentifiersFor(connection: { id: string; issuer: string; entr
   };
 }
 
-export async function beginOidcSignIn(connectionId: string): Promise<string> {
-  const connection = await loadConnection(connectionId);
+export async function beginOidcSignIn(connectionId: string, organizationId?: string): Promise<string> {
+  const connection = await loadConnection(connectionId, organizationId);
   if (connection.protocol !== 'OIDC') {
     throw new SsoError('This connection is not an OIDC connection.', 'SSO_PROTOCOL_MISMATCH', 400);
   }
@@ -478,8 +546,8 @@ export async function finishOidcSignIn(connectionId: string, currentUrl: URL): P
  * redirect, which matters because a provider that is configured to require a
  * signed request will refuse a plain URL.
  */
-export async function samlEntryPoint(connectionId: string): Promise<string> {
-  const connection = await loadConnection(connectionId);
+export async function samlEntryPoint(connectionId: string, organizationId?: string): Promise<string> {
+  const connection = await loadConnection(connectionId, organizationId);
   if (connection.protocol !== 'SAML') {
     throw new SsoError('This connection is not a SAML connection.', 'SSO_PROTOCOL_MISMATCH', 400);
   }
