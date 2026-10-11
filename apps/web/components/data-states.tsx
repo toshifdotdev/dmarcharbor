@@ -23,7 +23,7 @@ export function LoadingState({ label = "Loading" }: { label?: string }) {
       role="status"
       aria-live="polite"
       data-testid="state-loading"
-      className="flex items-center gap-3 rounded-[2px] border px-5 py-8"
+      className="flex flex-col items-center gap-4 rounded-[2px] border px-5 py-10"
       style={{
         background: "var(--color-surface)",
         borderColor: "var(--color-line)",
