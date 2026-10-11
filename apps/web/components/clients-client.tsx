@@ -123,26 +123,41 @@ export function CreateClientForm({ organizationId }: { organizationId: string })
   );
 }
 
+/**
+ * `clients` is optional so existing single-client call sites keep working, but
+ * the /clients page passes it. Without it the form was pointed at the last row
+ * of the list, so in a workspace with more than one client every domain was
+ * silently added to whichever client happened to sort last.
+ */
 export function AddDomainForm({
   organizationId,
+  clients,
   clientId,
   clientName,
 }: {
   organizationId: string;
-  clientId: string;
-  clientName: string;
+  clients?: Array<{ id: string; name: string }>;
+  clientId?: string;
+  clientName?: string;
 }) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [error, setError] = useState<ApiErrorBody["error"] | null>(null);
   const [busy, setBusy] = useState(false);
   const [createdId, setCreatedId] = useState<string | null>(null);
+  const [target, setTarget] = useState(
+    clients && clients.length > 0 ? clients[0] : clientId ? { id: clientId, name: clientName ?? "" } : null,
+  );
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!target) {
+      setError({ code: "INVALID_REQUEST", message: "Choose which client this domain belongs to." });
+      return;
+    }
     setBusy(true);
     setError(null);
-    const res = await createDomain(organizationId, clientId, {
+    const res = await createDomain(organizationId, target.id, {
       name: name.trim().toLowerCase(),
     });
     setBusy(false);
@@ -160,9 +175,33 @@ export function AddDomainForm({
       className="lift rounded-[2px] border p-5"
       style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
     >
-      <h2 className="text-[16px] font-semibold tracking-[-0.012em]">
-        Add a domain to {clientName}
-      </h2>
+      {clients && clients.length > 0 ? (
+        <>
+          <h2 className="text-[16px] font-semibold tracking-[-0.012em]">Add a domain</h2>
+          <label className="mt-3 block">
+            <span className="label">Client</span>
+            <select
+              className="mt-1 w-full rounded-[2px] border bg-transparent px-3 py-2 text-[14px]"
+              style={{ borderColor: "var(--color-line-strong)", color: "var(--color-ink)" }}
+              value={target?.id ?? ""}
+              onChange={(e) => {
+                const picked = clients.find((c) => c.id === e.target.value) ?? null;
+                setTarget(picked);
+              }}
+            >
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </>
+      ) : (
+        <h2 className="text-[16px] font-semibold tracking-[-0.012em]">
+          Add a domain to {target?.name ?? clientName ?? ""}
+        </h2>
+      )}
       <p className="mt-1.5 text-[13px]" style={{ color: "var(--color-ink-2)" }}>
         Paste the domain exactly as it sends mail. Verification comes next.
       </p>

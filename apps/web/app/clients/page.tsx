@@ -138,8 +138,7 @@ export default async function ClientsPage() {
         {clients && clients.length > 0 ? (
           <AddDomainForm
             organizationId={active.id}
-            clientId={clients[clients.length - 1].id}
-            clientName={clients[clients.length - 1].name}
+            clients={clients.map((c) => ({ id: c.id, name: c.name }))}
           />
         ) : null}
       </div>

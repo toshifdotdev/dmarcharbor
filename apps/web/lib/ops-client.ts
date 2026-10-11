@@ -16,6 +16,7 @@ import type {
   ApiErrorBody,
   BillingCurrencyPreference,
   ErasureCreated,
+  ErasurePreview,
   ExportJob,
   IssuedApiKey,
   PortalGrant,
@@ -466,6 +467,26 @@ export const requestErasureJob = (
 
 export const cancelErasureJob = (orgId: string, erasureId: string) =>
   call<void>(wsPath(orgId, `/erasures/${erasureId}/cancel`), { method: "POST" });
+
+/**
+ * The API's own preview of what an erasure of this scope would do.
+ *
+ * The page only ever asks for ORGANIZATION, which was fine while the form had
+ * one option. It now offers one client as well, so the preview is fetched per
+ * scope: the counts under "What a request would do" have to describe the scope
+ * that is about to be submitted.
+ */
+export const previewErasure = (
+  orgId: string,
+  scope: "ORGANIZATION" | "CLIENT" | "DOMAIN",
+  targetId?: string,
+) => {
+  const query = new URLSearchParams({ scope });
+  if (targetId) query.set("targetId", targetId);
+  return call<ErasurePreview>(
+    `${wsPath(orgId, "/erasures/preview")}?${query.toString()}`,
+  );
+};
 
 export const pollInboxNow = (orgId: string) =>
   call<unknown>(wsPath(orgId, "/report-inbox/poll"), { method: "POST" });
