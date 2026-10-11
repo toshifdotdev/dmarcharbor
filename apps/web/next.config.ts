@@ -32,31 +32,25 @@ const nextConfig: NextConfig = {
    * font faces and the inline `style` props this codebase uses pervasively for theming.
    * Script execution is the thing worth protecting.
    */
+  /**
+   * The Content-Security-Policy lives in proxy.ts, not here.
+   *
+   * It used to live here, with `script-src 'self'` and no nonce. That policy
+   * blocks every inline script, and Next.js ships its React bootstrap and the
+   * RSC flight data as inline scripts: the served HTML contains ten of them.
+   * With them blocked the page never hydrates, React throws
+   * "Minified React error #412", and every route is left showing the loading.tsx
+   * fallback forever. curl was immune because CSP is a browser instruction, which
+   * is why every server-side check passed while the app was unusable.
+   *
+   * Two of these headers would also be enforced together, so leaving a copy here
+   * would keep the old, nonce-less policy alive and block the fix.
+   */
   async headers() {
-    const csp = [
-      "default-src 'self'",
-      // 'unsafe-inline' for styles only. See above.
-      "style-src 'self' 'unsafe-inline'",
-      "script-src 'self'",
-      "img-src 'self' data: blob:",
-      "font-src 'self' data:",
-      // This build serves its own domain and every agency's custom domain from the
-      // same output, so connect-src cannot be pinned to one origin.
-      "connect-src 'self'",
-      "object-src 'none'",
-      "base-uri 'self'",
-      "form-action 'self'",
-      // An auditor may open a compliance verifier link; nothing else may frame us.
-      "frame-src 'self'",
-      "frame-ancestors 'none'",
-      "upgrade-insecure-requests",
-    ].join("; ");
-
     return [
       {
         source: "/:path*",
         headers: [
-          { key: "Content-Security-Policy", value: csp },
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "X-Frame-Options", value: "DENY" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },

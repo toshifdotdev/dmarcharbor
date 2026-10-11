@@ -140,22 +140,76 @@ async function resolveHost(host: string): Promise<CacheEntry> {
   }
 }
 
-export async function proxy(request: NextRequest) {
-  const rawHost = request.headers.get("host") ?? "";
-  const host = rawHost.split(":")[0];
-  if (!host || DEFAULT_HOSTS.has(host)) {
-    return NextResponse.next();
-  }
+/**
+ * The Content-Security-Policy, with a per-request nonce.
+ *
+ * This lives here rather than in next.config.ts because the policy names a value
+ * that only exists once a request arrives. Next.js ships its React bootstrap and
+ * the RSC flight data as inline scripts, so `script-src 'self'` with no nonce
+ * blocks all ten of them and the page never hydrates: every route sat on its
+ * loading.tsx fallback forever while every server-side check still passed. Next
+ * applies the nonce it finds in the request's CSP to its own tags automatically,
+ * so the policy can stay strict without breaking the framework.
+ *
+ * `strict-dynamic` lets the one nonced bootstrap load the rest of the chunks it
+ * needs, which is why the script-src list stays short instead of enumerating
+ * every bundle.
+ *
+ * `style-src` keeps 'unsafe-inline' and must: this codebase styles with React
+ * `style` props pervasively, which the browser sees as inline style attributes.
+ *
+ * Development adds 'unsafe-eval' because React uses eval to rebuild server error
+ * stacks in the browser. Neither React nor Next use eval in production.
+ */
+function contentSecurityPolicy(nonce: string): string {
+  const isDev = process.env.NODE_ENV !== "production";
+  return [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ""}`,
+    // This build serves its own domain and every agency's custom domain from the
+    // same output, so connect-src cannot be pinned to one origin.
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    // An auditor may open a compliance verifier link; nothing else may frame us.
+    "frame-src 'self'",
+    "frame-ancestors 'none'",
+    "upgrade-insecure-requests",
+  ].join("; ");
+}
 
-  const entry = await resolveHost(host);
+export async function proxy(request: NextRequest) {
+  // Generated before the host branch so the app-local case (localhost, the
+  // deployment host) still gets a nonce and a policy: those are the requests
+  // that most need hydrating, and they used to be the ones that got none.
+  const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
+  const csp = contentSecurityPolicy(nonce);
 
   const requestHeaders = new Headers(request.headers);
-  requestHeaders.set("x-harbor-host-state", entry.state);
-  if (entry.brand) {
-    requestHeaders.set("x-harbor-brand", JSON.stringify(entry.brand));
+  requestHeaders.set("x-nonce", nonce);
+  requestHeaders.set("Content-Security-Policy", csp);
+
+  const rawHost = request.headers.get("host") ?? "";
+  const host = rawHost.split(":")[0];
+
+  let response: NextResponse;
+  if (!host || DEFAULT_HOSTS.has(host)) {
+    response = NextResponse.next({ request: { headers: requestHeaders } });
+  } else {
+    const entry = await resolveHost(host);
+    requestHeaders.set("x-harbor-host-state", entry.state);
+    if (entry.brand) {
+      requestHeaders.set("x-harbor-brand", JSON.stringify(entry.brand));
+    }
+    response = NextResponse.next({ request: { headers: requestHeaders } });
   }
 
-  return NextResponse.next({ request: { headers: requestHeaders } });
+  response.headers.set("Content-Security-Policy", csp);
+  return response;
 }
 
 // Everything except static assets is a candidate for branded chrome — the
