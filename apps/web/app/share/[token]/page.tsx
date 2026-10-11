@@ -26,7 +26,7 @@ export default async function SharePage({
 
   return (
     <main
-      data-surface="artefact"
+      data-surface="artefact light"
       className="artefact relative z-10 min-h-screen"
     >
       {report ? (

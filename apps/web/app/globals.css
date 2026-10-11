@@ -102,8 +102,20 @@ body::before {
 
 /* Monolith Light — docs/DESIGN-SYSTEM.md. The public artefacts (Trust Center,
    compliance verifier) and print surfaces wear this: bone inverts to ink and
-   the system still owns no hue. Every state colour clears AA on paper. */
-[data-surface="light"] {
+   the system still owns no hue. Every state colour clears AA on paper.
+
+   Matched with `~=` rather than `=` because these surfaces carry two tokens on
+   one attribute: `data-surface="artefact light"`. With `=` the block never
+   matched anything, so every `var(--ink)`, `var(--surface)`, `var(--line)` and
+   `var(--accent)` those pages consume was an undefined custom property:
+   backgrounds resolved to transparent, borders fell back to currentColor, and
+   the light surface rendered as dark-on-dark. */
+[data-surface~="light"] {
+  /* Form controls, scrollbars and the default focus ring inherit this, and the
+     html element still says dark. Without it the paper surface gets a dark
+     scrollbar and dark native selects on top of bone. */
+  color-scheme: light;
+
   --bg: #f6f5f0;
   --surface: #fffef9;
   --raised: #f0eee6;
@@ -130,7 +142,7 @@ body::before {
   --color-unmeasured-soft: rgba(103, 102, 94, 0.12);
 }
 
-[data-surface="light"] .lift {
+[data-surface~="light"] .lift {
   box-shadow: 0 1px 2px rgba(20, 20, 18, 0.05);
 }
 

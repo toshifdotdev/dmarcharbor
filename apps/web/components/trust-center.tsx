@@ -11,7 +11,7 @@ import type { TrustCenterPayload } from "@/lib/types";
  */
 export function TrustCenterView({ payload }: { payload: TrustCenterPayload }) {
   return (
-    <main data-surface="artefact" className="artefact relative z-10 min-h-screen">
+    <main data-surface="artefact light" className="artefact relative z-10 min-h-screen">
       <div className="mx-auto max-w-3xl px-6 py-16">
         <header>
           <p

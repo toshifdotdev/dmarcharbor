@@ -56,7 +56,7 @@ export default async function PortalDomainPage({
         : { label: "All observed senders authenticated", tone: "var(--color-pass)" };
 
   return (
-    <div data-surface="artefact" className="artefact relative z-10 min-h-screen">
+    <div data-surface="artefact light" className="artefact relative z-10 min-h-screen">
       <header
         className="border-b px-6 py-4"
         style={{ borderColor: "var(--line-strong)", background: "var(--surface)" }}

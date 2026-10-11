@@ -39,7 +39,7 @@ export default async function PortalPage() {
   const accent = brand.branded && brand.primaryColor ? brand.primaryColor : undefined;
 
   return (
-    <div data-surface="artefact" className="artefact relative z-10 min-h-screen">
+    <div data-surface="artefact light" className="artefact relative z-10 min-h-screen">
       {/* The contact-facing header: the AGENCY's brand when licensed, never
           our own mark on a white-labelled surface. */}
       <header

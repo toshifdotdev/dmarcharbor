@@ -26,7 +26,7 @@ export default async function TrustCenterPage({
       error instanceof PublicError && (error.status === 404 || error.status === 410);
     return (
       <main
-        data-surface="artefact"
+        data-surface="artefact light"
         className="artefact relative z-10 flex min-h-screen flex-col items-center justify-center px-6"
       >
         <p

@@ -6,7 +6,7 @@
 export function PortalDenied({ message }: { message: string }) {
   return (
     <main
-      data-surface="artefact"
+      data-surface="artefact light"
       className="artefact relative z-10 flex min-h-screen flex-col items-center justify-center px-6"
     >
       <p
