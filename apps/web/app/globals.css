@@ -216,6 +216,29 @@ label:has(input[type="radio"]),
   outline-offset: 2px;
 }
 
+/* Chrome's autofill, which ignores everything the component styles.
+ *
+ * When the browser fills a saved credential it paints its own background over
+ * the input — a dark navy on a dark theme — because an autofilled field is
+ * rendered by the browser, not by the page's cascade. The inline background on
+   the input loses to it. The inset shadow is the only property that outranks the
+   autofill fill, and the long transition stops Chrome re-animating the fill
+   back over it a frame later.
+   `-webkit-text-fill-color` is needed for the same reason: without it the text
+   comes back in Chrome's own near-black and becomes unreadable on the fill. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-box-shadow: 0 0 0 1000px var(--color-surface) inset;
+  box-shadow: 0 0 0 1000px var(--color-surface) inset;
+  -webkit-text-fill-color: var(--color-ink);
+  caret-color: var(--color-ink);
+  border-color: var(--color-line-strong);
+  transition: background-color 9999s ease-out 0s;
+}
+
 /* DNS resolution: the one animation on the marketing surface. Each step
    fades up in sequence, ONCE, when the block is scrolled into view (.resolve-on
    is set by the component). Play-once, never a loop: this is a demonstration,
