@@ -117,17 +117,21 @@ export async function requestErasure(input: {
 }): Promise<{ id: string; purgeAfter: Date; preview: ErasurePreview }> {
   const preview = await previewErasure(input.organizationId, input.scope, input.targetId);
 
-  const request = await prisma.erasureRequest.create({
-    data: {
-      organizationId: input.organizationId,
-      scope: input.scope,
-      targetId: input.targetId ?? null,
-      requestedById: input.requestedById,
-      state: 'PENDING',
-      purgeAfter: new Date(preview.executeAfter),
-    },
-    select: { id: true, purgeAfter: true },
-  });
+        const request = await prisma.erasureRequest.create({
+          data: {
+            organizationId: input.organizationId,
+            scope: input.scope,
+            targetId: input.targetId ?? null,
+            // The reason belongs on the row, not only in the audit event: the audit
+            // trail is what a regulator reads, but this is what the person who asked
+            // sees when they look at their own request.
+            reason: input.reason ?? null,
+            requestedById: input.requestedById,
+            state: 'PENDING',
+            purgeAfter: new Date(preview.executeAfter),
+          },
+          select: { id: true, purgeAfter: true },
+        });
 
   await recordAuditEvent({
     organizationId: input.organizationId,

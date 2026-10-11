@@ -71,7 +71,12 @@ export interface SenderRow {
   firstSeenAt: string;
   lastSeenAt: string;
   isNew: boolean;
-  newSenderRisk: { level: "high" | "medium" | "low"; reasons: string[] } | null;
+  /**
+   * A string union, not an object. The API returns one of these three words and
+   * this used to be typed as `{ level, reasons }`, so anything that trusted the
+   * type read `.level` off a string and got undefined.
+   */
+  newSenderRisk: "authenticated" | "partially-authenticated" | "unauthenticated" | null;
   dkimPassMessages: number;
   spfPassMessages: number;
 }
@@ -416,7 +421,14 @@ export interface ErasureRequestRow {
   scope: "ORGANIZATION" | "CLIENT" | "DOMAIN";
   targetId: string | null;
   reason: string | null;
-  state: "PENDING" | "EXECUTED" | "CANCELLED" | string;
+  /**
+   * The four states the ErasureState enum actually has. `EXECUTED` was the name
+   * the UI used to test for, and the enum never had it: a completed erasure fell
+   * through to the cancelled colour and label, which for a GDPR artefact is the
+   * worst branch to be wrong in. `EXECUTING` is a real middle state, so it gets
+   * its own branch rather than being lumped with pending.
+   */
+  state: "PENDING" | "EXECUTING" | "COMPLETED" | "CANCELLED";
   purgeAfter: string;
   createdAt?: string;
   requestedById?: string | null;

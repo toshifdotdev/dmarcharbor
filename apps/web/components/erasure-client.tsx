@@ -302,9 +302,11 @@ export function ErasurePanel({
                     color:
                       r.state === "PENDING"
                         ? "var(--color-unverified)"
-                        : r.state === "EXECUTED"
-                          ? "var(--color-block)"
-                          : "var(--color-ink-3)",
+                        : r.state === "COMPLETED"
+                          ? "var(--color-pass)"
+                          : r.state === "EXECUTING"
+                            ? "var(--color-unverified)"
+                            : "var(--color-ink-3)",
                   }}
                 >
                   {r.state.toLowerCase()}

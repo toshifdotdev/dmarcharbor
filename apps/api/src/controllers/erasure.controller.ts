@@ -100,6 +100,11 @@ export async function listErasuresController(_request: Request, response: Respon
       id: true,
       scope: true,
       targetId: true,
+      // Accepted on create and stored, but was never selected here, so the row
+      // the operator gave as the reason for a GDPR erasure appeared nowhere in
+      // the UI. The audit trail a field exists for is not much of one if it is
+      // invisible on the only screen that lists requests.
+      reason: true,
       state: true,
       requestedById: true,
       createdAt: true,
@@ -133,6 +138,7 @@ export async function getErasureController(request: Request, response: Response)
     id: record.id,
     scope: record.scope,
     targetId: record.targetId,
+    reason: record.reason ?? null,
     state: record.state,
     requestedById: record.requestedById,
     createdAt: record.createdAt.toISOString(),

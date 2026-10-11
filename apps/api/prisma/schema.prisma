@@ -1306,9 +1306,17 @@ model ErasureRequest {
   id             String        @id @default(cuid())
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
-  scope          ErasureScope  @default(ORGANIZATION)
-  targetId       String?
-  requestedById  String
+    scope          ErasureScope  @default(ORGANIZATION)
+    targetId       String?
+    /// The reason the requester gave, kept on the row itself.
+    ///
+    /// It was accepted by the request schema and written into the audit event
+    /// detail, but there was no column for it, so it never reached the row the UI
+    /// lists: the person who asked for the deletion could not see their own stated
+    /// reason, and a regulator reading the request log saw an empty one. Nullable,
+    /// so existing rows are unaffected and the column is expand-only.
+    reason         String?
+    requestedById  String
   state          ErasureState  @default(PENDING)
   certificate    Json?
   purgeAfter     DateTime
