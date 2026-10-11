@@ -27,8 +27,18 @@ export type WorkspaceFormState = {
 
 export function WorkspaceForm({
   action,
+  disableSubmit = false,
 }: {
   action: (state: WorkspaceFormState, formData: FormData) => Promise<WorkspaceFormState>;
+  /**
+   * True when the account has no workspace allowance left.
+   *
+   * The button is disabled rather than the form being replaced with a message,
+   * so the person can still read what they would have to accept and how many
+   * workspaces they hold. An allowance is not a validation error, and treating it
+   * as one suggests the customer has done something wrong.
+   */
+  disableSubmit?: boolean;
 }) {
   const [state, formAction, pending] = useActionState(action, {
     error: null,
@@ -110,15 +120,15 @@ export function WorkspaceForm({
       ) : null}
       <button
         type="submit"
-        disabled={pending}
+        disabled={pending || disableSubmit}
         className="mt-2 rounded-[2px] px-5 py-2.5 text-[14.5px] font-semibold disabled:cursor-not-allowed"
         style={{
           background: "var(--color-accent)",
           color: "var(--color-accent-ink)",
-          opacity: pending ? 0.6 : 1,
+          opacity: pending || disableSubmit ? 0.6 : 1,
         }}
       >
-        {pending ? "Creating…" : "Create workspace"}
+        {pending ? "Creating…" : disableSubmit ? "Workspace limit reached" : "Create workspace"}
       </button>
     </form>
   );

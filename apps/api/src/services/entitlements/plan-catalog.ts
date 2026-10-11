@@ -51,6 +51,18 @@ export interface PlanDefinition {
   maxClients: number;
   maxActiveDomains: number;
   maxMembers: number;
+  /**
+   * How many workspaces this plan allows its owner to hold.
+   *
+   * Bounded rather than open on purpose. An uncapped free tier is a farm: every
+   * extra Mooring workspace is another client and another two domains monitored at
+   * no cost, so the limit is what makes the client and domain limits mean anything.
+   *
+   * The allowance is read from the strongest plan the account holds, not summed,
+   * because the plan a customer has paid for is the plan they get the workspaces
+   * from. Owning one Admiralty workspace already bought the entitlement.
+   */
+  maxWorkspaces: number;
   dataRetentionDays: number;
   auditRetentionDays: number;
   features: Record<EntitlementKey, boolean>;
@@ -171,7 +183,8 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     prices: { USD: { monthlyMinor: 0, annualMinor: 0 }, INR: { monthlyMinor: 0, annualMinor: 0 } },
     maxClients: 1,
     maxActiveDomains: 2,
-    maxMembers: 1,
+      maxMembers: 1,
+      maxWorkspaces: 1,
     dataRetentionDays: 30,
     auditRetentionDays: 30,
     features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...off }),
@@ -183,7 +196,8 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     prices: { USD: { monthlyMinor: 2900, annualMinor: 29000 }, INR: { monthlyMinor: 249900, annualMinor: 2499000 } },
     maxClients: 5,
     maxActiveDomains: 20,
-    maxMembers: 3,
+      maxMembers: 3,
+      maxWorkspaces: 2,
     dataRetentionDays: 365,
     auditRetentionDays: 365,
     features: allFeatures({ ...noNamedForensic, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noDigests }),
@@ -195,7 +209,8 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     prices: { USD: { monthlyMinor: 14900, annualMinor: 149000 }, INR: { monthlyMinor: 1249900, annualMinor: 12499000 } },
     maxClients: 20,
     maxActiveDomains: 80,
-    maxMembers: 10,
+      maxMembers: 10,
+      maxWorkspaces: 3,
     dataRetentionDays: 1095,
     auditRetentionDays: 1095,
     features: allFeatures({ ...noSso, ...noBrand, 'trust.center': true }),
@@ -207,7 +222,8 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     prices: { USD: { monthlyMinor: 39900, annualMinor: 399000 }, INR: { monthlyMinor: 3399900, annualMinor: 33999000 } },
     maxClients: 75,
     maxActiveDomains: 300,
-    maxMembers: 25,
+      maxMembers: 25,
+      maxWorkspaces: 5,
     dataRetentionDays: 3650,
     auditRetentionDays: 3650,
     features: allFeatures(),

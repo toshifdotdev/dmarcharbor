@@ -9,6 +9,7 @@ import {
   rollbackWorkspaceWithoutAcceptance,
   tosPath,
 } from '../services/dpa-acceptance.service.js';
+import { workspaceAllowanceFor } from '../services/entitlements/workspace-allowance.service.js';
 
 export async function listWorkspaces(request: Request, response: Response): Promise<void> {
   const workspaces = await auth.api.listOrganizations({ headers: fromNodeHeaders(request.headers) });
@@ -66,6 +67,34 @@ export async function createWorkspace(request: Request, response: Response): Pro
     return;
   }
 
+  /**
+   * The workspace allowance is checked before anything is created.
+   *
+   * It used to be unbounded, which made the client and domain limits above it
+   * meaningless: every extra free workspace came with its own client and its own
+   * two domains, so the number of workspaces was the only limit that mattered and
+   * nothing enforced it. The allowance comes from the strongest plan the account
+   * already holds, so nobody is asked to pay twice for an entitlement they own.
+   */
+  const session = await auth.api.getSession({ headers: fromNodeHeaders(request.headers) });
+  if (!session?.user?.id) {
+    response.status(401).json({ error: { message: 'Sign in to create a workspace.' } });
+    return;
+  }
+
+  const allowance = await workspaceAllowanceFor(session.user.id);
+  if (!allowance.allowed) {
+    response.status(402).json({
+      error: {
+        code: 'WORKSPACE_LIMIT_REACHED',
+        message: `Your ${allowance.strongest === 'MOORING' ? 'free' : allowance.strongest.toLowerCase()} plan includes ${allowance.maxWorkspaces} workspace${allowance.maxWorkspaces === 1 ? '' : 's'} and you already have ${allowance.used}. Remove one, or move up a plan to add another.`,
+        limit: allowance.maxWorkspaces,
+        used: allowance.used,
+      },
+    });
+    return;
+  }
+
   const workspace = await auth.api.createOrganization({
     // The confirmations are ours, not Better Auth's, so they are stripped before
     // the body is handed over rather than relying on it to ignore extras.
@@ -94,9 +123,8 @@ export async function createWorkspace(request: Request, response: Response): Pro
    * behind instead of something half-created.
    */
   try {
-    const session = await auth.api.getSession({ headers: fromNodeHeaders(request.headers) });
-    const actorEmail = session?.user?.email ?? 'unknown';
-    const actorUserId = session?.user?.id ?? null;
+    const actorEmail = session.user.email ?? 'unknown';
+    const actorUserId = session.user.id;
     const ipAddress = request.ip ?? null;
 
     await recordDpaAcceptance({
@@ -133,8 +161,28 @@ export async function createWorkspace(request: Request, response: Response): Pro
   response.status(201).json(workspace);
 }
 
-export async function listWorkspaceMembers(request: Request, response: Response): Promise<void> {
-  const parsed = workspaceIdSchema.safeParse(request.params.organizationId);
+/**
+ * How many workspaces this account may hold, and how many it holds now.
+ *
+ * Read-only, and deliberately a separate route rather than a side effect of
+ * listing or creating. The create-workspace screen has to state the limit before
+ * somebody fills the form in, and finding it out by attempting a creation and
+ * reading the refusal would spend an allowance to answer a question about whether
+ * to spend one. It goes through the same service that enforces it, so the numbers
+ * shown and the numbers enforced cannot drift.
+ */
+export async function readWorkspaceAllowance(request: Request, response: Response): Promise<void> {
+  const session = await auth.api.getSession({ headers: fromNodeHeaders(request.headers) });
+  if (!session?.user?.id) {
+    response.status(401).json({ error: { message: 'Sign in to read the workspace allowance.' } });
+    return;
+  }
+
+  const allowance = await workspaceAllowanceFor(session.user.id);
+  response.json(allowance);
+}
+
+export async function listWorkspaceMembers(request: Request, response: Response): Promise<void> {  const parsed = workspaceIdSchema.safeParse(request.params.organizationId);
 
   if (!parsed.success) {
     response.status(400).json({ error: { message: 'A valid workspace identifier is required.' } });

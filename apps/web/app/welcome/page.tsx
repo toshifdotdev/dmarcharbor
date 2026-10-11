@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { ApiError, listWorkspaces } from "@/lib/api";
+import { ApiError, listWorkspaces, readWorkspaceAllowance, type WorkspaceAllowance } from "@/lib/api";
 import { PierMark } from "@/components/mark";
 import { WorkspaceForm, type WorkspaceFormState } from "@/components/workspace-form";
 
@@ -148,6 +148,20 @@ export default async function WelcomePage() {
   // form now serves both the newcomer and the person adding another.
   const hasOne = workspaces.length > 0;
 
+  /**
+   * The allowance, so the limit is known before it is hit.
+   *
+   * Read from its own endpoint rather than probed by attempting a creation: a
+   * probe would create a workspace on the happy path, which is a junk row and a
+   * consumed allowance used to answer a question about whether to create one.
+   * The numbers come from the same service that enforces them, so what the page
+   * says and what the API does cannot drift apart.
+   */
+  let allowance: WorkspaceAllowance | null = null;
+  if (hasOne) {
+    allowance = await readWorkspaceAllowance().catch(() => null);
+  }
+
   return (
     <main className="relative z-10 flex min-h-screen flex-col items-center justify-center gap-8 px-6">
       <PierMark size={40} />
@@ -168,7 +182,19 @@ export default async function WelcomePage() {
           Switching between them is in the top right.
         </p>
       ) : null}
-      <WorkspaceForm action={createWorkspaceAction} />
+      {allowance ? (
+        <p
+          role="status"
+          className="num max-w-sm text-center text-[12px]"
+          style={{ color: allowance.allowed ? "var(--color-ink-3)" : "var(--color-unverified)" }}
+          data-testid="workspace-allowance"
+        >
+          {allowance.allowed
+            ? `${allowance.used} of ${allowance.maxWorkspaces} workspaces used on your ${allowance.strongest.toLowerCase()} plan.`
+            : `${allowance.used} of ${allowance.maxWorkspaces} workspaces used, which is your limit on the ${allowance.strongest.toLowerCase()} plan. Move up a plan to add another.`}
+        </p>
+      ) : null}
+      <WorkspaceForm action={createWorkspaceAction} disableSubmit={allowance ? !allowance.allowed : false} />
     </main>
   );
 }

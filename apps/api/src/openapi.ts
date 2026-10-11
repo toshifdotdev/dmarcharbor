@@ -1428,12 +1428,50 @@ export const openApiDocument = {
                 properties: {
                   name: { type: 'string', minLength: 2, maxLength: 100 },
                   slug: { type: 'string', pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$' },
+                  tosAccepted: {
+                    type: 'boolean',
+                    description: 'The Terms of Service has been read and accepted. Refused without it, on every plan.',
+                  },
+                  dpaHasRead: { type: 'boolean' },
+                  dpaConfirmsAuthority: { type: 'boolean' },
                 },
               },
             },
           },
         },
-        responses: { 201: { description: 'Workspace created.' }, ...standardErrors },
+        responses: {
+          201: { description: 'Workspace created.' },
+          402: { description: 'The account holds no further workspace allowance.' },
+          ...standardErrors,
+        },
+      },
+    },
+    '/workspaces/allowance': {
+      get: {
+        tags: ['Auth'],
+        summary: 'Read the workspace allowance for the signed-in account',
+        description:
+          'How many workspaces the account may hold and how many it holds now. Read only: it exists so the create screen can state the limit before someone fills the form in, which attempting a creation to discover would spend an allowance to answer.',
+        responses: {
+          200: {
+            description: 'The allowance.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    strongest: { type: 'string', description: 'The strongest plan the account holds, which sets the allowance.' },
+                    maxWorkspaces: { type: 'integer' },
+                    used: { type: 'integer' },
+                    remaining: { type: 'integer' },
+                    allowed: { type: 'boolean' },
+                  },
+                },
+              },
+            },
+          },
+          ...standardErrors,
+        },
       },
     },
     '/workspaces/{organizationId}/members': {

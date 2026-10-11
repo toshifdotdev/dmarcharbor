@@ -83,6 +83,27 @@ export function listWorkspaces(): Promise<WorkspaceSummary[]> {
   return apiFetch<WorkspaceSummary[]>("/api/workspaces");
 }
 
+/**
+ * The workspace allowance: how many the account may hold and how many it holds.
+ *
+ * Read rather than probed. Attempting a creation to find out would spend an
+ * allowance to answer a question about whether to spend one, and would leave a
+ * junk workspace behind on the happy path. The numbers come from the same service
+ * that enforces them, so what the page shows and what the API refuses cannot
+ * drift apart.
+ */
+export interface WorkspaceAllowance {
+  strongest: string;
+  maxWorkspaces: number;
+  used: number;
+  remaining: number;
+  allowed: boolean;
+}
+
+export async function readWorkspaceAllowance(): Promise<WorkspaceAllowance> {
+  return apiFetch<WorkspaceAllowance>("/api/workspaces/allowance");
+}
+
 export function getEntitlements(organizationId: string): Promise<unknown> {
   return apiFetch(`/api/workspaces/${organizationId}/entitlements`);
 }
