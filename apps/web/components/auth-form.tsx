@@ -25,12 +25,11 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
         router.replace("/");
         router.refresh();
       } else {
-        await signUp(name, email, password);
-        // Email verification is required before sign-in (API policy). Say so
-        // instead of silently failing the next sign-in attempt.
-        setNotice(
-          "Account created. Check your inbox to verify your email address, then sign in.",
-        );
+        // The words come from the client rather than being written here. They say
+        // a link was sent if an account could be made, and to sign in if one
+        // already existed, because the API deliberately does not say which.
+        const notice = await signUp(name, email, password);
+        setNotice(notice);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");

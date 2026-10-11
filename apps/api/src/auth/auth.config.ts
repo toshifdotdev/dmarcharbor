@@ -52,6 +52,22 @@ export const auth = betterAuth({
         text: `Reset your password using this link: ${url}\n\nIf you did not request this, you can ignore this email.`,
       });
     },
+    /**
+     * Warns the owner of an existing account that someone tried to sign up with it.
+     *
+     * This hook cannot refuse the request, and it is worth being explicit about why
+     * rather than leaving a throw here that looks load-bearing. Better Auth computes
+     * `shouldReturnGenericDuplicateResponse = requireEmailVerification || autoSignIn === false`
+     * and we set both, so on a duplicate it runs this hook through
+     * `runInBackgroundOrAwait` and answers 200 with a synthetic user, deliberately,
+     * so the response cannot be used to enumerate which addresses have accounts.
+     * A throw here is discarded.
+     *
+     * The consequence is a frontend obligation, not a server one: the sign-up form
+     * must not claim an account was created. It says a link was sent if one can be,
+     * which is true either way. The enumeration protection is the point; pretending
+     * success is what had to go.
+     */
     onExistingUserSignUp: async ({ user }) => {
       queueAuthEmail({
         to: user.email,
