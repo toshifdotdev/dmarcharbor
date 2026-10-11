@@ -61,29 +61,7 @@ export default async function OnboardingPage({
   // now happens when the operator presses the button, never on render.
   let onboarding: OnboardingState | null = null;
   let stateFailed: string | null = null;
-
-  if (!domain) notFound();
-
-  if (domain) {
-    try {
-      onboarding = await getOnboardingState(active.id, domainId);
-    } catch (error) {
-      if (
-        (error instanceof OpsError || error instanceof ApiError) &&
-        error.status === 404
-      ) {
-        notFound();
-      }
-      // A transient failure is a failure state on this page, not a blank
-      // screen and not a not-found: the operator's domain did not go anywhere.
-      stateFailed =
-        error instanceof Error ? error.message : "The domain state could not be loaded.";
-    }
-  }
   const shares: ReportShareRow[] = (await listReportShares(active.id).catch(() => ({ items: [] }))).items;
-
-  const steps = onboarding?.steps ?? [];
-  const suggested = onboarding?.suggestedRecord ?? null;
 
   // A failed load is its own page, not a ternary branch inside this one: a
   // fragment spanning the whole body is how JSX nesting breaks, and the
@@ -100,6 +78,31 @@ export default async function OnboardingPage({
       </Shell>
     );
   }
+  // Only now, after the failure branch has returned. `notFound()` throws, so a
+  // check placed above it pre-empts the branch above and an operator whose API
+  // call timed out gets a 404 for a domain that is still theirs. Placing it here
+  // also narrows `domain` to non-null for the rest of the render, which is what
+  // the type checker needs and what the JSX below assumes.
+  if (!domain) notFound();
+
+  try {
+    onboarding = await getOnboardingState(active.id, domainId);
+  } catch (error) {
+    if ((error instanceof OpsError || error instanceof ApiError) && error.status === 404) {
+      notFound();
+    }
+    // A transient failure is a failure state on this page, not a blank
+    // screen and not a not-found: the operator's domain did not go anywhere.
+    stateFailed =
+      error instanceof Error ? error.message : "The domain state could not be loaded.";
+  }
+
+  // Read after the assignment, not before it: these are derived from what the
+  // state call returned, and reading them above the try block would look at a
+  // value that is still null.
+  const steps = onboarding?.steps ?? [];
+  const suggested = onboarding?.suggestedRecord ?? null;
+
   if (stateFailed) {
     return (
       <Shell workspaces={workspaces} activeWorkspace={active}>

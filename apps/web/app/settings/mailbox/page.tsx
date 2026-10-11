@@ -4,6 +4,7 @@ import { getReportInbox, getWorkspaceEntitlements } from "@/lib/api-ops";
 import { resolveActiveWorkspace } from "@/lib/session";
 import { Shell } from "@/components/shell";
 import { SettingsNav } from "@/components/settings-nav";
+import { ErrorState } from "@/components/data-states";
 import { ReportInboxForm } from "@/components/settings-client";
 
 /**
@@ -22,7 +23,11 @@ export default async function MailboxSettingsPage() {
     getReportInbox(active.id).catch(() => null),
     getWorkspaceEntitlements(active.id).catch(() => null),
   ]);
-  const allowInbox = entitlements?.features["reports.inbox"] === true;
+  // Tri-state, not boolean. A failed entitlements read is not the same fact as a
+  // plan that lacks the feature, and the two need different copy: one is an error
+  // to retry, the other is a reason to upgrade.
+  const allowInbox =
+    entitlements === null ? null : entitlements.features["reports.inbox"] === true;
 
   return (
     <Shell workspaces={workspaces} activeWorkspace={active}>
@@ -69,29 +74,44 @@ export default async function MailboxSettingsPage() {
           </p>
         </section>
 
-        {inbox ? (
-          allowInbox ? (
-            <ReportInboxForm organizationId={active.id} inbox={inbox} />
-          ) : (
-            <section
-              className="lift rounded-[2px] border p-5"
-              style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
-              data-feature="reports.inbox"
+        {/*
+          Three states, not two. The plan genuinely does not include the mailbox,
+          the plan does but the read failed, and the mailbox exists. The middle
+          one used to fall out as nothing at all, because this branch sat inside
+          `{inbox ? ... : null}` and a failed read is exactly when inbox is null:
+          so a workspace that had paid saw an empty section with no explanation.
+        */}
+        {allowInbox === null ? (
+          <ErrorState
+            what="the plan"
+            detail="The plan could not be read, so whether the report mailbox is available is unknown. This is an API problem, not a missing feature."
+          />
+        ) : allowInbox === false ? (
+          <section
+            className="lift rounded-[2px] border p-5"
+            style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
+            data-feature="reports.inbox"
+          >
+            <h2 className="text-[16px] font-semibold tracking-[-0.012em]">Report mailbox</h2>
+            <p className="mt-2 text-[13.5px]" style={{ color: "var(--color-ink-2)" }}>
+              The shared report mailbox is not included in your current plan.
+            </p>
+            <Link
+              href="/billing"
+              className="mt-2 inline-block text-[13px] font-semibold underline"
+              style={{ color: "var(--color-ink)" }}
             >
-              <h2 className="text-[16px] font-semibold tracking-[-0.012em]">Report mailbox</h2>
-              <p className="mt-2 text-[13.5px]" style={{ color: "var(--color-ink-2)" }}>
-                The shared report mailbox is not included in your current plan.
-              </p>
-              <Link
-                href="/billing"
-                className="mt-2 inline-block text-[13px] font-semibold underline"
-                style={{ color: "var(--color-ink)" }}
-              >
-                See plan options
-              </Link>
-            </section>
-          )
-        ) : null}
+              See plan options
+            </Link>
+          </section>
+        ) : inbox === null ? (
+          <ErrorState
+            what="the report mailbox"
+            detail="The mailbox could not be read. This is an API problem, not a missing mailbox: leave the record as it is until this clears."
+          />
+        ) : (
+          <ReportInboxForm organizationId={active.id} inbox={inbox} />
+        )}
       </div>
     </Shell>
   );
