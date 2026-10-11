@@ -62,6 +62,16 @@ export function WhiteLabelForm({
   const [primary, setPrimary] = useState(branding.brandPrimaryColor ?? "#0a0a0a");
   const [accent, setAccent] = useState(branding.brandAccentColor ?? "#e6e4dd");
   const [customDomain, setCustomDomainText] = useState(branding.customDomain ?? "");
+  /**
+   * Field-level complaint, kept apart from the API error.
+   *
+   * An empty domain used to submit as null, which the API answers by clearing
+   * the saved domain, and the form then printed "Custom domain saved. Publish the
+   * record below" over a page with no domain and no record. The two are different
+   * failures and need different sentences, so the empty case is caught here
+   * before it reaches the API.
+   */
+  const [domainError, setDomainError] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<ApiErrorBody["error"] | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -109,28 +119,66 @@ export function WhiteLabelForm({
   }
 
   async function saveDomain() {
+    const entered = customDomain.trim();
+    if (!entered) {
+      setDomainError("Enter the domain you want client pages served from, for example portal.clientbrand.example.");
+      setNote(null);
+      setError(null);
+      setInstructions(null);
+      return;
+    }
+    setDomainError(null);
     setBusy(true);
     setError(null);
-    const res = await setCustomDomain(organizationId, customDomain || null);
+    const res = await setCustomDomain(organizationId, entered);
     setBusy(false);
-    if (!res.ok) setError(res.error);
-    else {
-      /**
-       * Keep the record the API just generated.
-       *
-       * `setCustomDomain` mints a new random token on every call, so this is the
-       * only moment the TXT host and value exist. Letting it fall through meant
-       * the operator was told to "publish the TXT record" with no record to
-       * publish, and no way to reach one afterwards.
-       */
-      setInstructions(
-        res.data.verificationHost && res.data.verificationValue
-          ? { host: res.data.verificationHost, value: res.data.verificationValue }
-          : null,
-      );
-      setNote("Custom domain saved. Publish the record below, then verify it.");
-      router.refresh();
+    if (!res.ok) {
+      setDomainError(res.error.message ?? "That domain could not be saved.");
+      return;
     }
+
+    /**
+     * Keep the record the API just generated.
+     *
+     * `setCustomDomain` mints a new random token on every call, so this is the
+     * only moment the TXT host and value exist. Letting it fall through meant
+     * the operator was told to "publish the TXT record" with no record to
+     * publish, and no way to reach one afterwards.
+     */
+    const record =
+      res.data.verificationHost && res.data.verificationValue
+        ? { host: res.data.verificationHost, value: res.data.verificationValue }
+        : null;
+    setInstructions(record);
+    setNote(
+      record
+        ? "Custom domain saved. Publish the TXT record below at your DNS provider, then verify."
+        : "The custom domain was saved but no verification record came back. Reload the page and save again to get one.",
+    );
+    router.refresh();
+  }
+
+  /**
+   * Removing the domain is a separate action, not an empty save.
+   *
+   * The API accepts null to clear, which is how an empty box used to end the
+   * domain without anyone meaning to. Clearing is now deliberate and says what
+   * it did, so a silent removal cannot be mistaken for a failed save.
+   */
+  async function removeDomain() {
+    setBusy(true);
+    setError(null);
+    setDomainError(null);
+    const res = await setCustomDomain(organizationId, null);
+    setBusy(false);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    setInstructions(null);
+    setCustomDomainText("");
+    setNote("Custom domain removed. Client pages are back on the default brand.");
+    router.refresh();
   }
 
   async function doVerify() {
@@ -157,11 +205,18 @@ export function WhiteLabelForm({
       setNote("TXT record verified: the custom domain is live.");
       setInstructions(null);
     } else {
-      setInstructions(null);
+      /**
+       * The record stays on screen.
+       *
+       * It used to be cleared here, which is the moment the operator most needs
+       * it: a failed lookup usually means the record was mistyped or is still
+       * propagating, and hiding what they were told to publish leaves them
+       * comparing their DNS against memory.
+       */
       setError({
         message:
           res.data.error ??
-          "The TXT record was not found yet. Publish it, allow it to propagate, then verify again.",
+          "The TXT record was not found yet. Check the record above, allow it to propagate, then verify again.",
       });
     }
     router.refresh();
@@ -258,53 +313,44 @@ export function WhiteLabelForm({
               <input
                 type="text"
                 value={customDomain}
-                onChange={(e) => setCustomDomainText(e.target.value)}
+                onChange={(e) => {
+                  setCustomDomainText(e.target.value);
+                  if (domainError) setDomainError(null);
+                }}
                 placeholder="portal.clientbrand.example"
+                aria-describedby="custom-domain-help"
               />
             </Field>
-            <div className="mt-2 flex items-center gap-3">
+            {domainError ? (
+              <p role="alert" className="mt-2 text-[12.5px]" style={{ color: "var(--color-block)" }}>
+                {domainError}
+              </p>
+            ) : null}
+            <p id="custom-domain-help" className="mt-1.5 text-[12.5px]" style={{ color: "var(--color-ink-3)" }}>
+              The host name you want client pages served from, for example{" "}
+              <span className="num">portal.clientbrand.example</span>. Write it as a
+              bare domain: <span className="num">https://</span> in front is not
+              needed and is stripped if you include it.
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-3">
               <ActionButton
                 label="Save domain"
                 loadingLabel="Saving…"
                 busy={busy}
                 onClick={saveDomain}
                 variant="ghost"
+                disabled={!customDomain.trim()}
               />
-                {instructions ? (
-                  <div
-                    className="mt-3 border p-3"
-                    style={{ borderColor: "var(--color-unverified)" }}
-                    data-testid="custom-domain-record"
-                  >
-                    <p
-                      className="text-[11px] tracking-[0.12em] uppercase"
-                      style={{ color: "var(--color-ink-3)" }}
-                    >
-                      Publish this TXT record at your DNS provider
-                    </p>
-                    <dl className="mt-2 flex flex-col gap-1.5 text-[12px]">
-                      <div>
-                        <dt style={{ color: "var(--color-ink-3)" }}>Host</dt>
-                        <dd className="num break-all" style={{ color: "var(--color-ink)" }}>
-                          {instructions.host}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt style={{ color: "var(--color-ink-3)" }}>Value</dt>
-                        <dd className="num break-all" style={{ color: "var(--color-ink)" }}>
-                          {instructions.value}
-                        </dd>
-                      </div>
-                    </dl>
-                    <p className="mt-2 text-[11.5px]" style={{ color: "var(--color-ink-3)" }}>
-                      This record is shown once, when the domain is saved. Save it
-                      before leaving this page: the token is not recoverable, and
-                      saving again issues a different one.
-                    </p>
-                  </div>
-                ) : null}
-
-                {branding.customDomain && !branding.customDomainVerifiedAt ? (
+              {branding.customDomain ? (
+                <ActionButton
+                  label="Remove domain"
+                  loadingLabel="Removing…"
+                  busy={busy}
+                  onClick={removeDomain}
+                  variant="ghost"
+                />
+              ) : null}
+              {branding.customDomain && !branding.customDomainVerifiedAt ? (
                 <ActionButton
                   label="verify TXT record"
                   loadingLabel="Verifying…"
@@ -320,6 +366,56 @@ export function WhiteLabelForm({
                 </span>
               ) : null}
             </div>
+
+            {/*
+              The record, written out as a DNS provider asks for it.
+
+              "Publish the TXT record below" is unusable on its own: a DNS form
+              asks for a type, a host or name, and a value, and the previous
+              block answered only two of the three. Everything here is filled in
+              with the real values for this domain, and the example underneath
+              shows the same record the way it would look in a provider form, so
+              there is nothing left to infer.
+            */}
+            {instructions ? (
+              <div
+                className="lift mt-3 rounded-[2px] border p-4"
+                style={{ borderColor: "var(--color-unverified)", background: "var(--color-unverified-soft)" }}
+                data-testid="custom-domain-record"
+              >
+                <p className="num text-[11px] font-semibold tracking-[0.12em] uppercase" style={{ color: "var(--color-unverified)" }}>
+                  Publish this TXT record at your DNS provider
+                </p>
+                <dl className="mt-3 flex flex-col gap-2 text-[12.5px]">
+                  <div className="flex flex-wrap items-baseline gap-x-3">
+                    <dt className="num w-20 shrink-0 tracking-[0.1em] uppercase" style={{ color: "var(--color-ink-3)" }}>Type</dt>
+                    <dd className="num" style={{ color: "var(--color-ink)" }}>TXT</dd>
+                  </div>
+                  <div className="flex flex-wrap items-baseline gap-x-3">
+                    <dt className="num w-20 shrink-0 tracking-[0.1em] uppercase" style={{ color: "var(--color-ink-3)" }}>Host / name</dt>
+                    <dd className="num break-all" style={{ color: "var(--color-ink)" }} data-testid="record-host">{instructions.host}</dd>
+                  </div>
+                  <div className="flex flex-wrap items-baseline gap-x-3">
+                    <dt className="num w-20 shrink-0 tracking-[0.1em] uppercase" style={{ color: "var(--color-ink-3)" }}>Value</dt>
+                    <dd className="num break-all" style={{ color: "var(--color-ink)" }} data-testid="record-value">{instructions.value}</dd>
+                  </div>
+                </dl>
+                <p className="mt-3 border-t pt-3 text-[11.5px]" style={{ borderColor: "var(--color-line)", color: "var(--color-ink-3)" }}>
+                  In a provider that asks for one field per part, that is type{" "}
+                  <span className="num">TXT</span>, host{" "}
+                  <span className="num">{instructions.host}</span>, value{" "}
+                  <span className="num">{instructions.value}</span>. Leave the
+                  host exactly as written: it is the whole name including the
+                  leading underscore, not a name to be appended to your domain.
+                </p>
+                <p className="mt-2 text-[11.5px]" style={{ color: "var(--color-ink-3)" }}>
+                  Shown once, when the domain is saved. Copy it before leaving
+                  this page: the token is not recoverable, and saving again
+                  issues a different one.
+                </p>
+              </div>
+            ) : null}
+
             <p className="mt-1.5 text-[12.5px]" style={{ color: "var(--color-ink-3)" }}>
               A custom domain serves only after its TXT record is verified.
             </p>
