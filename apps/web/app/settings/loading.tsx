@@ -7,8 +7,10 @@ import { LoadingState } from "@/components/data-states";
  */
 export default function Loading() {
   return (
-    <div className="mx-auto w-full max-w-[1180px] px-6 py-10">
-      <LoadingState label="Loading settings" />
+    <div className="flex min-h-[70vh] w-full items-center justify-center px-6 py-10">
+      <div className="w-full max-w-[320px]">
+        <LoadingState label="Loading settings" />
+      </div>
     </div>
   );
 }
