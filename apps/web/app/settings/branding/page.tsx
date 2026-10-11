@@ -3,6 +3,8 @@ import { getBranding, getWorkspaceEntitlements } from "@/lib/api-ops";
 import { resolveActiveWorkspace } from "@/lib/session";
 import { Shell } from "@/components/shell";
 import { SettingsNav } from "@/components/settings-nav";
+import { PlanUnavailableNotice } from "@/components/plan-unavailable-notice";
+import { featureOf } from "@/lib/entitlements";
 import { WhiteLabelForm } from "@/components/settings-client";
 
 /**
@@ -24,8 +26,8 @@ export default async function BrandingSettingsPage() {
     getBranding(active.id).catch(() => null),
     getWorkspaceEntitlements(active.id).catch(() => null),
   ]);
-  const allowWhiteLabel = entitlements?.features["branding.whitelabel"] === true;
-  const allowLogoUpload = entitlements?.features["branding.logoUpload"] === true;
+  const allowWhiteLabel = featureOf(entitlements, "branding.whitelabel");
+  const allowLogoUpload = featureOf(entitlements, "branding.logoUpload");
 
   return (
     <Shell workspaces={workspaces} activeWorkspace={active}>
@@ -38,6 +40,7 @@ export default async function BrandingSettingsPage() {
           </p>
         </header>
         <SettingsNav current="branding" />
+        {entitlements === null ? <PlanUnavailableNotice /> : null}
 
         {branding ? (
           <>
@@ -80,8 +83,8 @@ export default async function BrandingSettingsPage() {
             <WhiteLabelForm
               organizationId={active.id}
               branding={branding}
-              allowLogoUpload={allowLogoUpload}
-              allowWhiteLabel={allowWhiteLabel}
+              allowLogoUpload={allowLogoUpload === true}
+              allowWhiteLabel={allowWhiteLabel === true}
             />
           </>
         ) : (

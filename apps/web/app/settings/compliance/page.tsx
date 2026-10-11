@@ -8,6 +8,8 @@ import { requestOrigin } from "@/lib/metadata-origin";
 import { resolveActiveWorkspace } from "@/lib/session";
 import { Shell } from "@/components/shell";
 import { SettingsNav } from "@/components/settings-nav";
+import { PlanUnavailableNotice } from "@/components/plan-unavailable-notice";
+import { featureOf } from "@/lib/entitlements";
 import { CompliancePackPanel } from "@/components/compliance-client";
 import { TrustCenterPanel } from "@/components/trust-center-client";
 import { ErrorState } from "@/components/data-states";
@@ -55,8 +57,8 @@ export default async function ComplianceSettingsPage({
     packsFailed = loaded.failed;
   }
 
-  const allowCompliance = entitlements?.features["reports.compliancePack"] === true;
-  const allowTrust = entitlements?.features["trust.center"] === true;
+  const allowCompliance = featureOf(entitlements, "reports.compliancePack");
+  const allowTrust = featureOf(entitlements, "trust.center");
   const origin = await requestOrigin();
 
   // The Trust Center status is per client and read server-side: the panel is
@@ -81,6 +83,7 @@ export default async function ComplianceSettingsPage({
           </p>
         </header>
         <SettingsNav current="compliance" />
+        {entitlements === null ? <PlanUnavailableNotice /> : null}
 
         {clientsFailed ? (
           <ErrorState

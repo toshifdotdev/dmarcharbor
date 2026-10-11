@@ -4,6 +4,8 @@ import { getWorkspaceEntitlements, listSsoConnections } from "@/lib/api-ops";
 import { resolveActiveWorkspace } from "@/lib/session";
 import { Shell } from "@/components/shell";
 import { SettingsNav } from "@/components/settings-nav";
+import { PlanUnavailableNotice } from "@/components/plan-unavailable-notice";
+import { featureOf } from "@/lib/entitlements";
 import { SsoSection } from "@/components/settings-client";
 
 /**
@@ -22,7 +24,7 @@ export default async function SsoSettingsPage() {
     getWorkspaceEntitlements(active.id).catch(() => null),
     listSsoConnections(active.id).catch(() => ({ connections: [] })),
   ]);
-  const allowSso = entitlements?.features["auth.sso"] === true;
+  const allowSso = featureOf(entitlements, "auth.sso");
 
   return (
     <Shell workspaces={workspaces} activeWorkspace={active}>
@@ -36,6 +38,7 @@ export default async function SsoSettingsPage() {
           </p>
         </header>
         <SettingsNav current="sso" />
+        {entitlements === null ? <PlanUnavailableNotice /> : null}
 
         {allowSso ? (
           <SsoSection organizationId={active.id} connections={ssoRes.connections ?? []} />

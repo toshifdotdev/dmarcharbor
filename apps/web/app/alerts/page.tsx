@@ -6,6 +6,8 @@ import type { AlertEventRow, WorkspaceMemberRow } from "@/lib/types";
 import { Shell } from "@/components/shell";
 import { UpgradePrompt } from "@/components/upgrade-gate";
 import { EmptyState, ErrorState } from "@/components/data-states";
+import { featureOf } from "@/lib/entitlements";
+import { PlanUnavailableNotice } from "@/components/plan-unavailable-notice";
 import { AcknowledgeButton, AlertRuleActions, AlertRuleForm } from "@/components/alerts-client";
 
 export default async function AlertsPage() {
@@ -19,8 +21,8 @@ export default async function AlertsPage() {
     entitlements = null;
   }
 
-  const alertingEnabled = entitlements?.features["alerts.email"] === true;
-  const spoofingEnabled = entitlements?.features["alerts.spoofing"] === true;
+  const alertingEnabled = featureOf(entitlements, "alerts.email");
+  const spoofingEnabled = featureOf(entitlements, "alerts.spoofing");
 
   const [clients, rules, events] = await Promise.all([
     // Three states, never two: a failed load must never render as "no alerts
@@ -50,7 +52,12 @@ export default async function AlertsPage() {
           </p>
         </header>
 
-        {!alertingEnabled ? (
+        {entitlements === null ? (
+          /* The read failed, so this workspace may well have alerting. Showing
+             the upgrade prompt here is what the boolean check used to do, and it
+             tells a paying customer to upgrade for something they own. */
+          <PlanUnavailableNotice />
+        ) : !alertingEnabled ? (
           <UpgradePrompt
             error={{
               feature: "alerts.email",

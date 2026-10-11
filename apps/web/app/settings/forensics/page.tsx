@@ -6,6 +6,8 @@ import { instantLabel } from "@/lib/instant";
 import { resolveActiveWorkspace } from "@/lib/session";
 import { Shell } from "@/components/shell";
 import { SettingsNav } from "@/components/settings-nav";
+import { PlanUnavailableNotice } from "@/components/plan-unavailable-notice";
+import { featureOf } from "@/lib/entitlements";
 import { UpgradePrompt } from "@/components/upgrade-gate";
 import { LoadingState } from "@/components/data-states";
 import {
@@ -72,8 +74,8 @@ export default async function ForensicsSettingsPage({
   const { domain: wantedDomain, cursor } = await searchParams;
 
   const entitlements = await getWorkspaceEntitlements(active.id).catch(() => null);
-  const forensicEntitled = entitlements?.features["reports.forensic"] === true;
-  const namedEntitled = entitlements?.features["reports.forensicNamed"] === true;
+  const forensicEntitled = featureOf(entitlements, "reports.forensic");
+  const namedEntitled = featureOf(entitlements, "reports.forensicNamed");
 
   return (
     <Shell workspaces={workspaces} activeWorkspace={active}>
@@ -89,6 +91,7 @@ export default async function ForensicsSettingsPage({
           </p>
         </header>
         <SettingsNav current="forensics" />
+        {entitlements === null ? <PlanUnavailableNotice /> : null}
 
         {!forensicEntitled ? (
           <UpgradePrompt
@@ -106,7 +109,7 @@ export default async function ForensicsSettingsPage({
               organizationId={active.id}
               wantedDomain={wantedDomain}
               cursor={cursor}
-              namedEntitled={namedEntitled}
+              namedEntitled={namedEntitled === true}
               planLabel={entitlements?.label ?? null}
             />
           </Suspense>
@@ -171,7 +174,7 @@ async function ForensicsSection({
       domainsFailed={clients.failed}
       selectedDomain={selected}
       ignoredDomain={ignoredDomain}
-      namedEntitled={namedEntitled}
+      namedEntitled={namedEntitled === true}
       planLabel={planLabel}
       reports={reports}
       domainState={domainState}

@@ -5,6 +5,8 @@ import { resolveActiveWorkspace } from "@/lib/session";
 import { Shell } from "@/components/shell";
 import { SettingsNav } from "@/components/settings-nav";
 import { ErrorState } from "@/components/data-states";
+import { featureOf } from "@/lib/entitlements";
+import { PlanUnavailableNotice } from "@/components/plan-unavailable-notice";
 import { ReportInboxForm } from "@/components/settings-client";
 
 /**
@@ -26,8 +28,7 @@ export default async function MailboxSettingsPage() {
   // Tri-state, not boolean. A failed entitlements read is not the same fact as a
   // plan that lacks the feature, and the two need different copy: one is an error
   // to retry, the other is a reason to upgrade.
-  const allowInbox =
-    entitlements === null ? null : entitlements.features["reports.inbox"] === true;
+  const allowInbox = featureOf(entitlements, "reports.inbox");
 
   return (
     <Shell workspaces={workspaces} activeWorkspace={active}>
@@ -82,10 +83,7 @@ export default async function MailboxSettingsPage() {
           so a workspace that had paid saw an empty section with no explanation.
         */}
         {allowInbox === null ? (
-          <ErrorState
-            what="the plan"
-            detail="The plan could not be read, so whether the report mailbox is available is unknown. This is an API problem, not a missing feature."
-          />
+          <PlanUnavailableNotice />
         ) : allowInbox === false ? (
           <section
             className="lift rounded-[2px] border p-5"

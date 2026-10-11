@@ -5,6 +5,8 @@ import { resolveActiveWorkspace } from "@/lib/session";
 import { Shell } from "@/components/shell";
 import { UpgradePrompt } from "@/components/upgrade-gate";
 import { EmptyState, ErrorState } from "@/components/data-states";
+import { featureOf } from "@/lib/entitlements";
+import { PlanUnavailableNotice } from "@/components/plan-unavailable-notice";
 import { DigestActions, DigestForm } from "@/components/digests-client";
 import { DigestRunControls, RunAllDigestsButton } from "@/components/digest-controls";
 
@@ -13,8 +15,8 @@ export default async function DigestsPage() {
   if (!active) redirect("/welcome");
 
   const entitlements = await getWorkspaceEntitlements(active.id).catch(() => null);
-  const digestsEnabled = entitlements?.features["digests"] === true;
-  const allowForensics = entitlements?.features["reports.forensic"] === true;
+  const digestsEnabled = featureOf(entitlements, "digests");
+  const allowForensics = featureOf(entitlements, "reports.forensic");
 
   const [clients, digests] = await Promise.all([
     // Three states, never two: a failed load must never render as "no digests
@@ -37,13 +39,13 @@ export default async function DigestsPage() {
           </p>
         </header>
 
-{!digestsEnabled ? (
+{entitlements === null ? (
+  <PlanUnavailableNotice />
+        ) : !digestsEnabled ? (
             <UpgradePrompt
               error={{
                 feature: "digests",
-                message: entitlements
-                  ? "Scheduled digests are not included in this plan."
-                  : "Scheduled digests require an entitlement the current plan does not carry.",
+                message: "Scheduled digests are not included in this plan.",
               }}
               context="The API owns which plan carries digests; this workspace's current plan does not."
             />
@@ -66,7 +68,7 @@ export default async function DigestsPage() {
               <DigestForm
                 organizationId={active.id}
                 domains={domains}
-                allowForensics={allowForensics}
+                allowForensics={allowForensics === true}
               />
 
               <section

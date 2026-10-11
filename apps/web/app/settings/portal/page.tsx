@@ -6,6 +6,8 @@ import { requestOrigin } from "@/lib/metadata-origin";
 import { resolveActiveWorkspace } from "@/lib/session";
 import { Shell } from "@/components/shell";
 import { SettingsNav } from "@/components/settings-nav";
+import { PlanUnavailableNotice } from "@/components/plan-unavailable-notice";
+import { featureOf } from "@/lib/entitlements";
 import { PortalAccessPanel } from "@/components/portal-access-client";
 import { ErrorState } from "@/components/data-states";
 
@@ -33,7 +35,7 @@ export default async function PortalSettingsPage() {
     getWorkspaceEntitlements(active.id).catch(() => null),
   ]);
 
-  const allowPortal = entitlements?.features["portal.client"] === true;
+  const allowPortal = featureOf(entitlements, "portal.client");
   const origin = await requestOrigin();
 
   return (
@@ -49,6 +51,7 @@ export default async function PortalSettingsPage() {
           </p>
         </header>
         <SettingsNav current="portal" />
+        {entitlements === null ? <PlanUnavailableNotice /> : null}
 
         {clientsResult.failed || grantsResult.failed ? (
           <ErrorState

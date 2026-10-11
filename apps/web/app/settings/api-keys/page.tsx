@@ -4,6 +4,8 @@ import { resolveActiveWorkspace } from "@/lib/session";
 import Link from "next/link";
 import { Shell } from "@/components/shell";
 import { SettingsNav } from "@/components/settings-nav";
+import { PlanUnavailableNotice } from "@/components/plan-unavailable-notice";
+import { featureOf } from "@/lib/entitlements";
 import { ApiKeysPanel } from "@/components/api-keys-client";
 import { ErrorState } from "@/components/data-states";
 
@@ -22,7 +24,7 @@ export default async function ApiKeysSettingsPage() {
       .catch(() => ({ keys: [], failed: true })),
     getWorkspaceEntitlements(active.id).catch(() => null),
   ]);
-  const allowApi = entitlements?.features["api.access"] === true;
+  const allowApi = featureOf(entitlements, "api.access");
 
   return (
     <Shell workspaces={workspaces} activeWorkspace={active}>
@@ -35,6 +37,7 @@ export default async function ApiKeysSettingsPage() {
           </p>
         </header>
         <SettingsNav current="api-keys" />
+        {entitlements === null ? <PlanUnavailableNotice /> : null}
 
         {keyRes.failed ? (
           <ErrorState
