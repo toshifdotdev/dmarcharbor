@@ -439,8 +439,9 @@ export function ReportInboxForm({
             <button
               type="button"
               onClick={async () => {
-                await removeReportInbox(organizationId);
-                router.refresh();
+                const res = await removeReportInbox(organizationId);
+            if (!res.ok) setError(res.error);
+            else router.refresh();
               }}
               className="text-[12.5px] underline"
               style={{ color: "var(--color-block)" }}
@@ -603,8 +604,9 @@ export function SsoSection({
               <button
                 type="button"
                 onClick={async () => {
-                  await removeSsoConnection(organizationId, c.id);
-                  router.refresh();
+                  const res = await removeSsoConnection(organizationId, c.id);
+            if (!res.ok) setError(res.error);
+            else router.refresh();
                 }}
                 className="ml-auto text-[12.5px] underline"
                 style={{ color: "var(--color-block)" }}

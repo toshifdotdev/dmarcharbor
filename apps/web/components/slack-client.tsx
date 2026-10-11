@@ -236,9 +236,20 @@ export function SlackForm({
                   type="checkbox"
                   checked={enabled}
                   onChange={async (e) => {
-                    setEnabled(e.target.checked);
-                    await patchSlackDestinationEnabled(organizationId, e.target.checked);
-                    router.refresh();
+                    const wanted = e.target.checked;
+                    setEnabled(wanted);
+                    const res = await patchSlackDestinationEnabled(organizationId, wanted);
+                    if (!res.ok) {
+                      // Put the switch back. It flipped before the request was
+                      // answered, so a failure used to leave the wrong state on
+                      // screen until the next refresh, which reads as the change
+                      // having saved.
+                      setEnabled(!wanted);
+                      setError(res.error);
+                    } else {
+                      setError(null);
+                      router.refresh();
+                    }
                   }}
                   data-testid="slack-enabled"
                 />
@@ -259,8 +270,9 @@ export function SlackForm({
               <button
                 type="button"
                 onClick={async () => {
-                  await deleteSlackDestination(organizationId);
-                  router.refresh();
+                  const res = await deleteSlackDestination(organizationId);
+            if (!res.ok) setError(res.error);
+            else router.refresh();
                 }}
                 className="pb-2.5 text-[12px] underline"
                 style={{ color: "var(--color-block)" }}

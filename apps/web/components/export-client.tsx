@@ -235,8 +235,9 @@ export function ExportPanel({
                     <button
                       type="button"
                       onClick={async () => {
-                        await revokeExportJob(organizationId, j.id);
-                        router.refresh();
+                        const res = await revokeExportJob(organizationId, j.id);
+            if (!res.ok) setError(res.error);
+            else router.refresh();
                       }}
                       className="text-[11.5px] underline"
                       style={{ color: "var(--color-block)" }}

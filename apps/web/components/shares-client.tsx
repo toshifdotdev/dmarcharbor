@@ -198,8 +198,9 @@ export function ShareForm({
                     consequence="a revoked link stops working immediately"
                     testId="revoke-share"
                     onConfirm={async () => {
-                      await revokeReportShare(organizationId, s.id);
-                      router.refresh();
+                      const res = await revokeReportShare(organizationId, s.id);
+            if (!res.ok) setError(res.error);
+            else router.refresh();
                     }}
                   />
                 </span>

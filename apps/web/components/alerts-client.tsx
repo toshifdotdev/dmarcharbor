@@ -242,13 +242,27 @@ export function AlertRuleActions({
   rule: AlertRuleRow;
 }) {
   const router = useRouter();
+  // Every mutation here reports its outcome. Each of these awaits a call whose
+  // result was discarded, so a 402, a 403 or a 500 refreshed the page and the
+  // control looked like it had simply not been pressed.
+  const [error, setError] = useState<ApiErrorBody["error"] | null>(null);
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex flex-col gap-1.5">
+      {error ? (
+        <p role="alert" className="text-[12.5px]" style={{ color: "var(--color-block)" }}>
+          {error.message}
+        </p>
+      ) : null}
+      <div className="flex items-center gap-3">
       <button
         type="button"
         onClick={async () => {
-          await patchAlertRule(organizationId, rule.id, { enabled: !rule.enabled });
-          router.refresh();
+          const res = await patchAlertRule(organizationId, rule.id, { enabled: !rule.enabled });
+          if (!res.ok) setError(res.error);
+          else {
+            setError(null);
+            router.refresh();
+          }
         }}
         className="text-[12.5px] underline"
         style={{ color: "var(--color-ink-2)" }}
@@ -258,14 +272,19 @@ export function AlertRuleActions({
       <button
         type="button"
         onClick={async () => {
-          await removeAlertRule(organizationId, rule.id);
-          router.refresh();
+          const res = await removeAlertRule(organizationId, rule.id);
+          if (!res.ok) setError(res.error);
+          else {
+            setError(null);
+            router.refresh();
+          }
         }}
         className="text-[12.5px] underline"
         style={{ color: "var(--color-block)" }}
       >
         delete
       </button>
+      </div>
     </div>
   );
 }
@@ -278,18 +297,30 @@ export function AcknowledgeButton({
   eventId: string;
 }) {
   const router = useRouter();
+  const [error, setError] = useState<ApiErrorBody["error"] | null>(null);
   return (
-    <button
-      type="button"
-      onClick={async () => {
-        await acknowledgeAlert(organizationId, eventId);
-        router.refresh();
-      }}
-      className="rounded-[2px] border px-3 py-1.5 text-[12.5px] font-semibold"
-      style={{ borderColor: "var(--color-line-strong)", color: "var(--color-ink-2)" }}
-    >
-      Acknowledge
-    </button>
+    <div className="flex flex-col gap-1.5">
+      {error ? (
+        <p role="alert" className="text-[12.5px]" style={{ color: "var(--color-block)" }}>
+          {error.message}
+        </p>
+      ) : null}
+      <button
+        type="button"
+        onClick={async () => {
+          const res = await acknowledgeAlert(organizationId, eventId);
+          if (!res.ok) setError(res.error);
+          else {
+            setError(null);
+            router.refresh();
+          }
+        }}
+        className="rounded-[2px] border px-3 py-1.5 text-[12.5px] font-semibold"
+        style={{ borderColor: "var(--color-line-strong)", color: "var(--color-ink-2)" }}
+      >
+        Acknowledge
+      </button>
+    </div>
   );
 }
 

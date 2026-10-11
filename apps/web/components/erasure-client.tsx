@@ -15,10 +15,11 @@
  */
 
 import { ActionButton } from "@/components/action-button";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   cancelErasureJob,
+  previewErasure,
   requestErasureJob,
 } from "@/lib/ops-client";
 import type { ApiErrorBody, ErasurePreview, ErasureRequestRow } from "@/lib/types";
@@ -42,6 +43,49 @@ export function ErasurePanel({
   const [error, setError] = useState<ApiErrorBody["error"] | null>(null);
   const [created, setCreated] = useState<{ id: string; purgeAfter: string } | null>(null);
   const [busy, setBusy] = useState(false);
+
+  /**
+   * The preview follows the scope the operator has actually selected.
+   *
+   * The page fetched exactly one preview, for ORGANIZATION, and the form offers
+   * "one client" as well. So the panel headed "What a request would do" kept
+   * describing the whole workspace while a narrow, client-scoped erasure was
+   * being submitted: the counts were for the wrong thing, on a screen whose whole
+   * purpose is to make a deletion concrete before it is requested.
+   *
+   * The server's preview is the starting value, so the common case costs no extra
+   * request; anything else is fetched on change.
+   */
+  const [scopedPreview, setScopedPreview] = useState<ErasurePreview | null>(preview);
+  const [previewBusy, setPreviewBusy] = useState(false);
+
+  useEffect(() => {
+    if (scope === "ORGANIZATION") {
+      setScopedPreview(preview);
+      return;
+    }
+    if (!targetId) {
+      setScopedPreview(null);
+      return;
+    }
+    let cancelled = false;
+    setPreviewBusy(true);
+    previewErasure(organizationId, scope, targetId)
+      .then((res) => {
+        if (cancelled) return;
+        // An unreadable preview must not fall back to the workspace one: showing
+        // a whole-workspace count for a client request is the bug this replaced.
+        // Nor does it render an upgrade prompt: the load failed, which is a
+        // different sentence from the plan not carrying the feature.
+        setScopedPreview(res.ok ? res.data : null);
+      })
+      .finally(() => {
+        if (!cancelled) setPreviewBusy(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [scope, targetId, organizationId, preview]);
 
   // The pending state survives a reload: the server's request list carries the
   // row, so a pending request is pending on every render: not only in the
@@ -112,24 +156,31 @@ export function ErasurePanel({
         </p>
       </section>
 
-      {/* The API's own preview: exactly what a request would do. */}
-      {preview ? (
+      {/* The API's own preview: exactly what a request would do, for the scope
+          currently selected. */}
+      {scopedPreview ? (
         <section
           className="lift rounded-[2px] border p-5"
           style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
           data-testid="erasure-preview"
         >
           <h2 className="text-[16px] font-semibold tracking-[-0.012em]">
-            What a request would do: {preview.scopeLabel}
+            What a request would do: {scopedPreview.scopeLabel}
           </h2>
+          {scope !== "ORGANIZATION" ? (
+            <p className="mt-1 text-[12px]" style={{ color: "var(--color-ink-3)" }}>
+              This is the preview for the scope selected below, not the whole
+              workspace.
+            </p>
+          ) : null}
           <div className="mt-3 flex flex-wrap gap-x-8 gap-y-2">
-            <Stat label="Personal data records" value={preview.totals.personalDataRecords} tone="var(--color-block)" />
-            <Stat label="Records deleted" value={preview.totals.recordsDeleted} />
-            <Stat label="Records anonymised" value={preview.totals.recordsAnonymised} />
-            <Stat label="Evidence retained" value={preview.totals.evidenceRetained} />
+            <Stat label="Personal data records" value={scopedPreview.totals.personalDataRecords} tone="var(--color-block)" />
+            <Stat label="Records deleted" value={scopedPreview.totals.recordsDeleted} />
+            <Stat label="Records anonymised" value={scopedPreview.totals.recordsAnonymised} />
+            <Stat label="Evidence retained" value={scopedPreview.totals.evidenceRetained} />
           </div>
           <ul className="mt-4 border-t pt-3" style={{ borderColor: "var(--color-line)" }}>
-            {preview.actions.slice(0, 8).map((a) => (
+            {scopedPreview.actions.slice(0, 8).map((a) => (
               <li key={a.key} className="flex items-baseline gap-x-4 border-b py-2" style={{ borderColor: "rgba(255,255,255,0.055)" }}>
                 <span
                   className="num text-[10px] tracking-[0.12em] uppercase"
@@ -152,6 +203,14 @@ export function ErasurePanel({
             ))}
           </ul>
         </section>
+      ) : previewBusy ? (
+        <p className="text-[13px]" style={{ color: "var(--color-ink-3)" }} data-testid="erasure-preview-loading">
+          Building the preview for that scope…
+        </p>
+      ) : scope === "CLIENT" ? (
+        <p className="text-[13px]" style={{ color: "var(--color-ink-3)" }} data-testid="erasure-preview-pick">
+          Choose a client to see what an erasure of that client would do.
+        </p>
       ) : null}
 
       {pendingRequest ? (
@@ -315,8 +374,9 @@ export function ErasurePanel({
                   <button
                     type="button"
                     onClick={async () => {
-                      await cancelErasureJob(organizationId, r.id);
-                      router.refresh();
+                      const res = await cancelErasureJob(organizationId, r.id);
+            if (!res.ok) setError(res.error);
+            else router.refresh();
                     }}
                     className="text-[11.5px] underline"
                     style={{ color: "var(--color-pass)" }}

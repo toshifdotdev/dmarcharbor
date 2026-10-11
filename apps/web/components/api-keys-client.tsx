@@ -232,8 +232,9 @@ export function ApiKeysPanel({
                   <button
                     type="button"
                     onClick={async () => {
-                      await revokeApiKeyClient(organizationId, k.id);
-                      router.refresh();
+                      const res = await revokeApiKeyClient(organizationId, k.id);
+            if (!res.ok) setError(res.error);
+            else router.refresh();
                     }}
                     className="text-[11.5px] underline"
                     style={{ color: "var(--color-block)" }}
