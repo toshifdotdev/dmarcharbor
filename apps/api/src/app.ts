@@ -130,6 +130,18 @@ export function createApp(): express.Express {
       },
     }),
   );
+  /**
+   * Form posts, which only the SAML consumer uses today.
+   *
+   * A SAML identity provider POSTs the assertion as application/x-www-form-urlencoded
+   * and nothing else, so without this parser request.body is an empty object on the
+   * one route in the product that a third party posts a HTML form to. The controller
+   * then reads SAMLResponse as '' and RelayState as null, which fails as a bad relay
+   * state rather than a parse error, so the login simply never works and nothing in
+   * the logs says why. Express runs a parser only for the content types it matches,
+   * so this costs the JSON routes nothing.
+   */
+  app.use(express.urlencoded({ extended: false, limit: '256kb' }));
   app.use('/api', sessionRouter);
   app.use('/api', sessionManagementRouter);
 
