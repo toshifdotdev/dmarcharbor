@@ -132,7 +132,12 @@ export default async function WelcomePage() {
     }
     throw error;
   }
-  if (workspaces.length > 0) redirect("/");
+  // No redirect when a workspace already exists. This page used to bounce anyone
+  // with a workspace back to the portfolio, which is why there was no way to
+  // create a second one: the switcher had nothing to point at that would show
+  // the form. Creating a second workspace is a normal thing to want, so the same
+  // form now serves both the newcomer and the person adding another.
+  const hasOne = workspaces.length > 0;
 
   return (
     <main className="relative z-10 flex min-h-screen flex-col items-center justify-center gap-8 px-6">
@@ -141,12 +146,19 @@ export default async function WelcomePage() {
         className="text-[25.5px] font-semibold tracking-[-0.03em]"
         style={{ fontFamily: "var(--font-display)" }}
       >
-        Name your workspace
+        {hasOne ? "Add another workspace" : "Name your workspace"}
       </h1>
       <p className="max-w-sm text-center text-[14.5px]" style={{ color: "var(--color-ink-2)" }}>
-        A workspace holds your clients, their domains, and every measurement
-        you collect. Your agency's brand is applied to client-facing surfaces.
+        {hasOne
+          ? "A workspace holds its own clients, domains and measurements, and carries its own plan. Nothing is shared with the ones you already have."
+          : "A workspace holds your clients, their domains, and every measurement you collect. Your agency's brand is applied to client-facing surfaces."}
       </p>
+      {hasOne ? (
+        <p className="num max-w-sm text-center text-[12px]" style={{ color: "var(--color-ink-3)" }}>
+          You have {workspaces.length} workspace{workspaces.length === 1 ? "" : "s"}.
+          Switching between them is in the top right.
+        </p>
+      ) : null}
       <WorkspaceForm action={createWorkspaceAction} />
     </main>
   );

@@ -76,6 +76,30 @@ export function WorkspaceSwitcher({
               </button>
             </li>
           ))}
+
+          {/*
+            The only way to reach the create form once you already hold a
+            workspace. `/welcome` used to redirect anyone with a workspace
+            straight back to the portfolio, so a second workspace could not be
+            created from anywhere in the UI at all.
+          */}
+          <li className="mt-1 border-t pt-1" style={{ borderColor: "var(--color-line)" }}>
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                router.push("/welcome");
+              }}
+              className="flex w-full items-center justify-between px-3 py-2 text-left text-[13.5px] transition-colors hover:bg-[var(--color-elevate)]"
+              style={{ color: "var(--color-ink-2)" }}
+              data-testid="new-workspace"
+            >
+              New workspace
+              <span aria-hidden style={{ color: "var(--color-ink-3)" }}>
+                +
+              </span>
+            </button>
+          </li>
         </ul>
       ) : null}
     </div>
