@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireSession } from '../middleware/auth.middleware.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
 import { requireFeature } from '../middleware/entitlement.middleware.js';
-import { compliancePackVerifyRateLimiter as publicVerifierRateLimiter } from '../middleware/rate-limit.middleware.js';
+import { compliancePackVerifyRateLimiter as publicVerifierRateLimiter, publicTrustCenterRateLimiter } from '../middleware/rate-limit.middleware.js';
 import {
   createTrustCenterController,
   publicTrustCenterController,
@@ -23,7 +23,7 @@ export const trustRouter = Router();
  * carries no session and asks for none, and the unguessable slug is the only
  * protection, so rotating the slug withdraws the page immediately.
  */
-trustRouter.get('/trust/:slug', publicTrustCenterController);
+trustRouter.get('/trust/:slug', publicTrustCenterRateLimiter, publicTrustCenterController);
 
 /**
  * Public and unauthenticated, because the person verifying a pack is an auditor

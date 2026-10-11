@@ -67,7 +67,7 @@ if (env.NODE_ENV !== 'test') {
  * shorter than a typical platform grace period, so the drain normally finishes on
  * its own terms and the deadline is the backstop rather than the mechanism.
  */
-const drainDeadlineMs = Number(process.env.SHUTDOWN_DRAIN_MS ?? 30_000);
+const drainDeadlineMs = env.SHUTDOWN_DRAIN_MS;
 
 const shutdown = (signal: string): void => {
   console.info(`[shutdown] ${signal} received, draining for up to ${drainDeadlineMs}ms`);

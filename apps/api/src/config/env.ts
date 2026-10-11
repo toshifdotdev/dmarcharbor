@@ -46,6 +46,17 @@ const envSchema = z.object({
    */
   APP_URL: z.string().url().default('http://localhost:3100'),
   EMAIL_PROVIDER: z.enum(['console', 'resend']).default('console'),
+  /**
+   * How long a shutdown is allowed to take before the process is killed anyway.
+   *
+   * Thirty seconds is longer than the requests this service considers reasonable
+   * and shorter than a typical platform grace period, so the drain normally
+   * finishes on its own terms and the deadline is the backstop rather than the
+   * mechanism. It used to be read straight from `process.env` with `Number(...)`,
+   * which accepted `"abc"` as `NaN` and `setTimeout(fn, NaN)` fires immediately:
+   * a typo turned a graceful drain into an instant exit with requests in flight.
+   */
+  SHUTDOWN_DRAIN_MS: z.coerce.number().int().positive().max(300_000).default(30_000),
   EMAIL_FROM: z.string().trim().min(3).default('DMARC Harbor <no-reply@dmarcharbor.com>'),
   RESEND_API_KEY: optionalSecret,
   GOOGLE_CLIENT_ID: optionalSecret,
@@ -284,7 +295,12 @@ if (parsed.data.NODE_ENV === 'production') {
     throw new Error('CORS_ORIGIN must name at least one origin in production.');
   }
   for (const origin of origins) {
-    if (!origin.startsWith('https://') && !origin.startsWith('http://localhost:') && !origin.startsWith('http://127.0.0.1:')) {
+    // No loopback exemption. This guard's job is to stop a deploy that named a
+    // localhost origin and therefore handed the browser a production deployment
+    // whose session cookies and CORS answers are for a machine nobody can reach.
+    // A platform that injects a loopback origin is describing itself wrongly, and
+    // the loud refusal is the point.
+    if (!origin.startsWith('https://')) {
       throw new Error('CORS_ORIGIN must contain an https URL in production.');
     }
   }

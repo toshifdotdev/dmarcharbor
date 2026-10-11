@@ -263,6 +263,30 @@ export const compliancePackVerifyRateLimiter = rateLimit({
   },
 });
 
+/**
+ * A brake on the public Trust Centre, which had none at all.
+ *
+ * The slug is unguessable, but an unguessable slug is not a rate limit: the page
+ * carries a client name, a domain and a compliance posture in clear, and there is
+ * no second factor on reading it. Without a limit one caller can walk the public
+ * surface, or simply hammer it, and nothing notices. The compliance verifier next
+ * door has had one since it was built.
+ */
+export const publicTrustCenterRateLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 30,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  store: rateLimitStoreFor('public-trust-center'),
+  keyGenerator: clientKey,
+  message: {
+    error: {
+      code: 'RATE_LIMITED',
+      message: 'Too many requests. Wait a minute and try again.',
+    },
+  },
+});
+
 export function createPublicReportRateLimiter(
   limit = env.PUBLIC_REPORT_RATE_LIMIT_PER_MINUTE,
 ): RateLimitRequestHandler {
