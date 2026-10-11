@@ -995,15 +995,41 @@ export async function runAlertRollups(now = new Date()): Promise<RollupResult[]>
   const staleThreshold = new Date(now.getTime() - env.ALERT_STALE_DAYS * 24 * 60 * 60 * 1000);
   const rollupInterval = env.ALERT_ROLLUP_HOURS * 60 * 60 * 1000;
 
-  const stale = await prisma.alertEvent.updateMany({
+  // Marked stale per workspace, not in one global sweep.
+  //
+  // A single updateMany across every organization returns one count, and that one
+  // count was being reported as each workspace's own markedStale: with three
+  // tenants holding stale alerts, every rollup email and every /ready consumer saw
+  // the total three times over. The tenants that actually have stale alerts are
+  // discovered first, then each is updated with the organization id in the where,
+  // so the number returned belongs to the workspace it is reported for.
+  const staleEligible = await prisma.alertEvent.findMany({
     where: {
       acknowledgedAt: null,
       resolvedAt: null,
       staleAt: null,
       triggeredAt: { lte: staleThreshold },
     },
-    data: { staleAt: now },
+    select: { organizationId: true },
+    distinct: ['organizationId'],
   });
+
+  const markedStaleByOrganization = new Map<string, number>();
+  for (const { organizationId } of staleEligible) {
+    const updated = await prisma.alertEvent.updateMany({
+      where: {
+        acknowledgedAt: null,
+        resolvedAt: null,
+        staleAt: null,
+        triggeredAt: { lte: staleThreshold },
+        organizationId,
+      },
+      data: { staleAt: now },
+    });
+    markedStaleByOrganization.set(organizationId, updated.count);
+  }
+  const markedStaleFor = (organizationId: string): number =>
+    markedStaleByOrganization.get(organizationId) ?? 0;
 
   const candidates = await prisma.alertEvent.findMany({
     where: {
@@ -1032,7 +1058,7 @@ export async function runAlertRollups(now = new Date()): Promise<RollupResult[]>
     const outstanding = exhausted.length ? exhausted : events;
 
     if (!outstanding.length) {
-      results.push({ organizationId, notified: false, eventCount: 0, markedStale: stale.count });
+      results.push({ organizationId, notified: false, eventCount: 0, markedStale: markedStaleFor(organizationId) });
       continue;
     }
 
@@ -1043,7 +1069,7 @@ export async function runAlertRollups(now = new Date()): Promise<RollupResult[]>
 
     const reference = lastNotified ?? outstanding[0].triggeredAt;
     if (now.getTime() - reference.getTime() < rollupInterval) {
-      results.push({ organizationId, notified: false, eventCount: outstanding.length, markedStale: stale.count });
+      results.push({ organizationId, notified: false, eventCount: outstanding.length, markedStale: markedStaleFor(organizationId) });
       continue;
     }
 
@@ -1134,11 +1160,14 @@ export async function runAlertRollups(now = new Date()): Promise<RollupResult[]>
       }
     }
 
-    results.push({ organizationId, notified: true, eventCount: outstanding.length, markedStale: stale.count });
+    results.push({ organizationId, notified: true, eventCount: outstanding.length, markedStale: markedStaleFor(organizationId) });
   }
 
-  if (stale.count > 0) {
-    console.info(`[alerts] marked ${stale.count} alert(s) stale after ${env.ALERT_STALE_DAYS} days unacknowledged`);
+  const totalMarkedStale = [...markedStaleByOrganization.values()].reduce((sum, count) => sum + count, 0);
+  if (totalMarkedStale > 0) {
+    console.info(
+      `[alerts] marked ${totalMarkedStale} alert(s) stale across ${markedStaleByOrganization.size} workspace(s) after ${env.ALERT_STALE_DAYS} days unacknowledged`,
+    );
   }
 
   return results;

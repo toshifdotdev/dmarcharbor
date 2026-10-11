@@ -832,8 +832,13 @@ export async function issueCompliancePack(input: {
 
   // An identical document for the same as of date has the same hash, which
   // would collide on the unique index. Reuse it rather than fail.
-  const existing = await prisma.compliancePack.findUnique({
-    where: { pdfHash: rendered.hash },
+  //
+  // Scoped to the requesting workspace. `pdfHash` is globally unique, so a
+  // workspace that happened to produce the same bytes as another tenant's pack
+  // got handed that other tenant's row back, reference and all, and never had a
+  // row of its own created.
+  const existing = await prisma.compliancePack.findFirst({
+    where: { pdfHash: rendered.hash, organizationId: input.organizationId },
     select: { id: true, createdAt: true, reference: true },
   });
 

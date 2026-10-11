@@ -1,7 +1,13 @@
 import { createHash } from 'node:crypto';
 import type { Request, Response } from 'express';
 import { prisma } from '../database/prisma.js';
-import { apiKeyCreateSchema, bulkClientsSchema, bulkDomainsSchema } from '../models/api.model.js';
+import {
+  apiClientCreateSchema,
+  apiDomainCreateSchema,
+  apiKeyCreateSchema,
+  bulkClientsSchema,
+  bulkDomainsSchema,
+} from '../models/api.model.js';
 import { resourceIdSchema } from '../models/client.model.js';
 import { EntitlementError, assertFeature } from '../services/entitlements/entitlement.service.js';
 import {
@@ -212,14 +218,20 @@ export async function listApiClientsController(request: Request, response: Respo
 
 export async function createApiClientController(request: Request, response: Response): Promise<void> {
   const organizationId = response.locals.organizationId;
-  const name = typeof request.body?.name === 'string' ? request.body.name.trim() : '';
-  const slug = typeof request.body?.slug === 'string' ? request.body.slug.trim() : undefined;
-  const rawDomains = Array.isArray(request.body?.domains) ? (request.body.domains as string[]) : [];
 
-  if (!name) {
-    response.status(400).json({ error: { code: 'INVALID_REQUEST', message: 'A client name is required.' } });
+  // The schemas that already described this body were never imported, so the
+  // controller read the raw body and re-implemented the checks loosely: no cap on
+  // the name, no pattern on the slug, and `domains` taken as `as string[]`, which
+  // let a non-string through to normaliseDomain and out as a 500 instead of a 400.
+  const parsed = apiClientCreateSchema.safeParse(request.body);
+  if (!parsed.success) {
+    response.status(400).json({
+      error: { code: 'INVALID_REQUEST', message: 'A client name is required.' },
+    });
     return;
   }
+
+  const { name, slug, domains: rawDomains } = parsed.data;
 
   const domains = rawDomains.map(normaliseDomain);
   if (domains.some((value) => value === null)) {
@@ -252,11 +264,17 @@ export async function createApiClientController(request: Request, response: Resp
 
 export async function createApiDomainController(request: Request, response: Response): Promise<void> {
   const organizationId = response.locals.organizationId;
-  const clientId = typeof request.body?.clientId === 'string' ? request.body.clientId : '';
-  const raw = typeof request.body?.name === 'string' ? request.body.name : '';
+
+  const parsed = apiDomainCreateSchema.safeParse(request.body);
+  if (!parsed.success) {
+    response.status(400).json({ error: { code: 'INVALID_REQUEST', message: 'A client and a domain name are required.' } });
+    return;
+  }
+
+  const { clientId, name: raw } = parsed.data;
   const name = normaliseDomain(raw);
 
-  if (!clientId || !name) {
+  if (!name) {
     response.status(400).json({ error: { code: 'INVALID_REQUEST', message: 'A client and a domain name are required.' } });
     return;
   }

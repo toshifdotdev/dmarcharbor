@@ -217,9 +217,21 @@ export async function buildDigestContent(
   };
 }
 
-export async function sendReportDigestNow(digestId: string, now = new Date()): Promise<DigestContent | null> {
-  const digest = await prisma.reportDigest.findUnique({
-    where: { id: digestId },
+/**
+ * `organizationId` is a required constraint, not a convenience.
+ *
+ * Taking only the digest id meant the service trusted its caller for tenancy: the
+ * controller happened to check first, which closed the hole today while leaving
+ * an unscoped read of another workspace's row one refactor away from being
+ * reachable.
+ */
+export async function sendReportDigestNow(
+  digestId: string,
+  organizationId: string,
+  now = new Date(),
+): Promise<DigestContent | null> {
+  const digest = await prisma.reportDigest.findFirst({
+    where: { id: digestId, organizationId },
     include: {
       organization: { select: { id: true, name: true } },
       domain: { select: { id: true, name: true } },
@@ -301,9 +313,19 @@ function isDigestDue(
   return now.getUTCDate() === digest.dayOfMonth;
 }
 
-export async function runReportDigests(now = new Date()): Promise<DigestRunResult[]> {
+/**
+ * The manual "run now" route on a workspace used to call this with no filter, so
+ * any member with `report: update` in one workspace could evaluate and email
+ * every tenant's digests. The scheduler still sweeps globally by passing nothing;
+ * the route now passes its own organizationId, which confines the blast radius to
+ * the workspace that asked.
+ */
+export async function runReportDigests(
+  now = new Date(),
+  organizationId?: string,
+): Promise<DigestRunResult[]> {
   const digests = await prisma.reportDigest.findMany({
-    where: { enabled: true },
+    where: { enabled: true, ...(organizationId ? { organizationId } : {}) },
     include: {
       organization: { select: { id: true, name: true } },
       domain: { select: { id: true, name: true } },

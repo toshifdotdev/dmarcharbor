@@ -78,8 +78,17 @@ function liveOverrides(
  * read. The subscription is still selected for the fields below, which are
  * genuinely provider state rather than plan state.
  */
-export async function resolveEntitlements(organizationId: string, now = new Date()): Promise<ResolvedEntitlements> {
-  const organization = await prisma.organization.findUnique({
+export async function resolveEntitlements(
+  organizationId: string,
+  now = new Date(),
+  // The client to read through. `withQuota` takes FOR UPDATE on the organization
+  // row and then has to make its decision from the same snapshot, not from a
+  // separate connection that can see either side of a concurrent plan write:
+  // passing the transaction client is what makes the lock cover the plan check
+  // rather than just the counter increment.
+  client: Pick<typeof prisma, 'organization'> = prisma,
+): Promise<ResolvedEntitlements> {
+  const organization = await client.organization.findUnique({
     where: { id: organizationId },
     select: {
       plan: true,
@@ -166,7 +175,7 @@ export async function withQuota<T>(
      */
     await tx.$queryRaw`SELECT id FROM "organization" WHERE id = ${organizationId} FOR UPDATE`;
 
-    const entitlements = await resolveEntitlements(organizationId, options.now);
+    const entitlements = await resolveEntitlements(organizationId, options.now, tx);
     const usage = await quotaUsage(organizationId, quota, entitlements.plan, options.now, tx);
 
     if (usage.used + requested > usage.limit) {

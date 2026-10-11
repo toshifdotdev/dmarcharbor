@@ -35,9 +35,16 @@ exportRouter.get(
   requireOrganizationPermission('report', 'read'),
   downloadExportController,
 );
+/**
+ * Delete is gated on `report: update`, not `report: read`.
+ *
+ * Revoking is destructive: it nulls the token and every link already emailed to
+ * the customer stops working. `read` is the permission a viewer holds, so a
+ * member who could only look at reports could end another member's export.
+ */
 exportRouter.delete(
   '/workspaces/:organizationId/exports/:exportId',
   requireSession,
-  requireOrganizationPermission('report', 'read'),
+  requireOrganizationPermission('report', 'update'),
   revokeExportController,
 );

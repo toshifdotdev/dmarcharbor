@@ -463,6 +463,19 @@ export async function executeErasure(
       users = (await prisma.user.deleteMany({ where: { id: { in: orphanedIds } } })).count;
     }
 
+    // The stored logo is read before the organization row goes, not after. The
+    // read used to sit below the delete, where it could only ever return null, so
+    // an erased workspace's logo stayed in the bucket: on the one scope where the
+    // asset matters, the comment claiming it "goes at the same time as the row
+    // that pointed at it" was exactly what did not happen.
+    const branding = await prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { brandLogoUrl: true },
+    });
+    if (branding?.brandLogoUrl) {
+      await deleteStoredLogo(objectKeyFromLogoUrl(branding.brandLogoUrl));
+    }
+
     // Organization deletion cascades to clients, domains, scans, reports,
     // forensic reports, alert rules, alert events, shares, digests, members,
     // invitations, overrides and the subscription.
@@ -476,17 +489,6 @@ export async function executeErasure(
     if (request.scope === 'CLIENT') {
       await prisma.client.deleteMany({ where: clientFilter });
     }
-  }
-
-  // A deletion request that skipped a stored file would not be a deletion, so
-  // the asset goes at the same time as the row that pointed at it.
-  const branding = await prisma.organization.findUnique({
-    where: { id: organizationId },
-    select: { brandLogoUrl: true },
-  });
-  await deleteStoredLogo(objectKeyFromLogoUrl(branding?.brandLogoUrl));
-  if (branding?.brandLogoUrl) {
-    await prisma.organization.update({ where: { id: organizationId }, data: { brandLogoUrl: null } });
   }
 
   await prisma.erasureRequest.update({

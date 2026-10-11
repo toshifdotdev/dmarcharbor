@@ -201,7 +201,7 @@ export async function sendReportDigestController(request: Request, response: Res
     return;
   }
 
-  const content = await sendReportDigestNow(digestId);
+  const content = await sendReportDigestNow(digestId, response.locals.organizationId);
   if (!content) {
     response.status(400).json({ error: { message: 'The digest could not be built for this domain.' } });
     return;
@@ -211,7 +211,10 @@ export async function sendReportDigestController(request: Request, response: Res
 }
 
 export async function runDigestsNowController(_request: Request, response: Response): Promise<void> {
-  const results = await runReportDigests();
+  // Scoped to the caller's workspace. Without the filter this route evaluated
+  // every tenant's digests, because the sweep behind it is global by design for
+  // the scheduler, and the route is where a member supplies their own scope.
+  const results = await runReportDigests(new Date(), response.locals.organizationId);
   response.json({ processed: results.length, sent: results.filter((result) => result.sent).length });
 }
 
