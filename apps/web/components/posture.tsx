@@ -77,18 +77,7 @@ export function TideLoader({ label = "Loading" }: { label?: string }) {
       aria-label={label}
       className="inline-flex items-center gap-3"
     >
-      <svg width="42" height="20" viewBox="0 0 120 60" fill="none" aria-hidden>
-        <g stroke="var(--color-accent)" strokeWidth="11" strokeLinecap="round">
-          <path
-            className="tide-1"
-            d="M18 22 C 32 10, 46 10, 60 22 C 74 34, 88 34, 102 22"
-          />
-          <path
-            className="tide-2"
-            d="M18 42 C 32 30, 46 30, 60 42 C 74 54, 88 54, 102 42"
-          />
-        </g>
-      </svg>
+      <TideMark />
       <span className="label">{label}</span>
       <style>{`
         .tide-1 { animation: tide 1.2s ease-in-out infinite; }
@@ -99,5 +88,38 @@ export function TideLoader({ label = "Loading" }: { label?: string }) {
         }
       `}</style>
     </span>
+  );
+}
+
+/**
+ * The mark alone, with no label beside it.
+ *
+ * Screen readers still get the state from the caller's own role="status" and
+ * sr-only text, so dropping the visible word costs nothing: a reader that
+ * announces "Loading" on every segment switch hears it once more than it needs
+ * to. The animation is the whole signal.
+ */
+export function TideMark() {
+  return (
+    <svg width="42" height="20" viewBox="0 0 120 60" fill="none" aria-hidden data-testid="tide-mark">
+      <g stroke="var(--color-accent)" strokeWidth="11" strokeLinecap="round">
+        <path
+          className="tide-1"
+          d="M18 22 C 32 10, 46 10, 60 22 C 74 34, 88 34, 102 22"
+        />
+        <path
+          className="tide-2"
+          d="M18 42 C 32 30, 46 30, 60 42 C 74 54, 88 54, 102 42"
+        />
+      </g>
+      <style>{`
+        .tide-1 { animation: tide 1.2s ease-in-out infinite; }
+        .tide-2 { animation: tide 1.2s ease-in-out infinite 0.15s; }
+        @keyframes tide {
+          0%, 100% { transform: translateX(0); }
+          50% { transform: translateX(14px); }
+        }
+      `}</style>
+    </svg>
   );
 }

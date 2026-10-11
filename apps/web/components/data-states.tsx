@@ -15,21 +15,30 @@
  */
 
 import { useRouter } from "next/navigation";
-import { TideLoader } from "@/components/posture";
+import { TideMark } from "@/components/posture";
 
+/**
+ * The mark alone, centred, with no border around it and no word beside it.
+ *
+ * It used to be a bordered panel with the word "Loading" next to the mark, which
+ * read as a small widget that had failed to fill rather than a page that was
+ * waiting. The wave is the signal and it is already animated, so the box and the
+ * label were both saying what the mark says on its own.
+ *
+ * The label is kept for screen readers as sr-only text: an accessible name has to
+ * exist, but a sighted user does not need to be told in words what an animated
+ * mark already shows.
+ */
 export function LoadingState({ label = "Loading" }: { label?: string }) {
   return (
     <div
       role="status"
       aria-live="polite"
       data-testid="state-loading"
-      className="flex flex-col items-center gap-4 rounded-[2px] border px-5 py-10"
-      style={{
-        background: "var(--color-surface)",
-        borderColor: "var(--color-line)",
-      }}
+      className="flex items-center justify-center px-5 py-12"
     >
-      <TideLoader label={label} />
+      <span className="sr-only">{label}</span>
+      <TideMark />
     </div>
   );
 }
