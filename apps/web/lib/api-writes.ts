@@ -52,25 +52,36 @@ export async function acceptDpa(
   }
 }
 
-export async function createWorkspace(body: {
-  name: string;
-  slug: string;
-  /**
-   * The two Data Processing Agreement confirmations, required by the API.
-   *
-   * They are sent on the creation call rather than recorded afterwards because that is
-   * the only arrangement where refusing is possible. A follow-up call can simply be
-   * skipped, and this one was: the welcome screen ticked both boxes, created the
-   * workspace, and the acceptance was left unrecorded. Every workspace therefore had
-   * `dpaAcceptedAt: null` while the UI implied it had been agreed to.
-   *
-   * This function only exists to serve the welcome flow, which validates both boxes
-   * before it gets here, so the flags are required in the type rather than defaulted.
-   * A caller that has not established the agreement should not be able to compile.
-   */
-  dpaHasRead: true;
-  dpaConfirmsAuthority: true;
-}): Promise<{ id: string } | null> {
+  export async function createWorkspace(body: {
+    name: string;
+    slug: string;
+    /**
+     * The Terms of Service acceptance, required by the API.
+     *
+     * It sits on the creation call for the same reason as the DPA flags below, and
+     * it was in a worse position before: it lived only as a checkbox on the billing
+     * page, so a customer on the free plan never accepted the document the service
+     * is provided under, and a caller that ignored the UI could reach the paid path
+     * without it. Required in the type so a caller that has not established the
+     * agreement cannot compile.
+     */
+    tosAccepted: true;
+    /**
+     * The two Data Processing Agreement confirmations, required by the API.
+     *
+     * They are sent on the creation call rather than recorded afterwards because that is
+     * the only arrangement where refusing is possible. A follow-up call can simply be
+     * skipped, and this one was: the welcome screen ticked both boxes, created the
+     * workspace, and the acceptance was left unrecorded. Every workspace therefore had
+     * `dpaAcceptedAt: null` while the UI implied it had been agreed to.
+     *
+     * This function only exists to serve the welcome flow, which validates both boxes
+     * before it gets here, so the flags are required in the type rather than defaulted.
+     * A caller that has not established the agreement should not be able to compile.
+     */
+    dpaHasRead: true;
+    dpaConfirmsAuthority: true;
+  }): Promise<{ id: string } | null> {
   const jar = await cookies();
   const header = new Headers({ "content-type": "application/json" });
   const session = jar.get("better-auth.session_token");

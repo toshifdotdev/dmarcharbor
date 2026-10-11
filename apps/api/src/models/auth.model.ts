@@ -8,6 +8,24 @@ export const createWorkspaceSchema = z.object({
     .min(2)
     .max(50)
     .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+
+  /**
+   * The Terms of Service, required.
+   *
+   * Same reasoning as the DPA below and in the same place: a checkbox that only
+   * exists in the browser is not an acceptance. This one was in a worse position
+   * than the DPA, because it lived on the billing page. A customer on the free
+   * plan never reached billing and so never accepted the document the service is
+   * provided under, while the paid path could be reached by a caller that ignored
+   * the UI.
+   *
+   * Deliberately optional in the schema, for the same reason as the DPA: the
+   * refusal has to be ours, carrying the document URL, rather than a generic
+   * "enter a valid workspace name and slug" at the moment someone needs to go and
+   * read what they are being asked to accept.
+   */
+  tosAccepted: z.boolean().optional(),
+
   /**
    * The two Data Processing Agreement confirmations, required.
    *

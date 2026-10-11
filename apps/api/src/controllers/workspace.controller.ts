@@ -5,7 +5,9 @@ import { createWorkspaceSchema, workspaceIdSchema } from '../models/auth.model.j
 import {
   dpaPath,
   recordDpaAcceptance,
+  recordTosAcceptance,
   rollbackWorkspaceWithoutAcceptance,
+  tosPath,
 } from '../services/dpa-acceptance.service.js';
 
 export async function listWorkspaces(request: Request, response: Response): Promise<void> {
@@ -42,6 +44,28 @@ export async function createWorkspace(request: Request, response: Response): Pro
     return;
   }
 
+  /**
+   * The Terms of Service is checked here, on the same request that creates the
+   * workspace.
+   *
+   * It used to be a checkbox on the billing page and nothing else: no field, no
+   * server check, no record. That left two holes. A caller that ignored the UI
+   * could start a paid subscription without ever accepting the document the
+   * service is provided under, and a customer on the free plan never saw it at
+   * all because they never reached billing. An acceptance that exists only in a
+   * browser's React state is not an acceptance.
+   */
+  if (parsed.data.tosAccepted !== true) {
+    response.status(400).json({
+      error: {
+        code: 'TERMS_NOT_ACCEPTED',
+        message: 'The Terms of Service must be accepted before a workspace can be created.',
+        tosUrl: tosPath,
+      },
+    });
+    return;
+  }
+
   const workspace = await auth.api.createOrganization({
     // The confirmations are ours, not Better Auth's, so they are stripped before
     // the body is handed over rather than relying on it to ignore extras.
@@ -71,13 +95,24 @@ export async function createWorkspace(request: Request, response: Response): Pro
    */
   try {
     const session = await auth.api.getSession({ headers: fromNodeHeaders(request.headers) });
+    const actorEmail = session?.user?.email ?? 'unknown';
+    const actorUserId = session?.user?.id ?? null;
+    const ipAddress = request.ip ?? null;
+
     await recordDpaAcceptance({
       organizationId,
-      actorUserId: session?.user?.id ?? null,
-      actorEmail: session?.user?.email ?? 'unknown',
+      actorUserId,
+      actorEmail,
       hasRead: true,
       confirmsAuthority: true,
-      ipAddress: request.ip ?? null,
+      ipAddress,
+    });
+
+    await recordTosAcceptance({
+      organizationId,
+      actorUserId,
+      actorEmail,
+      ipAddress,
     });
   } catch (error) {
     await rollbackWorkspaceWithoutAcceptance(organizationId);

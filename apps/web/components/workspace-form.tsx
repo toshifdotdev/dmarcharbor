@@ -6,19 +6,23 @@ import Link from "next/link";
 /**
  * workspace-form.tsx — the create-workspace form on /welcome.
  *
- * Two boxes, both required, neither pre-ticked: acceptance AND authority. The
- * server action refuses without both (fail closed: an unchecked box is a
- * refusal, never a silent success) and records the acceptance through
- * POST /api/workspaces/:id/dpa-acceptance, because an acceptance nobody can
+ * Three boxes, all required, none pre-ticked: the Terms of Service, then the two
+ * Data Processing Agreement confirmations (acceptance AND authority). The server
+ * action refuses without all three, failing closed, and records each acceptance
+ * against the workspace on the creation call itself — an acceptance nobody can
  * point at in the compliance chain is not evidence.
  *
- * Errors are inline and named: a duplicate slug or a refused acceptance shows
- * the reason on the form. It never replaces the whole app with an error page.
+ * The Terms box used to live on the billing page, which left two holes. A
+ * customer on the free plan never reached billing, so they used the whole product
+ * without ever seeing the document the service is provided under; and the paid
+ * path could be reached by a caller that ignored the checkbox entirely, because
+ * it existed only in React state and was never sent or checked. It belongs here,
+ * beside the DPA, where it is sent and stored.
  */
 
 export type WorkspaceFormState = {
   error: string | null;
-  field: "name" | "slug" | "dpa" | null;
+  field: "name" | "slug" | "dpa" | "tos" | null;
 };
 
 export function WorkspaceForm({
@@ -67,11 +71,21 @@ export function WorkspaceForm({
           }}
         />
       </label>
-      {/* Two boxes, both required, neither pre-ticked. The second is the one
-          that matters: an employee signing up has not been authorised by their
-          firm. */}
+      {/* Three boxes, all required, none pre-ticked. The authority one is the
+          one that matters: an employee signing up has not been authorised by
+          their firm. */}
       <fieldset className="mt-1 flex flex-col gap-2.5">
         <legend className="label">Before you create the workspace</legend>
+        <label className="flex items-start gap-2.5 text-[13px] leading-[1.6]" style={{ color: "var(--color-ink-2)" }}>
+          <input type="checkbox" name="tos-accept" required className="mt-1" />
+          <span>
+            I have read and accept the{" "}
+            <Link href="/terms" target="_blank" className="underline" style={{ color: "var(--color-ink)" }}>
+              Terms of Service
+            </Link>
+            .
+          </span>
+        </label>
         <label className="flex items-start gap-2.5 text-[13px] leading-[1.6]" style={{ color: "var(--color-ink-2)" }}>
           <input type="checkbox" name="dpa-accept" required className="mt-1" />
           <span>

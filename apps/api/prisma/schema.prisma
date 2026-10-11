@@ -114,7 +114,18 @@ model Organization {
   /// The version matters more than the timestamp. A customer auditor's first
   /// question is which document was agreed to, and an acceptance with no version
   /// cannot answer it.
-  dpaAcceptedAt         DateTime?
+    dpaAcceptedAt         DateTime?
+    /// Terms of Service acceptance, recorded on the workspace the way the DPA is.
+    ///
+    /// It lived only in a browser checkbox on the billing page, which meant it was
+    /// never stored and never checked server side: a caller that ignored the UI
+    /// could start a paid subscription without it, and a customer on the free plan
+    /// never saw the document the service is provided under. Moving it here puts it
+    /// where the DPA already is, which is the only place an acceptance can be proven.
+    tosAcceptedAt          DateTime?
+    tosVersion             String?
+    tosAcceptedByEmail     String?
+    tosAcceptedById        String?
   dpaVersion            String?
   /// The user who ticked the boxes, retained because "who signed" is asked and
   /// "yes, someone did" is not an answer.
@@ -1448,9 +1459,14 @@ enum AuditAction {
   BILLING_PLAN_CHANGE_REFUSED
   BILLING_CANCELLED
   BILLING_RESUMED
-  /// Recorded so a dispute about whether someone was authorised to accept the
-  /// Data Processing Agreement on the organisation's behalf is settled by a row.
-  DPA_ACCEPTED
+    /// Recorded so a dispute about whether someone was authorised to accept the
+    /// Data Processing Agreement on the organisation's behalf is settled by a row.
+    DPA_ACCEPTED
+    /// The Terms of Service, recorded on the workspace the same way the DPA is.
+    /// It previously existed only as a browser checkbox on the billing page, which
+    /// meant a free-plan customer never accepted the document the service is
+    /// provided under and the paid path could be reached without it.
+    TERMS_ACCEPTED
   TRUST_CENTER_CREATED
   TRUST_CENTER_REVOKED
   COMPLIANCE_PACK_ISSUED

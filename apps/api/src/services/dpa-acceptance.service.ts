@@ -157,3 +157,85 @@ export async function rollbackWorkspaceWithoutAcceptance(organizationId: string)
   }
 }
 
+/* ------------------------------------------------------- Terms of Service */
+
+/**
+ * The version of the Terms of Service currently published at `/terms`.
+ *
+ * Constant and explicit, the same reason as the DPA's: if the wording changes and
+ * this does not, a recorded acceptance is of a document the customer never saw.
+ */
+export const currentTosVersion = '1.0';
+
+/** Where the agreement is published, for the rejection message. */
+export const tosPath = '/terms';
+
+export interface TosAcceptance {
+  accepted: boolean;
+  version: string | null;
+  currentVersion: string;
+  /** True when an older version was accepted and the current one has not been. */
+  requiresReconsent: boolean;
+  acceptedAt: Date | null;
+  acceptedByEmail: string | null;
+  tosUrl: string;
+}
+
+export async function tosAcceptanceFor(organizationId: string): Promise<TosAcceptance> {
+  const organization = await prisma.organization.findUniqueOrThrow({
+    where: { id: organizationId },
+    select: { tosAcceptedAt: true, tosVersion: true, tosAcceptedByEmail: true },
+  });
+
+  const accepted = organization.tosAcceptedAt !== null;
+
+  return {
+    accepted,
+    version: organization.tosVersion,
+    currentVersion: currentTosVersion,
+    requiresReconsent: accepted && organization.tosVersion !== currentTosVersion,
+    acceptedAt: organization.tosAcceptedAt,
+    acceptedByEmail: organization.tosAcceptedByEmail,
+    tosUrl: tosPath,
+  };
+}
+
+/**
+ * Records acceptance of the Terms of Service.
+ *
+ * One confirmation, not two, and that is a real difference from the DPA: an
+ * employee accepting the terms on behalf of their firm is the normal case here,
+ * so demanding a second "I am authorised" box would block the ordinary signup
+ * while meaning nothing. The DPA carries that extra box because it binds the firm
+ * to how *we* handle data.
+ */
+export async function recordTosAcceptance(input: {
+  organizationId: string;
+  actorUserId?: string | null;
+  actorEmail: string;
+  ipAddress?: string | null;
+}): Promise<TosAcceptance> {
+  await prisma.organization.update({
+    where: { id: input.organizationId },
+    data: {
+      tosAcceptedAt: new Date(),
+      tosVersion: currentTosVersion,
+      tosAcceptedById: input.actorUserId ?? null,
+      tosAcceptedByEmail: input.actorEmail,
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId ?? undefined,
+      action: 'TERMS_ACCEPTED',
+      targetType: 'organization',
+      targetId: input.organizationId,
+      detail: { version: currentTosVersion, ipAddress: input.ipAddress ?? null },
+    },
+  });
+
+  return tosAcceptanceFor(input.organizationId);
+}
+

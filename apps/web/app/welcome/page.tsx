@@ -34,9 +34,17 @@ async function createWorkspaceAction(
       field: "slug",
     };
   }
-  // Both boxes are real gates: a workspace is created only by someone who
-  // accepted the DPA AND is authorised to accept it for the organisation.
-  // Unchecked means no: this is the refusal, not a validation nicety.
+  // Both sets of boxes are real gates. The Terms of Service is checked first
+  // because it is the document the service is provided under, and a customer who
+  // never reaches the paid path still has to have accepted it. Then the two DPA
+  // boxes: you have read the agreement, and you are authorised to accept it for
+  // the organisation. Unchecked means no: this is the refusal, not a nicety.
+  if (formData.get("tos-accept") !== "on") {
+    return {
+      error: "Tick the box to accept the Terms of Service. It is the agreement the service is provided under, and it applies on every plan including the free one.",
+      field: "tos",
+    };
+  }
   if (formData.get("dpa-accept") !== "on" || formData.get("dpa-authorised") !== "on") {
     return {
       error: "Tick both boxes: you have read and accepted the Data Processing Agreement, and you are authorised to accept it for this organisation.",
@@ -63,6 +71,7 @@ async function createWorkspaceAction(
     created = await createWorkspace({
       name,
       slug,
+      tosAccepted: true,
       dpaHasRead: true,
       dpaConfirmsAuthority: true,
     });

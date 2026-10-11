@@ -75,7 +75,7 @@ export function PlanPicker({
   // The Terms/Refund acknowledgement gates the PAID checkout only: it is
   // our own rendered acceptance, so the buyer sees our documents and not
   // only Paddle's hosted page. Never pre-ticked.
-  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [refundAccepted, setRefundAccepted] = useState(false);
 
   const byTier = new Map(plans.map((p) => [p.tier, p]));
   const ordered = order
@@ -147,11 +147,11 @@ export function PlanPicker({
 
     // The paid path needs the Terms/Refund acceptance: real control, real
     // gate. The free plan and plan changes above are not purchases.
-    if (!termsAccepted) {
+    if (!refundAccepted) {
       setBusyPlan(null);
       setError({
         message:
-          "Please accept the Terms of Service and Refund Policy below before checking out.",
+          "Please accept the Refund Policy below before checking out. The Terms of Service was accepted when you created the workspace.",
       });
       return;
     }
@@ -200,26 +200,28 @@ export function PlanPicker({
         </span>
       </div>
 
-      {/* The paid checkout needs the buyer's own acceptance of OUR documents
-          before Paddle's hosted page shows its own. Real control, never
-          pre-ticked — a pre-ticked box is worse than no box. */}
+      {/* The paid checkout needs the buyer's own acceptance of the Refund Policy
+          before the provider's hosted page shows its own. Real control, never
+          pre-ticked — a pre-ticked box is worse than no box.
+
+          The Terms of Service used to be checked here too, and it has moved to
+          workspace creation, where every account passes it. Leaving it here as
+          well would mean a free-plan customer could use the product having never
+          accepted the document the service is provided under, which is the hole
+          this closes. */}
       <label
         className="flex items-start gap-2.5 rounded-[2px] border px-4 py-3 text-[13px] leading-[1.6]"
         style={{ borderColor: "var(--color-line-strong)", color: "var(--color-ink-2)" }}
       >
         <input
           type="checkbox"
-          checked={termsAccepted}
-          onChange={(e) => setTermsAccepted(e.target.checked)}
-          data-testid="checkout-terms-ack"
+          checked={refundAccepted}
+          onChange={(e) => setRefundAccepted(e.target.checked)}
+          data-testid="checkout-refund-ack"
           className="mt-1"
         />
         <span>
           I have read and accept the{" "}
-          <a href="/terms" target="_blank" rel="noreferrer" className="underline" style={{ color: "var(--color-ink)" }}>
-            Terms of Service
-          </a>
-          {" "}and the{" "}
           <a href="/refunds" target="_blank" rel="noreferrer" className="underline" style={{ color: "var(--color-ink)" }}>
             Refund Policy
           </a>
