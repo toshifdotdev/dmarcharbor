@@ -48,11 +48,18 @@ export function validateLogoUrl(value: string): { url: string } | { error: strin
 export function validateCustomDomain(value: string): { domain: string } | { error: string } {
   const raw = value.trim();
 
+  // A bare hostname is what people type. The form asks for "portal.clientbrand.example"
+  // because that is the thing the customer actually owns, so refusing it until the
+  // user works out we wanted "https://" first is the tool showing through. Only
+  // a value that already carries a scheme is left alone, and the scheme is
+  // dropped either way: what is stored and looked up is the host.
+  const candidate = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`;
+
   let parsed: URL;
   try {
-    parsed = new URL(raw);
+    parsed = new URL(candidate);
   } catch {
-    return { error: 'Include the scheme, for example https://reports.yourdomain.com.' };
+    return { error: 'That is not a usable domain name, for example portal.clientbrand.example.' };
   }
 
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
@@ -64,7 +71,7 @@ export function validateCustomDomain(value: string): { domain: string } | { erro
   // the host is used directly rather than being passed back through it.
   const domain = parsed.hostname.toLowerCase();
   if (!domain || !domain.includes('.')) {
-    return { error: 'That is not a usable domain name.' };
+    return { error: 'That is not a usable domain name, for example portal.clientbrand.example.' };
   }
 
   return { domain };

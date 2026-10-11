@@ -156,7 +156,18 @@ describe('white label branding', () => {
 
     const ok = validateCustomDomain('https://reports.harbour.test');
     expect('domain' in ok && ok.domain).toBe('reports.harbour.test');
-    expect('error' in validateCustomDomain('reports.harbour.test')).toBe(true);
+    // The form asks for a bare hostname, because that is the thing the customer
+    // owns. Refusing it until they guess our URL parser wanted a scheme meant the
+    // placeholder in the box was a value the API would reject.
+    const bare = validateCustomDomain('reports.harbour.test');
+    expect('domain' in bare && bare.domain).toBe('reports.harbour.test');
+    expect(validateCustomDomain('https://reports.harbour.test/with-path') && 'domain' in validateCustomDomain('https://reports.harbour.test/with-path'));
+    const withPath = validateCustomDomain('https://reports.harbour.test/with-path');
+    expect('domain' in withPath && withPath.domain).toBe('reports.harbour.test');
+    const notADomain = validateCustomDomain('not a domain');
+    expect('error' in notADomain).toBe(true);
+    const noDot = validateCustomDomain('localhost');
+    expect('error' in noDot).toBe(true);
   });
 
   it('saves a logo and colours on an Admiralty workspace', async () => {
