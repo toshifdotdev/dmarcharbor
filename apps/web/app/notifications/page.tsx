@@ -5,10 +5,16 @@ import { NotificationCenter } from "@/components/notification-center";
 /**
  * The notification inbox.
  *
- * The one screen here that is not workspace scoped. Every endpoint it needs is
- * `/api/me/...`, so it renders without an active workspace: somebody signed in
- * with no workspace yet still has alert preferences and read state, and
- * redirecting them to /welcome would hide both.
+ * The inbox itself is not workspace scoped: its reads and writes are
+ * `/api/me/notifications` and `/api/me/:id/notification-preferences`, keyed to
+ * the signed-in user rather than to a workspace.
+ *
+ * The screen still requires a workspace, and that is not an oversight. The
+ * controls below the inbox send digests and poll the report mailbox, and both
+ * are `/api/workspaces/:id/...`, so they need a scope. Someone signed in with no
+ * workspace cannot use those, and sending them to /welcome is right. The comment
+ * here used to claim the page rendered without a workspace; it does not, because
+ * `Shell` requires one for the switcher, and the claim was never true.
  *
  * Deliberately does no reading of its own, not even server side. The inbox and
  * the preferences both need the session user id, and `lib/session.ts` hands back
