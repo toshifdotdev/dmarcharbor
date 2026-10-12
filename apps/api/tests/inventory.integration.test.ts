@@ -57,7 +57,7 @@ async function setup() {
 
   const workspace = await agent.post('/api/workspaces').send({
     name: 'Inventory Agency',
-    slug: `inv-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
+    slug: `inv-${Date.now()}-${fixtureId}`, tosAccepted: true, dpaHasRead: true, dpaConfirmsAuthority: true});
   expect(workspace.status).toBe(201);
 
   const organizationId = workspace.body.id as string;
@@ -288,12 +288,13 @@ describe('data inventory', () => {
     expect(notices.map((entry) => entry.key)).toContain('subscription');
     expect(notices.map((entry) => entry.key)).not.toContain('entitlementOverride');
     /**
-     * Two, not one. Creating the workspace recorded a DPA acceptance and wrote an
-     * audit row for it, so the organisation genuinely holds two audit records by the
-     * time this runs. The point of the assertion is that the inventory counts and
-     * discloses the ones that exist, not how many there are.
+     * Three, not two. Creating a workspace records the DPA acceptance *and* the
+     * Terms of Service acceptance, each with its own audit row, so the
+     * organisation genuinely holds three audit records by the time this runs. The
+     * point of the assertion is that the inventory counts and discloses the ones
+     * that exist, not how many there are.
      */
-    expect(inventory.counts.auditLog).toBe(2);
+    expect(inventory.counts.auditLog).toBe(3);
     expect(inventory.counts.entitlementOverride).toBe(1);
   });
 });

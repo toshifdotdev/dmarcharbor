@@ -45,7 +45,7 @@ async function setupWorkspace(plan: PlanTier = 'HARBOR') {
 
   const workspace = await agent
     .post('/api/workspaces')
-    .send({ name: 'Northgate Digital', slug: `northgate-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
+    .send({ name: 'Northgate Digital', slug: `northgate-${Date.now()}-${fixtureId}`, tosAccepted: true, dpaHasRead: true, dpaConfirmsAuthority: true});
   const organizationId = workspace.body.id as string;
 
   if (plan !== 'MOORING') {

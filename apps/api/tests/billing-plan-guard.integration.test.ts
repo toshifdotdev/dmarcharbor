@@ -42,7 +42,7 @@ async function workspaceWithClients(
 
   const workspace = await agent.post('/api/workspaces').send({
     name: 'Guard Workspace',
-    slug: `guard-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
+    slug: `guard-${Date.now()}-${fixtureId}`, tosAccepted: true, dpaHasRead: true, dpaConfirmsAuthority: true});
   expect(workspace.status).toBe(201);
   const organizationId = workspace.body.id as string;
 

@@ -60,12 +60,29 @@ export async function countCountedDomains(
    */
   client: Prisma.TransactionClient | typeof prisma = prisma,
 ): Promise<number> {
+  return countCountedDomainsIn([organizationId], retentionDays, now, client);
+}
+
+/**
+ * Counts domains across a set of workspaces at once.
+ *
+ * A quota is a property of the plan the account bought, so it has to be counted
+ * where the plan applies. Counting a single workspace would let a portfolio be
+ * split across more containers to fit under the same limit twice, which is how
+ * the workspace allowance becomes the only limit that matters.
+ */
+export async function countCountedDomainsIn(
+  organizationIds: string[],
+  retentionDays: number,
+  now = new Date(),
+  client: Prisma.TransactionClient | typeof prisma = prisma,
+): Promise<number> {
   const activeSince = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1000);
   const graceSince = new Date(now.getTime() - domainGraceDays * 24 * 60 * 60 * 1000);
 
   return client.domain.count({
     where: {
-      client: { organizationId },
+      client: { organizationId: { in: organizationIds } },
       OR: [{ dmarcReports: { some: { receivedAt: { gte: activeSince } } } }, { createdAt: { gte: graceSince } }],
     },
   });

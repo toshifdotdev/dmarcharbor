@@ -1,4 +1,4 @@
-﻿import { AlertMetric, AlertOperator } from '@prisma/client';
+import { AlertMetric, AlertOperator } from '@prisma/client';
 import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
@@ -114,7 +114,7 @@ async function createWorkspace(
 
   const workspace = await agent.post('/api/workspaces').send({
     name: 'Onboarding Agency',
-    slug: `onboarding-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
+    slug: `onboarding-${Date.now()}-${fixtureId}`, tosAccepted: true, dpaHasRead: true, dpaConfirmsAuthority: true});
   expect(workspace.status).toBe(201);
   await grantPlan(workspace.body.id);
 

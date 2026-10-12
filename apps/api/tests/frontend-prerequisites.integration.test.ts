@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { ssoIdentifiersFor, callbackUrlsFor } from '../src/services/sso/sso-flow.service.js';
+import { grantPlan } from './helpers/plan.js';
 
 /**
  * The three backend prerequisites the frontend work was blocked on: the IdP
@@ -29,19 +30,18 @@ async function workspaceOwner(label: string, plan?: string) {
   const agent = request.agent(app);
   expect((await agent.post('/api/auth/sign-in/email').send({ email, password })).status).toBe(200);
 
-  const created = await agent.post('/api/workspaces').send({ name: 'Agency', slug: `${label}-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
+    const created = await agent.post('/api/workspaces').send({ name: 'Agency', slug: `${label}-${Date.now()}-${fixtureId}`, tosAccepted: true, dpaHasRead: true, dpaConfirmsAuthority: true});
   expect(created.status).toBe(201);
   const organizationId = created.body.id as string;
   const userId = created.body.userId as string | undefined;
 
-  if (plan) {
-    await prisma.subscription.upsert({
-      where: { organizationId },
-      create: { organizationId, plan: plan as never, status: 'ACTIVE', provider: 'NONE' },
-      update: { plan: plan as never, status: 'ACTIVE' },
-    });
-    await prisma.organization.update({ where: { id: organizationId }, data: { plan: plan as never } });
-  }
+    if (plan) {
+      // Through the real write path, because the plan now lives on the account.
+      // Writing the workspace column directly leaves the shadow paid while
+      // entitlement resolution keeps reading the account's free tier, so every
+      // feature gate below answers 402 against a subscription that says otherwise.
+      await grantPlan(organizationId, plan as never);
+    }
 
   const resolvedUserId =
     userId ??

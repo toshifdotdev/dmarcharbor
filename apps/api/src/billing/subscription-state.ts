@@ -95,25 +95,39 @@ export async function claimBillingEvent(tx: Prisma.TransactionClient, event: Bil
 }
 
 /**
- * The single place a workspace's plan is written.
+ * The single place a plan is written.
  *
- * There are two records that hold a plan and they must never disagree:
- * `Organization.plan`, which is what entitlement resolution, the compliance
- * pack, the erasure inventory and the Trust Center all read, and
- * `Subscription.plan`, which is the mirror of what the provider says.
+ * There are three records that hold a plan and they must never disagree:
+ * `User.plan`, which is what entitlement resolution now reads because a plan is
+ * something a person buys rather than a container they own; `Organization.plan`,
+ * the shadow every other reader and the provider mapping still use; and
+ * `Subscription.plan`, the mirror of what the provider says.
  *
- * They previously drifted because each writer touched a different one.
- * `applyDuePendingPlans` wrote only the organisation, so a scheduled downgrade
- * updated the billing page and left every quota on the old tier, while
- * `resolveEntitlements` read the subscription and therefore contradicted the
- * compliance pack reading the organisation. Reconciliation then read the stale
- * mirror and wrote the old tier back over the new one.
+ * Each writer previously touched a different one, so the compliance pack, the
+ * billing page and the quota disagreed about what tier a customer was on. All
+ * three now move together or not at all.
  *
- * Both now move together or not at all.
+ * Exported because billing has more than one writer: `applyBillingEvent`,
+ * `applyDuePendingPlans`, the reconciliation path and the immediate plan change
+ * all reach it, and a duplicate of this function is how the disagreement returns.
  */
-async function writePlan(tx: Prisma.TransactionClient, organizationId: string, plan: PlanTier): Promise<void> {
+export async function writePlan(tx: Prisma.TransactionClient, organizationId: string, plan: PlanTier): Promise<void> {
   await tx.organization.update({ where: { id: organizationId }, data: { plan } });
   await tx.subscription.updateMany({ where: { organizationId }, data: { plan } });
+
+  // The account. Resolved from the workspace's owner rather than passed in,
+  // because every billing event arrives naming a workspace: a provider webhook
+  // carries the provider's subscription id, which matches the workspace the
+  // checkout was started from. The account behind it is what the plan now
+  // belongs to. A workspace whose owner row has gone has no account to write,
+  // and the shadow above is what keeps it legible.
+  const owner = await tx.member.findFirst({
+    where: { organizationId, role: 'owner' },
+    select: { userId: true },
+  });
+  if (owner) {
+    await tx.user.update({ where: { id: owner.userId }, data: { plan } });
+  }
 }
 
 export async function applyBillingEvent(event: BillingEvent): Promise<ApplyEventResult> {

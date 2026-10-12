@@ -86,7 +86,7 @@ async function setupWorkspace(plan: PlanTier = 'HARBOR') {
   await prisma.user.update({ where: { email }, data: { emailVerified: true } });
   expect((await agent.post('/api/auth/sign-in/email').send({ email, password })).status).toBe(200);
 
-  const workspace = await agent.post('/api/workspaces').send({ name: 'Northgate Digital', slug: `pack-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
+  const workspace = await agent.post('/api/workspaces').send({ name: 'Northgate Digital', slug: `pack-${Date.now()}-${fixtureId}`, tosAccepted: true, dpaHasRead: true, dpaConfirmsAuthority: true});
   const organizationId = workspace.body.id as string;
   if (plan !== 'MOORING') {
     await grantPlan(organizationId, plan);

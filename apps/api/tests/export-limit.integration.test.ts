@@ -32,7 +32,7 @@ async function setup(domainCount: number) {
   const created = await agent.post('/api/workspaces').send({
     name: 'Limit Agency',
     slug: `exp-limit-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    dpaHasRead: true,
+    tosAccepted: true, dpaHasRead: true,
     dpaConfirmsAuthority: true,
   });
   const organizationId = created.body.id as string;

@@ -54,7 +54,7 @@ async function setup() {
 
   const workspace = await agent.post('/api/workspaces').send({
     name: 'Harden Agency',
-    slug: `harden-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
+    slug: `harden-${Date.now()}-${fixtureId}`, tosAccepted: true, dpaHasRead: true, dpaConfirmsAuthority: true});
   expect(workspace.status).toBe(201);
   await grantPlan(workspace.body.id);
 

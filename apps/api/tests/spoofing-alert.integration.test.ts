@@ -61,7 +61,7 @@ async function createWorkspaceDomain() {
 
   const workspace = await agent.post('/api/workspaces').send({
     name: 'Spoof Agency',
-    slug: `spoof-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
+    slug: `spoof-${Date.now()}-${fixtureId}`, tosAccepted: true, dpaHasRead: true, dpaConfirmsAuthority: true});
   await grantPlan(workspace.body.id);
 
   const client = await agent.post(`/api/workspaces/${workspace.body.id}/clients`).send({

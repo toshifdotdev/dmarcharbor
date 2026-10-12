@@ -54,7 +54,7 @@ async function paidWorkspace(label: string, firstChargeAt: Date | null, plan = '
   const created = await agent.post('/api/workspaces').send({
     name: 'Agency',
     slug: `${label}-${Date.now()}-${fixtureId}`,
-    dpaHasRead: true,
+    tosAccepted: true, dpaHasRead: true,
     dpaConfirmsAuthority: true,
   });
   const organizationId = created.body.id as string;
@@ -90,7 +90,7 @@ describe('refund eligibility against the published guarantee', () => {
     const created = await agent.post('/api/workspaces').send({
       name: 'Free Agency',
       slug: `never-paid-${Date.now()}-${fixtureId}`,
-      dpaHasRead: true,
+      tosAccepted: true, dpaHasRead: true,
       dpaConfirmsAuthority: true,
     });
 

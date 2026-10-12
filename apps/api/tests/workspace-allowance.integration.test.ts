@@ -2,6 +2,7 @@ import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
+import { grantPlan } from './helpers/plan.js';
 
 /**
  * The workspace allowance.
@@ -54,9 +55,17 @@ async function workspacesOf(userId: string): Promise<string[]> {
   return orgs.map((org) => org.id);
 }
 
+/**
+ * Moves the account onto a plan through the same helper the rest of the suite
+ * uses, rather than writing the workspace column directly.
+ *
+ * The plan now lives on the account, so a direct `organization.update` would set
+ * the shadow and leave the allowance reading the old tier: the workspace would
+ * look paid and the ceiling would still be the free one.
+ */
 async function setPlanFor(userId: string, plan: 'MOORING' | 'FAIRWAY' | 'HARBOR' | 'ADMIRALTY') {
   for (const id of await workspacesOf(userId)) {
-    await prisma.organization.update({ where: { id }, data: { plan } });
+    await grantPlan(id, plan);
   }
 }
 

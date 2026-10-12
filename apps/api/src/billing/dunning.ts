@@ -1,7 +1,7 @@
 import { prisma } from '../database/prisma.js';
 import { recordAuditEvent } from '../services/audit.service.js';
 import { providerFor } from './registry.js';
-import { applyDuePendingPlans, reconcileWithProvider } from './subscription-state.js';
+import { applyDuePendingPlans, reconcileWithProvider, writePlan } from './subscription-state.js';
 import { effectivePlan } from '../services/entitlements/plan-catalog.js';
 import { sendPaymentFailedEmail } from '../email/mailer.js';
 
@@ -133,17 +133,17 @@ async function withdrawPlan(organizationId: string, previousPlan: string, reason
   // it on PAST_DUE is what made this loop: the row kept matching the recovery
   // query, the period end stayed in the past, the grace check stayed passed, and
   // the customer was warned and emailed again every day for ever.
-  await prisma.$transaction([
-    prisma.organization.update({ where: { id: organizationId }, data: { plan: 'MOORING' } }),
-    prisma.subscription.update({
-      where: { organizationId },
-      data: {
-        status: reason === 'expired' || reason === 'dunning' ? 'EXPIRED' : 'PAST_DUE',
-        plan: 'MOORING',
-        ...(reason === 'dunning' ? { dunningStage: 'WITHDRAWN' as const } : {}),
-      },
-    }),
-  ]);
+    await prisma.$transaction(async (tx) => {
+      await writePlan(tx, organizationId, 'MOORING');
+      await tx.subscription.update({
+        where: { organizationId },
+        data: {
+          status: reason === 'expired' || reason === 'dunning' ? 'EXPIRED' : 'PAST_DUE',
+          plan: 'MOORING',
+          ...(reason === 'dunning' ? { dunningStage: 'WITHDRAWN' as const } : {}),
+        },
+      });
+    });
 
   await recordAuditEvent({
     organizationId,

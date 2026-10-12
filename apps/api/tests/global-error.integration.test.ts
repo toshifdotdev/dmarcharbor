@@ -32,7 +32,7 @@ async function signedIn() {
   const created = await agent.post('/api/workspaces').send({
     name: 'Error Shape Agency',
     slug: `error-shape-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    dpaHasRead: true,
+    tosAccepted: true, dpaHasRead: true,
     dpaConfirmsAuthority: true,
   });
   expect(created.status).toBe(201);

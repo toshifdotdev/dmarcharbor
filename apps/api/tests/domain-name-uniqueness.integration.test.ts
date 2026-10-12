@@ -1,4 +1,4 @@
-﻿import request from 'supertest';
+import request from 'supertest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -42,7 +42,7 @@ async function workspace(label: string): Promise<{
   const created = await agent.post('/api/workspaces').send({
     name: `${label} Workspace`,
     slug: `${label}-workspace-${Date.now()}-${fixtureId}`,
-    dpaHasRead: true,
+    tosAccepted: true, dpaHasRead: true,
     dpaConfirmsAuthority: true,
   });
   expect(created.status).toBe(201);

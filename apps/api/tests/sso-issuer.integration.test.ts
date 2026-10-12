@@ -39,7 +39,7 @@ async function setup(): Promise<{ agent: ReturnType<typeof request.agent>; organ
   const created = await agent.post('/api/workspaces').send({
     name: 'Northgate Digital',
     slug: `si-${Date.now()}-${fixtureId}`,
-    dpaHasRead: true,
+    tosAccepted: true, dpaHasRead: true,
     dpaConfirmsAuthority: true,
   });
   const organizationId = created.body.id as string;

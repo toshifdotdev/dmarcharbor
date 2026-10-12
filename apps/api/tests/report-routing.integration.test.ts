@@ -62,7 +62,7 @@ async function workspaceWithDomain(domainName: string, opts: { verified?: boolea
 
   const workspace = await agent.post('/api/workspaces').send({
     name: 'Route Agency',
-    slug: `route-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
+    slug: `route-${Date.now()}-${fixtureId}`, tosAccepted: true, dpaHasRead: true, dpaConfirmsAuthority: true});
   const organizationId = workspace.body.id as string;
 
   const client = await prisma.client.create({

@@ -13,6 +13,7 @@ import type { BillingInterval, ProviderName } from './provider.js';
 import { resolveProviderForCheckout } from './registry.js';
 import { planSyncReport, requireStoredPlan } from './plans.js';
 import { resolveBillingInterval } from './interval.js';
+import { writePlan } from './subscription-state.js';
 import { sendPlanChangedEmail, sendSubscriptionCancelledEmail } from '../email/mailer.js';
 
 /**
@@ -341,16 +342,15 @@ export async function changePlan(input: {
    * Paddle sees the plan change immediately instead of waiting for a delivery we
    * do not control.
    */
-  if (provider.appliesPlanChangeImmediately) {
-    await prisma.$transaction(async (tx) => {
-      await tx.organization.update({ where: { id: input.organizationId }, data: { plan: input.plan } });
-      await tx.subscription.updateMany({ where: { organizationId: input.organizationId }, data: { plan: input.plan } });
-      await tx.subscription.update({
-        where: { organizationId: input.organizationId },
-        data: { pendingPlan: null, pendingPlanInterval: null },
+    if (provider.appliesPlanChangeImmediately) {
+      await prisma.$transaction(async (tx) => {
+        await writePlan(tx, input.organizationId, input.plan);
+        await tx.subscription.update({
+          where: { organizationId: input.organizationId },
+          data: { pendingPlan: null, pendingPlanInterval: null },
+        });
       });
-    });
-  } else {
+    } else {
     // Recorded only after the provider accepted the change, so our row can never
     // claim a scheduled change the provider refused. Cleared by applyBillingEvent
     // when the plan actually moves.

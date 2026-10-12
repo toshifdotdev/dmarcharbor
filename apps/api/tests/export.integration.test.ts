@@ -23,7 +23,7 @@ async function setup() {
   await prisma.user.update({ where: { email }, data: { emailVerified: true } });
   expect((await agent.post('/api/auth/sign-in/email').send({ email, password })).status).toBe(200);
 
-  const workspace = await agent.post('/api/workspaces').send({ name: 'Export Agency', slug: `exp-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
+  const workspace = await agent.post('/api/workspaces').send({ name: 'Export Agency', slug: `exp-${Date.now()}-${fixtureId}`, tosAccepted: true, dpaHasRead: true, dpaConfirmsAuthority: true});
   const organizationId = workspace.body.id as string;
   await grantPlan(organizationId, 'HARBOR');
 
@@ -56,7 +56,10 @@ describe('client data export', () => {
     const { agent, organizationId } = await setup();
 
     await prisma.subscription.deleteMany({ where: { organizationId } });
-    await prisma.organization.update({ where: { id: organizationId }, data: { plan: 'MOORING' } });
+    // Through the real path: the plan lives on the account, so writing the
+    // workspace column here would leave the shadow free while resolution kept
+    // reading whatever the account was before.
+    await grantPlan(organizationId, 'MOORING');
 
     const entitlements = await resolveEntitlements(organizationId);
     expect(entitlements.plan).toBe('MOORING');

@@ -50,7 +50,7 @@ async function setup(options: { ruf?: boolean } = {}) {
 
   const workspace = await agent.post('/api/workspaces').send({
     name: 'Ops Agency',
-    slug: `ops-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
+    slug: `ops-${Date.now()}-${fixtureId}`, tosAccepted: true, dpaHasRead: true, dpaConfirmsAuthority: true});
   expect(workspace.status).toBe(201);
 
   const client = await agent.post(`/api/workspaces/${workspace.body.id}/clients`).send({
@@ -339,16 +339,24 @@ describe('audit trail', () => {
     expect(identityEvents).toHaveLength(1);
     expect(identityEvents[0].actorUser.email).toBeTruthy();
 
-    // Creation's own acceptance row is still there, which is the point of recording
-    // it in the first place.
+    // Creation's own acceptance rows are still there, which is the point of
+    // recording them in the first place. There are two, not one: the Terms of
+    // Service is accepted on the same call as the DPA, and each writes its own
+    // row so a dispute about either document is settled by a row.
     expect(own.body.items.some((entry: { action: string }) => entry.action === 'DPA_ACCEPTED')).toBe(true);
+    expect(own.body.items.some((entry: { action: string }) => entry.action === 'TERMS_ACCEPTED')).toBe(true);
 
-    // Another workspace sees none of the first workspace's events. It does see its own
-    // creation row, which is its own record and not a leak.
+    // Another workspace sees none of the first workspace's events. It does see its
+    // own creation rows, which are its own records and not a leak.
     const foreign = await other.agent.get(`/api/workspaces/${other.organizationId}/audit-events`);
     expect(foreign.status).toBe(200);
     expect(foreign.body.items.some((entry: { action: string }) => entry.action === 'FORENSIC_IDENTITY_ENABLED')).toBe(false);
-    expect(foreign.body.items.every((entry: { action: string }) => entry.action === 'DPA_ACCEPTED')).toBe(true);
+    // Only creation rows, and nothing that names the other workspace.
+    expect(
+      foreign.body.items.every((entry: { action: string }) =>
+        entry.action === 'DPA_ACCEPTED' || entry.action === 'TERMS_ACCEPTED',
+      ),
+    ).toBe(true);
   });
 
   it('keeps audit rows append only by never exposing an update or delete route', async () => {

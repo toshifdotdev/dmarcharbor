@@ -31,7 +31,7 @@ async function setup() {
   const created = await agent.post('/api/workspaces').send({
     name: 'V1 Paging',
     slug: `v1-page-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    dpaHasRead: true,
+    tosAccepted: true, dpaHasRead: true,
     dpaConfirmsAuthority: true,
   });
   const organizationId = created.body.id as string;

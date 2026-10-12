@@ -29,9 +29,33 @@ model User {
   portalAccessGrants      ClientPortalAccess[]
   alertDeliveries         AlertDelivery[]
   acknowledgedAlertEvents AlertEvent[]            @relation("AcknowledgedAlertEvents")
-  notificationPreference  NotificationPreference?
+    notificationPreference  NotificationPreference?
+    /// The account's subscription. Keyed here as well as on the workspace it was
+    /// started from, so entitlement status can be read where the plan lives.
+    subscriptions          Subscription[]
+    /**
+     * The plan this account holds, which every workspace it owns inherits.
+     *
+     * The plan used to live on Organization, so a person with three workspaces
+     * had three subscriptions and three renewals, and a customer who bought
+     * Admiralty had to buy it again to make a second workspace. Moving it here
+     * makes one purchase cover the account: a plan is a thing a person buys, and
+     * a workspace is a container they organise their clients into.
+     *
+     * The quota it grants is shared across the account's workspaces rather than
+     * per workspace, which is what stops a plan from being farmed by splitting
+     * the same clients across more containers.
+     */
+    plan                   PlanTier               @default(MOORING)
+    /// The plan that will apply when the paid period ends, so a change is visible
+    /// before it takes effect rather than discovered by losing a feature.
+    pendingPlan            PlanTier?
+    /// Which currency the account is quoted and billed in. INR goes to Razorpay
+    /// and USD to Paddle, so this is the choice of payment processor rather than
+    /// a display preference. Locked once a paid subscription exists.
+    preferredCurrency      BillingCurrency        @default(INR)
 
-  @@unique([email])
+    @@unique([email])
   @@map("user")
 }
 
@@ -717,6 +741,16 @@ model Subscription {
   id                     String             @id @default(cuid())
   organizationId         String
   organization           Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// The account this subscription bills.
+  ///
+  /// Added alongside organizationId rather than replacing it, because the two
+  /// answer different questions. A provider webhook arrives carrying the provider's
+  /// own subscription id and is matched to the workspace that started the
+  /// checkout, so organizationId is how the row is found. The account is who the
+  /// plan belongs to and where entitlement status is read from. Replacing one with
+  /// the other would break provider matching or lose the account.
+  userId                 String?
+  user                   User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
   plan                   PlanTier           @default(MOORING)
   status                 SubscriptionStatus @default(ACTIVE)
   provider               BillingProvider    @default(NONE)

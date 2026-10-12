@@ -51,7 +51,7 @@ async function workspaceOnFreePlan(): Promise<{
   const workspace = await agent.post('/api/workspaces').send({
     name: 'Quota Agency',
     slug: `quota-${Date.now()}-${fixtureId}`,
-    dpaHasRead: true,
+    tosAccepted: true, dpaHasRead: true,
     dpaConfirmsAuthority: true,
   });
   expect(workspace.status).toBe(201);

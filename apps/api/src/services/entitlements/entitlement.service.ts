@@ -1,7 +1,7 @@
 import type { PlanTier, Prisma } from '@prisma/client';
 import { prisma } from '../../database/prisma.js';
 import { emitEvent } from '../webhook.service.js';
-import { countCountedDomains } from '../inventory/inventory.service.js';
+import { countCountedDomainsIn } from '../inventory/inventory.service.js';
 import {
   alwaysAllowedEntitlements,
   nextTier,
@@ -92,12 +92,36 @@ export async function resolveEntitlements(
     where: { id: organizationId },
     select: {
       plan: true,
+      preferredCurrency: true,
       subscription: {
         select: { status: true, currentPeriodEnd: true, cancelAtPeriodEnd: true },
       },
       entitlementOverrides: {
         select: { entitlement: true, enabled: true, expiresAt: true, reason: true },
       },
+      // The owner is the account. `members` is the only route from a workspace to
+      // the person who paid for it, because a plan is a thing a person holds and
+      // a workspace is a container they own.
+        members: {
+          where: { role: 'owner' },
+          select: {
+            user: {
+              select: {
+                plan: true,
+                // The subscription the account paid through. A workspace the
+                // account never checked out on has no row of its own, which is not
+                // a missing subscription: the status is read from the account's,
+                // wherever it was started.
+                subscriptions: {
+                  select: { status: true, currentPeriodEnd: true, cancelAtPeriodEnd: true },
+                  take: 1,
+                  orderBy: { id: 'desc' },
+                },
+              },
+            },
+          },
+          take: 1,
+        },
     },
   });
 
@@ -105,7 +129,13 @@ export async function resolveEntitlements(
     throw new EntitlementError('FEATURE_NOT_IN_PLAN', 'Workspace not found.', { organizationId });
   }
 
-  const plan = organization.plan;
+  // The account's plan, and the subscription attached to the workspace the
+  // account paid through. `members` can be empty only for a workspace whose owner
+  // row was removed, which has no plan to read; the workspace's own shadow column
+  // is the last resort rather than a crash.
+  const owner = organization.members?.[0]?.user;
+  const plan = (owner?.plan ?? organization.plan) as PlanTier;
+  const subscription = owner?.subscriptions?.[0] ?? organization.subscription;
 
   const definition = planCatalog[plan];
   const overrides = liveOverrides(organization.entitlementOverrides, now);
@@ -126,9 +156,9 @@ export async function resolveEntitlements(
   const bumped: ResolvedEntitlements = {
     plan,
     label: definition.label,
-    status: organization.subscription?.status ?? 'NONE',
-    currentPeriodEnd: organization.subscription?.currentPeriodEnd?.toISOString() ?? null,
-    cancelAtPeriodEnd: organization.subscription?.cancelAtPeriodEnd ?? false,
+    status: subscription?.status ?? 'NONE',
+    currentPeriodEnd: subscription?.currentPeriodEnd?.toISOString() ?? null,
+    cancelAtPeriodEnd: subscription?.cancelAtPeriodEnd ?? false,
     maxClients: definition.maxClients,
     maxActiveDomains: definition.maxActiveDomains,
     maxMembers: definition.maxMembers,
@@ -186,6 +216,34 @@ export async function withQuota<T>(
   });
 }
 
+/**
+ * Workspaces the account behind this organization owns.
+ *
+ * Used wherever a limit has to be counted across the account rather than inside
+ * one workspace. A quota that is a property of the plan the person bought has to
+ * be counted where the plan applies, which is every container they hold, not one
+ * of them.
+ */
+async function accountOrganizationIds(organizationId: string): Promise<string[]> {
+  const memberships = await prisma.member.findMany({
+    where: { organizationId, role: 'owner' },
+    select: {
+      userId: true,
+    },
+  });
+
+  const ownerIds = memberships.map((membership) => membership.userId);
+  if (ownerIds.length === 0) return [organizationId];
+
+  return prisma.member
+    .findMany({
+      where: { userId: { in: ownerIds }, role: 'owner' },
+      select: { organizationId: true },
+      distinct: ['organizationId'],
+    })
+    .then((rows) => rows.map((row) => row.organizationId));
+}
+
 export async function quotaUsage(
   organizationId: string,
   quota: QuotaKey,
@@ -200,15 +258,22 @@ export async function quotaUsage(
 ): Promise<{ used: number; limit: number }> {
   const definition = planCatalog[plan];
 
+  if (quota === 'member') {
+    // People are counted inside the workspace, because a member is someone on that
+    // workspace's team rather than a unit of the client portfolio. Everywhere else
+    // the limit follows the account, so a portfolio cannot be split across
+    // containers to fit under a plan twice.
+    return { used: await client.member.count({ where: { organizationId } }), limit: definition.maxMembers };
+  }
+
+  const scope = await accountOrganizationIds(organizationId);
+
   if (quota === 'activeDomain') {
-    return { used: await countCountedDomains(organizationId, definition.dataRetentionDays, now, client), limit: definition.maxActiveDomains };
+    const used = await countCountedDomainsIn(scope, definition.dataRetentionDays, now, client);
+    return { used, limit: definition.maxActiveDomains };
   }
 
-  if (quota === 'client') {
-    return { used: await client.client.count({ where: { organizationId } }), limit: definition.maxClients };
-  }
-
-  return { used: await client.member.count({ where: { organizationId } }), limit: definition.maxMembers };
+  return { used: await client.client.count({ where: { organizationId: { in: scope } } }), limit: definition.maxClients };
 }
 
 export async function assertFeature(organizationId: string, feature: EntitlementKey, now = new Date()): Promise<void> {
@@ -305,6 +370,21 @@ async function quotaExceeded(
   );
 }
 
+/**
+ * Sets the plan for the account that owns this workspace.
+ *
+ * The workspace id is still the argument, unchanged, because every caller names a
+ * workspace: the billing controller holds one, the staff controller holds one, and
+ * the test helper holds one. The plan itself moves to the account, so calling this
+ * on any workspace the account owns sets it for all of them.
+ *
+ * The Subscription row stays keyed on the workspace. A provider webhook arrives
+ * with the provider's own subscription id and is matched to the workspace that
+ * started the checkout, so the row has to stay where the provider left it; the
+ * shadow column on the workspace keeps that legible. Writing the plan to both in
+ * one transaction is what keeps a plan read from the account and a period read
+ * from the subscription from disagreeing.
+ */
 export async function setOrganizationPlan(
   organizationId: string,
   plan: PlanTier,
@@ -312,12 +392,33 @@ export async function setOrganizationPlan(
 ): Promise<void> {
   const status = options.status ?? 'ACTIVE';
 
+  const owner = await prisma.member.findFirst({
+    where: { organizationId, role: 'owner' },
+    select: { userId: true },
+  });
+
   await prisma.$transaction([
+    // No owner is not an error here. A workspace whose owner row has gone, or whose
+    // owner has been demoted to admin, still needs its shadow plan written, because
+    // that is what every other reader and the provider mapping use. Throwing turned a
+    // plan change on such a workspace into a 500, which left the workspace on the old
+    // tier with nothing recorded. The account write is skipped, and resolution falls
+    // back to the shadow for exactly this case.
+    ...(owner ? [prisma.user.update({ where: { id: owner.userId }, data: { plan } })] : []),
+    // The shadow. Billing keeps matching provider ids against a workspace, so this
+    // stays in step with the account's plan rather than being dropped and leaving
+    // the mapping readable only through the owner.
     prisma.organization.update({ where: { id: organizationId }, data: { plan } }),
     prisma.subscription.upsert({
       where: { organizationId },
       create: {
         organizationId,
+        // Written on both keys when the account is known: the workspace is how a
+        // provider webhook finds the row, the account is where entitlement status is
+        // read from. Leaving the account null would make the plan live on the user
+        // while its period kept living on the workspace, and the two would drift the
+        // first time one moved.
+        ...(owner ? { userId: owner.userId } : {}),
         plan,
         status,
         provider: options.provider ?? 'NONE',
@@ -327,6 +428,7 @@ export async function setOrganizationPlan(
       update: {
         plan,
         status,
+        ...(owner ? { userId: owner.userId } : {}),
         ...(options.currentPeriodEnd !== undefined ? { currentPeriodEnd: options.currentPeriodEnd } : {}),
         ...(options.provider !== undefined ? { provider: options.provider } : {}),
         ...(options.providerSubscriptionId !== undefined

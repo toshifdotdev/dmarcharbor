@@ -24,7 +24,7 @@ async function workspace(): Promise<{ agent: ReturnType<typeof request.agent>; o
 
   const created = await agent.post('/api/workspaces').send({
     name: 'DPA Workspace',
-    slug: `dpa-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
+    slug: `dpa-${Date.now()}-${fixtureId}`, tosAccepted: true, dpaHasRead: true, dpaConfirmsAuthority: true});
   expect(created.status).toBe(201);
 
   return { agent, organizationId: created.body.id as string };
@@ -74,7 +74,7 @@ describe('Data Processing Agreement acceptance', () => {
       const failed = await agent.post('/api/workspaces').send({
         name: 'Half Created Workspace',
         slug: `dpa-rollback-${Date.now()}-${fixtureId}`,
-        dpaHasRead: true,
+        tosAccepted: true, dpaHasRead: true,
         dpaConfirmsAuthority: true,
       });
       expect(failed.status).toBe(500);
@@ -97,7 +97,7 @@ describe('Data Processing Agreement acceptance', () => {
     const retried = await agent.post('/api/workspaces').send({
       name: 'Second Attempt',
       slug: `dpa-retry-${Date.now()}-${fixtureId}`,
-      dpaHasRead: true,
+      tosAccepted: true, dpaHasRead: true,
       dpaConfirmsAuthority: true,
     });
     expect(retried.status).toBe(201);
@@ -153,7 +153,7 @@ describe('Data Processing Agreement acceptance', () => {
     // Read but no authority. This is the one that matters legally.
     const readOnly = await agent
       .post('/api/workspaces')
-      .send({ name: 'Refused', slug, dpaHasRead: true, dpaConfirmsAuthority: false });
+      .send({ name: 'Refused', slug, tosAccepted: true, dpaHasRead: true, dpaConfirmsAuthority: false });
     expect(readOnly.status).toBe(400);
     expect(readOnly.body.error.code).toBe('DPA_NOT_ACCEPTED');
 

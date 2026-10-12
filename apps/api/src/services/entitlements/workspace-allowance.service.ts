@@ -3,21 +3,21 @@ import { planCatalog, type PlanDefinition } from './plan-catalog.js';
 import type { PlanTier } from '@prisma/client';
 
 /**
- * How many workspaces a person may hold, and how many they hold now.
+ * How many workspaces an account may hold, and how many it holds now.
  *
- * Counted across every workspace the user is a member of, not one workspace,
- * because the allowance is a property of the account and not of the container.
- * Without that, the freedom to make a second workspace would each carry its own
- * free allowance, and the client and domain limits above it would mean nothing.
+ * Counted across every workspace the user owns, not within one, because the
+ * allowance is a property of the account rather than of a container. Without
+ * that, each workspace would carry its own free allowance and the limits above it
+ * would mean nothing.
  *
- * The allowance itself comes from the strongest plan the account holds rather
- * than the sum of its plans' allowances. Owning one Admiralty workspace has
- * already bought the entitlement, and adding a second workspace is not a second
- * purchase. Summing instead would mean three Fairway workspaces entitle someone
- * to six, which is the top tier's allowance bought at a third of its price.
+ * The allowance is the plan on the account itself. It used to be derived by
+ * taking the strongest plan among the workspaces owned, which was a stand-in for
+ * an account plan that did not exist yet; now that the plan lives on the account
+ * there is nothing to derive, and a workspace added before a purchase cannot
+ * raise the ceiling the buyer is entitled to.
  */
 export interface WorkspaceAllowance {
-  /** The strongest plan the account holds, which sets the allowance. */
+  /** The plan the account holds, which sets the allowance. */
   strongest: PlanTier;
   maxWorkspaces: number;
   used: number;
@@ -26,26 +26,21 @@ export interface WorkspaceAllowance {
   allowed: boolean;
 }
 
-const tierRank: Record<PlanTier, number> = {
-  MOORING: 0,
-  FAIRWAY: 1,
-  HARBOR: 2,
-  ADMIRALTY: 3,
-};
-
 export async function workspaceAllowanceFor(userId: string): Promise<WorkspaceAllowance> {
-  const memberships = await prisma.member.findMany({
-    where: { userId },
-    select: { organization: { select: { plan: true } } },
-  });
+  const [account, owned] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { plan: true },
+    }),
+    prisma.member.findMany({
+      where: { userId, role: 'owner' },
+      select: { organizationId: true },
+      distinct: ['organizationId'],
+    }),
+  ]);
 
-  const plans = memberships.map((membership) => membership.organization.plan);
-  const used = plans.length;
-
-  let strongest: PlanTier = 'MOORING';
-  for (const plan of plans) {
-    if (tierRank[plan] > tierRank[strongest]) strongest = plan;
-  }
+  const strongest: PlanTier = account?.plan ?? 'MOORING';
+  const used = owned.length;
 
   const definition: PlanDefinition = planCatalog[strongest];
   const remaining = Math.max(0, definition.maxWorkspaces - used);

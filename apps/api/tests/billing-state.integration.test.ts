@@ -34,7 +34,7 @@ async function setupWorkspace() {
 
   const workspace = await agent.post('/api/workspaces').send({
     name: `Billing Agency ${fixtureId}`,
-    slug: `billing-${Date.now()}-${fixtureId}`, dpaHasRead: true, dpaConfirmsAuthority: true});
+    slug: `billing-${Date.now()}-${fixtureId}`, tosAccepted: true, dpaHasRead: true, dpaConfirmsAuthority: true});
   const organizationId = workspace.body.id as string;
   const user = await prisma.user.findFirstOrThrow({ where: { members: { some: { organizationId } } }, select: { id: true } });
 
