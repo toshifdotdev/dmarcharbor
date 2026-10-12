@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PierMark } from "@/components/mark";
+import { Reveal } from "@/components/reveal";
 import { DomainCheck } from "@/components/domain-check";
 import { DnsResolution } from "@/components/dns-resolution";
 import { PostureBadge } from "@/components/posture";
@@ -75,7 +76,7 @@ export function MarketingHeader({
 }) {
   return (
     <header
-      className="mx-auto flex w-full max-w-[1180px] items-center gap-7 border-b px-6 py-4"
+      className="mx-auto flex w-full max-w-[1040px] items-center gap-7 border-b px-6 py-4"
       style={{ borderColor: "var(--color-line)" }}
     >
       <Link href="/" className="flex items-center gap-2.5" style={{ color: "var(--color-accent)" }}>
@@ -112,7 +113,7 @@ export function MarketingHeader({
 export function MarketingFooter({ brand }: { brand: HostBrand }) {
   return (
     <footer
-      className="mx-auto mt-14 w-full max-w-[1180px] border-t px-6 py-6 pb-14"
+      className="mx-auto mt-14 w-full max-w-[1040px] border-t px-6 py-6 pb-14"
       style={{ borderColor: "var(--color-line)", color: "var(--color-ink-3)" }}
     >
       <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2 text-[12px]">
@@ -135,7 +136,7 @@ export function MarketingFooter({ brand }: { brand: HostBrand }) {
           them is why nothing used to be reachable at all. */}
       <nav
         aria-label="Legal"
-        className="mt-3 flex flex-wrap items-baseline gap-x-5 gap-y-2 text-[11.5px]"
+        className="mt-4 flex flex-wrap items-baseline gap-x-5 gap-y-2 text-[11.5px]"
       >
         {LEGAL_FOOTER_LINKS.map(([href, label]) => (
           <Link key={href} href={href} className="hover:opacity-80" style={{ color: "var(--color-ink-3)" }}>
@@ -156,42 +157,46 @@ export async function MarketingHome() {
       {brand.state === "unverified" ? <HostUnverifiedBanner /> : null}
       <MarketingHeader brand={brand} />
 
-      {/* First screen: what it does and who it is for, with the free check as
-          the hero action. The hook belongs above the fold: the strongest thing
-          a stranger can do here is check their own domain, so that is the
-          primary action and the account CTA is the secondary one. */}
-      <section className="mx-auto w-full max-w-[1180px] px-6 pt-12" data-testid="home-hero">
-        <div className="grid grid-cols-1 gap-x-12 gap-y-9 lg:grid-cols-[1.02fr_0.98fr]">
+      {/* Hero: what it does and the free check on the same screen.
+
+          Deliberately NOT wrapped in Reveal. The hero is the largest
+          contentful paint, and a reveal animation holds it at opacity 0 until
+          the script runs, which delays the paint and means the strongest
+          argument on the page is invisible for as long as JS takes. Everything
+          below the fold animates; the first screen does not wait for anything. */}
+      <section
+        className="mx-auto w-full max-w-[1040px] px-6 pt-10"
+        data-testid="home-hero"
+      >
+        <div className="grid grid-cols-1 gap-x-10 gap-y-7 lg:grid-cols-[1.05fr_0.95fr] lg:items-start">
           <div>
-            <div className="label">DMARC monitoring for client domains</div>
+            <div className="label">DMARC reports, read where they arrive</div>
             <h1
-              className="mt-3 text-[40px] font-semibold leading-[1.12] tracking-[-0.032em]"
+              className="mt-4 text-[44px] font-semibold leading-[1.08] tracking-[-0.032em] sm:text-[52px]"
               style={{ fontFamily: "var(--font-display)" }}
               data-testid="home-headline"
             >
               DMARC reports for MSPs managing client domains.
             </h1>
-            <div className="mt-5 max-w-[52ch] text-[14.5px] leading-[1.75]" style={{ color: "var(--color-ink-2)" }}>
+            <div className="mt-6 max-w-[58ch] text-[15px] leading-[1.75]" style={{ color: "var(--color-ink-2)" }}>
               <p>
                 <strong style={{ color: "var(--color-ink)" }}>{name}</strong> collects the
-                aggregate and forensic DMARC reports the domains your clients own
+                aggregate and forensic DMARC reports the domains your clients
                 already publish, measures whether their email authentication holds
-                up, and turns the result into evidence you can hand over: a report
-                share link, a compliance pack with a published fingerprint, a client
-                portal in your brand.
+                up, and turns the result into evidence you can hand over.
               </p>
-              <p className="mt-3">
-                It measures and proves. It never edits anyone’s DNS and never
-                sends mail as your clients: nothing here takes control of a
-                customer’s infrastructure.
+              <p className="mt-4">
+                It measures and proves. It never edits anyone’s DNS and never sends
+                mail as your clients: nothing here takes control of a customer’s
+                infrastructure.
               </p>
             </div>
-            <div className="mt-6 flex flex-wrap items-center gap-3">
+            <div className="mt-5 flex flex-wrap items-center gap-3">
               <Link
                 href="/sign-up"
                 data-testid="home-start"
-                className="rounded-[2px] border px-5 py-2.5 text-[13.5px] font-semibold"
-                style={{ borderColor: "var(--color-line-strong)", color: "var(--color-ink-2)" }}
+                className="rounded-[2px] px-5 py-2.5 text-[13.5px] font-semibold"
+                style={{ background: "var(--color-accent)", color: "var(--color-accent-ink)" }}
               >
                 Start free
               </Link>
@@ -213,90 +218,89 @@ export async function MarketingHome() {
               </Link>
             </div>
           </div>
-
-          {/* The free check: anonymous, ungated, and honest about what it is
-              not. In the hero, because it is the fastest way for a stranger to
-              see the product working on their own domain. */}
-          <div className="lg:pt-2">
+          <div>
             <DomainCheck />
           </div>
         </div>
       </section>
 
-      {/* The lookup, end to end: the one animation here, and the things it
-          finds. SVG and CSS only, played once, reduced-motion aware. */}
-      <section className="mx-auto mt-10 w-full max-w-[1180px] px-6">
-        <h2 className="text-[23px] font-semibold tracking-[-0.028em]" style={{ fontFamily: "var(--font-display)" }}>
-          One lookup, end to end
-        </h2>
-        <div className="mt-6 grid grid-cols-1 items-start gap-x-10 gap-y-8 lg:grid-cols-2">
-          {/* The lookup box hugs its content: a fixed-height rectangle left a
-              tall empty area below the caption, and an empty bordered
-              rectangle reads as a broken component. */}
-          <DnsResolution />
+      {/* Reports arrive: what the product does, compact. */}
+      <section className="mx-auto mt-16 w-full max-w-[1040px] px-6">
+  <Reveal>
+        <div className="grid grid-cols-1 gap-x-8 gap-y-8 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
           <div>
-            <h3 className="text-[15px] font-semibold tracking-[-0.012em]" style={{ color: "var(--color-ink)" }}>
-              What the three rows mean
-            </h3>
-            <div className="mt-3 flex flex-col gap-3.5">
-              <Fact
-                title="DMARC"
-                body="The policy domain owners publish for mail that fails alignment: reject refuses it, quarantine filters it to spam or holds it, and none only reports it. No policy published means receivers decide on their own."
-              />
-              <Fact
-                title="SPF"
-                body="The list of servers allowed to send as the domain. Published but not validating means the record itself is broken, which fails alignment just as surely as an unauthorised sender."
-              />
-              <Fact
-                title="DKIM"
-                body="The cryptographic signature receivers check. At least one selector published is a start; a migration or a key nobody rotated shows up here as a missing selector."
-              />
-            </div>
-            <h3 className="mt-7 text-[15px] font-semibold tracking-[-0.012em]" style={{ color: "var(--color-ink)" }}>
-              What it catches
-            </h3>
-            <dl className="mt-3 flex flex-col gap-3.5">
-              <Fact
-                title="SPF failures"
-                body="A sending source that is no longer authorised, or a lookup limit that broke the record. Both show up as mail failing alignment."
-              />
-              <Fact
-                title="DKIM breaks"
-                body="A selector that stopped signing after a migration, or a key nobody rotated. The signature is missing and the report says so."
-              />
-              <Fact
-                title="New senders"
-                body="A source seen for the first time on a client domain: a new tool the client forgot to mention, or someone testing the fence."
-              />
-              <Fact
-                title="Spoofing attempts"
-                body="Traffic claiming a client’s domain that never authenticated. Volume and recurrence are tracked, so one attempt and a campaign read differently."
-              />
-            </dl>
+            <h2
+              className="text-[26px] font-semibold tracking-[-0.028em]"
+              style={{ fontFamily: "var(--font-display)" }}
+            >
+              Reports arrive, get read, leave as evidence.
+            </h2>
+            <p className="mt-4 max-w-[52ch] text-[14px] leading-[1.7]" style={{ color: "var(--color-ink-2)" }}>
+              A provider sends reports to the addresses your domains publish.
+              Here they become posture per domain, volumes and senders, and
+              evidence you can hand to a client. Nothing takes control of a
+              customer’s infrastructure.
+            </p>
+          </div>
+          <div className="rounded-[2px] border px-5 py-4 transition-colors duration-200 hover:border-[var(--color-line-strong)]" style={{ borderColor: "var(--color-line)" }}>
+            <p className="text-[13px] leading-[1.7]" style={{ color: "var(--color-ink-2)" }}>
+              Every label is honest: aligned, blocking, unverified, not measured.
+              Not measured is not a pass. The same words and the same
+              measurements as the portfolio: the free check and the product never
+              disagree about a domain.
+            </p>
           </div>
         </div>
+      </Reveal>
+</section>
+
+      {/* One lookup, end to end: DNS records, read live. */}
+      <section className="mx-auto mt-16 w-full max-w-[1040px] px-6">
+  <Reveal>
+        <div className="mb-2 flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
+          <h2 className="text-[26px] font-semibold tracking-[-0.028em]" style={{ fontFamily: "var(--font-display)" }}>
+            One lookup, end to end
+          </h2>
+          <p className="max-w-[52ch] text-[12.5px] leading-[1.6]" style={{ color: "var(--color-ink-3)" }}>
+            Live DNS reading. One lookup is one moment; the product watches
+            continuously.
+          </p>
+        </div>
+        <div
+          className="overflow-hidden rounded-[2px] border"
+          style={{ borderColor: "var(--color-line)" }}
+        >
+          <DnsResolution />
+        </div>
+        <ul className="mt-4 grid grid-cols-1 gap-x-6 gap-y-1.5 sm:grid-cols-2 lg:grid-cols-3">
+          <MiniFact label="DMARC" detail="policy for mail failing alignment: reject / quarantine / none / missing." />
+          <MiniFact label="SPF" detail="servers allowed to send as the domain; broken records fail alignment too." />
+          <MiniFact label="DKIM" detail="signature receivers check; selectors lost in migration show as missing." />
+          <MiniFact label="SPF fail." detail="a source that lost authorisation, or a lookup chain that broke the record." />
+          <MiniFact label="DKIM break." detail="a selector that stopped signing, or a key nobody rotated." />
+          <MiniFact label="New sender" detail="a source seen for the first time on a client domain." />
+          <MiniFact label="Spoofing" detail="traffic claiming the domain that never authenticated, by volume & recurrence." />
+        </ul>
         <p
-          className="mt-8 max-w-[68ch] text-[13.5px] leading-[1.75]"
+          className="mt-4 text-[12.5px] leading-[1.6]"
           style={{ color: "var(--color-ink-3)" }}
           data-testid="domain-check-boundary"
         >
-          One lookup is one moment. {name} watches a whole book of client
-          domains continuously: posture per domain as reports arrive, alerting,
-          shareable evidence and a client portal. That is the difference between
-          checking a domain and being responsible for it.{" "}
           <Link href="/sign-up" className="underline" style={{ color: "var(--color-ink)" }}>
             Start monitoring free
-          </Link>
-          .
+          </Link>{" "}
+          to read every client domain as reports arrive.
         </p>
-      </section>
+      </Reveal>
+</section>
 
       {/* A worked example: a real result's shape, domain redacted. */}
-      <section className="mx-auto mt-16 w-full max-w-[1180px] px-6">
-        <h2 className="text-[23px] font-semibold tracking-[-0.028em]" style={{ fontFamily: "var(--font-display)" }}>
+      <section className="mx-auto mt-10 w-full max-w-[1040px] px-6">
+  <Reveal>
+        <h2 className="text-[26px] font-semibold tracking-[-0.028em]" style={{ fontFamily: "var(--font-display)" }}>
           What a result looks like
         </h2>
-        <div className="mt-6 grid grid-cols-1 gap-x-10 gap-y-8 lg:grid-cols-2">
+        <div className="mt-8 grid grid-cols-1 gap-x-10 gap-y-8 lg:grid-cols-2">
           <ScanExample />
           <div className="max-w-[52ch] text-[14px] leading-[1.75]" style={{ color: "var(--color-ink-2)" }}>
             <p>
@@ -304,26 +308,28 @@ export async function MarketingHome() {
               measured. The third state is the one most tools hide. A record
               nobody has read yet is an unknown, never a pass.
             </p>
-            <p className="mt-3">
+            <p className="mt-4">
               The verdict line is derived from the same measurements the
               portfolio keeps, so the free check and the product never disagree
               about a domain.
             </p>
           </div>
         </div>
-      </section>
+      </Reveal>
+</section>
 
       {/* The five postures: the core idea of the product. */}
-      <section className="mx-auto mt-16 w-full max-w-[1180px] px-6">
-        <h2 className="text-[23px] font-semibold tracking-[-0.028em]" style={{ fontFamily: "var(--font-display)" }}>
+      <section className="mx-auto mt-10 w-full max-w-[1040px] px-6">
+  <Reveal>
+        <h2 className="text-[26px] font-semibold tracking-[-0.028em]" style={{ fontFamily: "var(--font-display)" }}>
           The five postures
         </h2>
-        <p className="mt-3 max-w-[68ch] text-[14px] leading-[1.75]" style={{ color: "var(--color-ink-2)" }}>
+        <p className="mt-4 max-w-[68ch] text-[14px] leading-[1.75]" style={{ color: "var(--color-ink-2)" }}>
           Every domain reads as exactly one of these, and the word is chosen
           from measured report data. Absence of data is not compliance: a domain
           that has never reported is not a passing domain.
         </p>
-        <ul className="mt-6 grid grid-cols-1 gap-x-10 gap-y-5 sm:grid-cols-2">
+        <ul className="mt-8 grid grid-cols-1 gap-x-10 gap-y-8 sm:grid-cols-2">
           {(Object.keys(POSTURE_META) as Posture[]).map((key) => (
             <li key={key} className="flex flex-col gap-1.5">
               <PostureBadge posture={key} />
@@ -336,113 +342,72 @@ export async function MarketingHome() {
             </li>
           ))}
         </ul>
-      </section>
+      </Reveal>
+</section>
 
-      {/* What it does — the real surfaces, described as behaviour. */}
-      <section className="mx-auto mt-16 w-full max-w-[1180px] px-6">
-        <h2 className="text-[23px] font-semibold tracking-[-0.028em]" style={{ fontFamily: "var(--font-display)" }}>
-          What it does
+      {/* How it works in practice: measure, prove, react. */}
+            <section className="mx-auto mt-16 w-full max-w-[1040px] px-6">
+  <Reveal>
+        <h2 className="text-[26px] font-semibold tracking-[-0.028em]" style={{ fontFamily: "var(--font-display)" }}>
+          Measure, prove, react.
         </h2>
-        <div className="mt-6 grid grid-cols-1 gap-x-10 gap-y-7 sm:grid-cols-2">
+        <div className="mt-6 grid grid-cols-1 gap-x-8 gap-y-8 sm:grid-cols-3">
           <Fact
-            title="Posture, measured per domain"
-            body="Each domain reads as aligned, blocking, unverified or not measured: derived from real report data, never asserted. A domain with no reports yet says so; it never renders as a pass. A signal that has gone stale says that instead."
+            title="Measure"
+            body="Each domain reads as aligned, blocking, unverified, or not measured, from real report data. No reports yet is never a pass."
           />
           <Fact
-            title="Reports, collected two ways"
-            body="Aggregate and forensic reports arrive from the rua and ruf tags domains already publish. When a provider will only email them, point the domain at the shared report mailbox instead: no customer ever hands over their own IMAP credentials."
+            title="Prove"
+            body="Revocable share links, compliance packs with a SHA-256 fingerprint, and a public Trust Center anyone can open without an account."
           />
           <Fact
-            title="Evidence, ready to hand over"
-            body="Share a report through a link you can revoke, issue a compliance pack with a SHA-256 fingerprint anyone can verify at a public page, and publish a Trust Center an auditor opens with no account. Forensic evidence is never shown to a client portal contact."
-          />
-          <Fact
-            title="Alerts and digests"
-            body="Rules for spoofing attempts and volume spikes, delivered by email or to a Slack channel, plus scheduled client digests. Failure to deliver is surfaced: a quiet alert channel is never a working one."
+            title="React"
+            body="Spoofing and volume-spike rules to email or Slack, scheduled digests, and surfaced delivery failures. No silent channel reads as healthy."
           />
         </div>
-      </section>
-
-      {/* Who it is for, and what an MSP actually does with it. */}
-      <section className="mx-auto mt-16 w-full max-w-[1180px] px-6">
-        <h2 className="text-[23px] font-semibold tracking-[-0.028em]" style={{ fontFamily: "var(--font-display)" }}>
-          Who it is for
-        </h2>
-        <p className="mt-4 max-w-[68ch] text-[14.5px] leading-[1.75]" style={{ color: "var(--color-ink-2)" }}>
-          Agencies and MSPs who look after email authentication for a book of
-          clients. A workspace holds many clients; each client holds its
-          domains; your team gets roles with real boundaries, and each client
-          can get a read-only portal in your brand rather than a PDF you
-          assemble by hand. If you only monitor your own domains, it works for
-          that too: the portfolio is the same either way.
-        </p>
-        <div className="mt-7 grid grid-cols-1 gap-x-10 gap-y-7 sm:grid-cols-3">
-          <Fact
-            title="Monday: the portfolio"
-            body="Open the workspace and read posture across every client domain at once. Blocking and unverified sort to the top, so the week starts with the two lists that actually need a human."
-          />
-          <Fact
-            title="Wednesday: the evidence"
-            body="A client or their auditor asks what their mail authentication actually did. Issue a compliance pack with a published fingerprint, or hand over a share link you can revoke: no screenshots, no spreadsheet built by hand."
-          />
-          <Fact
-            title="Whenever something moves"
-            body="A spoofing campaign or a volume spike fires an alert to email or Slack, and scheduled digests go out on their own. Failure to deliver is surfaced, so a quiet channel is never mistaken for a working one."
-          />
-        </div>
-      </section>
-
-      {/* How it works. */}
-      <section className="mx-auto mt-16 w-full max-w-[1180px] px-6">
-        <h2 className="text-[23px] font-semibold tracking-[-0.028em]" style={{ fontFamily: "var(--font-display)" }}>
-          How it works
-        </h2>
-        <ol className="mt-6 grid grid-cols-1 gap-x-10 gap-y-6 sm:grid-cols-3">
-          <Step
-            n={1}
-            title="Add a client and its domains"
-            body="Clients group the domains you monitor for one company. Adding a domain gives you an ownership TXT record and the DMARC record to publish."
-          />
-          <Step
-            n={2}
-            title="Publish the records"
-            body="The record values come from us verbatim: nothing is assembled in the browser. Re-check as often as you like while DNS propagates; waiting is a normal state here, not an error."
-          />
-          <Step
-            n={3}
-            title="Reports arrive"
-            body="Usually within 24 to 48 hours of publishing, the portfolio fills in with measured posture, volumes and sources: and the evidence artefacts become available."
-          />
+        <ol className="mt-5 grid grid-cols-1 gap-x-6 gap-y-8 sm:grid-cols-3">
+          <Step n={1} title="Add a client and domains" body="Clients group domains; adding one gives records to publish." />
+          <Step n={2} title="Publish the records" body="Values come verbatim; re-check while DNS propagates." />
+          <Step n={3} title="Reports arrive" body="Within 24 to 48 hours." />
         </ol>
+  </Reveal>
       </section>
 
-      {/* Closing call to action. */}
-      <section className="mx-auto mt-16 w-full max-w-[1180px] px-6">
+      {/* Closing: trust position and call to action, in one surface. */}
+      <section className="mx-auto mt-10 w-full max-w-[1040px] px-6">
+  <Reveal>
         <div
           className="rounded-[2px] border px-8 py-9"
           style={{ borderColor: "var(--color-line-strong)", background: "var(--color-surface)" }}
         >
-          <h2 className="max-w-[36ch] text-[23px] font-semibold tracking-[-0.028em]" style={{ fontFamily: "var(--font-display)" }}>
-            One account, as many workspaces as your plan allows. Start with the domains you already look after.
-          </h2>
-          <p className="mt-3 max-w-[62ch] text-[14px] leading-[1.75]" style={{ color: "var(--color-ink-2)" }}>
-            The free plan needs no card. Data export and erasure are available on
-            every plan: they are rights, not upsells.
-          </p>
-          <div className="mt-6 flex flex-wrap items-center gap-4">
-            <Link
-              href="/sign-up"
-              className="rounded-[2px] px-5 py-2.5 text-[13.5px] font-semibold"
-              style={{ background: "var(--color-accent)", color: "var(--color-accent-ink)" }}
-            >
-              Create an account
-            </Link>
-            <Link href="/pricing" className="text-[13.5px] underline" style={{ color: "var(--color-ink-2)" }}>
-              See pricing
-            </Link>
+          <div className="grid grid-cols-1 gap-x-10 gap-y-8 lg:grid-cols-[1.1fr_0.9fr] lg:items-end">
+            <div>
+              <h2 className="max-w-[40ch] text-[26px] font-semibold tracking-[-0.028em]" style={{ fontFamily: "var(--font-display)" }}>
+                Measurement and evidence, not control.
+              </h2>
+              <p className="mt-4 max-w-[62ch] text-[14px] leading-[1.75]" style={{ color: "var(--color-ink-2)" }}>
+                We never edit anyone’s DNS and never send mail as your clients.
+                Export and erasure are available on every plan, free included,
+                because they are rights rather than features. One account, as
+                many workspaces as your plan allows.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-4 lg:justify-end">
+              <Link
+                href="/sign-up"
+                className="rounded-[2px] px-5 py-2.5 text-[13.5px] font-semibold"
+                style={{ background: "var(--color-accent)", color: "var(--color-accent-ink)" }}
+              >
+                Create an account
+              </Link>
+              <Link href="/pricing" className="text-[13.5px] underline" style={{ color: "var(--color-ink-2)" }}>
+                See pricing
+              </Link>
+            </div>
           </div>
         </div>
-      </section>
+      </Reveal>
+</section>
 
       <MarketingFooter brand={brand} />
     </div>
@@ -463,9 +428,9 @@ function ScanExample() {
   ];
   return (
     <div
-      className="rounded-[2px] border px-5 py-4"
-      style={{ borderColor: "var(--color-line-strong)", background: "var(--color-surface)" }}
-      data-testid="scan-example"
+          className="rounded-[2px] border px-5 py-4 transition-colors duration-200 hover:border-[var(--color-line-strong)]"
+          style={{ borderColor: "var(--color-line-strong)", background: "var(--color-surface)" }}
+          data-testid="scan-example"
     >
       <div className="flex flex-wrap items-baseline gap-x-4">
         <span className="num text-[13px]" style={{ color: "var(--color-ink)" }}>
@@ -475,7 +440,7 @@ function ScanExample() {
           needs attention
         </span>
       </div>
-      <div className="mt-3">
+      <div className="mt-4">
         {rows.map(([label, found, detail]) => (
           <div
             key={label}
@@ -507,6 +472,24 @@ function ScanExample() {
     </div>
   );
 }
+
+
+function MiniFact({ label, detail }: { label: string; detail: string }) {
+  return (
+    <li className="flex items-baseline gap-2">
+      <span
+        className="num w-[78px] shrink-0 text-[10px] uppercase tracking-[0.13em]"
+        style={{ color: "var(--color-ink-3)" }}
+      >
+        {label}
+      </span>
+      <span className="text-[12px] leading-[1.55]" style={{ color: "var(--color-ink-2)" }}>
+        {detail}
+      </span>
+    </li>
+  );
+}
+
 
 function Fact({ title, body }: { title: string; body: string }) {
   return (

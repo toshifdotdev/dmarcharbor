@@ -35,7 +35,7 @@ export function LoadingState({ label = "Loading" }: { label?: string }) {
       role="status"
       aria-live="polite"
       data-testid="state-loading"
-      className="flex items-center justify-center px-5 py-12"
+      className="flex items-center justify-center py-12"
     >
       <span className="sr-only">{label}</span>
       <TideMark />
