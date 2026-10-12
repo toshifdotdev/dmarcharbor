@@ -420,9 +420,10 @@ export default async function PricingPage({
               </tr>
             </thead>
             <tbody>
-              <CompareRow label="Clients" ordered={ordered} cell={(p) => String(p.maxClients)} />
-              <CompareRow label="Active domains" ordered={ordered} cell={(p) => String(p.maxActiveDomains)} />
-              <CompareRow label="Members" ordered={ordered} cell={(p) => String(p.maxMembers)} />
+            <CompareRow label="Clients" ordered={ordered} cell={(p) => String(p.maxClients)} />
+            <CompareRow label="Active domains" ordered={ordered} cell={(p) => String(p.maxActiveDomains)} />
+            <CompareRow label="Members" ordered={ordered} cell={(p) => String(p.maxMembers)} />
+            <CompareRow label="Workspaces" ordered={ordered} cell={(p) => String(p.maxWorkspaces)} />
               {/*
                 Retention is deliberately not a comparison row.
 
@@ -481,11 +482,11 @@ export default async function PricingPage({
           <h2 className="text-[23px] font-semibold tracking-[-0.028em]" style={{ fontFamily: "var(--font-display)" }}>
             Start free, no card.
           </h2>
-          <p className="mt-3 max-w-[62ch] text-[14px] leading-[1.75]" style={{ color: "var(--color-ink-2)" }}>
-            One account, one workspace. Add clients and domains once you are in,
-            and move up a rung when the portfolio asks for it: a plan change
-            never deletes anything, in either direction.
-          </p>
+            <p className="mt-3 max-w-[62ch] text-[14px] leading-[1.75]" style={{ color: "var(--color-ink-2)" }}>
+              One account, as many workspaces as your plan allows. Add clients and
+              domains once you are in, and move up a rung when the portfolio asks
+              for it: a plan change never deletes anything, in either direction.
+            </p>
           <div className="mt-5 flex flex-wrap items-center gap-4">
             <Link
               href="/sign-up"

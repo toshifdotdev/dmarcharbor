@@ -604,6 +604,14 @@ export interface PlanDefinition {
   maxClients: number;
   maxActiveDomains: number;
   maxMembers: number;
+  /**
+   * How many workspaces the plan lets an account hold.
+   *
+   * The allowance is a property of the account, counted across everything it
+   * owns, and it comes from the strongest plan it holds. Shown next to the other
+   * limits so the number a customer is buying is the number they can see.
+   */
+  maxWorkspaces: number;
   dataRetentionDays: number;
   auditRetentionDays: number;
   features: Record<EntitlementKey, boolean>;

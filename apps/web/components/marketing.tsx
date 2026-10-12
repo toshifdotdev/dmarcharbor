@@ -423,7 +423,7 @@ export async function MarketingHome() {
           style={{ borderColor: "var(--color-line-strong)", background: "var(--color-surface)" }}
         >
           <h2 className="max-w-[36ch] text-[23px] font-semibold tracking-[-0.028em]" style={{ fontFamily: "var(--font-display)" }}>
-            One account, one workspace. Start with the domains you already look after.
+            One account, as many workspaces as your plan allows. Start with the domains you already look after.
           </h2>
           <p className="mt-3 max-w-[62ch] text-[14px] leading-[1.75]" style={{ color: "var(--color-ink-2)" }}>
             The free plan needs no card. Data export and erasure are available on

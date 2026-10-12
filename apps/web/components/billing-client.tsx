@@ -359,9 +359,10 @@ export function PlanPicker({
                 )}
 
                 <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-1.5">
-                  <Limit label="Clients" value={plan.maxClients} />
-                  <Limit label="Active domains" value={plan.maxActiveDomains} />
-                  <Limit label="Members" value={plan.maxMembers} />
+        <Limit label="Clients" value={plan.maxClients} />
+        <Limit label="Active domains" value={plan.maxActiveDomains} />
+        <Limit label="Members" value={plan.maxMembers} />
+        <Limit label="Workspaces" value={plan.maxWorkspaces} />
 
                   {/*
                     The enforced windows, and only when the service has told us what
