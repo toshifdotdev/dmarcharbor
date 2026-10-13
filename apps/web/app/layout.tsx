@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { BrandApplier } from "@/components/brand-applier";
+import { StructuredData } from "@/components/structured-data-view";
 import { requestOrigin } from "@/lib/metadata-origin";
 import { currentPathname, robotsFor, SITE_DESCRIPTION, SITE_NAME } from "@/lib/seo";
+import { siteGraphJsonLd } from "@/lib/structured-data";
 import "./globals.css";
 
 /**
@@ -70,17 +72,23 @@ export async function generateMetadata(): Promise<Metadata> {
 // (the root layout's headers() has no request store in a static export).
 export const dynamic = "force-dynamic";
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const origin = await requestOrigin();
   return (
     <html lang="en" className={inter.variable}>
       {/* On a custom domain this is the agency's palette replacing ours at the
           token level — every screen, not just the chrome. Nothing renders
           unless the record is verified. */}
       <BrandApplier />
+      {/* The company and the product, in the machine-readable copy a crawler
+          builds an entity card from. Only the facts that are settled: the legal
+          entity name, phone and address are placeholders until supplied, so
+          they are absent rather than invented. */}
+      <StructuredData data={siteGraphJsonLd(origin)} />
       <body>{children}</body>
     </html>
   );

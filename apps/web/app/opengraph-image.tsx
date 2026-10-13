@@ -25,7 +25,9 @@ export const contentType = "image/png";
 const BONE = "#f2f2f0";
 const INK = "#0a0a0a";
 const INK_2 = "#a3a3a1";
-const BLOCKING = "#c8442c";
+// The elevated-surface token from app/globals.css: the square the mark sits in
+// is the same surface a card uses everywhere else in the product.
+const ELEVATE = "#161616";
 
 const MONO = "ui-monospace, SFMono-Regular, Menlo, monospace";
 const SANS = "system-ui, -apple-system, Segoe UI, sans-serif";
@@ -44,16 +46,34 @@ export default function OpengraphImage() {
           padding: "72px 80px",
         }}
       >
-        {/* The mark, repeated from app/icon.svg at card scale. */}
+        {/* The brand mark, in the treatment the brand assets actually specify:
+            the Pier inside a rounded square, not a bare H. app/icon.svg and
+            brand/pier.svg agree on that, and a mark on transparent reads as a
+            different mark — it looked like a bare H, which is what it is drawn
+            as but not what it is shipped as. */}
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <div
             style={{
-              width: 34,
-              height: 34,
-              background: BLOCKING,
-              transform: "rotate(45deg)",
+              width: 64,
+              height: 64,
+              borderRadius: 9,
+              background: ELEVATE,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
             }}
-          />
+          >
+            <svg width="34" height="34" viewBox="0 0 512 512" fill="none">
+              <rect x="120" y="88" width="84" height="336" rx="18" fill={BONE} />
+              <rect x="308" y="88" width="84" height="336" rx="18" fill={BONE} />
+              <path
+                d="M162 252 C 196 206, 236 206, 256 252 C 276 298, 316 298, 350 252"
+                stroke={BONE}
+                strokeWidth="44"
+                strokeLinecap="round"
+              />
+            </svg>
+          </div>
           <div style={{ color: BONE, fontSize: 22, fontWeight: 600, letterSpacing: "0.14em", fontFamily: MONO }}>
             DMARC HARBOR
           </div>

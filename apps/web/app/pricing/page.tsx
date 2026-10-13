@@ -19,8 +19,10 @@ import {
   brandName,
 } from "@/components/marketing";
 import { PricingControls, type PricingCurrency, type PricingInterval } from "@/components/pricing-controls";
+import { StructuredData } from "@/components/structured-data-view";
 import { requestOrigin } from "@/lib/metadata-origin";
 import { publicMetadata } from "@/lib/seo";
+import { planOffersJsonLd } from "@/lib/structured-data";
 import type { Metadata } from "next";
 
 /** Pricing is the page a buyer shares with their finance team: it needs a
@@ -182,10 +184,27 @@ export default async function PricingPage({
         )
       : null;
 
+  /**
+   * The plan ladder, in the machine-readable copy.
+   *
+   * Built from the same `ordered` array the page renders, so the figures cannot
+   * disagree with the ones above it. If the catalog failed to load the offers
+   * are simply absent — an empty ItemList would be worse than none, and a
+   * hardcoded list would drift the first time a price changes.
+   */
+  const planOffers = planOffersJsonLd(
+    await requestOrigin(),
+    ordered.map((plan) => ({
+      name: plan.label,
+      monthlyMinor: plan.prices.USD.monthlyMinor,
+    })),
+  );
+
   return (
     <div className="relative z-10 min-h-screen" data-host-brand={brand.state}>
       {brand.state === "unverified" ? <HostUnverifiedBanner /> : null}
       <MarketingHeader brand={brand} current="pricing" />
+      <StructuredData data={planOffers} />
 
       {/* Hero + every price in one screen — comparison without scrolling. */}
       <section className="mx-auto flex w-full max-w-[1280px] flex-wrap items-baseline gap-x-10 gap-y-4 px-6 pt-9">
