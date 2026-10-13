@@ -16,6 +16,39 @@ Tick boxes as you go. Nothing here is done because it was written down.
 
 ---
 
+## Decisions taken
+
+Two questions this checklist once listed as open are settled. Recorded here so
+they are not asked again, and because each one removes a sub-processor
+obligation or a false option.
+
+**Report collection: Migadu plus Cloudflare.** Not Cloudflare alone.
+
+The IMAP path and the inbound webhook both exist, so dropping Migadu and
+pointing the Worker straight at the API was a real option. It was declined for
+two reasons. Gmail and Google Workspace publish reports by sending mail and
+offer nothing else, so a Worker-only deployment stops reporting for the largest
+population of customers unless we own their MX. And the unauthenticated ingress
+would then be the only thing keeping strangers out, where IMAP is gated by
+mailbox credentials that already work today.
+
+Migadu and Cloudflare stay two sub-processors because they do two jobs:
+Cloudflare routes and forwards at the edge without storing, Migadu holds the
+mailbox. Neither can do the other's.
+
+**Data residency: one region, no EU-only tier.**
+
+Not a compliance gap. A non-EU sub-processor is lawful under SCCs plus a signed
+DPA, which is a paperwork task rather than an engineering one, and the region
+decision itself is what step 2 has to answer anyway. The Trust Center and the
+compliance pack name the region rather than a placeholder once it is chosen.
+
+**Still open, and still blocking:** the domain, the hosting platform and region,
+the legal entity details, the payment accounts, the transactional email
+provider, and the report mailbox.
+
+---
+
 ## Part 1 — Strictly sequential
 
 ### 1. Buy the domain
