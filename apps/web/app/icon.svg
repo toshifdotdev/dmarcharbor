@@ -1,6 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
-  <rect width="512" height="512" rx="72" fill="#0a0a0a"/>
-  <rect x="120" y="88" width="84" height="336" rx="18" fill="#e6e4dd"/>
-  <rect x="308" y="88" width="84" height="336" rx="18" fill="#e6e4dd"/>
-  <path d="M162 252 C 196 206, 236 206, 256 252 C 276 298, 316 298, 350 252" stroke="#e6e4dd" stroke-width="44" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="DMARC Harbor">
+  <!--
+    The mark: a harbour breakwater against the four postures. One saturated
+    colour only, and it is the blocking hue, because that is the state the
+    product exists to find. Everything else is bone on dark, so the icon is
+    legible at 16px in a browser tab and at 180px in an OS dock.
+
+    Drawn as a filled glyph rather than an outline: a tab icon is a few pixels
+    across and hairlines disappear at that size.
+  -->
+  <rect width="32" height="32" rx="4" fill="#0a0a0a"/>
+  <!-- the water: two hatched bands, the same "not measured" language the UI uses -->
+  <rect x="6" y="21" width="20" height="2" fill="#3a3a3a"/>
+  <rect x="6" y="25" width="20" height="2" fill="#3a3a3a"/>
+  <!-- the breakwater -->
+  <path d="M9 21V11l14-4v10z" fill="#f2f2f0"/>
+  <!-- the alert: a single diamond in the blocking hue -->
+  <path d="M22 4.5 25.5 8 22 11.5 18.5 8z" fill="#c8442c"/>
 </svg>

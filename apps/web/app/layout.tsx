@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { BrandApplier } from "@/components/brand-applier";
 import { requestOrigin } from "@/lib/metadata-origin";
+import { currentPathname, robotsFor, SITE_DESCRIPTION, SITE_NAME } from "@/lib/seo";
 import "./globals.css";
 
 /**
@@ -17,26 +18,48 @@ const inter = Inter({
 });
 
 export async function generateMetadata(): Promise<Metadata> {
-  // metadataBase + canonical against the REQUEST's own origin: this build
-  // serves the product domain and branded custom domains at once, so a
-  // hardcoded base would canonically claim the wrong host on every agency's
-  // site. openGraph rides the same origin so shared links resolve.
+  // metadataBase against the REQUEST's own origin: this build serves the
+  // product domain and branded custom domains at once, so a hardcoded base
+  // would claim the wrong host on every agency's site. openGraph rides the
+  // same origin so shared links resolve.
   const origin = await requestOrigin();
+  // Which route this is, so the indexability below is right for it. Without
+  // this the root metadata is inherited verbatim by every page, and a
+  // canonical on the root named the homepage for all of them.
+  const pathname = await currentPathname();
   return {
     metadataBase: new URL(origin),
     title: {
-      default: "DMARC Harbor",
-      template: "%s · DMARC Harbor",
+      default: SITE_NAME,
+      template: `%s · ${SITE_NAME}`,
     },
-    description:
-      "DMARC email-authentication monitoring for MSPs and IT agencies. Measurement and evidence: never control.",
-    alternates: { canonical: "/" },
+    description: SITE_DESCRIPTION,
+    // No `alternates.canonical` here: a canonical on a layout applies to every
+    // route under it. Each public page declares its own in lib/seo.ts.
+    applicationName: SITE_NAME,
+    robots: robotsFor(pathname),
+    // A crawler must not be told to revisit on a timer it may not honour.
+    // Cache headers come from the response, not from here.
     openGraph: {
-      siteName: "DMARC Harbor",
-      title: "DMARC Harbor",
-      description:
-        "DMARC email-authentication monitoring for MSPs and IT agencies. Measurement and evidence: never control.",
+      siteName: SITE_NAME,
+      title: SITE_NAME,
+      description: SITE_DESCRIPTION,
       type: "website",
+      images: [
+        {
+          url: "/opengraph-image",
+          width: 1200,
+          height: 630,
+          alt: "DMARC Harbor — measurement and evidence, never control",
+        },
+      ],
+    },
+    twitter: {
+      // No title or description here on purpose: both fall back to the page's
+      // own `title` and `description`, and naming them on the root pinned every
+      // card in the product to the same sentence no matter which page was
+      // shared.
+      card: "summary_large_image",
     },
   };
 }

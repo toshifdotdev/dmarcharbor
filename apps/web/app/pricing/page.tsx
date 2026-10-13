@@ -20,6 +20,7 @@ import {
 } from "@/components/marketing";
 import { PricingControls, type PricingCurrency, type PricingInterval } from "@/components/pricing-controls";
 import { requestOrigin } from "@/lib/metadata-origin";
+import { publicMetadata } from "@/lib/seo";
 import type { Metadata } from "next";
 
 /** Pricing is the page a buyer shares with their finance team: it needs a
@@ -27,16 +28,13 @@ import type { Metadata } from "next";
  *  request actually came in on (custom domains included). */
 export async function generateMetadata(): Promise<Metadata> {
   const origin = await requestOrigin();
-  const title = "Pricing";
-  const description =
-    "Every plan, every figure, before the prose. Monthly and annual, in the currencies this deployment can actually charge.";
-  return {
-    metadataBase: new URL(origin),
-    title,
-    description,
-    alternates: { canonical: "/pricing" },
-    openGraph: { siteName: "DMARC Harbor", title: `${title} · DMARC Harbor`, description, type: "website" },
-  };
+  return publicMetadata({
+    title: "Pricing",
+    description:
+      "Every plan, every figure, before the prose. Monthly and annual, in the currencies this deployment can actually charge.",
+    path: "/pricing",
+    origin,
+  });
 }
 
 /**

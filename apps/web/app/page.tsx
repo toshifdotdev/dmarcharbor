@@ -10,6 +10,7 @@ import { PortfolioGrid, type PortfolioRow } from "@/components/portfolio";
 import { EmptyState, ErrorState, LoadingState } from "@/components/data-states";
 import { UpgradePrompt } from "@/components/upgrade-gate";
 import { requestOrigin } from "@/lib/metadata-origin";
+import { publicMetadata } from "@/lib/seo";
 import type { Metadata } from "next";
 
 /** The root route serves two different readers (stranger and operator), and
@@ -17,16 +18,13 @@ import type { Metadata } from "next";
  *  the product, not the portfolio. */
 export async function generateMetadata(): Promise<Metadata> {
   const origin = await requestOrigin();
-  const title = "DMARC reports for MSPs managing client domains";
-  const description =
-    "DMARC monitoring for agencies and MSPs: posture per client domain, evidence you can hand over, and a client portal in your brand. Measurement and evidence: never control.";
-  return {
-    metadataBase: new URL(origin),
-    title,
-    description,
-    alternates: { canonical: "/" },
-    openGraph: { siteName: "DMARC Harbor", title, description, type: "website" },
-  };
+  return publicMetadata({
+    title: "DMARC reports for MSPs managing client domains",
+    description:
+      "DMARC monitoring for agencies and MSPs: posture per client domain, evidence you can hand over, and a client portal in your brand. Measurement and evidence: never control.",
+    path: "/",
+    origin,
+  });
 }
 
 /**

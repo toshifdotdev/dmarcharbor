@@ -1,11 +1,30 @@
 import { verifyCompliancePack, PublicError } from "@/lib/api-public";
 import { ComplianceVerifyForm } from "@/components/compliance-verify";
+import { requestOrigin } from "@/lib/metadata-origin";
+import { publicMetadata } from "@/lib/seo";
+import type { Metadata } from "next";
+
+/** Indexed on purpose. The page is only useful to someone who already holds a
+ *  pack and needs to check it, and they arrive by searching for it rather than
+ *  from a link inside the product, so a noindex here would hide the one route
+ *  that has to be findable. */
+export async function generateMetadata(): Promise<Metadata> {
+  const origin = await requestOrigin();
+  return publicMetadata({
+    title: "Compliance pack fingerprint verifier",
+    description:
+      "Check that a compliance pack you hold is the one we issued. We publish a SHA-256 digest of the exact bytes against a reference, and a copy is genuine when its digest matches. No account needed.",
+    path: "/verify",
+    origin,
+  });
+}
 
 /**
  * The compliance pack verifier. PUBLIC, no auth — an auditor checks a document
  * they hold against the platform's published fingerprint with no account.
  * The answer is only ever about a digest: never the document, never a client
- * name. Monolith Light, document typography: a legal artefact, not a screen.
+ * name. Monolith dark, the product typeface: a legal artefact, not a second
+ * product with its own look.
  */
 export default async function VerifyPage({
   searchParams,

@@ -7,6 +7,9 @@ import {
   MarketingHeader,
   brandName,
 } from "@/components/marketing";
+import { requestOrigin } from "@/lib/metadata-origin";
+import { publicMetadata } from "@/lib/seo";
+import type { Metadata } from "next";
 
 /**
  * /support — the support page. Public, loads signed out.
@@ -15,9 +18,19 @@ import {
  * number on a support page. The phone number is the business's to supply: an
  * invented contact detail on a legal page is a worse defect than a visible
  * placeholder, so the placeholder says exactly what is missing.
+ *
+ * Indexed: a buyer with no account has to be able to find the way to reach us,
+ * which is exactly what Paddle is asking for by requiring the page at all.
  */
-export function generateMetadata() {
-  return { title: "Support" };
+export async function generateMetadata(): Promise<Metadata> {
+  const origin = await requestOrigin();
+  return publicMetadata({
+    title: "Support and contact",
+    description:
+      "How to reach us: email and phone, what a support request needs to contain, and how long an answer takes. Both routes work without an account.",
+    path: "/support",
+    origin,
+  });
 }
 
 export default async function SupportPage() {

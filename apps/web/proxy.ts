@@ -192,6 +192,12 @@ export async function proxy(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-nonce", nonce);
   requestHeaders.set("Content-Security-Policy", csp);
+  // The route being served, for the metadata layer: a layout's
+  // generateMetadata() renders for every route under it and cannot otherwise
+  // tell which one it is, and the root layout needs that to keep forty-odd
+  // protected screens out of a search index while leaving the public set in.
+  // See lib/seo.ts.
+  requestHeaders.set("x-harbor-path", request.nextUrl.pathname);
 
   const rawHost = request.headers.get("host") ?? "";
   const host = rawHost.split(":")[0];
