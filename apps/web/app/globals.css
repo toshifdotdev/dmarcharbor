@@ -116,6 +116,20 @@ body::before {
      scrollbar and dark native selects on top of bone. */
   color-scheme: light;
 
+  /* The surface paints itself.
+
+     `--bg` and `--ink` were declared above but nothing consumed them on the
+     element that carries them: the page background comes from `body`, whose
+     `background: var(--color-bg)` still resolved to the dark theme because these
+     unprefixed declarations do not reach an ancestor. So the verifier, the Trust
+     Center, the report share and the portal rendered dark ink on a near-black
+     page: a page whose whole purpose is to be read had almost no contrast.
+
+     Declaring background and colour here fixes all four at once, because every
+     one of them carries this token and is min-h-screen. */
+  background: var(--bg);
+  color: var(--ink);
+
   --bg: #f6f5f0;
   --surface: #fffef9;
   --raised: #f0eee6;

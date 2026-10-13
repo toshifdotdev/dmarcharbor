@@ -10,6 +10,12 @@ import { useRouter, useSearchParams } from "next/navigation";
  * artefact typography and lets the result render without a page of chrome.
  * The reference is a document identifier, not a secret: it appears on the
  * pack's cover page.
+ *
+ * The form says what the reference IS and where to find it, rather than only
+ * showing a placeholder. An auditor arriving from an email link has a PDF in hand
+ * and no idea what this box wants: the first version asked them to paste
+ * something "printed on the cover page" without saying what that thing looked
+ * like, so a real reference and a typo were indistinguishable.
  */
 export function ComplianceVerifyForm({
   initialReference,
@@ -37,15 +43,33 @@ export function ComplianceVerifyForm({
       >
         Document reference
       </label>
-      <div className="flex gap-2">
+
+      {/* What the thing is, what it looks like, and where to find it. A real
+          reference is a dated hyphenated identifier; saying so turns "is this
+          right?" into something the reader can answer without guessing. */}
+      <div className="mt-1 text-[13px] leading-[1.7]" style={{ color: "var(--ink-2)" }}>
+        <p>
+          Every pack carries a reference shaped like{" "}
+          <code
+            className="num px-1 py-0.5 text-[12px]"
+            style={{ background: "var(--elevate)", borderRadius: 2 }}
+          >
+            DMARC-20261013-ACME-FREIGHT-7C1A9F4B2D
+          </code>
+          . It is printed on the cover page and in the email that said the pack was
+          ready: paste the whole thing, hyphens included.
+        </p>
+      </div>
+
+      <div className="mt-1 flex gap-2">
         <input
           id="pack-reference"
           value={reference}
           onChange={(e) => setReference(e.target.value)}
-          placeholder="printed on the pack's cover page"
+          placeholder="DMARC-20261013-ACME-FREIGHT-7C1A9F4B2D"
           spellCheck={false}
           autoComplete="off"
-          className="flex-1 border px-3 py-2.5 text-[14px] outline-none"
+          className="min-w-0 flex-1 border px-3 py-2.5 text-[14px] outline-none"
           style={{
             background: "var(--surface)",
             borderColor: "var(--line-strong)",
