@@ -131,7 +131,7 @@ export default async function PricingPage({
       <div className="relative z-10 min-h-screen" data-host-brand={brand.state}>
         {brand.state === "unverified" ? <HostUnverifiedBanner /> : null}
         <MarketingHeader brand={brand} current="pricing" />
-        <section className="mx-auto w-full max-w-[1180px] px-6 pt-14">
+        <section className="mx-auto w-full max-w-[1280px] px-6 pt-14">
           <h1 className="text-[34px] font-semibold tracking-[-0.032em]" style={{ fontFamily: "var(--font-display)" }}>
             Pricing
           </h1>
@@ -155,7 +155,7 @@ export default async function PricingPage({
       <div className="relative z-10 min-h-screen" data-host-brand={brand.state}>
         {brand.state === "unverified" ? <HostUnverifiedBanner /> : null}
         <MarketingHeader brand={brand} current="pricing" />
-        <section className="mx-auto w-full max-w-[1180px] px-6 pt-14">
+        <section className="mx-auto w-full max-w-[1280px] px-6 pt-14">
           <h1 className="text-[34px] font-semibold tracking-[-0.032em]" style={{ fontFamily: "var(--font-display)" }}>
             Pricing
           </h1>
@@ -190,7 +190,7 @@ export default async function PricingPage({
       <MarketingHeader brand={brand} current="pricing" />
 
       {/* Hero + every price in one screen — comparison without scrolling. */}
-      <section className="mx-auto flex w-full max-w-[1180px] flex-wrap items-baseline gap-x-10 gap-y-4 px-6 pt-9">
+      <section className="mx-auto flex w-full max-w-[1280px] flex-wrap items-baseline gap-x-10 gap-y-4 px-6 pt-9">
         <div>
           <div className="label">Pricing</div>
           <h1 className="mt-2 text-[32px] font-semibold leading-[1.15] tracking-[-0.032em]" style={{ fontFamily: "var(--font-display)" }}>
@@ -219,7 +219,7 @@ export default async function PricingPage({
       </section>
 
       {/* The row of figures. */}
-      <section className="mx-auto w-full max-w-[1180px] px-6 pt-7">
+      <section className="mx-auto w-full max-w-[1280px] px-6 pt-7">
         <div className="grid grid-cols-1 border-t sm:grid-cols-2 xl:grid-cols-4" style={{ borderColor: "var(--color-line-strong)" }}>
           {ordered.map((plan, idx) => {
             // The headline figure is the currency the visitor is quoted: the
@@ -369,7 +369,7 @@ export default async function PricingPage({
       </section>
 
       {/* What the price never changes. */}
-      <section className="mx-auto w-full max-w-[1180px] px-6 pt-14">
+      <section className="mx-auto w-full max-w-[1280px] px-6 pt-14">
         <h2 className="text-[26px] font-semibold tracking-[-0.03em]" style={{ fontFamily: "var(--font-display)" }}>
           What the price never changes.
         </h2>
@@ -388,7 +388,7 @@ export default async function PricingPage({
       </section>
 
       {/* The five postures — the product's promise, priced identically. */}
-      <section className="mx-auto mt-7 flex w-full max-w-[1180px] flex-wrap items-center gap-3 px-6">
+      <section className="mx-auto mt-7 flex w-full max-w-[1280px] flex-wrap items-center gap-3 px-6">
         <StateChip color="var(--color-pass)" label="Pass" />
         <StateChip color="var(--color-block)" label="Block" />
         <StateChip color="var(--color-unverified)" label="Unverified" />
@@ -399,7 +399,7 @@ export default async function PricingPage({
       </section>
 
       {/* The full comparison — every limit and every entitlement. */}
-      <section className="mx-auto w-full max-w-[1180px] px-6 pt-14">
+      <section className="mx-auto w-full max-w-[1280px] px-6 pt-14">
         <h2 className="text-[26px] font-semibold tracking-[-0.03em]" style={{ fontFamily: "var(--font-display)" }}>
           Compare everything
         </h2>
@@ -474,7 +474,7 @@ export default async function PricingPage({
         </div>
       </section>
 
-      <section className="mx-auto w-full max-w-[1180px] px-6 pt-12">
+      <section className="mx-auto w-full max-w-[1280px] px-6 pt-12">
         <div
           className="rounded-[2px] border px-8 py-8"
           style={{ borderColor: "var(--color-line-strong)", background: "var(--color-surface)" }}

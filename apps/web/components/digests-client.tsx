@@ -204,30 +204,47 @@ export function DigestActions({
   digest: ReportDigestRow;
 }) {
   const router = useRouter();
+  // Pause/resume and delete awaited their call and threw the result away, so a
+  // refused request refreshed the page and the control looked like it had not
+  // been pressed: a 402 from a downgraded workspace and a successful pause were
+  // indistinguishable. The row now says what happened.
+  const [error, setError] = useState<ApiErrorBody["error"] | null>(null);
+
   return (
-    <div className="flex items-center gap-3">
-      <button
-        type="button"
-        onClick={async () => {
-          await patchReportDigest(organizationId, digest.id, { enabled: !digest.enabled });
-          router.refresh();
-        }}
-        className="text-[12.5px] underline"
-        style={{ color: "var(--color-ink-2)" }}
-      >
-        {digest.enabled ? "pause" : "resume"}
-      </button>
-      <button
-        type="button"
-        onClick={async () => {
-          await removeReportDigest(organizationId, digest.id);
-          router.refresh();
-        }}
-        className="text-[12.5px] underline"
-        style={{ color: "var(--color-block)" }}
-      >
-        delete
-      </button>
+    <div className="flex flex-col gap-1.5">
+      {error ? (
+        <p role="alert" className="text-[12px]" style={{ color: "var(--color-block)" }}>
+          {error.message}
+        </p>
+      ) : null}
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={async () => {
+            setError(null);
+            const res = await patchReportDigest(organizationId, digest.id, { enabled: !digest.enabled });
+            if (!res.ok) setError(res.error);
+            else router.refresh();
+          }}
+          className="text-[12.5px] underline"
+          style={{ color: "var(--color-ink-2)" }}
+        >
+          {digest.enabled ? "pause" : "resume"}
+        </button>
+        <button
+          type="button"
+          onClick={async () => {
+            setError(null);
+            const res = await removeReportDigest(organizationId, digest.id);
+            if (!res.ok) setError(res.error);
+            else router.refresh();
+          }}
+          className="text-[12.5px] underline"
+          style={{ color: "var(--color-block)" }}
+        >
+          delete
+        </button>
+      </div>
     </div>
   );
 }
