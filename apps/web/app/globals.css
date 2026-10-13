@@ -100,42 +100,26 @@ body::before {
   color: var(--color-ink-3);
 }
 
-/* These pages wear the Monolith dark theme like every other surface.
+/* The public artefact pages (`data-surface="artefact"`) wear Monolith dark, and
+   they wear Inter like every other surface. Both of those were once wrong here
+   and the reason is worth recording rather than discovering a third time.
 
-   There used to be a "Monolith Light" block here that inverted bone and ink for
-   the public artefacts. Two attempts at it were both wrong, and the reason is
-   worth recording rather than discovering a third time:
+   A light block set `--ink`, `--surface` and `--line` but matched
+   `data-surface="light"` with `=`, while every page set `data-surface="artefact"`,
+   so it never matched and every `var(--ink)` on those pages was an undefined
+   custom property. Undefined is not an error: the declaration is dropped at
+   computed-value time. Backgrounds came out transparent and borders came out
+   currentColor, which is what made the verifier unreadable.
 
-   the block matched `data-surface="light"` with `=`, while every page set
-   `data-surface="artefact"`, so it never matched and every `var(--ink)`,
-   `var(--surface)`, `var(--line)` and `var(--accent)` on those pages was an
-   undefined custom property. Undefined in a style property is not an error: the
-   declaration is simply dropped at computed-value time. So backgrounds came out
-   transparent, borders came out currentColor, and the artefact pages rendered
-   dark-on-dark, which is what made the verifier unreadable.
+   Fixing the selector then produced bone and ink over the whole page, which read
+   correctly but looked like a different product: a visitor moved from a dark site
+   to a bright white page on one click.
 
-   The second attempt fixed the selector with `~=` and gave the surface a bone
-   background. That read correctly but looked nothing like the rest of the
-   product, which was the real complaint: a visitor moves from a dark site to a
-   bright white page with no transition, and the artefact stops looking like our
-   software.
-
-   The resolution is that a dark surface is the correct one and the tokens were
-   the wrong hand. The public artefact pages now use the same --color-* tokens as
-   the console, so they render in Monolith with visible lines and are readable.
-   Nothing here inverts to light. */
-
-/* The legal artefact: a document, not a dashboard. Serif headings, mono for
-   digests and references, wide rules. */
-.artefact {
-  font-family: Georgia, "Times New Roman", serif;
-  letter-spacing: -0.005em;
-}
-.artefact h1,
-.artefact h2 {
-  font-family: Georgia, "Times New Roman", serif;
-  font-weight: 600;
-}
+   So: no light surface, and no serif either. A Georgia block used to sit here
+   and made this a second typeface appearing nowhere else, since `--font-sans`
+   and `--font-display` both resolve to Inter. The document feeling comes from
+   the mono treatment (`num`) on references, digests and fingerprints, and from
+   the wide rules and spacing. Nothing here changes the font. */
 
 /* Visually hidden but read by screen readers — used for loading labels so a
    spinner swap never widens the control it sits in. */
