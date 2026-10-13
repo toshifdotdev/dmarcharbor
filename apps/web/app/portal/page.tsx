@@ -39,12 +39,12 @@ export default async function PortalPage() {
   const accent = brand.branded && brand.primaryColor ? brand.primaryColor : undefined;
 
   return (
-    <div data-surface="artefact light" className="artefact relative z-10 min-h-screen">
+    <div data-surface="artefact" className="artefact relative z-10 min-h-screen">
       {/* The contact-facing header: the AGENCY's brand when licensed, never
           our own mark on a white-labelled surface. */}
       <header
         className="border-b px-6 py-4"
-        style={{ borderColor: "var(--line-strong)", background: "var(--surface)" }}
+        style={{ borderColor: "var(--color-line-strong)", background: "var(--color-surface)" }}
       >
         <div className="mx-auto flex max-w-4xl items-center gap-3">
           {brand.branded && brand.logoUrl ? (
@@ -55,16 +55,16 @@ export default async function PortalPage() {
           ) : (
             <span
               className="num flex size-8 items-center justify-center text-[12px] font-semibold"
-              style={{ background: accent ?? "var(--accent)", color: "var(--accent-ink)" }}
+              style={{ background: accent ?? "var(--color-accent)", color: "var(--color-accent-ink)" }}
             >
               {brand.workspaceName.slice(0, 2).toUpperCase()}
             </span>
           )}
           <div>
-            <div className="text-[15px] font-semibold" style={{ color: "var(--ink)" }}>
+            <div className="text-[15px] font-semibold" style={{ color: "var(--color-ink)" }}>
               {brand.workspaceName}
             </div>
-            <div className="num text-[10px] tracking-[0.16em] uppercase" style={{ color: "var(--ink-3)" }}>
+            <div className="num text-[10px] tracking-[0.16em] uppercase" style={{ color: "var(--color-ink-3)" }}>
               client reports
             </div>
           </div>
@@ -83,15 +83,15 @@ export default async function PortalPage() {
       </header>
 
       <main className="mx-auto max-w-4xl px-6 py-12">
-        <h1 className="text-[30px] leading-tight" style={{ color: "var(--ink)" }}>
+        <h1 className="text-[30px] leading-tight" style={{ color: "var(--color-ink)" }}>
           What the world's mail servers say about your domains.
         </h1>
-        <p className="mt-4 text-[15px] leading-relaxed" style={{ color: "var(--ink-2)" }}>
+        <p className="mt-4 text-[15px] leading-relaxed" style={{ color: "var(--color-ink-2)" }}>
           Measurement and evidence only: this portal shows what was observed,
           and never claims to block, filter or control anything.
         </p>
 
-        <div className="num mt-4 flex gap-6 text-[11px]" style={{ color: "var(--ink-3)" }}>
+        <div className="num mt-4 flex gap-6 text-[11px]" style={{ color: "var(--color-ink-3)" }}>
           <span>{overview.totals.domains} domain{overview.totals.domains === 1 ? "" : "s"}</span>
           <span>{overview.totals.reports.toLocaleString("en-US")} reports received</span>
           <span>
@@ -110,12 +110,12 @@ export default async function PortalPage() {
           <section key={client.id} className="mt-10">
             <h2
               className="num border-b pb-2 text-[11px] tracking-[0.16em] uppercase"
-              style={{ borderColor: "var(--line-strong)", color: "var(--ink-3)" }}
+              style={{ borderColor: "var(--color-line-strong)", color: "var(--color-ink-3)" }}
             >
               {client.name}
             </h2>
             {client.domains.length === 0 ? (
-              <p className="mt-4 text-[13.5px]" style={{ color: "var(--ink-3)" }}>
+              <p className="mt-4 text-[13.5px]" style={{ color: "var(--color-ink-3)" }}>
                 No verified domains yet. Measurement begins once a domain is
                 verified and its reporters send their first aggregate report.
               </p>
@@ -126,17 +126,17 @@ export default async function PortalPage() {
                     <Link
                       href={portalDomainHref(d.id)}
                       className="flex flex-wrap items-baseline gap-x-5 gap-y-1 border-b py-4 transition-colors"
-                      style={{ borderColor: "var(--line)" }}
+                      style={{ borderColor: "var(--color-line)" }}
                     >
-                      <span className="num text-[15px]" style={{ color: "var(--ink)" }}>
+                      <span className="num text-[15px]" style={{ color: "var(--color-ink)" }}>
                         {d.name}
                       </span>
-                      <span className="num text-[11.5px]" style={{ color: "var(--ink-2)" }}>
+                      <span className="num text-[11.5px]" style={{ color: "var(--color-ink-2)" }}>
                         {d.dmarcPolicy ? `p=${d.dmarcPolicy}` : "no policy published"}
                       </span>
                       <span
                         className="num ml-auto text-[10px] tracking-[0.14em] uppercase"
-                        style={{ color: "var(--ink-3)" }}
+                        style={{ color: "var(--color-ink-3)" }}
                       >
                         last scan{" "}
                         {d.lastScanAt
@@ -154,9 +154,9 @@ export default async function PortalPage() {
 
       <footer
         className="mx-auto max-w-4xl border-t px-6 py-8"
-        style={{ borderColor: "var(--line)" }}
+        style={{ borderColor: "var(--color-line)" }}
       >
-        <p className="num text-[10.5px] leading-relaxed" style={{ color: "var(--ink-3)" }}>
+        <p className="num text-[10.5px] leading-relaxed" style={{ color: "var(--color-ink-3)" }}>
           Reports you can see here are aggregate evidence about your domains.
           Forensic detail is held to a stricter boundary and is not part of this
           portal. Export and erasure of personal data are available on every

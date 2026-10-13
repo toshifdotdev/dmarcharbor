@@ -82,8 +82,18 @@ export function SessionsPanel({ sessions }: { sessions: SessionRow[] }) {
               onClick={async () => {
                 setBusy("others");
                 setError(null);
-                await revokeOtherSessions().catch(() => setError("Sessions could not be revoked."));
+                // The result is kept rather than discarded. `.catch` alone turns every
+                // HTTP failure into the same sentence, which is true but useless: the
+                // API distinguishes a session it never issued from one already
+                // expired, and an operator who pressed this by accident needs to
+                // know which. Refresh happens only on success, so a failed revoke no
+                // longer looks like a device was signed out when it was not.
+                const res = await revokeOtherSessions();
                 setBusy(null);
+                if (!res.ok) {
+                  setError(res.error.message ?? "Sessions could not be revoked.");
+                  return;
+                }
                 router.refresh();
               }}
               data-testid="revoke-others"
@@ -201,8 +211,16 @@ export function SessionsPanel({ sessions }: { sessions: SessionRow[] }) {
                 busy={busy !== null}
                 onConfirm={async () => {
                   setBusy(s.id);
-                  await revokeSession(s.id).catch(() => setError("That session could not be revoked."));
+                  // Same reason as the header button: a discarded result makes a
+                  // refused revocation look like a completed one. This one can fail
+                  // with 404 if the session already expired while the confirmation
+                  // was on screen, which is worth saying rather than swallowing.
+                  const res = await revokeSession(s.id);
                   setBusy(null);
+                  if (!res.ok) {
+                    setError(res.error.message ?? "That session could not be revoked.");
+                    return;
+                  }
                   router.refresh();
                 }}
               />

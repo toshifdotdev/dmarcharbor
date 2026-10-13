@@ -56,20 +56,20 @@ export default async function PortalDomainPage({
         : { label: "All observed senders authenticated", tone: "var(--color-pass)" };
 
   return (
-    <div data-surface="artefact light" className="artefact relative z-10 min-h-screen">
+    <div data-surface="artefact" className="artefact relative z-10 min-h-screen">
       <header
         className="border-b px-6 py-4"
-        style={{ borderColor: "var(--line-strong)", background: "var(--surface)" }}
+        style={{ borderColor: "var(--color-line-strong)", background: "var(--color-surface)" }}
       >
         <div className="mx-auto flex max-w-4xl items-center gap-3">
           <Link
             href="/portal"
             className="num text-[10px] tracking-[0.16em] uppercase"
-            style={{ color: "var(--ink-3)" }}
+            style={{ color: "var(--color-ink-3)" }}
           >
             ← all domains
           </Link>
-          <div className="ml-auto num text-[10px] tracking-[0.16em] uppercase" style={{ color: "var(--ink-3)" }}>
+          <div className="ml-auto num text-[10px] tracking-[0.16em] uppercase" style={{ color: "var(--color-ink-3)" }}>
             {brand?.workspaceName ?? detail.domain.client.name} · client reports
           </div>
         </div>
@@ -78,11 +78,11 @@ export default async function PortalDomainPage({
       <main className="mx-auto max-w-4xl px-6 py-12">
         <p
           className="num text-[11px] tracking-[0.18em] uppercase"
-          style={{ color: "var(--ink-3)" }}
+          style={{ color: "var(--color-ink-3)" }}
         >
           {detail.domain.client.name}
         </p>
-        <h1 className="num mt-2 text-[28px]" style={{ color: "var(--ink)" }}>
+        <h1 className="num mt-2 text-[28px]" style={{ color: "var(--color-ink)" }}>
           {detail.domain.name}
         </h1>
 
@@ -93,12 +93,12 @@ export default async function PortalDomainPage({
           >
             {posture.label}
           </span>
-          <span className="num text-[11.5px]" style={{ color: "var(--ink-2)" }}>
+          <span className="num text-[11.5px]" style={{ color: "var(--color-ink-2)" }}>
             {detail.domain.dmarcPolicy
               ? `policy published: p=${detail.domain.dmarcPolicy}`
               : "no policy published"}
           </span>
-          <span className="num text-[11.5px]" style={{ color: "var(--ink-3)" }}>
+          <span className="num text-[11.5px]" style={{ color: "var(--color-ink-3)" }}>
             last report{" "}
             {agg?.lastReportAt
               ? new Date(agg.lastReportAt).toLocaleDateString("en-GB", {
@@ -117,7 +117,7 @@ export default async function PortalDomainPage({
             style={{
               borderColor: "var(--color-unmeasured)",
               background: "var(--color-unmeasured-soft)",
-              color: "var(--ink-2)",
+              color: "var(--color-ink-2)",
             }}
           >
             The feed for this domain went quiet {ageDays} days ago. The figures
@@ -132,7 +132,7 @@ export default async function PortalDomainPage({
             style={{
               borderColor: "var(--color-unmeasured)",
               background: "var(--color-unmeasured-soft)",
-              color: "var(--ink-2)",
+              color: "var(--color-ink-2)",
             }}
           >
             No aggregate report has been received for this domain yet. Nothing
@@ -144,7 +144,7 @@ export default async function PortalDomainPage({
           <section className="mt-10">
             <h2
               className="num border-b pb-2 text-[11px] tracking-[0.16em] uppercase"
-              style={{ borderColor: "var(--line-strong)", color: "var(--ink-3)" }}
+              style={{ borderColor: "var(--color-line-strong)", color: "var(--color-ink-3)" }}
             >
               What was observed
             </h2>
@@ -167,12 +167,12 @@ export default async function PortalDomainPage({
         <section className="mt-12">
           <h2
             className="num border-b pb-2 text-[11px] tracking-[0.16em] uppercase"
-            style={{ borderColor: "var(--line-strong)", color: "var(--ink-3)" }}
+            style={{ borderColor: "var(--color-line-strong)", color: "var(--color-ink-3)" }}
           >
             Who is sending as you
           </h2>
           {detail.senders.length === 0 ? (
-            <p className="mt-4 text-[13.5px]" style={{ color: "var(--ink-3)" }}>
+            <p className="mt-4 text-[13.5px]" style={{ color: "var(--color-ink-3)" }}>
               No senders observed yet.
             </p>
           ) : (
@@ -184,12 +184,12 @@ export default async function PortalDomainPage({
                   <li
                     key={s.senderKey}
                     className="flex flex-wrap items-baseline gap-x-5 gap-y-1 border-b py-3.5"
-                    style={{ borderColor: "var(--line)" }}
+                    style={{ borderColor: "var(--color-line)" }}
                   >
-                    <span className="num text-[13.5px]" style={{ color: "var(--ink)" }}>
+                    <span className="num text-[13.5px]" style={{ color: "var(--color-ink)" }}>
                       {s.senderDomain ?? s.sourceIps[0] ?? "unknown"}
                     </span>
-                    <span className="num text-[11px]" style={{ color: "var(--ink-3)" }}>
+                    <span className="num text-[11px]" style={{ color: "var(--color-ink-3)" }}>
                       {s.totalMessages.toLocaleString("en-US")} messages
                     </span>
                     {unattributed ? (
@@ -235,14 +235,14 @@ export default async function PortalDomainPage({
               </p>
               <ul className="mt-2 flex flex-col gap-1">
                 {detail.possibleSpoofingSources.map((s) => (
-                  <li key={s.senderKey} className="text-[12.5px]" style={{ color: "var(--ink-2)" }}>
+                  <li key={s.senderKey} className="text-[12.5px]" style={{ color: "var(--color-ink-2)" }}>
                     {s.senderDomain ?? s.sourceIps[0] ?? "unknown"} :{" "}
                     {s.failedMessages.toLocaleString("en-US")} of{" "}
                     {s.totalMessages.toLocaleString("en-US")} messages failed authentication
                   </li>
                 ))}
               </ul>
-              <p className="mt-2 text-[11.5px]" style={{ color: "var(--ink-3)" }}>
+              <p className="mt-2 text-[11.5px]" style={{ color: "var(--color-ink-3)" }}>
                 This is an observation of traffic claiming to be your domain. Ask
                 your provider about it: the platform measures, it does not block.
               </p>
@@ -250,8 +250,8 @@ export default async function PortalDomainPage({
           ) : null}
         </section>
 
-        <footer className="mt-14 border-t pt-6" style={{ borderColor: "var(--line)" }}>
-          <p className="num text-[10.5px] leading-relaxed" style={{ color: "var(--ink-3)" }}>
+        <footer className="mt-14 border-t pt-6" style={{ borderColor: "var(--color-line)" }}>
+          <p className="num text-[10.5px] leading-relaxed" style={{ color: "var(--color-ink-3)" }}>
             Everything on this page is aggregate evidence: counts and sender
             attribution. Forensic detail is held to a stricter boundary and is not
             part of this portal. Export and erasure of personal data are
@@ -276,13 +276,13 @@ function Figure({
     <div>
       <dt
         className="num text-[10px] tracking-[0.14em] uppercase"
-        style={{ color: "var(--ink-3)" }}
+        style={{ color: "var(--color-ink-3)" }}
       >
         {label}
       </dt>
       <dd
         className="num mt-1 text-[22px]"
-        style={{ color: tone ?? "var(--ink)" }}
+        style={{ color: tone ?? "var(--color-ink)" }}
       >
         {value}
       </dd>

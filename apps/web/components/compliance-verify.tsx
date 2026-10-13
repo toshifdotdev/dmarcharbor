@@ -39,7 +39,7 @@ export function ComplianceVerifyForm({
       <label
         className="num text-[10.5px] tracking-[0.14em] uppercase"
         htmlFor="pack-reference"
-        style={{ color: "var(--ink-3)" }}
+        style={{ color: "var(--color-ink-3)" }}
       >
         Document reference
       </label>
@@ -47,12 +47,12 @@ export function ComplianceVerifyForm({
       {/* What the thing is, what it looks like, and where to find it. A real
           reference is a dated hyphenated identifier; saying so turns "is this
           right?" into something the reader can answer without guessing. */}
-      <div className="mt-1 text-[13px] leading-[1.7]" style={{ color: "var(--ink-2)" }}>
+      <div className="mt-1 text-[13px] leading-[1.7]" style={{ color: "var(--color-ink-2)" }}>
         <p>
           Every pack carries a reference shaped like{" "}
           <code
             className="num px-1 py-0.5 text-[12px]"
-            style={{ background: "var(--elevate)", borderRadius: 2 }}
+            style={{ background: "var(--color-elevate)", borderRadius: 2 }}
           >
             DMARC-20261013-ACME-FREIGHT-7C1A9F4B2D
           </code>
@@ -71,9 +71,9 @@ export function ComplianceVerifyForm({
           autoComplete="off"
           className="min-w-0 flex-1 border px-3 py-2.5 text-[14px] outline-none"
           style={{
-            background: "var(--surface)",
-            borderColor: "var(--line-strong)",
-            color: "var(--ink)",
+            background: "var(--color-surface)",
+            borderColor: "var(--color-line-strong)",
+            color: "var(--color-ink)",
             borderRadius: 2,
           }}
         />
@@ -82,8 +82,8 @@ export function ComplianceVerifyForm({
           disabled={!reference.trim() || reference.trim() === current}
           className="px-5 py-2.5 text-[13.5px] font-semibold"
           style={{
-            background: "var(--accent)",
-            color: "var(--accent-ink)",
+            background: "var(--color-accent)",
+            color: "var(--color-accent-ink)",
             borderRadius: 2,
             opacity: !reference.trim() || reference.trim() === current ? 0.5 : 1,
           }}

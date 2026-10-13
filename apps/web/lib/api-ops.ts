@@ -147,23 +147,32 @@ export function startCheckout(
 export function changeBillingPlan(
   organizationId: string,
   body: { plan: string; interval?: "monthly" | "annual"; currency?: "USD" | "INR" },
-): Promise<unknown> {
-  return opsFetch(`/api/workspaces/${organizationId}/billing/plan`, {
-    method: "PATCH",
-    body: JSON.stringify(body),
-  });
+): Promise<{ status: "scheduled" | "applied"; effectiveAt: string }> {
+  return opsFetch<{ status: "scheduled" | "applied"; effectiveAt: string }>(
+    `/api/workspaces/${organizationId}/billing/plan`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    },
+  );
 }
 
-export function cancelSubscription(organizationId: string): Promise<unknown> {
-  return opsFetch(`/api/workspaces/${organizationId}/billing/cancel`, {
-    method: "POST",
-  });
+export function cancelSubscription(
+  organizationId: string,
+): Promise<{ status: "cancelling"; effectiveAt: string }> {
+  return opsFetch<{ status: "cancelling"; effectiveAt: string }>(
+    `/api/workspaces/${organizationId}/billing/cancel`,
+    { method: "POST" },
+  );
 }
 
-export function resumeSubscription(organizationId: string): Promise<unknown> {
-  return opsFetch(`/api/workspaces/${organizationId}/billing/resume`, {
-    method: "POST",
-  });
+export function resumeSubscription(
+  organizationId: string,
+): Promise<{ status: "active" }> {
+  return opsFetch<{ status: "active" }>(
+    `/api/workspaces/${organizationId}/billing/resume`,
+    { method: "POST" },
+  );
 }
 
 export function openBillingPortal(
@@ -242,8 +251,8 @@ export function deleteAlertRule(
 export function acknowledgeAlert(
   organizationId: string,
   eventId: string,
-): Promise<unknown> {
-  return opsFetch(
+): Promise<{ acknowledged: boolean }> {
+  return opsFetch<{ acknowledged: boolean }>(
     `/api/workspaces/${organizationId}/alerts/${eventId}/acknowledge`,
     { method: "POST" },
   );
@@ -724,15 +733,27 @@ export function getBranding(
 export function setCustomDomain(
   organizationId: string,
   customDomain: string | null,
-): Promise<unknown> {
-  return opsFetch(`/api/workspaces/${organizationId}/branding/custom-domain`, {
+): Promise<{
+  customDomain: string | null;
+  verificationHost: string | null;
+  verificationValue: string | null;
+  notice: string;
+}> {
+  return opsFetch<{
+    customDomain: string | null;
+    verificationHost: string | null;
+    verificationValue: string | null;
+    notice: string;
+  }>(`/api/workspaces/${organizationId}/branding/custom-domain`, {
     method: "PUT",
     body: JSON.stringify({ customDomain }),
   });
 }
 
-export function verifyCustomDomain(organizationId: string): Promise<unknown> {
-  return opsFetch(
+export function verifyCustomDomain(
+  organizationId: string,
+): Promise<{ verified: boolean; lookupStatus: string; error?: string }> {
+  return opsFetch<{ verified: boolean; lookupStatus: string; error?: string }>(
     `/api/workspaces/${organizationId}/branding/custom-domain/verify`,
     { method: "POST" },
   );

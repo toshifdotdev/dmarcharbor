@@ -26,14 +26,14 @@ export function ShareReportView({ report }: { report: PublicShareReport }) {
       <header>
         <p
           className="num text-[11px] tracking-[0.22em] uppercase"
-          style={{ color: "var(--ink-3)" }}
+          style={{ color: "var(--color-ink-3)" }}
         >
           Shared report · {sharedFor.domain}
         </p>
-        <h1 className="mt-4 text-[30px] leading-tight" style={{ color: "var(--ink)" }}>
+        <h1 className="mt-4 text-[30px] leading-tight" style={{ color: "var(--color-ink)" }}>
           What the world's mail servers observed for {sharedFor.domain}.
         </h1>
-        <p className="mt-4 text-[14.5px] leading-relaxed" style={{ color: "var(--ink-2)" }}>
+        <p className="mt-4 text-[14.5px] leading-relaxed" style={{ color: "var(--color-ink-2)" }}>
           Prepared for {sharedFor.client} by the team monitoring this domain.
           Measurement and evidence only: this report describes what was
           observed and claims no control over delivery.
@@ -52,10 +52,10 @@ export function ShareReportView({ report }: { report: PublicShareReport }) {
           style={{
             borderColor: "var(--color-unmeasured)",
             background: "var(--color-unmeasured-soft)",
-            color: "var(--ink-2)",
+            color: "var(--color-ink-2)",
           }}
         >
-          <strong style={{ color: "var(--ink)" }}>Not measured.</strong> No
+          <strong style={{ color: "var(--color-ink)" }}>Not measured.</strong> No
           aggregate report has been received for this domain yet: absence of
           data is not compliance, and nothing below should be read as health.
         </p>
@@ -67,10 +67,10 @@ export function ShareReportView({ report }: { report: PublicShareReport }) {
           style={{
             borderColor: "var(--color-unmeasured)",
             background: "var(--color-unmeasured-soft)",
-            color: "var(--ink-2)",
+            color: "var(--color-ink-2)",
           }}
         >
-          <strong style={{ color: "var(--ink)" }}>The feed went quiet{" "}
+          <strong style={{ color: "var(--color-ink)" }}>The feed went quiet{" "}
           {reporting.daysSinceLastReport} days ago.</strong> The figures below are
           history, not current state: silence is not compliance.
         </p>
@@ -79,7 +79,7 @@ export function ShareReportView({ report }: { report: PublicShareReport }) {
       <section className="mt-10">
         <h2
           className="num border-b pb-2 text-[11px] tracking-[0.16em] uppercase"
-          style={{ borderColor: "var(--line-strong)", color: "var(--ink-3)" }}
+          style={{ borderColor: "var(--color-line-strong)", color: "var(--color-ink-3)" }}
         >
           Observed
         </h2>
@@ -111,7 +111,7 @@ export function ShareReportView({ report }: { report: PublicShareReport }) {
       <section className="mt-12">
         <h2
           className="num border-b pb-2 text-[11px] tracking-[0.16em] uppercase"
-          style={{ borderColor: "var(--line-strong)", color: "var(--ink-3)" }}
+          style={{ borderColor: "var(--color-line-strong)", color: "var(--color-ink-3)" }}
         >
           Policy
         </h2>
@@ -132,7 +132,7 @@ export function ShareReportView({ report }: { report: PublicShareReport }) {
         <section className="mt-12">
           <h2
             className="num border-b pb-2 text-[11px] tracking-[0.16em] uppercase"
-            style={{ borderColor: "var(--line-strong)", color: "var(--ink-3)" }}
+            style={{ borderColor: "var(--color-line-strong)", color: "var(--color-ink-3)" }}
           >
             Volume by day
           </h2>
@@ -143,8 +143,8 @@ export function ShareReportView({ report }: { report: PublicShareReport }) {
                 ...activity.dailyReports.map((x) => x.messages),
               );
               return (
-                <li key={d.date} className="flex items-center gap-4 border-b py-2" style={{ borderColor: "var(--line)" }}>
-                  <span className="num w-24 text-[11.5px]" style={{ color: "var(--ink-3)" }}>
+                <li key={d.date} className="flex items-center gap-4 border-b py-2" style={{ borderColor: "var(--color-line)" }}>
+                  <span className="num w-24 text-[11.5px]" style={{ color: "var(--color-ink-3)" }}>
                     {new Date(d.date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
                   </span>
                   <span
@@ -152,11 +152,11 @@ export function ShareReportView({ report }: { report: PublicShareReport }) {
                     style={{
                       height: 10,
                       width: `${Math.max(4, Math.round((d.messages / peak) * 220))}px`,
-                      background: "var(--ink)",
+                      background: "var(--color-ink)",
                       opacity: 0.75,
                     }}
                   />
-                  <span className="num text-[11.5px]" style={{ color: "var(--ink-2)" }}>
+                  <span className="num text-[11.5px]" style={{ color: "var(--color-ink-2)" }}>
                     {d.messages.toLocaleString("en-US")} messages · {d.reports} report
                     {d.reports === 1 ? "" : "s"}
                   </span>
@@ -171,7 +171,7 @@ export function ShareReportView({ report }: { report: PublicShareReport }) {
         <section className="mt-12">
           <h2
             className="num border-b pb-2 text-[11px] tracking-[0.16em] uppercase"
-            style={{ borderColor: "var(--line-strong)", color: "var(--ink-3)" }}
+            style={{ borderColor: "var(--color-line-strong)", color: "var(--color-ink-3)" }}
           >
             Sending sources
           </h2>
@@ -182,7 +182,7 @@ export function ShareReportView({ report }: { report: PublicShareReport }) {
                   <th
                     key={h}
                     className="num border-b pb-2 pr-4 text-left text-[10.5px] tracking-[0.14em] uppercase"
-                    style={{ borderColor: "var(--line-strong)", color: "var(--ink-3)" }}
+                    style={{ borderColor: "var(--color-line-strong)", color: "var(--color-ink-3)" }}
                   >
                     {h}
                   </th>
@@ -192,20 +192,20 @@ export function ShareReportView({ report }: { report: PublicShareReport }) {
             <tbody>
               {sources.map((s) => (
                 <tr key={s.sourceIp}>
-                  <td className="num border-b py-2.5 pr-4 text-[12.5px]" style={{ borderColor: "var(--line)", color: "var(--ink)" }}>
+                  <td className="num border-b py-2.5 pr-4 text-[12.5px]" style={{ borderColor: "var(--color-line)", color: "var(--color-ink)" }}>
                     {s.sourceIp}
                     {s.topSendingDomain ? (
-                      <span style={{ color: "var(--ink-3)" }}> · {s.topSendingDomain}</span>
+                      <span style={{ color: "var(--color-ink-3)" }}> · {s.topSendingDomain}</span>
                     ) : null}
                   </td>
-                  <td className="num border-b py-2.5 pr-4 text-[12.5px]" style={{ borderColor: "var(--line)", color: "var(--ink-2)" }}>
+                  <td className="num border-b py-2.5 pr-4 text-[12.5px]" style={{ borderColor: "var(--color-line)", color: "var(--color-ink-2)" }}>
                     {s.totalMessages.toLocaleString("en-US")}
                   </td>
                   <td
                     className="num border-b py-2.5 pr-4 text-[12.5px]"
                     style={{
-                      borderColor: "var(--line)",
-                      color: s.failedMessages > 0 ? "var(--color-block)" : "var(--ink-2)",
+                      borderColor: "var(--color-line)",
+                      color: s.failedMessages > 0 ? "var(--color-block)" : "var(--color-ink-2)",
                     }}
                   >
                     {s.failedMessages.toLocaleString("en-US")}
@@ -213,13 +213,13 @@ export function ShareReportView({ report }: { report: PublicShareReport }) {
                   <td
                     className="num border-b py-2.5 text-[11px] tracking-[0.12em] uppercase"
                     style={{
-                      borderColor: "var(--line)",
+                      borderColor: "var(--color-line)",
                       color:
                         s.risk === "high"
                           ? "var(--color-block)"
                           : s.risk === "medium"
                             ? "var(--color-unverified)"
-                            : "var(--ink-3)",
+                            : "var(--color-ink-3)",
                     }}
                   >
                     {s.risk}
@@ -235,7 +235,7 @@ export function ShareReportView({ report }: { report: PublicShareReport }) {
         <section className="mt-12">
           <h2
             className="num border-b pb-2 text-[11px] tracking-[0.16em] uppercase"
-            style={{ borderColor: "var(--line-strong)", color: "var(--ink-3)" }}
+            style={{ borderColor: "var(--color-line-strong)", color: "var(--color-ink-3)" }}
           >
             Failure evidence
           </h2>
@@ -250,8 +250,8 @@ export function ShareReportView({ report }: { report: PublicShareReport }) {
         </section>
       ) : null}
 
-      <footer className="mt-14 border-t pt-6" style={{ borderColor: "var(--line-strong)" }}>
-        <p className="num text-[10.5px] leading-relaxed" style={{ color: "var(--ink-3)" }}>
+      <footer className="mt-14 border-t pt-6" style={{ borderColor: "var(--color-line-strong)" }}>
+        <p className="num text-[10.5px] leading-relaxed" style={{ color: "var(--color-ink-3)" }}>
           This report is scoped to {sharedFor.domain} and nothing else. It
           contains aggregate evidence only{forensic && forensic.included ? " plus the failure evidence shared with it" : ""}.
           The link expires on {new Date(report.expiresAt).toLocaleDateString("en-GB")} and
@@ -269,11 +269,11 @@ function Figure({ label, value }: { label: string; value: string }) {
     <div>
       <dt
         className="num text-[10.5px] tracking-[0.14em] uppercase"
-        style={{ color: "var(--ink-3)" }}
+        style={{ color: "var(--color-ink-3)" }}
       >
         {label}
       </dt>
-      <dd className="num mt-1 text-[19px]" style={{ color: "var(--ink)" }}>
+      <dd className="num mt-1 text-[19px]" style={{ color: "var(--color-ink)" }}>
         {value}
       </dd>
     </div>

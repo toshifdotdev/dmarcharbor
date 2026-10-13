@@ -28,19 +28,19 @@ export default async function VerifyPage({
   }
 
   return (
-    <main data-surface="artefact light" className="artefact relative z-10 min-h-screen">
+    <main data-surface="artefact" className="artefact relative z-10 min-h-screen">
       <div className="mx-auto max-w-2xl px-6 py-16">
         <header>
           <p
             className="num text-[11px] tracking-[0.22em] uppercase"
-            style={{ color: "var(--ink-3)" }}
+            style={{ color: "var(--color-ink-3)" }}
           >
             Compliance pack · public verifier
           </p>
-          <h1 className="mt-4 text-[32px] leading-tight" style={{ color: "var(--ink)" }}>
+          <h1 className="mt-4 text-[32px] leading-tight" style={{ color: "var(--color-ink)" }}>
             Does this document match the one we issued?
           </h1>
-          <p className="mt-4 text-[15px] leading-relaxed" style={{ color: "var(--ink-2)" }}>
+          <p className="mt-4 text-[15px] leading-relaxed" style={{ color: "var(--color-ink-2)" }}>
             Every compliance pack we issue is published as a SHA-256 digest of
             the exact bytes. A copy you hold is genuine when its digest matches
             the one recorded here: that is the whole test, and it needs no
@@ -54,7 +54,7 @@ export default async function VerifyPage({
           <div
             role="status"
             className="mt-8 border-t pt-6"
-            style={{ borderColor: "var(--line-strong)" }}
+            style={{ borderColor: "var(--color-line-strong)" }}
           >
             <p
               className="num text-[11px] tracking-[0.18em] uppercase"
@@ -62,7 +62,7 @@ export default async function VerifyPage({
             >
               No match
             </p>
-            <p className="mt-2 text-[14px]" style={{ color: "var(--ink-2)" }}>
+            <p className="mt-2 text-[14px]" style={{ color: "var(--color-ink-2)" }}>
               No issued pack carries this reference. Check the reference printed
               in the document: it appears on the cover page: and try again.
               A pack whose link was withdrawn also answers this way, by design.
@@ -71,7 +71,7 @@ export default async function VerifyPage({
         ) : null}
 
         {result?.found ? (
-          <div className="mt-8 border-t pt-6" style={{ borderColor: "var(--line-strong)" }}>
+          <div className="mt-8 border-t pt-6" style={{ borderColor: "var(--color-line-strong)" }}>
             <p
               className="num text-[11px] tracking-[0.18em] uppercase"
               style={{ color: "var(--color-pass)" }}
@@ -80,11 +80,11 @@ export default async function VerifyPage({
             </p>
             <p
               className="num mt-2 text-[11.5px] break-all"
-              style={{ color: "var(--ink-3)" }}
+              style={{ color: "var(--color-ink-3)" }}
             >
               reference {result.packs[0]?.reference ?? trimmed}
             </p>
-            <p className="mt-2 text-[14px]" style={{ color: "var(--ink-2)" }}>
+            <p className="mt-2 text-[14px]" style={{ color: "var(--color-ink-2)" }}>
               This reference is recorded. Compare the digest below against the
               SHA-256 of the PDF you hold: a match means the bytes are exactly
               what we issued.
@@ -95,14 +95,14 @@ export default async function VerifyPage({
                   key={p.reference}
                   className="border p-4"
                   style={{
-                    borderColor: p.superseded ? "var(--line)" : "var(--line-strong)",
+                    borderColor: p.superseded ? "var(--color-line)" : "var(--color-line-strong)",
                     opacity: p.superseded ? 0.6 : 1,
                   }}
                 >
                   <div className="flex items-baseline justify-between gap-4">
                     <span
                       className="num text-[10.5px] tracking-[0.14em] uppercase"
-                      style={{ color: "var(--ink-3)" }}
+                      style={{ color: "var(--color-ink-3)" }}
                     >
                       {p.documentVersion}
                     </span>
@@ -117,12 +117,12 @@ export default async function VerifyPage({
                   </div>
                   <p
                     className="num mt-2 text-[11px] break-all"
-                    style={{ color: "var(--ink)" }}
+                    style={{ color: "var(--color-ink)" }}
                     aria-label="SHA-256 digest of the issued document"
                   >
                     sha256: {p.sha256}
                   </p>
-                  <p className="num mt-2 text-[11px]" style={{ color: "var(--ink-3)" }}>
+                  <p className="num mt-2 text-[11px]" style={{ color: "var(--color-ink-3)" }}>
                     {p.pageCount} page{p.pageCount === 1 ? "" : "s"} · {p.byteSize} bytes ·{" "}
                     issued {new Date(p.issuedAt).toLocaleDateString("en-GB")} · as of{" "}
                     {new Date(p.dataAsOf).toLocaleDateString("en-GB")}
@@ -130,7 +130,7 @@ export default async function VerifyPage({
                 </li>
               ))}
             </ul>
-            <p className="mt-5 text-[12px]" style={{ color: "var(--ink-3)" }}>
+            <p className="mt-5 text-[12px]" style={{ color: "var(--color-ink-3)" }}>
               This page answers only about a fingerprint. It never serves the
               document and never names a client: verification and confidentiality
               are different jobs, and this one is deliberately the former.
@@ -138,8 +138,8 @@ export default async function VerifyPage({
           </div>
         ) : null}
 
-        <footer className="mt-16 border-t pt-6" style={{ borderColor: "var(--line-strong)" }}>
-          <p className="num text-[10.5px] leading-relaxed" style={{ color: "var(--ink-3)" }}>
+        <footer className="mt-16 border-t pt-6" style={{ borderColor: "var(--color-line-strong)" }}>
+          <p className="num text-[10.5px] leading-relaxed" style={{ color: "var(--color-ink-3)" }}>
             This verifier is public by design: an auditor holds a document long
             before anyone at their company has an account with us. Hashing the
             file you hold (for example <code>sha256sum dmarc-compliance-….pdf</code>)

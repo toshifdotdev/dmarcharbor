@@ -11,19 +11,19 @@ import type { TrustCenterPayload } from "@/lib/types";
  */
 export function TrustCenterView({ payload }: { payload: TrustCenterPayload }) {
   return (
-    <main data-surface="artefact light" className="artefact relative z-10 min-h-screen">
+    <main data-surface="artefact" className="artefact relative z-10 min-h-screen">
       <div className="mx-auto max-w-3xl px-6 py-16">
         <header>
           <p
             className="num text-[11px] tracking-[0.22em] uppercase"
-            style={{ color: "var(--ink-3)" }}
+            style={{ color: "var(--color-ink-3)" }}
           >
             Trust Center · published by {payload.provider.workspaceName}
           </p>
-          <h1 className="mt-4 text-[34px] leading-tight" style={{ color: "var(--ink)" }}>
+          <h1 className="mt-4 text-[34px] leading-tight" style={{ color: "var(--color-ink)" }}>
             What we hold about {payload.client.name}, and who can see it.
           </h1>
-          <p className="mt-4 text-[15px] leading-relaxed" style={{ color: "var(--ink-2)" }}>
+          <p className="mt-4 text-[15px] leading-relaxed" style={{ color: "var(--color-ink-2)" }}>
             This page is public on purpose. It exists so an auditor at{" "}
             {payload.client.name} can read our data handling claims without an
             account, a sales call, or a signed NDA. Generated{" "}
@@ -57,7 +57,7 @@ export function TrustCenterView({ payload }: { payload: TrustCenterPayload }) {
                   <th
                     key={h}
                     className="num border-b pb-2 pr-4 text-left text-[10.5px] tracking-[0.14em] uppercase"
-                    style={{ borderColor: "var(--line-strong)", color: "var(--ink-3)" }}
+                    style={{ borderColor: "var(--color-line-strong)", color: "var(--color-ink-3)" }}
                   >
                     {h}
                   </th>
@@ -69,20 +69,20 @@ export function TrustCenterView({ payload }: { payload: TrustCenterPayload }) {
                 <tr key={d.category}>
                   <td
                     className="border-b py-3 pr-4 text-[13.5px] align-top"
-                    style={{ borderColor: "var(--line)", color: "var(--ink)" }}
+                    style={{ borderColor: "var(--color-line)", color: "var(--color-ink)" }}
                   >
                     {d.category}
                   </td>
                   <td
                     className="border-b py-3 pr-4 text-[13.5px] align-top"
-                    style={{ borderColor: "var(--line)", color: "var(--ink-2)" }}
+                    style={{ borderColor: "var(--color-line)", color: "var(--color-ink-2)" }}
                   >
                     {d.description}
                   </td>
                   <td
                     className="num border-b py-3 text-[11.5px] align-top"
                     style={{
-                      borderColor: "var(--line)",
+                      borderColor: "var(--color-line)",
                       color: d.containsPersonalData ? "var(--color-block)" : "var(--color-unmeasured)",
                     }}
                   >
@@ -101,13 +101,13 @@ export function TrustCenterView({ payload }: { payload: TrustCenterPayload }) {
                 <tr key={a.role}>
                   <td
                     className="w-44 border-b py-3 pr-4 align-top text-[13.5px]"
-                    style={{ borderColor: "var(--line)", color: "var(--ink)" }}
+                    style={{ borderColor: "var(--color-line)", color: "var(--color-ink)" }}
                   >
                     {a.role}
                   </td>
                   <td
                     className="border-b py-3 text-[13.5px]"
-                    style={{ borderColor: "var(--line)", color: "var(--ink-2)" }}
+                    style={{ borderColor: "var(--color-line)", color: "var(--color-ink-2)" }}
                   >
                     {a.canRead}
                   </td>
@@ -125,13 +125,13 @@ export function TrustCenterView({ payload }: { payload: TrustCenterPayload }) {
             <div className="mt-5">
               <p
                 className="num text-[10.5px] tracking-[0.14em] uppercase"
-                style={{ color: "var(--ink-3)" }}
+                style={{ color: "var(--color-ink-3)" }}
               >
                 Completed erasures
               </p>
               <ul className="mt-2 flex flex-col gap-1.5">
                 {payload.erasures.map((e, i) => (
-                  <li key={`${e.scope}-${i}`} className="text-[13px]" style={{ color: "var(--ink-2)" }}>
+                  <li key={`${e.scope}-${i}`} className="text-[13px]" style={{ color: "var(--color-ink-2)" }}>
                     {e.scope}: {e.recordCount} record{e.recordCount === 1 ? "" : "s"} removed{" "}
                     {new Date(e.completedAt).toLocaleDateString("en-GB")}
                   </li>
@@ -154,7 +154,7 @@ export function TrustCenterView({ payload }: { payload: TrustCenterPayload }) {
                   <th
                     key={h}
                     className="num border-b pb-2 pr-4 text-left text-[10.5px] tracking-[0.14em] uppercase"
-                    style={{ borderColor: "var(--line-strong)", color: "var(--ink-3)" }}
+                    style={{ borderColor: "var(--color-line-strong)", color: "var(--color-ink-3)" }}
                   >
                     {h}
                   </th>
@@ -166,19 +166,19 @@ export function TrustCenterView({ payload }: { payload: TrustCenterPayload }) {
                 <tr key={s.name}>
                   <td
                     className="border-b py-3 pr-4 align-top text-[13.5px]"
-                    style={{ borderColor: "var(--line)", color: "var(--ink)" }}
+                    style={{ borderColor: "var(--color-line)", color: "var(--color-ink)" }}
                   >
                     {s.name}
                   </td>
                   <td
                     className="border-b py-3 pr-4 align-top text-[13.5px]"
-                    style={{ borderColor: "var(--line)", color: "var(--ink-2)" }}
+                    style={{ borderColor: "var(--color-line)", color: "var(--color-ink-2)" }}
                   >
                     {s.purpose}
                   </td>
                   <td
                     className="border-b py-3 align-top text-[13.5px]"
-                    style={{ borderColor: "var(--line)", color: "var(--ink-2)" }}
+                    style={{ borderColor: "var(--color-line)", color: "var(--color-ink-2)" }}
                   >
                     {s.data}
                   </td>
@@ -197,8 +197,8 @@ export function TrustCenterView({ payload }: { payload: TrustCenterPayload }) {
           </p>
         </Section>
 
-        <footer className="mt-14 border-t pt-6" style={{ borderColor: "var(--line-strong)" }}>
-          <p className="num text-[10.5px] leading-relaxed" style={{ color: "var(--ink-3)" }}>
+        <footer className="mt-14 border-t pt-6" style={{ borderColor: "var(--color-line-strong)" }}>
+          <p className="num text-[10.5px] leading-relaxed" style={{ color: "var(--color-ink-3)" }}>
             Every claim on this page is served by the platform itself at the
             address you are reading, and generated from the live record: not
             from marketing copy. To prove a compliance pack issued by{" "}
@@ -219,8 +219,8 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="mt-12 border-t pt-8" style={{ borderColor: "var(--line-strong)" }}>
-      <h2 className="text-[19px]" style={{ color: "var(--ink)" }}>
+    <section className="mt-12 border-t pt-8" style={{ borderColor: "var(--color-line-strong)" }}>
+      <h2 className="text-[19px]" style={{ color: "var(--color-ink)" }}>
         {title}
       </h2>
       {children}
@@ -239,11 +239,11 @@ function Definition({
     <dl className="mt-4 grid grid-cols-1 gap-1 sm:grid-cols-[13rem_minmax(0,1fr)] gap-x-8">
       <dt
         className="num text-[10.5px] tracking-[0.14em] uppercase"
-        style={{ color: "var(--ink-3)" }}
+        style={{ color: "var(--color-ink-3)" }}
       >
         {term}
       </dt>
-      <dd className="text-[13.5px] leading-relaxed" style={{ color: "var(--ink-2)" }}>
+      <dd className="text-[13.5px] leading-relaxed" style={{ color: "var(--color-ink-2)" }}>
         {children}
       </dd>
     </dl>

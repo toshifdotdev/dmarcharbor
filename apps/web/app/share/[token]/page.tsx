@@ -26,7 +26,7 @@ export default async function SharePage({
 
   return (
     <main
-      data-surface="artefact light"
+      data-surface="artefact"
       className="artefact relative z-10 min-h-screen"
     >
       {report ? (
@@ -38,14 +38,14 @@ export default async function SharePage({
         >
           <p
             className="num text-[11px] tracking-[0.22em] uppercase"
-            style={{ color: "var(--ink-3)" }}
+            style={{ color: "var(--color-ink-3)" }}
           >
             Shared report
           </p>
-          <h1 className="mt-4 text-[26px]" style={{ color: "var(--ink)" }}>
+          <h1 className="mt-4 text-[26px]" style={{ color: "var(--color-ink)" }}>
             This report is no longer available.
           </h1>
-          <p className="mt-3 text-[14px]" style={{ color: "var(--ink-2)" }}>
+          <p className="mt-3 text-[14px]" style={{ color: "var(--color-ink-2)" }}>
             The link has expired or was withdrawn by the team that shared it,
             and a withdrawn link is never re-served. Ask whoever sent it for a
             current link.

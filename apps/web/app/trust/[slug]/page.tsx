@@ -26,21 +26,21 @@ export default async function TrustCenterPage({
       error instanceof PublicError && (error.status === 404 || error.status === 410);
     return (
       <main
-        data-surface="artefact light"
+        data-surface="artefact"
         className="artefact relative z-10 flex min-h-screen flex-col items-center justify-center px-6"
       >
         <p
           className="num text-[11px] tracking-[0.22em] uppercase"
-          style={{ color: "var(--ink-3)" }}
+          style={{ color: "var(--color-ink-3)" }}
         >
           Trust Center
         </p>
-        <h1 className="mt-4 text-[26px]" style={{ color: "var(--ink)" }}>
+        <h1 className="mt-4 text-[26px]" style={{ color: "var(--color-ink)" }}>
           {notFound
             ? "No Trust Center at this address."
             : "The Trust Center is temporarily unavailable."}
         </h1>
-        <p className="mt-3 max-w-md text-center text-[14px]" style={{ color: "var(--ink-2)" }}>
+        <p className="mt-3 max-w-md text-center text-[14px]" style={{ color: "var(--color-ink-2)" }}>
           {notFound
             ? "The link may have been withdrawn by the organization that published it. Ask them for a current link."
             : "Please try again in a moment. If the problem persists, contact the organization that sent you here."}

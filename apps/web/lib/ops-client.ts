@@ -488,8 +488,23 @@ export const previewErasure = (
   );
 };
 
+/**
+ * The poll outcome, not an opaque value.
+ *
+ * The mailbox page reports how many messages were read, how many were new, how
+ * many were already seen and how many were for domains nobody monitors. Typed as
+ * `unknown` all of that became a cast at the call site, which is the drift this
+ * file exists to prevent.
+ */
+export interface InboxPollOutcome {
+  messages: number;
+  accepted: number;
+  duplicates: number;
+  unmatched: number;
+}
+
 export const pollInboxNow = (orgId: string) =>
-  call<unknown>(wsPath(orgId, "/report-inbox/poll"), { method: "POST" });
+  call<InboxPollOutcome>(wsPath(orgId, "/report-inbox/poll"), { method: "POST" });
 
 // ─── sessions (account level) (Phase 7) ─────────────────────────────────────
 
@@ -498,7 +513,7 @@ export const revokeSession = (sessionId: string) =>
 
 /** The lost-laptop action: every other session, this one spared. */
 export const revokeOtherSessions = () =>
-  call(`/api/me/sessions/revoke-others`, { method: "POST" });
+  call<{ remaining: number }>(`/api/me/sessions/revoke-others`, { method: "POST" });
 
 /** The deliberate nuke — INCLUDING this device. Confirm in the UI first. */
 export const revokeAllSessions = () =>
