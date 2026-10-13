@@ -111,7 +111,7 @@ async incrementWithWindow(key: string, resetAtMs: number): Promise<{ totalHits: 
   const bucketKey = key;
 
   /**
-   * Fails open, deliberately.
+   * Fails open, deliberately — and by re-throwing rather than by answering.
    *
    * Moving the counters from process memory into the database made this store part of
    * the request path, and the first thing that does is let a storage problem decide
@@ -130,6 +130,12 @@ async incrementWithWindow(key: string, resetAtMs: number): Promise<{ totalHits: 
    * limits are not being enforced, so a burst is not being shed. The warning is the
    * signal to alert on, and it carries the limiter name so the operator knows which
    * budget is not holding.
+   *
+   * The store's job stops at the log and the re-throw. Every limiter sets
+   * `passOnStoreError`, which is what actually lets the request continue unrate-limited
+   * (see SHARED_LIMITER_OPTIONS in rate-limit.middleware.ts). The store once tried to
+   * do that itself by returning an empty window, which the library now rejects as an
+   * invalid hit count — so the fallback did the opposite of what it promised.
    */
   try {
     const rows = await prisma.$queryRawUnsafe<BucketRow[]>(
@@ -155,8 +161,22 @@ async incrementWithWindow(key: string, resetAtMs: number): Promise<{ totalHits: 
   } catch (error) {
     logRateLimitStoreFailure(this.limiterName, error);
 
-    // Reported as an empty window so the request is allowed through.
-    return { totalHits: 0, resetTime: resetAt };
+    /**
+     * Re-thrown, not answered.
+     *
+     * This used to return `{ totalHits: 0 }` to express an empty window, so the
+     * request would be allowed through. express-rate-limit validates the value
+     * a store returns (`ERR_ERL_INVALID_HITS`: "must be a positive integer"),
+     * so that fallback now throws before the limiter can decide anything — a
+     * blip in the counting table became a 500 on every limited route, which is
+     * the precise outage this catch was written to prevent.
+     *
+     * Letting it reach the limiter is what does the job properly: every limiter
+     * sets `passOnStoreError`, which logs the error and continues the request
+     * unrate-limited. Same fail-open outcome, one mechanism, and no invalid
+     * window invented here.
+     */
+    throw error;
   }
 }
 

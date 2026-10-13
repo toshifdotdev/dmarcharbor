@@ -1,6 +1,32 @@
-import rateLimit, { type RateLimitRequestHandler } from 'express-rate-limit';
+import rateLimit, { type Options, type RateLimitRequestHandler } from 'express-rate-limit';
 import { env } from '../config/env.js';
 import { rateLimitStoreFor } from './postgres-rate-limit-store.js';
+
+/**
+ * What every limiter in this file shares.
+ *
+ * `passOnStoreError` is the load-bearing one, and it is why this constant
+ * exists rather than nine copies of the same two options.
+ *
+ * The counters live in a Postgres table, so the store is on the request path.
+ * The store used to fail open by returning an empty window
+ * (`{ totalHits: 0 }`), and express-rate-limit has validated that value since
+ * 7.x: `ERR_ERL_INVALID_HITS`. The hand-rolled fallback therefore took the
+ * route down instead of opening it — a counting-table blip became a 500 on
+ * every limited endpoint, which is the exact outcome the fallback was written
+ * to prevent. The library's own mechanism does the same job correctly: the
+ * error is logged and the request continues unrate-limited.
+ *
+ * The header options are policy too. `draft-7` is the IETF draft every other
+ * limiter speaks, and the legacy `X-RateLimit-*` spellings are off rather than
+ * emitted alongside, because four headers saying three things reads as a bug.
+ */
+const SHARED_LIMITER_OPTIONS: Partial<Options> = {
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  passOnStoreError: true,
+};
+
 
 /**
  * Counter stores, shared across replicas.
@@ -66,10 +92,9 @@ export function createScanRateLimiter(
   limit = env.SCAN_RATE_LIMIT_PER_MINUTE,
 ): RateLimitRequestHandler {
   return rateLimit({
+    ...SHARED_LIMITER_OPTIONS,
     windowMs: 60_000,
     limit,
-    standardHeaders: 'draft-7',
-    legacyHeaders: false,
     store: rateLimitStoreFor('scan'),
     keyGenerator: clientKey,
   });
@@ -79,10 +104,9 @@ export function createReportIngestRateLimiter(
   limit = env.REPORT_INGEST_RATE_LIMIT_PER_MINUTE,
 ): RateLimitRequestHandler {
   return rateLimit({
+    ...SHARED_LIMITER_OPTIONS,
     windowMs: 60_000,
     limit,
-    standardHeaders: 'draft-7',
-    legacyHeaders: false,
     store: rateLimitStoreFor('report-ingest'),
     keyGenerator: clientKey,
   });
@@ -92,10 +116,9 @@ export function createSecureSessionRouterRateLimiter(
   limit = env.SESSION_ROUTER_RATE_LIMIT_PER_MINUTE,
 ): RateLimitRequestHandler {
   return rateLimit({
+    ...SHARED_LIMITER_OPTIONS,
     windowMs: 60_000,
     limit,
-    standardHeaders: 'draft-7',
-    legacyHeaders: false,
     store: rateLimitStoreFor('session-router'),
     keyGenerator: clientKey,
     message: {
@@ -106,6 +129,7 @@ export function createSecureSessionRouterRateLimiter(
     },
   });
 }
+
 
 /**
  * Sign-in, sign-up, password reset and email verification.
@@ -121,10 +145,9 @@ export function createSecureSessionRouterRateLimiter(
  */
 export function createAuthRateLimiter(limit = env.AUTH_RATE_LIMIT_PER_MINUTE): RateLimitRequestHandler {
   return rateLimit({
+    ...SHARED_LIMITER_OPTIONS,
     windowMs: 60_000,
     limit,
-    standardHeaders: 'draft-7',
-    legacyHeaders: false,
     store: rateLimitStoreFor('auth'),
     keyGenerator: clientKey,
     message: {
@@ -135,6 +158,7 @@ export function createAuthRateLimiter(limit = env.AUTH_RATE_LIMIT_PER_MINUTE): R
     },
   });
 }
+
 
 /**
  * Brake on the authenticated routes, which had no limit at all.
@@ -161,10 +185,9 @@ export function createWorkspaceRateLimiter(
   limit = env.WORKSPACE_RATE_LIMIT_PER_MINUTE,
 ): RateLimitRequestHandler {
   return rateLimit({
+    ...SHARED_LIMITER_OPTIONS,
     windowMs: 60_000,
     limit,
-    standardHeaders: 'draft-7',
-    legacyHeaders: false,
     store: rateLimitStoreFor('workspace'),
     keyGenerator: clientKey,
     message: {
@@ -175,6 +198,7 @@ export function createWorkspaceRateLimiter(
     },
   });
 }
+
 
 /**
  * Unauthenticated flood guard for the machine-to-machine API.
@@ -190,10 +214,9 @@ export function createWorkspaceRateLimiter(
  * making the limit decorative.
  */
 export const apiRateLimiter = rateLimit({
+  ...SHARED_LIMITER_OPTIONS,
   windowMs: 60_000,
   limit: 300,
-  standardHeaders: 'draft-7',
-  legacyHeaders: false,
   store: rateLimitStoreFor('api'),
   keyGenerator: clientKey,
   message: {
@@ -204,6 +227,7 @@ export const apiRateLimiter = rateLimit({
   },
 });
 
+
 /**
  * The authenticated tenant budget for the machine-to-machine API.
  *
@@ -213,10 +237,9 @@ export const apiRateLimiter = rateLimit({
  */
 export function createApiKeyRateLimiter(limit = env.API_RATE_LIMIT_PER_MINUTE): RateLimitRequestHandler {
   return rateLimit({
+    ...SHARED_LIMITER_OPTIONS,
     windowMs: 60_000,
     limit,
-    standardHeaders: 'draft-7',
-    legacyHeaders: false,
     store: rateLimitStoreFor('api-key'),
     keyGenerator: (request, response) => {
       const keyId = (response?.locals as { apiKeyId?: string } | undefined)?.apiKeyId;
@@ -230,6 +253,7 @@ export function createApiKeyRateLimiter(limit = env.API_RATE_LIMIT_PER_MINUTE): 
     },
   });
 }
+
 
 /**
  * The public compliance pack verifier.
@@ -249,10 +273,9 @@ export function createApiKeyRateLimiter(limit = env.API_RATE_LIMIT_PER_MINUTE): 
  * determined caller rather than a crowd.
  */
 export const compliancePackVerifyRateLimiter = rateLimit({
+  ...SHARED_LIMITER_OPTIONS,
   windowMs: 60_000,
   limit: 10,
-  standardHeaders: 'draft-7',
-  legacyHeaders: false,
   store: rateLimitStoreFor('compliance-verify'),
   keyGenerator: clientKey,
   message: {
@@ -262,6 +285,7 @@ export const compliancePackVerifyRateLimiter = rateLimit({
     },
   },
 });
+
 
 /**
  * A brake on the public Trust Centre, which had none at all.
@@ -273,10 +297,9 @@ export const compliancePackVerifyRateLimiter = rateLimit({
  * door has had one since it was built.
  */
 export const publicTrustCenterRateLimiter = rateLimit({
+  ...SHARED_LIMITER_OPTIONS,
   windowMs: 60_000,
   limit: 30,
-  standardHeaders: 'draft-7',
-  legacyHeaders: false,
   store: rateLimitStoreFor('public-trust-center'),
   keyGenerator: clientKey,
   message: {
@@ -291,10 +314,9 @@ export function createPublicReportRateLimiter(
   limit = env.PUBLIC_REPORT_RATE_LIMIT_PER_MINUTE,
 ): RateLimitRequestHandler {
   return rateLimit({
+    ...SHARED_LIMITER_OPTIONS,
     windowMs: 60_000,
     limit,
-    standardHeaders: 'draft-7',
-    legacyHeaders: false,
     store: rateLimitStoreFor('public-report'),
     keyGenerator: clientKey,
     message: {
