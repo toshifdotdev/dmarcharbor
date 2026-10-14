@@ -149,6 +149,25 @@ body::before {
   );
 }
 
+/* The native dropdown popup.
+   The list an open <select> shows is drawn by the operating system, not by this
+   document, so it inherits nothing: an <option> inside a
+   `background: transparent` select rendered as near-white text on the system's
+   white popup, and the highlighted row took the system highlight with
+   unreadable text on top of it. That is what the "Add a domain" client picker
+   looked like, and there are forty <option> elements across twelve files that
+   all had it.
+
+   One rule here rather than an inline style on each of them: a fix that has to
+   be repeated forty times is a fix that is missing on the forty-first. Both
+   properties are set, because setting only the colour leaves the row invisible
+   on a light popup and setting only the background leaves dark-on-dark on a
+   dark one. */
+option {
+  background-color: var(--color-surface);
+  color: var(--color-ink);
+}
+
 /* Interaction layer: a clickable element says so before it is reached.
    Keyed to the elements themselves — never a wrapper, so the hand does not
    light up around the control. A DISABLED control gets not-allowed instead:

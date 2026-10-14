@@ -190,6 +190,19 @@ export function ApiKeysPanel({
         ) : null}
 
         <form onSubmit={create} className="mt-4 flex flex-col gap-3">
+          {/* No `minLength` on the name, deliberately.
+              
+              It was there, and it meant the browser's own constraint validation
+              blocked the form BEFORE the request was sent, so the operator saw an
+              OS-styled tooltip reading "Please lengthen this text to 3 characters
+              or more (you are currently using 1 character)." instead of the
+              server's message. That tooltip is styled by the operating system, is
+              spelled in the browser's own words, and lags behind the field.
+              
+              `required` stays because an empty name is a different case: the
+              server answers it with a real message too, and the form would
+              otherwise submit an empty string for no reason. Everything else is
+              the server's to say, which is the whole point of the error work. */}
           <label className="flex flex-col gap-1.5">
             <span className="label">Name</span>
             <input
@@ -198,7 +211,6 @@ export function ApiKeysPanel({
               onChange={(e) => setName(e.target.value)}
               placeholder="Reporting integration"
               required
-              minLength={3}
               data-testid="key-name"
               style={{
                 background: "var(--color-elevate)",

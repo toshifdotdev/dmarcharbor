@@ -177,7 +177,7 @@ export function AddDomainForm({
     >
       {clients && clients.length > 0 ? (
         <>
-          <h2 className="text-[16px] font-semibold tracking-[-0.012em]">Add a domain</h2>
+          <h2 className="text-[16.5px] font-semibold tracking-[-0.012em]">Add a domain</h2>
           <label className="mt-3 block">
             <span className="label">Client</span>
             <select
@@ -198,6 +198,7 @@ export function AddDomainForm({
           </label>
         </>
       ) : (
+
         <h2 className="text-[16px] font-semibold tracking-[-0.012em]">
           Add a domain to {target?.name ?? clientName ?? ""}
         </h2>
