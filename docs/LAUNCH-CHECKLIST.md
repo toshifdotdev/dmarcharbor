@@ -40,8 +40,26 @@ mailbox. Neither can do the other's.
 
 Not a compliance gap. A non-EU sub-processor is lawful under SCCs plus a signed
 DPA, which is a paperwork task rather than an engineering one, and the region
-decision itself is what step 2 has to answer anyway. The Trust Center and the
-compliance pack name the region rather than a placeholder once it is chosen.
+decision itself is what step 2 has to answer anyway.
+
+**The region is Singapore (ap-southeast-1).** Decided on customer reach rather
+than on latency, because latency is not the constraint here: this is a dashboard
+that polls a mailbox every few minutes and sends an alert, not a trading
+surface, and no user can feel 150ms against 20ms on it.
+
+What actually decides how many customers sign is how the hosting answer reads in
+a procurement questionnaire. An EU or US buyer's security review asks where data
+is stored, and a neutral jurisdiction clears that review more often than an
+Indian one does — which costs real deals that have nothing to do with the
+product. Singapore satisfies DPDP and GDPR equally, and it sits close enough to
+India (the primary market, INR by default, Razorpay) that the latency is
+irrelevant, while also being reasonable for EU and US customers.
+
+The rejected alternative was Mumbai. It is marginally cheaper and closer to the
+INR customer base, but it is the worse answer for the international half of the
+funnel, and the cost saving is small against a deal lost at questionnaire.
+Payments are unaffected either way: Razorpay and Paddle are both API integrations
+and neither cares where the database sits.
 
 **Still open, and still blocking:** the domain, the hosting platform and region,
 the legal entity details, the payment accounts, the transactional email
