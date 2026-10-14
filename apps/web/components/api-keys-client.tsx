@@ -10,12 +10,68 @@
  */
 
 import { ActionButton } from "@/components/action-button";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createApiKeyClient, revokeApiKeyClient } from "@/lib/ops-client";
 import type { ApiErrorBody, ApiKeyRow, IssuedApiKey } from "@/lib/types";
 
 const SCOPE_OPTIONS: Array<"read" | "write"> = ["read", "write"];
+
+/**
+ * A copy affordance for a secret that is shown once.
+ *
+ * It was a paragraph of text you had to drag-select, which is the wrong default
+ * for the one field a user cannot come back for. A mis-drag at this point means
+ * losing the key and issuing another, which is a support ticket about a UI
+ * decision rather than about the product.
+ *
+ * The clipboard is the only mechanism. `document.execCommand('copy')` was the
+ * fallback and is deprecated, and a hidden input holding a live secret to read
+ * back is worse than the problem. `navigator.clipboard` needs a secure context,
+ * and localhost is one, so it covers local, preview and production alike.
+ *
+ * The copied flag resets on a timer rather than on the next click, because the
+ * confirmation is for the user to glance at and not a state to dismiss.
+ */
+function CopyKeyButton({ value }: { value: string }) {
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(value);
+      setState("copied");
+    } catch {
+      // A refusal is a permission or a context, and the key is still on screen.
+      setState("failed");
+    }
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setState("idle"), 2000);
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      data-testid="key-copy"
+      className="shrink-0 rounded-[2px] px-2.5 py-1 text-[11.5px] font-semibold"
+      style={{
+        border: "1px solid var(--color-line-strong)",
+        background: "var(--color-surface)",
+        color: state === "failed" ? "var(--color-block)" : "var(--color-ink-2)",
+      }}
+    >
+      {state === "copied" ? "Copied" : state === "failed" ? "Select manually" : "Copy"}
+    </button>
+  );
+}
 
 export function ApiKeysPanel({
   organizationId,
@@ -24,6 +80,7 @@ export function ApiKeysPanel({
   organizationId: string;
   keys: ApiKeyRow[];
 }) {
+
   const router = useRouter();
   const [name, setName] = useState("");
   const [scopes, setScopes] = useState<Array<"read" | "write">>(["read"]);
@@ -85,16 +142,20 @@ export function ApiKeysPanel({
           >
             Copy this key now: it is shown once
           </p>
-          <p
-            className="num mt-2.5 break-all rounded-[2px] border px-3 py-2.5 text-[12.5px]"
-            style={{
-              background: "var(--color-elevate)",
-              borderColor: "var(--color-line-strong)",
-              color: "var(--color-ink)",
-            }}
-          >
-            {issued.key}
-          </p>
+          <div className="mt-2.5 flex items-center gap-2">
+            <p
+              className="num min-w-0 flex-1 break-all rounded-[2px] border px-3 py-2.5 text-[12.5px]"
+              style={{
+                background: "var(--color-elevate)",
+                borderColor: "var(--color-line-strong)",
+                color: "var(--color-ink)",
+              }}
+            >
+              {issued.key}
+            </p>
+            <CopyKeyButton value={issued.key} />
+          </div>
+
           <p className="mt-2.5 text-[12.5px]" style={{ color: "var(--color-ink-2)" }}>
             This key cannot be retrieved again: the platform stores only a hash
             of it. If you lose it, revoke the key and issue a new one. Scope:{" "}

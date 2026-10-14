@@ -23,6 +23,64 @@ import { sendError } from '../utils/api-error.js';
  * keep off the wire. It is logged with the request id instead, so the one line
  * that identifies the tenant's request is the line that carries the reason.
  */
+/**
+ * The status a thrown error should be answered with.
+ *
+ * `body-parser` and `raw-body` throw errors that describe the CLIENT's mistake,
+ * not ours, and they carry that on the object: `entity.parse.failed` for
+ * malformed JSON, `entity.too.large` for an oversized body. Both set
+ * `statusCode: 400`/`413` and `expose: true`.
+ *
+ * Answering those with a 500 is a real defect, and it was the one found while
+ * testing `POST /api/v1/clients`. A client that sends unquoted JSON keys gets
+ * `INTERNAL` — which reads as our bug rather than theirs, makes error-rate
+ * monitoring useless because every malformed request counts as a server
+ * failure, and is reachable without any credential at all, so an unauthenticated
+ * caller can generate 500s at will.
+ *
+ * `expose` is the gate, and it is exactly what Express's own `finalhandler`
+ * reads: a library that sets it has declared the message safe to send. Anything
+ * without it stays a 500, which keeps a Prisma driver error — host, port,
+ * database name, statement fragment — off the wire.
+ *
+ * The status is clamped to the 4xx range even when exposed. A 5xx carrying
+ * `expose: true` would put a server-side detail on the wire, which is the
+ * opposite of what the flag is for.
+ */
+export function statusForThrown(error: unknown): number {
+  const candidate = error as {
+    expose?: boolean;
+    statusCode?: unknown;
+    status?: unknown;
+  } | null;
+
+  if (!candidate || candidate.expose !== true) return 500;
+
+  const raw = typeof candidate.statusCode === 'number'
+    ? candidate.statusCode
+    : typeof candidate.status === 'number'
+      ? candidate.status
+      : undefined;
+
+  if (raw === undefined) return 500;
+  if (raw < 400 || raw > 499) return 500;
+  return Math.trunc(raw);
+}
+
+/**
+ * The message for an exposed 4xx.
+ *
+ * `body-parser`'s own message is specific and safe — "Expected property name or
+ * '}' in JSON at position 1" — and it is what a client needs to fix their
+ * payload. It is preferred over a generic one where it exists, because
+ * "invalid request" sends them looking for a bug in our code.
+ */
+export function messageForThrown(error: unknown): string {
+  const candidate = error as { message?: unknown } | null;
+  const message = typeof candidate?.message === 'string' ? candidate.message.trim() : '';
+  return message.length > 0 && message.length <= 300 ? message : 'The request could not be parsed.';
+}
+
 export function globalErrorHandler(
   error: unknown,
   request: Request,
@@ -43,5 +101,10 @@ export function globalErrorHandler(
 
   // Router-level 404s are handled by an explicit catch-all before this, so
   // reaching here always means an error, not a missing route.
-  sendError(response, 500, 'The request could not be completed.');
+  const status = statusForThrown(error);
+  sendError(
+    response,
+    status,
+    status === 500 ? 'The request could not be completed.' : messageForThrown(error),
+  );
 }
