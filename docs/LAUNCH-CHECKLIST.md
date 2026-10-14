@@ -18,52 +18,35 @@ Tick boxes as you go. Nothing here is done because it was written down.
 
 ## Decisions taken
 
-Two questions this checklist once listed as open are settled. Recorded here so
+Four questions this checklist once listed as open are settled. Recorded here so
 they are not asked again, and because each one removes a sub-processor
 obligation or a false option.
+
+**The domain is `dmarcharbor.com`.** Chosen, not yet bought: it is the last
+infrastructure purchase rather than the first, so the code is finished against
+it and the DNS is a short task once it is owned. `app.dmarcharbor.com` and
+`api.dmarcharbor.com` are the two subdomains, which is what the CI job already
+assumes (`ci.yml`). WHOIS privacy on. Registrar is Spaceship.
 
 **Report collection: Migadu plus Cloudflare.** Not Cloudflare alone.
 
 The IMAP path and the inbound webhook both exist, so dropping Migadu and
 pointing the Worker straight at the API was a real option. It was declined for
-two reasons. Gmail and Google Workspace publish reports by sending mail and
-offer nothing else, so a Worker-only deployment stops reporting for the largest
-population of customers unless we own their MX. And the unauthenticated ingress
-would then be the only thing keeping strangers out, where IMAP is gated by
-mailbox credentials that already work today.
+two reasons. Gmail publishes reports by sending mail and offers nothing else, so
+a Worker-only deployment stops reporting for the largest population of
+customers unless we own their MX. And the unauthenticated ingress would then be
+the only thing keeping strangers out, where IMAP is gated by mailbox
+credentials that already work today.
 
 Migadu and Cloudflare stay two sub-processors because they do two jobs:
-Cloudflare routes and forwards at the edge without storing, Migadu holds the
+Cloudflare answers the DNS question and does not store, Migadu holds the
 mailbox. Neither can do the other's.
 
-**Data residency: one region, no EU-only tier.**
+**Data residency: one region, no EU-only tier.** The region is Singapore. See
+the note in step 2 for why customer reach decided it rather than latency.
 
-Not a compliance gap. A non-EU sub-processor is lawful under SCCs plus a signed
-DPA, which is a paperwork task rather than an engineering one, and the region
-decision itself is what step 2 has to answer anyway.
-
-**The region is Singapore (ap-southeast-1).** Decided on customer reach rather
-than on latency, because latency is not the constraint here: this is a dashboard
-that polls a mailbox every few minutes and sends an alert, not a trading
-surface, and no user can feel 150ms against 20ms on it.
-
-What actually decides how many customers sign is how the hosting answer reads in
-a procurement questionnaire. An EU or US buyer's security review asks where data
-is stored, and a neutral jurisdiction clears that review more often than an
-Indian one does — which costs real deals that have nothing to do with the
-product. Singapore satisfies DPDP and GDPR equally, and it sits close enough to
-India (the primary market, INR by default, Razorpay) that the latency is
-irrelevant, while also being reasonable for EU and US customers.
-
-The rejected alternative was Mumbai. It is marginally cheaper and closer to the
-INR customer base, but it is the worse answer for the international half of the
-funnel, and the cost saving is small against a deal lost at questionnaire.
-Payments are unaffected either way: Razorpay and Paddle are both API integrations
-and neither cares where the database sits.
-
-**Still open, and still blocking:** the domain, the hosting platform and region,
-the legal entity details, the payment accounts, the transactional email
-provider, and the report mailbox.
+**Still open, and still blocking:** the legal entity name, the hosting platform,
+the payment accounts, the transactional email domain, and the report mailbox.
 
 ---
 
