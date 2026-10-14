@@ -23,6 +23,7 @@ import type {
   SlackDestination,
   VerifyDomainResult,
 } from "./types";
+import { errorFromResponse, extractErrorCode, genericForStatus, networkUiError } from "./ui-errors";
 
 export type OpsResult<T> =
   | { ok: true; data: T }
@@ -32,46 +33,61 @@ async function call<T>(
   path: string,
   init?: RequestInit,
 ): Promise<OpsResult<T>> {
+  let res: Response;
   try {
-    const res = await fetch(path, {
+    res = await fetch(path, {
       ...init,
       headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
       credentials: "include",
     });
-    if (res.status === 204) return { ok: true, data: undefined as T };
-    const text = await res.text();
-    const body = text ? JSON.parse(text) : null;
-    if (!res.ok) {
-      // Most endpoints nest their error under `error` (the contract shape), but
-      // Slack's controller flattens it: { error: "message", code: … }. A
-      // helpful message must survive either shape, or the UI would show
-      // "undefined" where the API said exactly what was wrong.
-      const nested = (body as ApiErrorBody)?.error;
-      const flattened =
-        nested && typeof nested === "object"
-          ? nested
-          : {
-              message: typeof (body as { error?: unknown })?.error === "string"
-                ? ((body as { error: string }).error)
-                : `Request failed (${res.status})`,
-              code: (body as { code?: string })?.code,
-            };
-      // A refusal like PLAN_CHANGE_OVER_QUOTA carries structured numbers. The
-      // wire format is final and FLAT: overage/from/to live directly on the
-      // error object ({ error: { code, message, overage, from, to } }): no
-      // nested detail, so the rows land where the controller puts them.
-      return {
-        ok: false,
-        status: res.status,
-        error: flattened,
-      };
-    }
-    return { ok: true, data: body as T };
   } catch {
+    // No response at all: the proxy is down, the build has no API to rewrite to,
+    // or the network dropped. Saying "the request could not be sent" hid which.
+    const network = networkUiError();
     return {
       ok: false,
-      status: 0,
-      error: { message: "The request could not be sent." },
+      status: network.status,
+      error: { code: "NETWORK", message: network.message },
+    };
+  }
+
+  const raw = await res.text().catch(() => "");
+  if (raw === "" && res.status >= 400) {
+    // A body that could not be read at all: the status is what is left, and the
+    // wording says the server did not explain itself rather than hiding the code.
+    // An empty body on a 204 is normal, so only a failure reaches this.
+    return {
+      ok: false,
+      status: res.status,
+      error: { code: "BAD_RESPONSE", message: genericForStatus(res.status) },
+    };
+  }
+
+  if (res.status === 204) return { ok: true, data: undefined as T };
+
+  // The body is already in hand, so it is shaped directly rather than through
+  // `readUiError`, which exists for a Response and would read the stream a
+  // second time.
+  const ui = errorFromResponse(res.status, raw);
+  if (!res.ok) {
+    // The API's own code and message both win, so a form can still route on
+    // PLAN_LIMIT_REACHED or CONFLICT rather than matching on the wording.
+    return {
+      ok: false,
+      status: ui.status,
+      error: { code: extractErrorCode(raw) ?? String(res.status), message: ui.message },
+    };
+  }
+
+  try {
+    return { ok: true, data: (raw ? JSON.parse(raw) : null) as T };
+  } catch {
+    // A success with an unparseable body is a broken response, and its status
+    // is the only honest thing to report.
+    return {
+      ok: false,
+      status: res.status,
+      error: { code: "BAD_RESPONSE", message: "The server sent a response we could not read." },
     };
   }
 }
@@ -540,13 +556,16 @@ export async function issueCompliancePack(
       credentials: "include",
     });
     if (!res.ok) {
-      const text = await res.text();
-      const body = text ? (JSON.parse(text) as ApiErrorBody) : null;
-      return {
-        ok: false,
-        status: res.status,
-        error: body?.error ?? { message: `Request failed (${res.status})` },
-      };
+      // Read once, shaped once. A Response body is a stream and a second read
+      // throws, which is how the previous version produced "the request could
+      // not be sent" for a refusal the API had explained perfectly.
+      const raw = await res.text().catch(() => "");
+      const ui = errorFromResponse(res.status, raw);
+      // The code is the API's own when it sent one, and only falls back to the
+      // status. The fallback is a string, because `error.code` is typed as one
+      // and a number there failed the build.
+      const code = extractErrorCode(raw) ?? String(res.status);
+      return { ok: false, status: ui.status, error: { code, message: ui.message } };
     }
     const disposition = res.headers.get("content-disposition") ?? "";
     const filenameMatch = disposition.match(/filename="([^"]+)"/);
@@ -560,7 +579,8 @@ export async function issueCompliancePack(
       },
     };
   } catch {
-    return { ok: false, status: 0, error: { message: "The request could not be sent." } };
+    const network = networkUiError();
+    return { ok: false, status: network.status, error: { code: "NETWORK", message: network.message } };
   }
 }
 

@@ -12,6 +12,7 @@ import {
   setOrganizationPlan,
   setOverride,
 } from '../services/entitlements/entitlement.service.js';
+import { zodMessage } from '../utils/zod-messages.js';
 import { planCatalog, planLabel } from '../services/entitlements/plan-catalog.js';
 
 async function canManageBilling(request: Request, organizationId: string): Promise<boolean> {
@@ -95,7 +96,7 @@ export async function setOverrideController(request: Request, response: Response
     response.status(400).json({
       error: {
         code: 'INVALID_REQUEST',
-        message: body.error.issues[0]?.message ?? 'An entitlement, enabled flag and reason are required.',
+        message: zodMessage(body.error.issues) ?? 'An entitlement, enabled flag and reason are required.',
       },
     });
     return;

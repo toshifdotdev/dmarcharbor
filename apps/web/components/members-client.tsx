@@ -22,6 +22,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ActionButton } from "@/components/action-button";
 import { ConfirmAction } from "@/components/confirm-action";
+import { errorFromResponse, networkUiError } from "@/lib/ui-errors";
 
 /** The five roles, exactly as the permissions matrix names them. */
 const ROLES = ["owner", "admin", "analyst", "viewer", "portal"] as const;
@@ -42,26 +43,49 @@ interface Invitation {
   expiresAt?: string | null;
 }
 
-async function authCall<T>(path: string, body: unknown): Promise<{ ok: true; data: T } | { ok: false; message: string }> {
+/**
+ * One call to better-auth's organization endpoints.
+ *
+ * The body is read once and shaped once. This used to answer every failure with
+ * "The request could not be sent." — the same sentence for an email already a
+ * member, an invalid address, a rate limit, and a proxy that returned an HTML
+ * error page, so the operator had no way to tell a typo from a broken build.
+ *
+ * Better Auth flattens its error body (`{ message, code }`), which is why this
+ * reads that shape rather than only the nested one. The API's own message is
+ * what a person sees; the status is kept for the cases where the message is
+ * missing entirely.
+ */
+async function authCall<T>(path: string, body: unknown): Promise<{ ok: true; data: T } | { ok: false; message: string; status: number }> {
+  let res: Response;
   try {
-    const res = await fetch(`/api/auth/organization/${path}`, {
+    res = await fetch(`/api/auth/organization/${path}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       credentials: "include",
       body: JSON.stringify(body),
     });
-    const text = await res.text();
-    const parsed = text ? JSON.parse(text) : null;
-    if (!res.ok) {
-      const message =
-        (parsed && typeof parsed === "object" && "message" in parsed && typeof parsed.message === "string"
-          ? parsed.message
-          : null) ?? `Request failed (${res.status}).`;
-      return { ok: false, message };
-    }
-    return { ok: true, data: (parsed ?? undefined) as T };
   } catch {
-    return { ok: false, message: "The request could not be sent." };
+    const network = networkUiError();
+    return { ok: false, message: network.message, status: network.status };
+  }
+
+  const raw = await res.text().catch(() => "");
+  if (!res.ok) {
+    const ui = errorFromResponse(res.status, raw);
+    return { ok: false, message: ui.message, status: ui.status };
+  }
+
+  try {
+    return { ok: true, data: (raw ? JSON.parse(raw) : null) as T };
+  } catch {
+    // A success with a body we cannot read is a broken response, and the status
+    // is all there is to say about it.
+    return {
+      ok: false,
+      message: "The server sent a response we could not read.",
+      status: res.status,
+    };
   }
 }
 

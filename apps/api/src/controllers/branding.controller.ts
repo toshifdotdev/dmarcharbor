@@ -11,6 +11,7 @@ import {
 } from '../services/branding.service.js';
 import { EntitlementError, assertFeature } from '../services/entitlements/entitlement.service.js';
 import { LogoStorageError, createLogoUploadUrl, publicLogoUrl } from '../services/branding/logo-storage.service.js';
+import { zodMessage } from '../utils/zod-messages.js';
 import { updateBranding as updateBrandingSettings } from '../services/branding.service.js';
 
 const brandingSchema = z.object({
@@ -176,7 +177,7 @@ export async function getStoredBrandingController(_request: Request, response: R
 export async function createLogoUploadController(request: Request, response: Response): Promise<void> {
   const body = logoUploadSchema.safeParse(request.body);
   if (!body.success) {
-    response.status(400).json({ error: { code: 'INVALID_REQUEST', message: body.error.issues[0]?.message ?? 'A content type and size are required.' } });
+    response.status(400).json({ error: { code: 'INVALID_REQUEST', message: zodMessage(body.error.issues) ?? 'A content type and size are required.' } });
     return;
   }
 
@@ -207,7 +208,7 @@ export async function createLogoUploadController(request: Request, response: Res
 export async function confirmLogoUploadController(request: Request, response: Response): Promise<void> {
   const body = logoConfirmSchema.safeParse(request.body);
   if (!body.success) {
-    response.status(400).json({ error: { code: 'INVALID_REQUEST', message: body.error.issues[0]?.message ?? 'An object key is required.' } });
+    response.status(400).json({ error: { code: 'INVALID_REQUEST', message: zodMessage(body.error.issues) ?? 'An object key is required.' } });
     return;
   }
 

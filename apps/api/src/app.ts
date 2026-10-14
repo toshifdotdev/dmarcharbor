@@ -37,6 +37,7 @@ import { requestContext } from './middleware/request-context.middleware.js';
 import { createAuthRateLimiter, createWorkspaceRateLimiter } from './middleware/rate-limit.middleware.js';
 import { requireCurrentDpa } from './middleware/dpa-consent.middleware.js';
 import { sendError } from './utils/api-error.js';
+import { withReadableAuthErrors } from './middleware/auth-error-rewrite.middleware.js';
 import helmet from 'helmet';
 
 export function createApp(): express.Express {
@@ -109,7 +110,7 @@ export function createApp(): express.Express {
   // on credential stuffing.
   app.use('/api/auth', createAuthRateLimiter());
 
-  app.all('/api/auth/*splat', toNodeHandler(auth));
+  app.all('/api/auth/*splat', withReadableAuthErrors(toNodeHandler(auth)));
   app.use('/api', systemRouter);
   app.use('/api', inboundReportRouter);
   app.use('/api', publicReportRouter);

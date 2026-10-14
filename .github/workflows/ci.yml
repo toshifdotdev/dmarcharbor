@@ -63,6 +63,18 @@ jobs:
       - name: Unit tests
         run: npm run test --workspace @dmarcharbor/api
 
+      # The web app had no tests at all until the error-handling defect below.
+      #
+      # Every failing request in the browser answered "The request could not be
+      # sent." — a JSON parse failure, a proxy that returned an HTML error page,
+      # a refusal the API had explained, and a DNS failure all arrived as the
+      # same sentence — and nothing anywhere asserted otherwise. lib/ui-errors.ts
+      # is the fix and this step is what keeps it fixed. Running only the API
+      # suite would have left the half of the codebase that renders to a person
+      # with no gate at all.
+      - name: Web unit tests
+        run: npm run test --workspace @dmarcharbor/web
+
       - name: Apply migrations
         # Integration tests truncate tables rather than create them, so a run
         # against an empty database fails in ways that have nothing to do with the

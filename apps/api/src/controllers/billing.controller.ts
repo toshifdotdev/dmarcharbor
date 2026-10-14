@@ -20,6 +20,7 @@ import {
 } from '../billing/checkout.service.js';
 import { WebhookRejectedError, handlePaddleWebhook, handleRazorpayWebhook } from '../billing/webhook.service.js';
 import { razorpayWebhookSecret } from '../billing/razorpay.provider.js';
+import { zodMessage } from '../utils/zod-messages.js';
 import { paddleWebhookSecret } from '../billing/paddle.provider.js';
 
 const checkoutSchema = z.object({
@@ -66,7 +67,7 @@ function sendBillingError(response: Response, error: unknown): void {
 export async function startCheckoutController(request: Request, response: Response): Promise<void> {
   const body = checkoutSchema.safeParse(request.body);
   if (!body.success) {
-    response.status(400).json({ error: { code: 'INVALID_REQUEST', message: body.error.issues[0]?.message ?? 'A plan and contact are required.' } });
+    response.status(400).json({ error: { code: 'INVALID_REQUEST', message: zodMessage(body.error.issues) ?? 'A plan and contact are required.' } });
     return;
   }
 
@@ -93,7 +94,7 @@ export async function startCheckoutController(request: Request, response: Respon
 export async function changePlanController(request: Request, response: Response): Promise<void> {
   const body = planChangeSchema.safeParse(request.body);
   if (!body.success) {
-    response.status(400).json({ error: { code: 'INVALID_REQUEST', message: body.error.issues[0]?.message ?? 'A plan is required.' } });
+    response.status(400).json({ error: { code: 'INVALID_REQUEST', message: zodMessage(body.error.issues) ?? 'A plan is required.' } });
     return;
   }
 

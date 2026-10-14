@@ -9,6 +9,28 @@ export type ApiScope = 'read' | 'write';
 
 const keyBytes = 32;
 
+/**
+ * A key name that a live key in this workspace already uses.
+ *
+ * Thrown rather than returned, so the caller cannot forget to check it. The
+ * `code` is what the browser routes on and the `status` is 409: the request is
+ * well-formed, it just collides with something that exists.
+ */
+export class ApiKeyNameTakenError extends Error {
+  readonly status = 409;
+  readonly code = 'API_KEY_NAME_TAKEN';
+  readonly name: string;
+
+  constructor(name: string) {
+    super(`A key called "${name}" already exists. Choose a different name, or revoke that key first.`);
+    this.name = name;
+    this.name_short = name;
+  }
+
+  /** Present for symmetry with the other error shapes; see `name`. */
+  readonly name_short: string;
+}
+
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
@@ -45,6 +67,34 @@ export async function createApiKey(input: {
   const prefix = `${apiKeyPrefix}_${secret.slice(0, 8)}`;
   const fullKey = `${prefix}_${secret}`;
   const expiresAt = new Date(Date.now() + (input.expiresInDays ?? apiKeyTtlDays) * 24 * 60 * 60 * 1000);
+
+  /**
+   * A name has to be unique in the workspace, and it was not.
+   *
+   * The list showed two rows both called "my-key", both readable only by
+   * prefix, so the only way to tell them apart was the creation date. The
+   * operator had to guess which one to revoke, and a wrong guess revokes a key
+   * that is in use — which fails their integration, not the duplicate.
+   *
+   * Checked here rather than by a database unique constraint on
+   * [organizationId, name] because revoked rows must not block a name forever:
+   * revoking "production" and then re-issuing "production" later is normal, and
+   * a constraint would make it impossible. The check counts only live keys.
+   *
+   * The alternative was left to the caller, which is how this arrived: the
+   * service creates the row and nothing upstream looks.
+   */
+  const nameTaken = await prisma.apiKey.findFirst({
+    where: { organizationId: input.organizationId, name: input.name, revokedAt: null },
+    select: { id: true },
+  });
+
+  if (nameTaken) {
+    // The plan check in the controller runs first, so reaching here means the
+    // caller is entitled; this is the refusal, and it is a conflict rather than
+    // an invalid request, because the name itself is perfectly well formed.
+    throw new ApiKeyNameTakenError(input.name);
+  }
 
   const row = await prisma.apiKey.create({
     data: {

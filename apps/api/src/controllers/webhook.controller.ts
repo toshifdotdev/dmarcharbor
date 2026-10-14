@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { resourceIdSchema } from '../models/client.model.js';
+import { zodMessage } from '../utils/zod-messages.js';
 import {
   createEndpoint,
   defaultWebhookEvents,
@@ -42,7 +43,7 @@ export async function createWebhookController(request: Request, response: Respon
 
   if (!body.success) {
     response.status(400).json({
-      error: { code: 'INVALID_REQUEST', message: body.error.issues[0]?.message ?? 'A name, a public https url and at least one event are required.' },
+      error: { code: 'INVALID_REQUEST', message: zodMessage(body.error.issues) ?? 'A name, a public https url and at least one event are required.' },
     });
     return;
   }
@@ -77,7 +78,7 @@ export async function updateWebhookController(request: Request, response: Respon
 
   const body = updateSchema.safeParse(request.body);
   if (!body.success) {
-    response.status(400).json({ error: { code: 'INVALID_REQUEST', message: body.error.issues[0]?.message ?? 'That update is not valid.' } });
+    response.status(400).json({ error: { code: 'INVALID_REQUEST', message: zodMessage(body.error.issues) ?? 'That update is not valid.' } });
     return;
   }
 

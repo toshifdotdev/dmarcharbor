@@ -11,14 +11,17 @@ import {
 import { resourceIdSchema } from '../models/client.model.js';
 import { EntitlementError, assertFeature } from '../services/entitlements/entitlement.service.js';
 import {
+  ApiKeyNameTakenError,
   createApiKey,
   findIdempotentResult,
   listApiKeys,
   revokeApiKey,
   saveIdempotentResult,
+  type IssuedApiKey,
 } from '../services/api-key.service.js';
 import { bulkImportClients, bulkImportDomains, bulkLimits, normaliseDomain } from '../services/bulk-onboarding.service.js';
 import { idempotencyKeyFrom } from '../middleware/api-auth.middleware.js';
+import { zodMessage } from '../utils/zod-messages.js';
 import { parsePagination } from '../utils/pagination.js';
 
 /**
@@ -108,7 +111,7 @@ export async function bulkClientsController(request: Request, response: Response
 
   if (!body.success) {
     response.status(400).json({
-      error: { code: 'INVALID_REQUEST', message: body.error.issues[0]?.message ?? 'A list of clients is required.' },
+      error: { code: 'INVALID_REQUEST', message: zodMessage(body.error.issues) ?? 'A list of clients is required.' },
     });
     return;
   }
@@ -144,7 +147,7 @@ export async function bulkDomainsController(request: Request, response: Response
 
   if (!body.success) {
     response.status(400).json({
-      error: { code: 'INVALID_REQUEST', message: body.error.issues[0]?.message ?? 'A client and a list of domains are required.' },
+      error: { code: 'INVALID_REQUEST', message: zodMessage(body.error.issues) ?? 'A client and a list of domains are required.' },
     });
     return;
   }
@@ -360,17 +363,35 @@ export async function createApiKeyController(request: Request, response: Respons
 
   if (!body.success) {
     response.status(400).json({
-      error: { code: 'INVALID_REQUEST', message: body.error.issues[0]?.message ?? 'A key name and at least one scope are required.' },
+      error: { code: 'INVALID_REQUEST', message: zodMessage(body.error.issues) ?? 'A key name and at least one scope are required.' },
     });
     return;
   }
 
-  const issued = await createApiKey({
-    organizationId: response.locals.organizationId,
-    name: body.data.name,
-    scopes: body.data.scopes,
-    expiresInDays: body.data.expiresInDays,
-  });
+  /**
+   * A refused name is a conflict, and it is caught here rather than in the
+   * router's error path so the response carries the same envelope as every other
+   * refusal on this route. The service throws it because a caller that did not
+   * check would silently create a second key with a name the operator cannot
+   * tell two rows apart by.
+   */
+  let issued: IssuedApiKey;
+  try {
+    issued = await createApiKey({
+      organizationId: response.locals.organizationId,
+      name: body.data.name,
+      scopes: body.data.scopes,
+      expiresInDays: body.data.expiresInDays,
+    });
+  } catch (error) {
+    if (error instanceof ApiKeyNameTakenError) {
+      response.status(error.status).json({
+        error: { code: error.code, message: error.message },
+      });
+      return;
+    }
+    throw error;
+  }
 
   response.status(201).json({
     ...issued,

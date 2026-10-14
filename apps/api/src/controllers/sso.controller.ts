@@ -6,6 +6,7 @@ import { env } from '../config/env.js';
 import { auth } from '../auth/auth.config.js';
 import { recordAuditEvent } from '../services/audit.service.js';
 import { SsoError, createSsoConnection, deleteSsoConnection, listSsoConnections } from '../services/sso/sso.service.js';
+import { zodMessage } from '../utils/zod-messages.js';
 import {
   SESSION_COOKIE,
   beginOidcSignIn,
@@ -121,11 +122,17 @@ export async function createSsoConnectionController(request: Request, response: 
     // connection that cannot be created has to say why in the words the
     // administrator will read while filling the form in, and "the details are not
     // usable" sends them back to a field that was already fine.
-    const issue = body.error.issues[0];
+    //
+    // `zodMessage` keeps that behaviour: a `custom` issue carries the author's
+    // own sentence and is passed through, while a built-in constraint (a URL
+    // that is not a URL, a string that is too short) is restated in words rather
+    // than Zod's own generator text. Both shapes reached this response before,
+    // so the form showed "String must contain at least 1 character(s)" next to
+    // a field the administrator had filled in correctly.
     response.status(400).json({
       error: {
         code: 'INVALID_REQUEST',
-        message: issue?.message ?? 'The connection details are not usable.',
+        message: zodMessage(body.error.issues) ?? 'The connection details are not usable.',
       },
     });
     return;
