@@ -4,6 +4,7 @@ import { readDmarcRecord } from '../scanner/dmarc-tags.js';
 import { normalizeDomain } from '../scanner/domain.js';
 import { parseForensicReport } from './forensic-report-parser.service.js';
 import { resolveLimit } from '../utils/pagination.js';
+import { domainRef } from './domain-ref.js';
 import {
   decryptSensitive,
   decryptSensitiveList,
@@ -92,7 +93,7 @@ export async function purgeExpiredForensicReports(force = false): Promise<number
 export async function ingestForensicReport(input: IngestForensicInput): Promise<ForensicIngestOutcome> {
   const domain = await prisma.domain.findFirst({
     where: {
-      id: input.domainId,
+      ...domainRef(input.domainId),
       client: { organizationId: input.organizationId },
     },
     select: {
@@ -260,7 +261,7 @@ export async function getForensicReport(organizationId: string, forensicId: stri
 export async function purgeForensicReports(organizationId: string, domainId: string): Promise<number> {
   const domain = await prisma.domain.findFirst({
     where: {
-      id: domainId,
+      ...domainRef(domainId),
       client: { organizationId },
     },
     select: { id: true },
@@ -355,7 +356,7 @@ export async function setForensicIdentityRetention(
 ): Promise<ForensicPiiOutcome> {
   const domain = await prisma.domain.findFirst({
     where: {
-      id: domainId,
+      ...domainRef(domainId),
       client: { organizationId },
     },
     select: {
@@ -432,7 +433,7 @@ export async function setForensicCollection(
 > {
   const domain = await prisma.domain.findFirst({
     where: {
-      id: domainId,
+      ...domainRef(domainId),
       client: { organizationId },
     },
     select: {

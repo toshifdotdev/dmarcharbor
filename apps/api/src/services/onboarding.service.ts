@@ -3,6 +3,7 @@ import { env } from '../config/env.js';
 import { canCollectAggregateReports, hasAggregateReporting, readDmarcRecord } from '../scanner/dmarc-tags.js';
 import { getDomainInsights, type DomainInsights } from './report-intelligence.service.js';
 import { newSenderBlockers, senderBlockers } from './sender-breakdown.service.js';
+import { domainRef } from './domain-ref.js';
 import { normalizePct, pctNotes, readPct, recommendPctStep, type PctRecommendation } from './dmarc-rollout.service.js';
 
 export type DmarcPolicyChoice = 'none' | 'quarantine' | 'reject';
@@ -268,7 +269,7 @@ export interface OnboardingResult extends OnboardingState_ {
 
 export async function getOnboardingState(organizationId: string, domainId: string): Promise<OnboardingResult | null> {
   const domain = await prisma.domain.findFirst({
-    where: { id: domainId, client: { organizationId } },
+    where: { client: { organizationId }, ...domainRef(domainId) },
     select: {
       id: true,
       slug: true,

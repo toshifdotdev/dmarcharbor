@@ -144,7 +144,7 @@ export function AddDomainForm({
   const [name, setName] = useState("");
   const [error, setError] = useState<ApiErrorBody["error"] | null>(null);
   const [busy, setBusy] = useState(false);
-  const [createdId, setCreatedId] = useState<string | null>(null);
+  const [createdSlug, setCreatedSlug] = useState<string | null>(null);
   const [target, setTarget] = useState(
     clients && clients.length > 0 ? clients[0] : clientId ? { id: clientId, name: clientName ?? "" } : null,
   );
@@ -163,7 +163,7 @@ export function AddDomainForm({
     setBusy(false);
     if (!res.ok) setError(res.error);
     else {
-      setCreatedId(res.data.id);
+      setCreatedSlug(res.data.slug);
       setName("");
       router.refresh();
     }
@@ -219,11 +219,11 @@ export function AddDomainForm({
         )
       ) : null}
 
-      {createdId ? (
+      {createdSlug ? (
         <p role="status" className="mt-3 text-[13px]" style={{ color: "var(--color-pass)" }}>
           Domain added.{" "}
           <a
-            href={onboardingHref(createdId)}
+            href={onboardingHref(createdSlug)}
             className="underline"
             style={{ color: "var(--color-ink)" }}
             data-testid="continue-setup"

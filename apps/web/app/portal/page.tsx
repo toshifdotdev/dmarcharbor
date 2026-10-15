@@ -124,7 +124,7 @@ export default async function PortalPage() {
                 {client.domains.map((d) => (
                   <li key={d.id}>
                     <Link
-                      href={portalDomainHref(d.id)}
+                      href={portalDomainHref(d.slug)}
                       className="flex flex-wrap items-baseline gap-x-5 gap-y-1 border-b py-4 transition-colors"
                       style={{ borderColor: "var(--color-line)" }}
                     >

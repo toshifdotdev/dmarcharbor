@@ -3,6 +3,7 @@ import { sendAuthEmail } from '../email/email.service.js';
 import { canCollectAggregateReports, hasAggregateReporting, readDmarcRecord } from '../scanner/dmarc-tags.js';
 import { getDomainInsights } from './report-intelligence.service.js';
 import { assessPolicyReadiness } from './onboarding.service.js';
+import { domainRef } from './domain-ref.js';
 import { resolveLimit } from '../utils/pagination.js';
 
 const maximumRecipients = 20;
@@ -28,9 +29,10 @@ export async function createReportDigest(input: {
   recipientEmails: string[];
   includeForensics: boolean;
 }) {
-  const domain = await prisma.domain.findFirst({
-    where: { id: input.domainId, client: { organizationId: input.organizationId } },
-    select: { id: true },
+      const domain = await prisma.domain.findFirst({
+        where: { client: { organizationId: input.organizationId }, ...domainRef(input.domainId) },
+        select: { id: true },
+
   });
 
   if (!domain) {
@@ -129,7 +131,7 @@ export async function buildDigestContent(
   organizationName: string,
 ): Promise<DigestContent | null> {
   const domain = await prisma.domain.findFirst({
-    where: { id: domainId, client: { organizationId } },
+    where: { client: { organizationId }, ...domainRef(domainId) },
     select: {
       id: true,
       name: true,

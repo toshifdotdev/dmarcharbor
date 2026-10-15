@@ -387,11 +387,14 @@ export const createClient = (
   });
 
 export const createDomain = (
-  orgId: string,
-  clientId: string,
-  body: { name: string },
-) =>
-  call<{ id: string; name: string }>(
+    orgId: string,
+    clientId: string,
+    body: { name: string },
+    ) =>
+    // `slug` comes back so the "Domain added" link can carry the URL identifier
+    // rather than the cuid. It is the same field the list endpoints return.
+    call<{ id: string; slug: string; name: string }>(
+
     wsPath(orgId, `/clients/${clientId}/domains`),
     { method: "POST", body: JSON.stringify(body) },
   );

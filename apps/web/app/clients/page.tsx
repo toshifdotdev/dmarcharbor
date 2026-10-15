@@ -110,7 +110,7 @@ export default async function ClientsPage() {
                         {c.domains.map((d) => (
                           <li key={d.id}>
                             <Link
-                              href={onboardingHref(d.id)}
+                              href={onboardingHref(d.slug)}
                               className="num inline-block rounded-[2px] border px-2.5 py-1 text-[11.5px]"
                               style={{
                                 borderColor: "var(--color-line-strong)",

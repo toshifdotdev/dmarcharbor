@@ -12,6 +12,7 @@ import { createAlertNotifications } from './notification.service.js';
 import { buildSenderBreakdown, possibleSpoofingSources } from './sender-breakdown.service.js';
 import { emitEvent } from './webhook.service.js';
 import { deliverSlackAlert, hasEnabledSlackDestination } from './slack.service.js';
+import { domainRef } from './domain-ref.js';
 import { resolveLimit } from '../utils/pagination.js';
 
 const riskByMetric: Record<AlertMetric, 'high' | 'medium'> = {
@@ -26,7 +27,11 @@ const riskByMetric: Record<AlertMetric, 'high' | 'medium'> = {
 const maxLookbackMinutes = 43_200;
 
 const ruleInclude = {
-  domain: { select: { id: true, name: true } },
+  // `slug` travels with the domain so the events screen can link to it by its
+  // slug rather than by a cuid. An AlertEvent carries `domainId` and nothing
+  // else, so without it the notification has no choice but to put a primary key
+  // in the address bar.
+  domain: { select: { id: true, name: true, slug: true } },
   recipients: { select: { userId: true } },
   organization: { select: { id: true, name: true, slug: true } },
 } as const;
@@ -141,7 +146,7 @@ export async function createAlertRule(input: {
   recipientUserIds: string[];
 }): Promise<PersistedRule | null> {
   const domain = await prisma.domain.findFirst({
-    where: { id: input.domainId, client: { organizationId: input.organizationId } },
+    where: { client: { organizationId: input.organizationId }, ...domainRef(input.domainId) },
     select: { id: true },
   });
 
@@ -260,18 +265,30 @@ export async function listAlertEvents(
   options: { domainId?: string; limit?: number; cursor?: string } = {},
 ): Promise<{
   rows: Prisma.AlertEventGetPayload<{
-    include: { domain: { select: { id: true; name: true } }; rule: { select: { id: true; name: true } } };
+    include: { domain: { select: { id: true; name: true; slug: true } }; rule: { select: { id: true; name: true } } };
   }>[];
   limit: number;
 }> {
   const limit = resolveLimit(options.limit);
+  // The filter arrives from the events screen, where the domain is chosen from a
+  // picker that now carries the slug. Resolved to the id once here rather than
+  // pushed into the where clause, because every clause below is an `AlertEvent`
+  // filter on `domainId` and a slug is not that field's value.
+  const domainId = options.domainId
+    ? (
+        await prisma.domain.findFirst({
+          where: { client: { organizationId }, ...domainRef(options.domainId) },
+          select: { id: true },
+        })
+      )?.id
+    : undefined;
   const rows = await prisma.alertEvent.findMany({
     where: {
       organizationId,
-      domainId: options.domainId,
+      domainId,
     },
     include: {
-      domain: { select: { id: true, name: true } },
+      domain: { select: { id: true, name: true, slug: true } },
       rule: { select: { id: true, name: true } },
     },
     orderBy: [{ triggeredAt: 'desc' }, { id: 'desc' }],
@@ -293,8 +310,11 @@ export interface NewSourceDetail {
 }
 
 async function newSpoofingSourcesForDomain(domainId: string): Promise<NewSourceDetail[]> {
-  const domain = await prisma.domain.findUnique({
-    where: { id: domainId },
+  // `findFirst`, not `findUnique`: an `OR` over id and slug is not a unique
+  // constraint Prisma can resolve in one lookup, and `findUnique` would reject
+  // it. `findFirst` accepts the same where clause and is equally scoped here.
+  const domain = await prisma.domain.findFirst({
+    where: domainRef(domainId),
     select: { client: { select: { organizationId: true } } },
   });
 

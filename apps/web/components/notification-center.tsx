@@ -197,9 +197,10 @@ export function NotificationCenter() {
                       the row, so this link never rendered on any notification
                       and every alert was a dead end.
                     */}
-                    {row.alertEvent?.domainId ? (
-                      <Link
-                        href={domainHref(row.alertEvent.domainId)}
+                    {row.alertEvent?.domain ? (
+    <Link
+      href={domainHref(row.alertEvent.domain.slug)}
+
                         className="text-[13px] underline"
                         style={{ color: "var(--color-accent)" }}
                         data-testid="notification-domain-link"

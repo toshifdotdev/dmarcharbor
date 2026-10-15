@@ -15,6 +15,12 @@ export interface WorkspaceSummary {
 
 export interface DomainRow {
   id: string;
+  /**
+   * The URL identifier. Present on the wire — the API returns whole domain
+   * rows — and absent here until the app stopped putting the cuid in the
+   * address bar. It is what `route-hrefs.ts` builds links from.
+   */
+  slug: string;
   clientId: string;
   name: string;
   status: DomainStatus;
@@ -24,7 +30,8 @@ export interface DomainRow {
   score: number | null;
   createdAt: string;
   lastScanAt: string | null;
-}
+  }
+
 
 export interface ClientRow {
   id: string;
@@ -688,7 +695,7 @@ export interface AlertEventRow {
   ruleId: string;
   rule: { id: string; name: string };
   domainId: string;
-  domain: { id: string; name: string };
+  domain: { id: string; name: string; slug: string };
   metric: AlertMetric;
   operator: string;
   observedValue: number;
@@ -1024,6 +1031,7 @@ export interface PortalOverview {
       dmarcPolicy: string | null;
       verifiedAt: string | null;
       lastScanAt: string | null;
+      slug: string;
     }>;
   }>;
   totals: { clients: number; domains: number; reports: number };

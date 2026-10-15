@@ -10,6 +10,7 @@ import {
   buildDmarcRecord,
   getOnboardingState,
 } from '../services/onboarding.service.js';
+import { domainRef } from '../services/domain-ref.js';
 import {
   createReportShare,
   getPublicReport,
@@ -185,7 +186,7 @@ export async function publicReportController(request: Request, response: Respons
 
 async function prismaDomainName(organizationId: string, domainId: string): Promise<string | null> {
   const domain = await prisma.domain.findFirst({
-    where: { id: domainId, client: { organizationId } },
+    where: { client: { organizationId }, ...domainRef(domainId) },
     select: { name: true },
   });
 

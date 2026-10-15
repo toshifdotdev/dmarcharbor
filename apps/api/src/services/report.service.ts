@@ -3,6 +3,7 @@ import { prisma } from '../database/prisma.js';
 import { emitEvent } from './webhook.service.js';
 import { resolveLimit } from '../utils/pagination.js';
 import { parseDmarcReport } from './report-parser.service.js';
+import { domainRef } from './domain-ref.js';
 import { reportRetentionExpiry } from './privacy.service.js';
 
 const reportInclude = {
@@ -99,7 +100,7 @@ async function findExistingReport(parsed: { fingerprint: string; reportIdentity:
 export async function ingestDmarcReport(input: IngestReportInput): Promise<IngestReportOutcome> {
   const domain = await prisma.domain.findFirst({
     where: {
-      id: input.domainId,
+      ...domainRef(input.domainId),
       client: { organizationId: input.organizationId },
     },
     select: {

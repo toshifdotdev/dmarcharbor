@@ -36,7 +36,14 @@ export interface NotificationRow {
    * so reading it from the row directly produced `undefined` and the
    * jump-to-evidence link never rendered on any notification.
    */
-  alertEvent: { id: string; domainId: string | null } | null;
+  alertEvent: {
+    id: string;
+    domainId: string | null;
+    /** The domain's URL identifier. Present when this notification came from an
+     *  alert on a domain, which is the case that has an evidence screen to
+     *  jump to. */
+    domain: { slug: string } | null;
+  } | null;
 }
 
 export interface NotificationInbox {

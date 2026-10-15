@@ -3,6 +3,7 @@ import { prisma } from '../database/prisma.js';
 import { hasAggregateReporting, readDmarcRecord } from '../scanner/dmarc-tags.js';
 import { getDomainInsights } from './report-intelligence.service.js';
 import { resolveLimit } from '../utils/pagination.js';
+import { domainRef } from './domain-ref.js';
 import { assessPolicyReadiness } from './onboarding.service.js';
 
 const defaultShareDays = 30;
@@ -30,7 +31,7 @@ export async function createReportShare(input: {
   expiresInDays?: number;
 }): Promise<CreatedShare | null> {
   const domain = await prisma.domain.findFirst({
-    where: { id: input.domainId, client: { organizationId: input.organizationId } },
+    where: { client: { organizationId: input.organizationId }, ...domainRef(input.domainId) },
     select: { id: true, clientId: true },
   });
 

@@ -7,6 +7,7 @@ import { getDomainInsights } from '../services/report-intelligence.service.js';
 import { buildSenderBreakdown, possibleSpoofingSources } from '../services/sender-breakdown.service.js';
 import { portalClientFilter } from '../middleware/portal.middleware.js';
 import { resolveBranding } from '../services/branding.service.js';
+import { domainRef } from '../services/domain-ref.js';
 import { resourceIdSchema } from '../models/client.model.js';
 
 const grantSchema = z.object({
@@ -134,7 +135,7 @@ export async function portalDomainController(request: Request, response: Respons
   }
 
   const domain = await prisma.domain.findFirst({
-    where: { id: domainId.data, client: { ...portalClientFilter(response), organizationId } },
+    where: { client: { ...portalClientFilter(response), organizationId }, ...domainRef(domainId.data) },
     select: {
       id: true,
       name: true,

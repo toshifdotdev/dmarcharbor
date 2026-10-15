@@ -387,10 +387,10 @@ export function PortfolioGrid({ rows }: { rows: PortfolioRow[] }) {
                 <tr
                   key={row.id}
                   data-domain-id={row.original.domain.id}
-                  onClick={() => router.push(domainHref(row.original.domain.id))}
+                  onClick={() => router.push(domainHref(row.original.domain.slug))}
                   tabIndex={0}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") router.push(domainHref(row.original.domain.id));
+                    if (e.key === "Enter") router.push(domainHref(row.original.domain.slug));
                   }}
                   className="cursor-pointer transition-colors hover:bg-[var(--color-surface)]"
                   style={

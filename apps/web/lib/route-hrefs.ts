@@ -1,32 +1,41 @@
 /**
- * route-hrefs.ts — the ONE place internal ids are put into app URLs.
+ * route-hrefs.ts — the ONE place internal identifiers are put into app URLs.
  *
- * ID-IN-URL POLICY (phase 7 sweep): clicking a domain currently puts a cuid
- * in the address bar — a database primary key where customers see, share,
- * screenshot and paste into support emails. The fix is a server-side slug
- * (landing in apps/api), and until it is green the app keeps building on ids.
+ * ID-IN-URL POLICY (phase 7 sweep): clicking a domain used to put a cuid in the
+ * address bar — a database primary key where customers see, share, screenshot
+ * and paste into support emails. The fix was a server-side slug, and that has
+ * now landed: `Domain.slug` is unique, is generated from the name, is returned
+ * by every list payload, and every domain-scoped route resolves id OR slug.
  *
- * This module exists so the switch is one file: when slugs land, every helper
- * here takes a slug and resolves it server-side — no client-side slug
- * generation, because a slug minted in the browser breaks the first time a
- * name changes. NOTHING outside this module may build one of these paths by
- * hand; if you find a `router.push('/domains/' + id)` anywhere else, move it
- * here first.
+ * These helpers therefore take a SLUG. They used to take an id, and the
+ * comment here said "when slugs land, every helper takes a slug" — that day
+ * came, and for a while the API could resolve a slug while five of its routes
+ * still resolved by id alone, so switching the helpers would have 404'd
+ * onboarding, the portal, alerts and digests. `domainRef` in
+ * apps/api/src/services/domain-ref.ts is what closed that.
+ *
+ * NOTHING outside this module may build one of these paths by hand. If you find
+ * a `router.push('/domains/' + id)` anywhere else, move it here first: a second
+ * place building a URL is a second place to forget the slug.
+ *
+ * A slug is stable because a domain's name is immutable once created. There is
+ * no rename, so a link cannot rot the way a slug minted from a mutable field
+ * would — which is why this is done server-side rather than in the browser.
  */
 
 /** Domain detail — the operator's evidence screen. */
-export function domainHref(domainId: string): string {
-  return `/domains/${domainId}`;
+export function domainHref(slug: string): string {
+  return `/domains/${slug}`;
 }
 
 /** Domain setup — ownership, DMARC record, shares. */
-export function onboardingHref(domainId: string): string {
-  return `/onboarding/${domainId}`;
+export function onboardingHref(slug: string): string {
+  return `/onboarding/${slug}`;
 }
 
 /** Client portal's domain view — the contact-facing document. */
-export function portalDomainHref(domainId: string): string {
-  return `/portal/domain/${domainId}`;
+export function portalDomainHref(slug: string): string {
+  return `/portal/domain/${slug}`;
 }
 
 /** Compliance section scoped to a client. The client picker carries the id in

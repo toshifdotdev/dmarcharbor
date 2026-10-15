@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
+import { domainRef } from './domain-ref.js';
 import { scanDomain } from '../scanner/scanner.js';
 
 const scanInclude = {
@@ -51,8 +52,8 @@ function errorMessage(error: unknown): string {
 export async function runDomainScan(input: RunDomainScanInput): Promise<RunDomainScanOutcome> {
   const domain = await prisma.domain.findFirst({
     where: {
-      id: input.domainId,
       client: { organizationId: input.organizationId },
+      ...domainRef(input.domainId),
     },
     select: {
       id: true,

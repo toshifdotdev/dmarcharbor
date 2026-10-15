@@ -74,7 +74,18 @@ export async function listNotifications(
       readAt: true,
       createdAt: true,
       organization: { select: { id: true, name: true } },
-      alertEvent: { select: { id: true, domainId: true, acknowledgedAt: true, resolvedAt: true } },
+      alertEvent: {
+        select: {
+          id: true,
+          domainId: true,
+          acknowledgedAt: true,
+          resolvedAt: true,
+          // The slug, so the notification's jump-to-evidence link can name the
+          // domain rather than carry its primary key. `domainId` alone forces
+          // the browser to put a cuid in the address bar.
+          domain: { select: { slug: true } },
+        },
+      },
     },
     orderBy: { createdAt: 'desc' },
     take: Math.min(Math.max(options.limit ?? 50, 1), 200),

@@ -183,7 +183,13 @@ export async function bulkImportClients(input: {
 }
 
 export interface BulkDomainResult {
-  created: { index: number; domainId: string; name: string; clientId: string; verificationHost: string; verificationValue: string }[];
+  /**
+   * `slug` travels with the created row so a caller can build the URL it wants
+   * the operator to land on. Without it the only identifier available after a
+   * bulk add is the cuid, and the app URL would carry a database key — which is
+   * the thing `Domain.slug` exists to stop.
+   */
+  created: { index: number; domainId: string; slug: string; name: string; clientId: string; verificationHost: string; verificationValue: string }[];
   failed: BulkFailure[];
   planBlocked: BulkFailure[];
 }
@@ -305,6 +311,7 @@ export async function bulkImportDomains(input: {
     result.created.push({
       index,
       domainId: domain.id,
+      slug: domain.slug,
       name: domain.name,
       clientId: client.id,
       verificationHost: `_dmarc-harbor-verification.${domain.name}`,

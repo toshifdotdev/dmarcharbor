@@ -1,5 +1,6 @@
 import { prisma } from '../database/prisma.js';
 import { hasAggregateReporting, readDmarcRecord } from '../scanner/dmarc-tags.js';
+import { domainRef } from './domain-ref.js';
 import { buildSenderBreakdown, type SenderBreakdownRow } from './sender-breakdown.service.js';
 
 const maxScannedRecords = 5_000;
@@ -156,12 +157,13 @@ export async function getDomainInsights(
   domainId: string,
   trendDays = defaultTrendDays,
 ): Promise<DomainInsights | null> {
-  const domain = await prisma.domain.findFirst({
-    where: {
-      id: domainId,
-      client: { organizationId },
-    },
-    select: {
+    const domain = await prisma.domain.findFirst({
+      where: {
+        client: { organizationId },
+        ...domainRef(domainId),
+      },
+      select: {
+
       id: true,
       name: true,
       status: true,
