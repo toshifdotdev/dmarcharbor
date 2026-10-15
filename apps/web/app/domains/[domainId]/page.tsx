@@ -39,7 +39,7 @@ export default async function DomainPage({
   try {
     const clients = await listClients(active.id);
     for (const c of clients) {
-      const hit = c.domains.find((d) => d.id === domainId);
+      const hit = c.domains.find((d) => d.id === domainId || d.slug === domainId);
       if (hit) {
         clientName = c.name;
         break;

@@ -38,6 +38,7 @@ import { createAuthRateLimiter, createWorkspaceRateLimiter } from './middleware/
 import { requireCurrentDpa } from './middleware/dpa-consent.middleware.js';
 import { sendError } from './utils/api-error.js';
 import { withReadableAuthErrors } from './middleware/auth-error-rewrite.middleware.js';
+import { lifecycleRouter } from './routes/lifecycle.routes.js';
 import helmet from 'helmet';
 
 export function createApp(): express.Express {
@@ -185,6 +186,9 @@ export function createApp(): express.Express {
   app.use('/api', billingRouter);
   app.use('/api', refundRouter);
   app.use('/api', trustRouter);
+  // Delete routes for what the app creates. Mounted here, behind the same DPA
+  // gate every other authenticated route sits behind.
+  app.use('/api', lifecycleRouter);
   app.use('/api', reportInboxRouter);
   app.use('/api', slackRouter);
 

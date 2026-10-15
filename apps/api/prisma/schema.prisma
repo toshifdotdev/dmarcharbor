@@ -1512,6 +1512,14 @@ enum AuditAction {
   SSO_CONNECTION_CREATED
   SSO_CONNECTION_REMOVED
   SSO_SIGN_IN
+  /// A domain was deleted along with every report, scan, alert rule, share and
+  /// digest attached to it. Recorded because that evidence is unrecoverable and
+  /// "who removed it" is a question a customer auditor asks.
+  DOMAIN_DELETED
+  /// A client and everything under it was deleted.
+  CLIENT_DELETED
+  /// A whole workspace and every row in it was deleted.
+  WORKSPACE_DELETED
 }
 
 enum AuditOutcome {

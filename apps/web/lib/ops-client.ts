@@ -624,3 +624,50 @@ export const setBillingCurrency = (orgId: string, currency: "USD" | "INR") =>
     method: "PATCH",
     body: JSON.stringify({ currency }),
   });
+
+// ─── deletion ────────────────────────────────────────────────────────────────
+
+/**
+ * What a delete destroys.
+ *
+ * The API returns this with the deletion result and from the preview endpoint,
+ * so the confirmation a person sees before pressing delete is the same set of
+ * numbers the server reports after. They cannot disagree.
+ */
+export interface DeletionSummary {
+  domains: number;
+  dmarcReports: number;
+  forensicReports: number;
+  alertRules: number;
+  alertEvents: number;
+  reportDigests: number;
+  scans: number;
+  reportShares: number;
+  portalAccessGrants: number;
+  compliancePacks: number;
+}
+
+/** A deletion, plus what went with it. */
+export interface DeletionResult {
+  deleted: string;
+  summary: DeletionSummary;
+}
+
+/**
+ * Reads what deleting a workspace would destroy, before anything is deleted.
+ *
+ * Exists so the confirmation can say "3 domains, 14 reports, 2 share links"
+ * rather than "are you sure?". A preview that cannot be read is a confirmation
+ * that asks the operator to trust a guess.
+ */
+export const previewWorkspaceDeletion = (orgId: string) =>
+  call<{ summary: DeletionSummary }>(wsPath(orgId, "/deletion-preview"));
+
+export const deleteDomain = (orgId: string, domainId: string) =>
+  call<DeletionResult>(wsPath(orgId, `/domains/${domainId}`), { method: "DELETE" });
+
+export const deleteClient = (orgId: string, clientId: string) =>
+  call<DeletionResult>(wsPath(orgId, `/clients/${clientId}`), { method: "DELETE" });
+
+export const deleteWorkspace = (orgId: string) =>
+  call<DeletionResult>(wsPath(orgId, ""), { method: "DELETE" });

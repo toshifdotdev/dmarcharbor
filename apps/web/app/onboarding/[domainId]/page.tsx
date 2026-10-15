@@ -46,7 +46,7 @@ export default async function OnboardingPage({
     return [];
   });
   for (const c of clients) {
-    const hit = c.domains.find((d) => d.id === domainId);
+    const hit = c.domains.find((d) => d.id === domainId || d.slug === domainId);
     if (hit) {
       domain = hit;
       clientName = c.name;

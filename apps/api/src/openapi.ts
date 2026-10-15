@@ -199,6 +199,67 @@ export const openApiDocument = {
         responses: { 204: { description: 'Revoked.' }, ...standardErrors },
       },
     },
+    '/workspaces/{organizationId}/deletion-preview': {
+      get: {
+        tags: ['Lifecycle'],
+        summary: 'What deleting this workspace would destroy',
+        description: [
+          'Counts every row a workspace deletion removes, without deleting anything: domains, reports, forensic reports, alert rules and events, scans, share links, portal grants and compliance packs.',
+          'A confirmation screen shows these numbers so the operator sees the scale of what they are about to do. A preview that cannot be read is a confirmation that asks the operator to trust a guess.',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: { 200: { description: 'The counts a workspace deletion would remove.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/domains/{domainId}': {
+      delete: {
+        tags: ['Lifecycle'],
+        summary: 'Delete a domain and its evidence',
+        description: [
+          'Removes the domain together with every DMARC report, forensic report, alert rule, alert event, scan, share link and digest attached to it. This destroys evidence a customer paid to produce and cannot be undone.',
+          'Takes the slug as well as the id, because a URL carries the slug.',
+          'A domain belonging to another workspace is answered as not found rather than as a permission refusal, which would confirm the domain exists somewhere.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: {
+          200: {
+            description: 'Deleted. The response carries what was destroyed, so the confirmation and the result cannot disagree.',
+          },
+          ...standardErrors,
+        },
+      },
+    },
+    '/workspaces/{organizationId}/clients/{clientId}': {
+      delete: {
+        tags: ['Lifecycle'],
+        summary: 'Delete a client and everything under it',
+        description: [
+          'Removes the client, its domains and everything under them, plus its compliance packs and share links.',
+          'Refused while a portal access grant still exists for the client, with PORTAL_ACCESS_STILL_GRANTED: the contact is holding a working Trust Center link, and deleting underneath it would leave them with a dead one. Revoke the grant first.',
+        ].join(' '),
+        parameters: [orgParam, idParam('clientId', 'Client identifier.')],
+        responses: {
+          200: { description: 'Deleted, with what went alongside it.' },
+          ...standardErrors,
+        },
+      },
+    },
+    '/workspaces/{organizationId}': {
+      delete: {
+        tags: ['Lifecycle'],
+        summary: 'Delete a whole workspace',
+        description: [
+          'Removes the workspace and every row in it. There is no undo.',
+          'Refused while a subscription is active, with SUBSCRIPTION_STILL_ACTIVE: cancelling is a billing action with a period end and a refund policy, and deleting the workspace is not a way to cancel. It would strand a paid period the customer has already been charged for, with no order left to refund against.',
+          'The confirmation that names the workspace is the UI job; this route is guarded by the owner permission instead. A browser action that cannot be undone is guarded twice on purpose, and neither guard substitutes for the other.',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: {
+          200: { description: 'Deleted, with what went alongside it.' },
+          ...standardErrors,
+        },
+      },
+    },
     '/workspaces/{organizationId}/webhooks': {
       get: {
         tags: ['Webhooks'],
