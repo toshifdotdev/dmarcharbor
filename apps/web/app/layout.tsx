@@ -80,16 +80,34 @@ export default async function RootLayout({
   const origin = await requestOrigin();
   return (
     <html lang="en" className={inter.variable}>
-      {/* On a custom domain this is the agency's palette replacing ours at the
-          token level — every screen, not just the chrome. Nothing renders
-          unless the record is verified. */}
-      <BrandApplier />
-      {/* The company and the product, in the machine-readable copy a crawler
-          builds an entity card from. Only the facts that are settled: the legal
-          entity name, phone and address are placeholders until supplied, so
-          they are absent rather than invented. */}
-      <StructuredData data={siteGraphJsonLd(origin)} />
-      <body>{children}</body>
+      <body>
+        {/* Both of these emit a raw element - a <style> and a <script> - and
+            they live INSIDE <body> on purpose.
+
+            They used to sit as direct children of <html>, which is not valid
+            HTML: <html> may only contain <head> and <body>. React rejected it
+            three ways on every page ("<script> cannot be a child of <html>",
+            "<html> cannot contain a nested <script>", and "cannot render a sync
+            or defer <script> outside the main document without knowing its
+            order"), because a script that is neither in the head nor in the body
+            has no document position to be hoisted into.
+
+            Inside <body> both are ordinary flow content: the <style> applies
+            before the page paints, and the JSON-LD block is read by crawlers
+            from the body exactly as they read it from the head. Order matters
+            here - the brand tokens have to land before anything paints, and the
+            entity graph wants to precede the markup it describes. */}
+        {/* BrandApplier: on a custom domain this is the agency's palette
+            replacing ours at the token level — every screen, not just the chrome.
+            Nothing renders unless the record is verified. */}
+        <BrandApplier />
+        {/* The company and the product, in the machine-readable copy a crawler
+            builds an entity card from. Only the facts that are settled: the legal
+            entity name, phone and address are placeholders until supplied, so
+            they are absent rather than invented. */}
+        <StructuredData data={siteGraphJsonLd(origin)} />
+        {children}
+      </body>
     </html>
   );
 }

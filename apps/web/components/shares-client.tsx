@@ -42,8 +42,37 @@ export function ShareForm({
   const [error, setError] = useState<ApiErrorBody["error"] | null>(null);
   const [created, setCreated] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /**
+   * Which token was last copied, not a bare boolean.
+   *
+   * One boolean would light up every row in the list at the same moment the
+   * operator copies one of them, which tells them nothing about what they just
+   * took. Keying it by token means exactly one control says "copied", and it is
+   * the one they pressed.
+   */
+  const [copied, setCopied] = useState<string | null>(null);
 
   const mine = shares.filter((s) => s.domain.id === domainId);
+
+  /**
+   * Copies the ABSOLUTE url, not the relative path.
+   *
+   * A share link exists to be sent to somebody outside this workspace - a client's
+   * IT contact - so `/share/abc` copied into an email opens nothing. The origin
+   * is read at click time rather than baked in, because the same build serves
+   * `app.dmarcharbor.com` and every agency's custom domain, and a link minted on
+   * one has to resolve on whichever the reader is actually on.
+   */
+  async function copyLink(token: string) {
+    try {
+      const absolute = new URL(shareHref(token), window.location.origin).toString();
+      await navigator.clipboard.writeText(absolute);
+      setCopied(token);
+      setTimeout(() => setCopied((current) => (current === token ? null : current)), 2000);
+    } catch {
+      setCopied(null);
+    }
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -59,9 +88,10 @@ export function ShareForm({
     setBusy(false);
     if (!res.ok) setError(res.error);
     else {
-      // The customer-facing link is the RENDERED page, not the JSON the API
-      // serves the page from. The token is the contract; the path is ours.
-      setCreated(shareHref(res.data.token));
+      // The token is the contract; the path is ours. Holding the token rather
+      // than the rendered path means the same value drives the link, the copy
+      // button and the "copied" highlight, and they cannot drift apart.
+      setCreated(res.data.token);
       router.refresh();
     }
   }
@@ -92,19 +122,34 @@ export function ShareForm({
       ) : null}
 
       {created ? (
-        <p role="status" className="mt-3 text-[13px]" style={{ color: "var(--color-pass)" }}>
-          Share link created.{" "}
+        <div
+          role="status"
+          className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]"
+          style={{ color: "var(--color-pass)" }}
+        >
+          <span>Share link created.</span>
           <a
-            href={created}
-            className="underline"
+            href={shareHref(created)}
+            className="num underline"
             style={{ color: "var(--color-ink)" }}
             data-testid="share-link"
             target="_blank"
             rel="noreferrer"
           >
-            {created}
+            {shareHref(created)}
           </a>
-        </p>
+          {/* The moment the operator wants this one: it is on screen, it is the
+              only new thing here, and it is about to be pasted into an email. */}
+          <ActionButton
+            label={copied === created ? "copied" : "copy link"}
+            loadingLabel="Copying…"
+            busy={false}
+            onClick={() => copyLink(created)}
+            variant="ghost"
+            testId="copy-share-link"
+            style={{ padding: "4px 10px", fontSize: "11.5px" }}
+          />
+        </div>
       ) : null}
 
       <form onSubmit={onSubmit} className="mt-4 flex flex-col gap-3">
@@ -180,6 +225,21 @@ export function ShareForm({
               >
                 /share/{s.token.slice(0, 10)}…
               </a>
+              {!s.revokedAt ? (
+                // Copying is the whole point of a link sent to somebody else, and
+                // an unselected truncated token is not pasteable. A revoked link
+                // offers no copy at all: copying something that cannot open would
+                // hand the operator a link they would have to remember to distrust.
+                <ActionButton
+                  label={copied === s.token ? "copied" : "copy"}
+                  loadingLabel="Copying…"
+                  busy={false}
+                  onClick={() => copyLink(s.token)}
+                  variant="ghost"
+                  testId="copy-share-row"
+                  style={{ padding: "3px 9px", fontSize: "11px" }}
+                />
+              ) : null}
               <span className="num text-[10.5px]" style={{ color: "var(--color-ink-3)" }}>
                 {s.revokedAt
                   ? `revoked ${new Date(s.revokedAt).toLocaleDateString("en-GB")}`
@@ -199,8 +259,8 @@ export function ShareForm({
                     testId="revoke-share"
                     onConfirm={async () => {
                       const res = await revokeReportShare(organizationId, s.id);
-            if (!res.ok) setError(res.error);
-            else router.refresh();
+                      if (!res.ok) setError(res.error);
+                      else router.refresh();
                     }}
                   />
                 </span>

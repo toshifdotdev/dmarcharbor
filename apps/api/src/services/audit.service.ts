@@ -14,8 +14,30 @@ export interface RecordAuditEventInput {
   requestId?: string;
 }
 
-export async function recordAuditEvent(input: RecordAuditEventInput): Promise<void> {
-  await prisma.auditLog.create({
+/**
+ * The narrow slice of Prisma this service needs. Typed as a structural type
+ * rather than the concrete client so a `$transaction` callback client - which
+ * is a different type with no `$connect` - can be passed straight in.
+ */
+export interface PrismaClientLike {
+  auditLog: {
+    create(args: { data: Prisma.AuditLogCreateInput | Prisma.AuditLogUncheckedCreateInput }): Promise<unknown>;
+    createMany(args: { data: Array<Prisma.AuditLogCreateInput | Prisma.AuditLogUncheckedCreateInput> }): Promise<unknown>;
+  };
+}
+
+export async function recordAuditEvent(
+  input: RecordAuditEventInput,
+  // A caller inside `$transaction` must pass its transaction client here. The
+  // default is the global `prisma`, which opens a SECOND connection: if the
+  // audit row's foreign key names a row the open transaction has already
+  // deleted, the insert waits on that row's lock while the transaction waits on
+  // the callback, and the pair deadlocks until the transaction times out. That
+  // is not hypothetical - it is how the workspace delete used to fail, every
+  // time, with "Transaction already closed" after five seconds.
+  client: PrismaClientLike = prisma,
+): Promise<void> {
+  await client.auditLog.create({
     data: {
       organizationId: input.organizationId ?? null,
       domainId: input.domainId ?? null,

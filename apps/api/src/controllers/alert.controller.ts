@@ -63,7 +63,11 @@ export async function createAlertRuleController(request: Request, response: Resp
 
   await recordAuditEvent({
     organizationId: response.locals.organizationId,
-    domainId: body.data.domainId,
+    // `rule.domainId`, never `body.data.domainId`. The request may have carried a
+    // slug, `createAlertRule` resolves either form, and a slug in this column is
+    // a foreign key violation - so the rule was created, the audit threw, and the
+    // operator got a 500 for work that had already succeeded.
+    domainId: rule.domainId,
     actorUserId: response.locals.session?.user?.id,
     action: 'ALERT_RULE_CREATED',
     targetType: 'alert_rule',

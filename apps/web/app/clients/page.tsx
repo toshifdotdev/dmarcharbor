@@ -8,6 +8,7 @@ import { UpgradePrompt } from "@/components/upgrade-gate";
 import { EmptyState, ErrorState } from "@/components/data-states";
 import { onboardingHref } from "@/lib/route-hrefs";
 import { AddDomainForm, CreateClientForm } from "@/components/clients-client";
+import { ClientRowActions } from "@/components/client-row-actions";
 
 /**
  * Clients — the top of the workspace → client → domain hierarchy. The data
@@ -128,6 +129,7 @@ export default async function ClientsPage() {
                         no domains yet
                       </p>
                     )}
+                    <ClientRowActions organizationId={active.id} client={c} />
                   </li>
                 ))}
               </ul>

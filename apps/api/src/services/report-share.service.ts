@@ -20,6 +20,17 @@ export interface CreatedShare {
   expiresAt: Date;
   includeForensics: boolean;
   includeSources: boolean;
+  /**
+   * The RESOLVED domain id, which is not always what the caller sent.
+   *
+   * `createReportShare` accepts an id or a slug, and a slug is what a page built
+   * from the URL actually holds. Callers must audit against this rather than
+   * against their own input: an audit row whose `domainId` holds a slug violates
+   * the `audit_log_domainId_fkey` foreign key, which surfaced to the operator as a
+   * bare 500 on "Create share link" - after the share itself had been created,
+   * so every retry minted another one.
+   */
+  domainId: string;
 }
 
 export async function createReportShare(input: {
@@ -58,6 +69,7 @@ export async function createReportShare(input: {
 
   return {
     ...share,
+    domainId: domain.id,
     url: `/api/reports/share/${share.token}`,
   };
 }

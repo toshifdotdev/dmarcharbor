@@ -90,10 +90,12 @@ lifecycleRouter.get(
 lifecycleRouter.delete(
   '/workspaces/:organizationId',
   requireSession,
-  // `organization: update`, which the owner role holds and the admin role does
-  // not: better-auth's default statements include `organization: delete`, and
-  // using that here would hand the same destructive right to an admin.
-  requireOrganizationPermission('organization', 'update'),
+  // `organization: delete`, not `organization: update`. Better Auth's default
+  // organization statements are `['update', 'delete']` and the admin role here
+  // is granted `['read', 'update']`, so `update` would let any admin delete the
+  // workspace while `delete` is held by the owner alone. The destructive action
+  // and the permission that names it have to agree.
+  requireOrganizationPermission('organization', 'delete'),
   async (request: Request, response: Response) => {
     const result = await deleteWorkspace(organizationId(request), response.locals.session?.user?.id);
 

@@ -10,6 +10,12 @@ import Link from "next/link";
 
 const SECTIONS: Array<{ key: string; href: string; label: string; blurb: string }> = [
   {
+    key: "workspace",
+    href: "/settings/workspace",
+    label: "Workspace",
+    blurb: "this workspace's identity, its plan, and deleting everything in it",
+  },
+  {
     key: "members",
     href: "/settings/members",
     label: "Members",

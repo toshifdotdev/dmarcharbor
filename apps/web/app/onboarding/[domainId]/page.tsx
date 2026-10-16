@@ -9,6 +9,7 @@ import { resolveActiveWorkspace } from "@/lib/session";
 import type { OnboardingState, ReportShareRow, DomainRow } from "@/lib/types";
 import { Shell } from "@/components/shell";
 import { VerifyControls } from "@/components/onboarding-client";
+import { DomainDelete } from "@/components/domain-delete";
 import { ShareForm } from "@/components/shares-client";
 import { ErrorState } from "@/components/data-states";
 
@@ -234,7 +235,7 @@ export default async function OnboardingPage({
                 GET /api/reports/share/:token surface — never rebuilt here. */}
             <ShareForm
               organizationId={active.id}
-              domainId={domainId}
+              domainId={domain.id}
               shares={shares}
             />
           </div>
@@ -309,6 +310,27 @@ export default async function OnboardingPage({
             </ol>
           </section>
         </div>
+
+        {/* Bottom of the page, and deliberately last: the most destructive
+            control in the product belongs where it is reached deliberately,
+            not beside the setup steps somebody is working through. */}
+        <section
+          className="lift rounded-[2px] border p-5"
+          style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
+        >
+          <h2 className="text-[16px] font-semibold tracking-[-0.012em]">Delete</h2>
+          <p className="mt-1.5 text-[13px]" style={{ color: "var(--color-ink-2)" }}>
+            Use this when the client is offboarded or the domain is retired. It
+            takes every piece of evidence with it.
+          </p>
+          <div className="mt-2.5">
+            <DomainDelete
+              organizationId={active.id}
+              domainId={domain.id}
+              domainName={domain.name}
+            />
+          </div>
+        </section>
       </div>
     </Shell>
   );

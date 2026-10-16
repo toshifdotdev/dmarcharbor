@@ -84,6 +84,27 @@ export function listWorkspaces(): Promise<WorkspaceSummary[]> {
 }
 
 /**
+ * The signed-in user's own id, or null when there is no session.
+ *
+ * Needed for exactly one question so far: "is the person looking at this screen
+ * the workspace owner", which decides whether the destructive control is shown
+ * at all. Reading it from the server rather than inferring it from the member
+ * list matters because an admin can see the roster including the owner's row -
+ * and must not be handed the owner's power by a UI that guessed from proximity.
+ *
+ * Returns null rather than throwing on 401: a screen that only wants to hide a
+ * button has no business redirecting the whole page over it.
+ */
+export async function getSessionUserId(): Promise<string | null> {
+  try {
+    const session = await apiFetch<{ user?: { id?: string } } | null>("/api/auth/get-session");
+    return session?.user?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The workspace allowance: how many the account may hold and how many it holds.
  *
  * Read rather than probed. Attempting a creation to find out would spend an

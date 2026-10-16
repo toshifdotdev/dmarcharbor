@@ -1,7 +1,6 @@
 import { prisma } from '../database/prisma.js';
 import { recordAuditEvent } from './audit.service.js';
 import { domainRef } from './domain-ref.js';
-import { revokeTrustSlug } from './trust/trust-center.service.js';
 
 /**
  * lifecycle-deletion.ts — removing a domain, a client, or a whole workspace.
@@ -218,12 +217,10 @@ export async function deleteClient(
     });
   });
 
-  // The Trust Center link is a public unguessable address. Withdrawing it is
-  // part of deleting the client, not a follow-up the operator has to remember.
-  if (client.trustSlug) {
-    await revokeTrustSlug(client.id, actorUserId).catch(() => undefined);
-  }
-
+  // No trust-link revocation here. `trustSlug` is a column on Client, so the
+  // delete above already withdrew the Trust Center address with the row. The old
+  // call ran after the delete, found nothing to revoke, and swallowed the
+  // failure - code that could only ever be dead.
   return { ok: true, name: client.name, summary };
 }
 
@@ -241,11 +238,12 @@ export async function summariseWorkspace(organizationId: string): Promise<Deleti
   for (const client of clients) {
     merge(summary, await summariseClient(client.id));
   }
-  merge(summary, {
-    // Access grants and shares hang off the organization too, for members and
-    // workspace-level records that no client owns.
-    portalAccessGrants: await prisma.clientPortalAccess.count({ where: { organizationId } }),
-  });
+  // Nothing is added afterwards, and that is the fix rather than an omission.
+  // `ClientPortalAccess.clientId` is required, so every grant belongs to exactly
+  // one client and `summariseClient` has already counted each one. Adding an
+  // org-wide count on top reported every grant twice - a workspace with 3 portal
+  // contacts claimed it would destroy 6 - which is the sort of wrong number that
+  // makes an operator distrust the whole confirmation screen.
   return summary;
 }
 
@@ -269,8 +267,26 @@ export async function deleteWorkspace(
 
   if (!organization) return { ok: false, reason: 'not_found' };
 
+  /**
+   * Only a subscription that can actually bill blocks the delete.
+   *
+   * `provider: NONE` with an ACTIVE status is an entitlement, not a payment: it
+   * is what a seeded workspace, an admin-granted plan or a comped account
+   * carries. Nothing was charged, so nothing can be stranded, and refusing there
+   * told a customer they had "already been charged for a period" on a workspace
+   * they had never paid for - which is both false and impossible to resolve,
+   * because there is no subscription in the billing portal to cancel.
+   *
+   * A Razorpay or Paddle subscription is money that changed hands, and deleting
+   * the workspace would leave an order with no workspace to serve and no refund
+   * path. That one is refused.
+   */
   const subscription = await prisma.subscription.findFirst({
-    where: { organizationId, status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE'] } },
+    where: {
+      organizationId,
+      status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE'] },
+      provider: { in: ['RAZORPAY', 'PADDLE'] },
+    },
     select: { id: true, status: true },
   });
 
@@ -281,15 +297,30 @@ export async function deleteWorkspace(
   const summary = await summariseWorkspace(organization.id);
 
   await prisma.$transaction(async (transaction) => {
+    // Audit FIRST, on this transaction's own client, and only then delete.
+    //
+    // Order matters inside one transaction: an insert whose foreign key names a
+    // row this transaction has already deleted fails its FK check, because the
+    // deleted row is invisible to the transaction that deleted it. Written after
+    // the delete it would also self-block - a second connection waiting on the
+    // row lock this transaction holds, while this transaction waits on it - and
+    // the route failed with "Transaction already closed" after five seconds.
+    //
+    // Written first, the audit row keeps the foreign key, and the delete's
+    // `onDelete: SetNull` then clears it: the record of the deletion outlives
+    // the workspace, with the organization id still readable in `targetId`.
+    await recordAuditEvent(
+      {
+        organizationId,
+        actorUserId,
+        action: 'WORKSPACE_DELETED',
+        targetType: 'organization',
+        targetId: organization.id,
+        detail: { name: organization.name, slug: organization.slug, destroyed: summary },
+      },
+      transaction,
+    );
     await transaction.organization.delete({ where: { id: organization.id } });
-    await recordAuditEvent({
-      organizationId,
-      actorUserId,
-      action: 'WORKSPACE_DELETED',
-      targetType: 'organization',
-      targetId: organization.id,
-      detail: { name: organization.name, slug: organization.slug, destroyed: summary },
-    });
   });
 
   return { ok: true, name: organization.name, summary };

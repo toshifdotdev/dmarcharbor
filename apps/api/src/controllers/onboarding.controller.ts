@@ -110,7 +110,11 @@ export async function createReportShareController(request: Request, response: Re
 
   await recordAuditEvent({
     organizationId: response.locals.organizationId,
-    domainId: body.data.domainId,
+    // The resolved id from the service, never `body.data.domainId`. The request
+    // may have carried a slug, and a slug in this column is a foreign key
+    // violation: the create succeeded, the audit threw, and the operator saw a
+    // 500 for a share that had in fact been created.
+    domainId: share.domainId,
     actorUserId: response.locals.session?.user?.id,
     action: 'REPORT_SHARE_CREATED',
     targetType: 'report_share',
