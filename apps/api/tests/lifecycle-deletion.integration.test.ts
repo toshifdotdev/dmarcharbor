@@ -503,14 +503,23 @@ describe('audit trail period filter', () => {
     ).toBe(true);
   });
 
-  it('ignores a nonsense window rather than erroring or emptying the trail', async () => {
+  it('ignores a nonsense window rather than erroring or narrowing the trail', async () => {
     const { agent, organizationId } = await workspace();
     await agent.post(`/api/workspaces/${organizationId}/api-keys`).send({ name: 'Readable', scopes: ['read'] });
 
-    for (const value of ['abc', '0', '-5', '1e9', '']) {
+    const all = await agent.get(`/api/workspaces/${organizationId}/audit-events`);
+    expect(all.status).toBe(200);
+    const expected = all.body.items.length;
+    expect(expected).toBeGreaterThan(0);
+
+    // Compared against the FULL set, not merely "not empty". An earlier version
+    // of this test asserted only that the response had rows, and passed while
+    // `withinHours=0` was being clamped up to a one-hour window - which is
+    // exactly the failure it was written to catch.
+    for (const value of ['abc', '0', '-5', '1e9', '', 'null']) {
       const response = await agent.get(`/api/workspaces/${organizationId}/audit-events?withinHours=${value}`);
       expect(response.status, `withinHours=${value}`).toBe(200);
-      expect(response.body.items.length, `withinHours=${value}`).toBeGreaterThan(0);
+      expect(response.body.items.length, `withinHours=${value} must not narrow the trail`).toBe(expected);
     }
   });
 });

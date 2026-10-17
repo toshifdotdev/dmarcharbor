@@ -10,7 +10,7 @@ import {
   verifyCustomDomain,
 } from '../services/branding.service.js';
 import { EntitlementError, assertFeature } from '../services/entitlements/entitlement.service.js';
-import { LogoStorageError, createLogoUploadUrl, publicLogoUrl } from '../services/branding/logo-storage.service.js';
+import { LogoStorageError, createLogoUploadUrl, publicLogoUrl, uploadLogoDirect } from '../services/branding/logo-storage.service.js';
 import { zodMessage } from '../utils/zod-messages.js';
 import { updateBranding as updateBrandingSettings } from '../services/branding.service.js';
 
@@ -195,6 +195,45 @@ export async function createLogoUploadController(request: Request, response: Res
       return;
     }
     response.status(500).json({ error: { code: 'INTERNAL', message: 'The logo could not be prepared for upload.' } });
+  }
+}
+
+/**
+ * Stores a logo sent as a raw request body, and records it in one step.
+ *
+ * This is the path the console uses. A presigned URL is still available and
+ * still works, but it makes a small upload depend on a cross-origin request to
+ * storage: a preflight, a signature, and headers only the sending browser
+ * controls. When those disagreed the operator saw "Failed to fetch" and the
+ * server had nothing to log, because the request never arrived here at all.
+ *
+ * Taking the bytes on our own origin removes the whole class. It also removes
+ * the orphaned-object leak a two-step presign leaves behind: an upload that was
+ * never confirmed used to sit in the bucket forever.
+ */
+export async function uploadLogoDirectController(request: Request, response: Response): Promise<void> {
+  const contentType = request.get('content-type') ?? '';
+  // The bytes, not the claim about them.
+  const bytes = Buffer.isBuffer(request.body) ? request.body : Buffer.alloc(0);
+
+  try {
+    const stored = await uploadLogoDirect({
+      organizationId: response.locals.organizationId,
+      contentType,
+      bytes,
+    });
+
+    response.status(201).json({
+      objectKey: stored.objectKey,
+      logoUrl: stored.publicUrl,
+      branding: await resolveBranding(response.locals.organizationId),
+    });
+  } catch (error) {
+    if (error instanceof LogoStorageError) {
+      response.status(error.status).json({ error: { code: error.code, message: error.message } });
+      return;
+    }
+    response.status(500).json({ error: { code: 'INTERNAL', message: 'The logo could not be stored.' } });
   }
 }
 

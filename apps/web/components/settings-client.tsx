@@ -255,10 +255,29 @@ export function WhiteLabelForm({
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="Primary colour">
-              <input type="color" value={primary} onChange={(e) => setPrimary(e.target.value)} />
+              {/* `cursor-pointer` here too: a colour swatch is equally a control you
+                  click, and it was the only other input on this screen giving no
+                  click affordance at all. */}
+              <input
+                type="color"
+                value={primary}
+                onChange={(e) => setPrimary(e.target.value)}
+                aria-label="Primary colour"
+                className="h-9 w-16 cursor-pointer rounded-[2px] border p-1"
+                style={{ borderColor: "var(--color-line-strong)", background: "var(--color-surface)" }}
+              />
+
             </Field>
             <Field label="Accent colour">
-              <input type="color" value={accent} onChange={(e) => setAccent(e.target.value)} />
+              <input
+                type="color"
+                value={accent}
+                onChange={(e) => setAccent(e.target.value)}
+                aria-label="Accent colour"
+                className="h-9 w-16 cursor-pointer rounded-[2px] border p-1"
+                style={{ borderColor: "var(--color-line-strong)", background: "var(--color-surface)" }}
+              />
+
             </Field>
           </div>
           <ActionButton
@@ -281,12 +300,32 @@ export function WhiteLabelForm({
                   no logo yet
                 </p>
               )}
+              {/*
+                Styled rather than left bare. A native file control renders with
+                the browser's own chrome and an arrow cursor, so on a dark surface
+                it read as a disabled text field rather than the one control on
+                this screen that opens a picker.
+
+                `cursor-pointer` is the fix the eye needed; the rest is so it looks
+                like the other inputs here instead of a different operating system
+                pasted into the middle of our form. `file:` hides the native
+                button so the whole control is one target, and the label keeps the
+                filename readable.
+              */}
               <input
                 type="file"
                 accept="image/svg+xml,image/png,image/jpeg,image/webp"
                 disabled={!allowLogoUpload}
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                data-testid="logo-file-input"
+                className="w-full cursor-pointer rounded-[2px] border px-3 py-2 text-[13px] file:mr-3 file:cursor-pointer file:rounded-[2px] file:border-0 file:bg-[var(--color-elevate)] file:px-3 file:py-1 file:text-[12px] file:font-medium file:text-[var(--color-ink)] hover:border-[var(--color-line-strong)] disabled:cursor-not-allowed disabled:opacity-50"
+                style={{
+                  borderColor: "var(--color-line-strong)",
+                  background: "var(--color-surface)",
+                  color: "var(--color-ink-2)",
+                }}
               />
+
               {!allowLogoUpload ? (
                 <span className="text-[12.5px]" style={{ color: "var(--color-ink-3)" }}>
                   not available on your current plan

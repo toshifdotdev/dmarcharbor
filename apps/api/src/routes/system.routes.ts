@@ -143,10 +143,15 @@ systemRouter.get(
       // `withinHours` is validated rather than trusted: an unbounded or negative
       // window would either throw or silently mean "everything", and a filter that
       // can be widened to nothing by a bad query string is worse than none.
+      //
+      // The pattern excludes 0 rather than clamping it up to 1. `?withinHours=0`
+      // is how a person clears a filter by hand, and clamping it turned "show
+      // everything" into "show the last hour" - an audit view quietly reporting
+      // less than the operator believes is worse than no filter at all.
       const withinRaw = request.query.withinHours;
       const withinHours =
-        typeof withinRaw === 'string' && /^\d{1,4}$/.test(withinRaw)
-          ? Math.min(Math.max(Number(withinRaw), 1), 8760)
+        typeof withinRaw === 'string' && /^[1-9]\d{0,3}$/.test(withinRaw)
+          ? Math.min(Number(withinRaw), 8760)
           : undefined;
 
 

@@ -764,6 +764,31 @@ export const openApiDocument = {
         responses: { 200: { description: 'Accepted, including duplicates and unrecognised events.' }, 401: { description: 'Bad or stale signature.' }, 503: { description: 'Webhooks are not configured.' } },
       },
     },
+    '/workspaces/{organizationId}/branding/logo/store': {
+      post: {
+        tags: ['White label'],
+        summary: 'Upload and store a logo',
+        description: [
+          'Takes the raw image bytes and stores them, recording the result as this workspace logo in the same request.',
+          'This is the path the console uses. The presigned alternative makes a small upload depend on the browser reproducing a signature exactly, and when it does not the operator sees a bare network error with nothing on the server to diagnose it from.',
+          'The declared content type is checked against the file itself, so a payload wearing an image content type is refused rather than stored and served from our origin.',
+          'Accepted: SVG, PNG, JPEG and WebP, up to 256KB. SVG is accepted because assets are served from a separate origin under a sandbox content security policy, which disables script execution even on a direct navigation.',
+        ].join(' '),
+        requestBody: {
+          required: true,
+          content: {
+            'image/svg+xml': { schema: { type: 'string', format: 'binary' } },
+            'image/png': { schema: { type: 'string', format: 'binary' } },
+            'image/jpeg': { schema: { type: 'string', format: 'binary' } },
+            'image/webp': { schema: { type: 'string', format: 'binary' } },
+          },
+        },
+        responses: {
+          201: { description: 'Stored, with the object key, the public URL and the updated branding.' },
+          ...standardErrors,
+        },
+      },
+    },
     '/workspaces/{organizationId}/branding/logo/upload': {
       post: {
         tags: ['White label'],

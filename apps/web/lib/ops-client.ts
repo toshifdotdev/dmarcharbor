@@ -342,35 +342,37 @@ export async function uploadLogo(
     };
   }
 
-  const step1 = await call<{ uploadUrl: string; objectKey: string }>(
-    wsPath(orgId, "/branding/logo/upload"),
-    {
-      method: "POST",
-      body: JSON.stringify({ contentType: file.type, byteSize: file.size }),
-    },
-  );
-  if (!step1.ok) return step1;
-
-  const put = await fetch(step1.data.uploadUrl, {
-    method: "PUT",
-    body: file,
-    headers: { "content-type": file.type },
-  });
-  if (!put.ok) {
+  /**
+   * The bytes go to OUR origin, not straight to storage.
+   *
+   * That was not the first design: the browser used to PUT to a presigned S3
+   * URL, which made a 200KB upload depend on a preflight, a signature, and
+   * headers the browser alone controls. One browser did it; a second returned a
+   * bare "Failed to fetch" against a URL that worked from curl every time, and
+   * the server logged nothing because the request never arrived. Same-origin
+   * removes the whole category.
+   *
+   * Guarded: a network failure rejects with no status and no body, and an
+   * unhandled rejection took the whole page down instead of printing why.
+   */
+  try {
+    return await call<{ objectKey: string; logoUrl: string }>(
+      wsPath(orgId, "/branding/logo/store"),
+      {
+        method: "POST",
+        body: file,
+        // The type travels as a header, not as multipart metadata: the payload
+        // is the raw file, so there is no envelope to carry it in.
+        headers: { "content-type": file.type },
+      },
+    );
+  } catch {
     return {
       ok: false,
-      status: put.status,
-      error: { message: "The logo could not be uploaded to storage." },
+      status: 0,
+      error: { message: "The logo could not be sent to the server. Check the connection and try again." },
     };
   }
-
-  // Step 3: confirm with the objectKey the API itself returned. The UI never
-  // constructs or rewrites one: an objectKey outside this workspace's prefix
-  // is rejected server-side.
-  return call(wsPath(orgId, "/branding/logo/confirm"), {
-    method: "POST",
-    body: JSON.stringify({ objectKey: step1.data.objectKey }),
-  });
 }
 
 // ─── settings: report mailbox ────────────────────────────────────────────────
