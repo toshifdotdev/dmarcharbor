@@ -194,7 +194,19 @@ export async function deleteClient(
 ): Promise<ClientDeletion> {
   const client = await prisma.client.findFirst({
     where: { id: clientId, organizationId },
-    select: { id: true, name: true, slug: true, trustSlug: true, portalAccess: { select: { id: true } } },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      trustSlug: true,
+      // ONLY live grants. Revoking sets `revokedAt` and keeps the row, which is
+      // what the audit trail needs, so counting every row made a revoked contact
+      // block the delete forever: the operator revoked the access, followed the
+      // instruction on the refusal, and hit the identical refusal again with no
+      // way out. A revoked grant is a dead credential - nobody can present it -
+      // so it must not stand in the way of offboarding the client.
+      portalAccess: { where: { revokedAt: null }, select: { id: true } },
+    },
   });
 
   if (!client) return { ok: false, reason: 'not_found' };

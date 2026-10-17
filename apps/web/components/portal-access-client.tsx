@@ -17,7 +17,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ActionButton } from "@/components/action-button";
 import { ConfirmAction } from "@/components/confirm-action";
-import { grantPortalAccess, revokePortalAccess } from "@/lib/ops-client";
+import { grantPortalAccess, revokePortalAccess, deletePortalAccessRecord, deleteAllRevokedPortalAccess } from "@/lib/ops-client";
 import type { ApiErrorBody, PortalGrant } from "@/lib/types";
 
 export function PortalAccessPanel({
@@ -199,11 +199,52 @@ export function PortalAccessPanel({
 
       {revoked.length > 0 ? (
         <div className="border-t px-5 py-3.5" style={{ borderColor: "var(--color-line)" }}>
-          <div className="label">Revoked</div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="label">Revoked</div>
+            {/* One control, not a checkbox column.
+                These are a handful of rows per workspace, not a list anybody
+                triages - and the cost of a wrong bulk delete is somebody's only
+                record of a contact quietly disappearing. "Remove all revoked"
+                says exactly what it will do, and names the number first. */}
+            <ConfirmAction
+              label={`Remove all revoked (${revoked.length})`}
+              confirmLabel={`remove ${revoked.length} revoked grant${revoked.length === 1 ? "" : "s"}`}
+              consequence={`Deletes ${revoked.length} revoked row${revoked.length === 1 ? "" : "s"} and the email addresses in them. No access changes - these contacts already have none.`}
+              testId="portal-remove-all-revoked"
+              onConfirm={async () => {
+                const res = await deleteAllRevokedPortalAccess(organizationId);
+                if (!res.ok) return { ok: false, message: res.error?.message };
+                router.refresh();
+                return { ok: true };
+              }}
+            />
+          </div>
           <ul className="mt-1.5 flex flex-col gap-1">
             {revoked.map((g) => (
-              <li key={g.id} className="text-[12px]" style={{ color: "var(--color-ink-3)" }}>
-                {g.email} · {clientName(g.clientId)} · revoked
+              <li
+                key={g.id}
+                className="flex flex-wrap items-center gap-x-2 text-[12px]"
+                style={{ color: "var(--color-ink-3)" }}
+              >
+                <span>
+                  {g.email} · {clientName(g.clientId)} · revoked
+                </span>
+                {/* The row is inert, so this is the only way its address ever
+                    leaves the product. Worth offering per-row as well as in
+                    bulk: one mistyped bulk delete takes everything with it. */}
+                <ConfirmAction
+                  label="remove"
+                  confirmLabel="remove this row"
+                  consequence={`Deletes ${g.email}'s record entirely. They already have no access, so nothing changes for them.`}
+                  tone="ink"
+                  testId={`portal-remove-${g.id}`}
+                  onConfirm={async () => {
+                    const res = await deletePortalAccessRecord(organizationId, g.id);
+                    if (!res.ok) return { ok: false, message: res.error?.message };
+                    router.refresh();
+                    return { ok: true };
+                  }}
+                />
               </li>
             ))}
           </ul>

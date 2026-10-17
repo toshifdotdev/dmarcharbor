@@ -170,6 +170,90 @@ describe('domain and client deletion', () => {
     expect(await prisma.client.count({ where: { id: clientId } })).toBe(1);
   });
 
+  it('lets the client be deleted once the contact is REVOKED, revoked row and all', async () => {
+    const { agent, organizationId, clientId } = await workspace();
+
+    const granted = await agent
+      .post(`/api/workspaces/${organizationId}/clients/${clientId}/portal-access`)
+      .send({ email: 'contact@client.test', displayName: 'Client Contact' });
+    expect([200, 201]).toContain(granted.status);
+
+    expect((await agent.delete(`/api/workspaces/${organizationId}/portal-access/${granted.body.id}`)).status).toBe(204);
+
+    // The regression: revoking sets `revokedAt` and KEEPS the row for the audit
+    // trail, and the delete guard counted every row. So the operator revoked the
+    // access, followed the instruction in the refusal, and was refused again with
+    // no way forward - the client could never be deleted at all.
+    const stillThere = await prisma.clientPortalAccess.count({ where: { clientId } });
+    expect(stillThere).toBe(1);
+    expect(await prisma.clientPortalAccess.count({ where: { clientId, revokedAt: null } })).toBe(0);
+
+    const response = await agent.delete(`/api/workspaces/${organizationId}/clients/${clientId}`);
+    expect(response.status).toBe(200);
+    expect(await prisma.client.count({ where: { id: clientId } })).toBe(0);
+  });
+
+  it('removes a revoked grant permanently, and refuses while it is still active', async () => {
+    const { agent, organizationId, clientId } = await workspace();
+
+    const granted = await agent
+      .post(`/api/workspaces/${organizationId}/clients/${clientId}/portal-access`)
+      .send({ email: 'contact@client.test', displayName: 'Client Contact' });
+    expect([200, 201]).toContain(granted.status);
+    const accessId = granted.body.id as string;
+
+    // Still live: removing it now would end the contact's access without leaving
+    // the revocation in the trail, which is the one thing the trail is for.
+    const tooEarly = await agent.delete(`/api/workspaces/${organizationId}/portal-access/${accessId}/permanent`);
+    expect(tooEarly.status).toBe(409);
+    expect(tooEarly.body.error.code).toBe('PORTAL_ACCESS_STILL_ACTIVE');
+    expect(await prisma.clientPortalAccess.count({ where: { id: accessId } })).toBe(1);
+
+    expect((await agent.delete(`/api/workspaces/${organizationId}/portal-access/${accessId}`)).status).toBe(204);
+
+    const removed = await agent.delete(`/api/workspaces/${organizationId}/portal-access/${accessId}/permanent`);
+    expect(removed.status).toBe(204);
+    expect(await prisma.clientPortalAccess.count({ where: { id: accessId } })).toBe(0);
+
+    // The record of the clean-up survives even though the row did not.
+    const audit = await prisma.auditLog.findFirst({
+      where: { targetId: accessId, action: 'PORTAL_ACCESS_DELETED' },
+      select: { organizationId: true },
+    });
+    expect(audit?.organizationId).toBe(organizationId);
+  });
+
+  it('clears every revoked grant in one call, and reports how many went', async () => {
+    const { agent, organizationId, clientId } = await workspace();
+
+    const ids: string[] = [];
+    for (const email of ['one@client.test', 'two@client.test', 'three@client.test']) {
+      const granted = await agent
+        .post(`/api/workspaces/${organizationId}/clients/${clientId}/portal-access`)
+        .send({ email, displayName: email });
+      expect([200, 201]).toContain(granted.status);
+      ids.push(granted.body.id as string);
+    }
+
+    // Two revoked, one left live: the live one must survive a bulk clean-up,
+    // because somebody still has access through it.
+    for (const id of ids.slice(0, 2)) {
+      expect((await agent.delete(`/api/workspaces/${organizationId}/portal-access/${id}`)).status).toBe(204);
+    }
+
+    const cleared = await agent.delete(`/api/workspaces/${organizationId}/portal-access/revoked`);
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.removed).toBe(2);
+
+    const survivors = await prisma.clientPortalAccess.findMany({ where: { clientId }, select: { id: true } });
+    expect(survivors.map((s) => s.id)).toEqual([ids[2]]);
+
+    // Nothing left to clear is answered honestly rather than as a silent success.
+    const again = await agent.delete(`/api/workspaces/${organizationId}/portal-access/revoked`);
+    expect(again.status).toBe(200);
+    expect(again.body.removed).toBe(0);
+  });
+
   it('counts each portal grant once in a workspace preview', async () => {
     const { agent, organizationId, clientId } = await workspace();
 

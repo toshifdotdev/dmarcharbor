@@ -148,6 +148,89 @@ export async function revokePortalAccess(
 }
 
 /**
+ * Removes a revoked grant outright.
+ *
+ * Revoking keeps the row: the audit trail needs to show that access existed and
+ * that somebody ended it. But "this person can no longer read anything" is not
+ * the same as "this product should keep their email address forever" - it is
+ * personal data with no remaining purpose, and this is a product with a GDPR
+ * erasure right on it.
+ *
+ * Refuses while the grant is still ACTIVE, so this cannot be used to cut a live
+ * contact off without leaving the revocation in the trail. Revoke first, then
+ * the row is pure residue and can go.
+ */
+export async function deleteRevokedPortalAccess(
+  organizationId: string,
+  grantId: string,
+  actorUserId?: string | null,
+): Promise<'deleted' | 'not_found' | 'still_active'> {
+  const existing = await prisma.clientPortalAccess.findFirst({
+    where: { id: grantId, organizationId },
+    include: { client: { select: { name: true } } },
+  });
+
+  if (!existing) {
+    return 'not_found';
+  }
+
+  if (existing.revokedAt === null) {
+    return 'still_active';
+  }
+
+  await prisma.clientPortalAccess.delete({ where: { id: existing.id } });
+
+  await recordAuditEvent({
+    organizationId,
+    actorUserId: actorUserId ?? undefined,
+    action: 'PORTAL_ACCESS_DELETED',
+    targetType: 'client_portal_access',
+    targetId: existing.id,
+    // The address is in `detail` rather than in a retained row, because the point
+    // of the delete is to stop holding it. The audit keeps who ended the access
+    // and when, which is what an auditor asks for.
+    detail: { clientName: existing.client.name, revokedAt: existing.revokedAt.toISOString() },
+  });
+
+  return 'deleted';
+}
+
+/**
+ * Every revoked grant in the workspace, removed in one call.
+ *
+ * The count comes back so the caller can say exactly what went rather than
+ * claiming a clean-up it may not have performed. Scoped to the caller's own
+ * workspace, so it can never reach another agency's contacts.
+ */
+export async function deleteAllRevokedPortalAccess(
+  organizationId: string,
+  actorUserId?: string | null,
+): Promise<number> {
+  const revoked = await prisma.clientPortalAccess.findMany({
+    where: { organizationId, revokedAt: { not: null } },
+    select: { id: true },
+  });
+
+  if (revoked.length === 0) {
+    return 0;
+  }
+
+  const result = await prisma.clientPortalAccess.deleteMany({
+    where: { id: { in: revoked.map((row) => row.id) } },
+  });
+
+  await recordAuditEvent({
+    organizationId,
+    actorUserId: actorUserId ?? undefined,
+    action: 'PORTAL_ACCESS_DELETED',
+    targetType: 'client_portal_access',
+    detail: { bulk: true, removed: result.count },
+  });
+
+  return result.count;
+}
+
+/**
  * Resolves which clients a signed in person may see, and binds any grant that
  * was waiting on their address.
  *

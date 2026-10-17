@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import {
+  deleteAllRevokedPortalAccessController,
+  deleteRevokedPortalAccessController,
   grantPortalAccessController,
   listPortalAccessController,
   portalDomainController,
@@ -25,6 +27,27 @@ portalRouter.get(
   requireOrganizationPermission('client', 'read'),
   listPortalAccessController,
 );
+/**
+ * Removing revoked residue, which is a different act from revoking.
+ *
+ * Declared BEFORE `/:accessId` so "revoked" is never read as an access id. Express
+ * matches in registration order, so with this the other way round `DELETE
+ * /portal-access/revoked` was swallowed by the parameter route and answered 404
+ * for a grant that does not exist - which is precisely what it did.
+ */
+portalRouter.delete(
+  '/workspaces/:organizationId/portal-access/revoked',
+  requireSession,
+  requireOrganizationPermission('client', 'delete'),
+  deleteAllRevokedPortalAccessController,
+);
+portalRouter.delete(
+  '/workspaces/:organizationId/portal-access/:accessId/permanent',
+  requireSession,
+  requireOrganizationPermission('client', 'delete'),
+  deleteRevokedPortalAccessController,
+);
+
 portalRouter.delete(
   '/workspaces/:organizationId/portal-access/:accessId',
   requireSession,

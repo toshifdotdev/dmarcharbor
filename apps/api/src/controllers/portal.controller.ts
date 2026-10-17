@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../database/prisma.js';
 import { assertFeature } from '../services/entitlements/entitlement.service.js';
-import { grantPortalAccess, listPortalAccess, revokePortalAccess } from '../services/portal.service.js';
+import { grantPortalAccess, listPortalAccess, revokePortalAccess, deleteRevokedPortalAccess, deleteAllRevokedPortalAccess } from '../services/portal.service.js';
 import { getDomainInsights } from '../services/report-intelligence.service.js';
 import { buildSenderBreakdown, possibleSpoofingSources } from '../services/sender-breakdown.service.js';
 import { portalClientFilter } from '../middleware/portal.middleware.js';
@@ -75,6 +75,53 @@ export async function revokePortalAccessController(request: Request, response: R
   }
 
   response.status(204).send();
+}
+
+export async function deleteRevokedPortalAccessController(request: Request, response: Response): Promise<void> {
+  const id = resourceIdSchema.safeParse(request.params.accessId);
+  if (!id.success) {
+    response.status(400).json({ error: { code: 'INVALID_REQUEST', message: 'A valid access identifier is required.' } });
+    return;
+  }
+
+  const outcome = await deleteRevokedPortalAccess(
+    response.locals.organizationId,
+    id.data,
+    response.locals.session?.user?.id,
+  );
+
+  if (outcome === 'not_found') {
+    response.status(404).json({ error: { code: 'NOT_FOUND', message: 'That access grant is not in this workspace.' } });
+    return;
+  }
+
+  if (outcome === 'still_active') {
+    // Revoking first is the whole point: it is what leaves the trail. Removing a
+    // live contact quietly would make an access end with no record of who ended it.
+    response.status(409).json({
+      error: {
+        code: 'PORTAL_ACCESS_STILL_ACTIVE',
+        message: 'Revoke this access first. Removing it while it still works would end the contact’s access without leaving a record that it was ended.',
+      },
+    });
+    return;
+  }
+
+  response.status(204).send();
+}
+
+export async function deleteAllRevokedPortalAccessController(
+  _request: Request,
+  response: Response,
+): Promise<void> {
+  const removed = await deleteAllRevokedPortalAccess(
+    response.locals.organizationId,
+    response.locals.session?.user?.id,
+  );
+
+  // The count rather than a bare 204: "we cleaned up" and "there was nothing to
+  // clean up" are different answers and the caller should not have to guess.
+  response.json({ removed });
 }
 
 export async function portalOverviewController(_request: Request, response: Response): Promise<void> {

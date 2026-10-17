@@ -355,6 +355,31 @@ export const openApiDocument = {
         responses: { 200: { description: 'Grants with their binding state.' }, ...standardErrors },
       },
     },
+    '/workspaces/{organizationId}/portal-access/revoked': {
+      delete: {
+        tags: ['Client portal'],
+        summary: 'Remove every revoked grant',
+        description: [
+          'Deletes the rows of every revoked grant in the workspace, releasing the contact email addresses they held.',
+          'Active grants are untouched: someone still has access through one.',
+          'Reports how many were actually removed, so a caller never has to infer "cleaned up" from a silent success.',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: { 200: { description: 'Removed, with the count.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/portal-access/{accessId}/permanent': {
+      delete: {
+        tags: ['Client portal'],
+        summary: 'Remove a revoked grant permanently',
+        description: [
+          'Deletes one revoked grant row, so the contact address is no longer held.',
+          'Refused with 409 while the grant is still active: revoking is what leaves the record that access was ended, and removing a live contact quietly would erase that record.',
+        ].join(' '),
+        parameters: [orgParam, idParam('accessId', 'Grant identifier.')],
+        responses: { 204: { description: 'Removed.' }, ...standardErrors },
+      },
+    },
     '/workspaces/{organizationId}/portal-access/{accessId}': {
       delete: {
         tags: ['Client portal'],

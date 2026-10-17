@@ -127,6 +127,20 @@ export const listPortalAccess = (orgId: string) =>
 export const revokePortalAccess = (orgId: string, accessId: string) =>
   call<void>(wsPath(orgId, `/portal-access/${accessId}`), { method: "DELETE" });
 
+/** DELETE /portal-access/:id/permanent — remove a REVOKED grant's row.
+ *
+ *  A separate act from revoking, and the API refuses it while the grant is still
+ *  active. Revoking is what ends access; this is clearing the residue afterwards,
+ *  so the contact's address is not held forever with no remaining purpose. */
+export const deletePortalAccessRecord = (orgId: string, accessId: string) =>
+  call<void>(wsPath(orgId, `/portal-access/${accessId}/permanent`), { method: "DELETE" });
+
+/** DELETE /portal-access/revoked — every revoked grant in the workspace, gone.
+ *  Answers with how many it actually removed, because "nothing to clean up" and
+ *  "cleaned up" are different outcomes and the caller must not have to guess. */
+export const deleteAllRevokedPortalAccess = (orgId: string) =>
+  call<{ removed: number }>(wsPath(orgId, "/portal-access/revoked"), { method: "DELETE" });
+
 // ─── trust center (agency side) ─────────────────────────────────────────────
 
 /** POST /clients/:id/trust-center — publish the public Trust Center. Gated on
