@@ -12,7 +12,8 @@
 import { ActionButton } from "@/components/action-button";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createApiKeyClient, revokeApiKeyClient } from "@/lib/ops-client";
+import { createApiKeyClient, deleteAllRevokedApiKeys, deleteApiKeyRecord, revokeApiKeyClient } from "@/lib/ops-client";
+import { ConfirmAction } from "@/components/confirm-action";
 import type { ApiErrorBody, ApiKeyRow, IssuedApiKey } from "@/lib/types";
 
 const SCOPE_OPTIONS: Array<"read" | "write"> = ["read", "write"];
@@ -90,6 +91,7 @@ export function ApiKeysPanel({
   const [busy, setBusy] = useState(false);
 
   const active = keys.filter((k) => !k.revokedAt);
+  const revokedKeys = keys.filter((k) => k.revokedAt);
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
@@ -306,8 +308,8 @@ export function ApiKeysPanel({
                     type="button"
                     onClick={async () => {
                       const res = await revokeApiKeyClient(organizationId, k.id);
-            if (!res.ok) setError(res.error);
-            else router.refresh();
+                      if (!res.ok) setError(res.error);
+                      else router.refresh();
                     }}
                     className="text-[11.5px] underline"
                     style={{ color: "var(--color-block)" }}
@@ -315,11 +317,48 @@ export function ApiKeysPanel({
                   >
                     revoke
                   </button>
-                ) : null}
+                ) : (
+                  // A revoked key cannot authenticate anything and its name is
+                  // already reusable, so the row left on screen is pure residue.
+                  // Removing it is tidiness rather than a safety step, which is why
+                  // this is a quiet control and the revocation itself was not.
+                  <ConfirmAction
+                    label="remove"
+                    confirmLabel="remove this key"
+                    tone="ink"
+                    consequence={`Deletes ${k.name} and its ${k.prefix}… record from this list. It already cannot authenticate anything.`}
+                    testId={`key-remove-${k.id}`}
+                    onConfirm={async () => {
+                      const res = await deleteApiKeyRecord(organizationId, k.id);
+                      if (!res.ok) return { ok: false, message: res.error?.message };
+                      router.refresh();
+                      return { ok: true };
+                    }}
+                  />
+                )}
               </li>
             ))}
           </ul>
         )}
+
+        {/* Only when there is residue: a destructive control shown on a screen with
+            nothing to clean up is a control nobody should have to read past. */}
+        {revokedKeys.length > 0 ? (
+          <div className="mt-3 border-t pt-3" style={{ borderColor: "var(--color-line)" }}>
+            <ConfirmAction
+              label={`Remove all revoked keys (${revokedKeys.length})`}
+              confirmLabel={`remove ${revokedKeys.length} revoked key${revokedKeys.length === 1 ? "" : "s"}`}
+              consequence={`Deletes ${revokedKeys.length} revoked key${revokedKeys.length === 1 ? "" : "s"} from this list. None of them can authenticate anything.`}
+              testId="key-remove-all-revoked"
+              onConfirm={async () => {
+                const res = await deleteAllRevokedApiKeys(organizationId);
+                if (!res.ok) return { ok: false, message: res.error?.message };
+                router.refresh();
+                return { ok: true };
+              }}
+            />
+          </div>
+        ) : null}
       </section>
     </div>
   );

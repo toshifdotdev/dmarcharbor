@@ -54,17 +54,20 @@ export function complianceHref(clientId: string): string {
  * request, and it stays out of the URL to keep that distinction visible.
  */
 export function auditHref(filters: {
-  action?: string;
-  domain?: string;
-  limit?: number;
-} = {}): string {
-  const query = new URLSearchParams();
-  if (filters.action) query.set("action", filters.action);
-  if (filters.domain) query.set("domain", filters.domain);
-  if (filters.limit !== undefined) query.set("limit", String(filters.limit));
-  const search = query.toString();
-  return search ? `/settings/audit?${search}` : "/settings/audit";
-}
+    action?: string;
+    domain?: string;
+    limit?: number;
+    withinHours?: number;
+  } = {}): string {
+    const query = new URLSearchParams();
+    if (filters.action) query.set("action", filters.action);
+    if (filters.domain) query.set("domain", filters.domain);
+    if (filters.limit !== undefined) query.set("limit", String(filters.limit));
+    if (filters.withinHours) query.set("withinHours", String(filters.withinHours));
+    const search = query.toString();
+    return search ? `/settings/audit?${search}` : "/settings/audit";
+  }
+
 
 /**
  * The forensics section, scoped to one domain and optionally one page of it.

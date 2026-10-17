@@ -329,6 +329,192 @@ describe('domain-scoped writes addressed by slug', () => {
   });
 });
 
+/**
+ * Revoked credentials are kept so the revocation is visible and the credential
+ * visibly stopped working. Nothing removed the rows afterwards, so a workspace
+ * collected dead share links and dead keys forever.
+ *
+ * The rule both features share: permanent removal is refused while the credential
+ * is still live. Revoking is what writes the audit record; removing a live
+ * credential quietly would end somebody's access or integration with nothing
+ * before it in the trail.
+ */
+describe('revoked credential cleanup', () => {
+  beforeAll(resetDatabase);
+
+  it('removes a revoked share link permanently, and refuses while it is live', async () => {
+    const { agent, organizationId, domainId } = await workspace();
+
+    const created = await agent
+      .post(`/api/workspaces/${organizationId}/report-shares`)
+      .send({ domainId, includeForensics: false, includeSources: true, expiresInDays: 30 });
+    expect(created.status).toBe(201);
+    const shareId = created.body.id as string;
+
+    const tooEarly = await agent.delete(`/api/workspaces/${organizationId}/report-shares/${shareId}/permanent`);
+    expect(tooEarly.status).toBe(409);
+    expect(tooEarly.body.error.code).toBe('REPORT_SHARE_STILL_ACTIVE');
+    expect(await prisma.reportShare.count({ where: { id: shareId } })).toBe(1);
+
+    expect((await agent.delete(`/api/workspaces/${organizationId}/report-shares/${shareId}`)).status).toBe(204);
+
+    expect((await agent.delete(`/api/workspaces/${organizationId}/report-shares/${shareId}/permanent`)).status).toBe(204);
+    expect(await prisma.reportShare.count({ where: { id: shareId } })).toBe(0);
+
+    // The row is gone, but the fact that a share was issued, revoked and then
+    // cleared is all still answerable.
+    const actions = await prisma.auditLog.findMany({
+      where: { targetId: shareId },
+      select: { action: true },
+      orderBy: { action: 'asc' },
+    });
+    expect(actions.map((a) => a.action)).toEqual(
+      expect.arrayContaining(['REPORT_SHARE_CREATED', 'REPORT_SHARE_REVOKED', 'REPORT_SHARE_DELETED']),
+    );
+  });
+
+  it('clears every revoked share link in one call, sparing the live ones', async () => {
+    const { agent, organizationId, domainId } = await workspace();
+
+    const ids: string[] = [];
+    for (let n = 0; n < 3; n += 1) {
+      const created = await agent
+        .post(`/api/workspaces/${organizationId}/report-shares`)
+        .send({ domainId, includeForensics: false, includeSources: true, expiresInDays: 7 + n });
+      expect(created.status).toBe(201);
+      ids.push(created.body.id as string);
+    }
+
+    for (const id of ids.slice(0, 2)) {
+      expect((await agent.delete(`/api/workspaces/${organizationId}/report-shares/${id}`)).status).toBe(204);
+    }
+
+    const cleared = await agent.delete(`/api/workspaces/${organizationId}/report-shares/revoked`);
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.removed).toBe(2);
+
+    // `revoked` is a literal segment, so this also proves it was not swallowed by
+    // the `:shareId` route - which is what happened the first time round.
+    const survivors = await prisma.reportShare.findMany({ where: { id: { in: ids } }, select: { id: true } });
+    expect(survivors.map((s) => s.id)).toEqual([ids[2]]);
+
+    expect((await agent.delete(`/api/workspaces/${organizationId}/report-shares/revoked`)).body.removed).toBe(0);
+  });
+
+  it('removes a revoked API key permanently, and refuses while it is live', async () => {
+    const { agent, organizationId } = await workspace();
+
+    const created = await agent
+      .post(`/api/workspaces/${organizationId}/api-keys`)
+      .send({ name: 'Cleanup key', scopes: ['read'] });
+    expect(created.status).toBe(201);
+    const keyId = created.body.id as string;
+
+    const tooEarly = await agent.delete(`/api/workspaces/${organizationId}/api-keys/${keyId}/permanent`);
+    expect(tooEarly.status).toBe(409);
+    expect(tooEarly.body.error.code).toBe('API_KEY_STILL_ACTIVE');
+
+    expect((await agent.delete(`/api/workspaces/${organizationId}/api-keys/${keyId}`)).status).toBe(204);
+    expect((await agent.delete(`/api/workspaces/${organizationId}/api-keys/${keyId}/permanent`)).status).toBe(204);
+    expect(await prisma.apiKey.count({ where: { id: keyId } })).toBe(0);
+
+    const actions = await prisma.auditLog.findMany({
+      where: { targetId: keyId },
+      select: { action: true },
+    });
+    expect(actions.map((a) => a.action)).toEqual(
+      expect.arrayContaining(['API_KEY_CREATED', 'API_KEY_REVOKED', 'API_KEY_DELETED']),
+    );
+  });
+
+  it('clears every revoked API key in one call, sparing the live ones', async () => {
+    const { agent, organizationId } = await workspace();
+
+    const ids: string[] = [];
+    for (const name of ['Dead one', 'Dead two', 'Live one']) {
+      const created = await agent
+        .post(`/api/workspaces/${organizationId}/api-keys`)
+        .send({ name, scopes: ['read'] });
+      expect(created.status).toBe(201);
+      ids.push(created.body.id as string);
+    }
+
+    for (const id of ids.slice(0, 2)) {
+      expect((await agent.delete(`/api/workspaces/${organizationId}/api-keys/${id}`)).status).toBe(204);
+    }
+
+    const cleared = await agent.delete(`/api/workspaces/${organizationId}/api-keys/revoked`);
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.removed).toBe(2);
+
+    const survivors = await prisma.apiKey.findMany({ where: { id: { in: ids } }, select: { id: true } });
+    expect(survivors.map((s) => s.id)).toEqual([ids[2]]);
+
+    // The live key still works, which is the whole point of sparing it.
+    expect(survivors).toHaveLength(1);
+    expect((await agent.delete(`/api/workspaces/${organizationId}/api-keys/revoked`)).body.removed).toBe(0);
+  });
+});
+
+/**
+ * "What happened in the last hour" is the question an operator has while
+ * something is on fire, so the trail takes a window.
+ *
+ * The property that matters is the second half: a hand-edited value must widen
+ * to the full trail, never silently become a window nobody asked for. An audit
+ * view that shows fewer events than the operator believes is worse than no
+ * filter at all, because it is believed.
+ */
+describe('audit trail period filter', () => {
+  beforeAll(resetDatabase);
+
+  it('returns only events inside the requested window', async () => {
+    const { agent, organizationId } = await workspace();
+
+    const recent = await agent.post(`/api/workspaces/${organizationId}/api-keys`).send({ name: 'Recent', scopes: ['read'] });
+    expect(recent.status).toBe(201);
+
+    // Backdated well outside any window the UI offers, so the assertion cannot
+    // pass by accident on a fresh row.
+    const old = await prisma.auditLog.create({
+      data: {
+        organizationId,
+        action: 'API_KEY_CREATED',
+        targetType: 'api_key',
+        targetId: 'backdated',
+        createdAt: new Date(Date.now() - 48 * 60 * 60 * 1000),
+      },
+      select: { id: true },
+    });
+
+    const all = await agent.get(`/api/workspaces/${organizationId}/audit-events`);
+    expect(all.status).toBe(200);
+    expect(all.body.items.map((e: { id: string }) => e.id)).toContain(old.id);
+
+    const last24 = await agent.get(`/api/workspaces/${organizationId}/audit-events?withinHours=24`);
+    expect(last24.status).toBe(200);
+    const rows = last24.body.items as Array<{ id: string; targetId: string | null; action: string }>;
+    const ids = rows.map((e) => e.id);
+    expect(ids).not.toContain(old.id);
+    // Matched on the event's own target, not its id: creating a key returns the
+    // KEY's id, and the audit row carries its own.
+    expect(
+      rows.some((e) => e.action === 'API_KEY_CREATED' && e.targetId === (recent.body.id as string)),
+    ).toBe(true);
+  });
+
+  it('ignores a nonsense window rather than erroring or emptying the trail', async () => {
+    const { agent, organizationId } = await workspace();
+    await agent.post(`/api/workspaces/${organizationId}/api-keys`).send({ name: 'Readable', scopes: ['read'] });
+
+    for (const value of ['abc', '0', '-5', '1e9', '']) {
+      const response = await agent.get(`/api/workspaces/${organizationId}/audit-events?withinHours=${value}`);
+      expect(response.status, `withinHours=${value}`).toBe(200);
+      expect(response.body.items.length, `withinHours=${value}`).toBeGreaterThan(0);
+    }
+  });
+});
+
 describe('workspace deletion', () => {
   beforeAll(resetDatabase);
 

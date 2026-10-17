@@ -13,6 +13,8 @@ import { EntitlementError, assertFeature } from '../services/entitlements/entitl
 import {
   ApiKeyNameTakenError,
   createApiKey,
+  deleteAllRevokedApiKeys,
+  deleteRevokedApiKey,
   findIdempotentResult,
   listApiKeys,
   revokeApiKey,
@@ -413,4 +415,40 @@ export async function revokeApiKeyController(request: Request, response: Respons
   }
 
   response.status(204).send();
+}
+
+export async function deleteApiKeyController(request: Request, response: Response): Promise<void> {
+  const outcome = await deleteRevokedApiKey(
+    response.locals.organizationId,
+    String(request.params.keyId),
+    response.locals.session?.user?.id,
+  );
+
+  if (outcome === 'not_found') {
+    response.status(404).json({ error: { code: 'NOT_FOUND', message: 'That key is not in this workspace.' } });
+    return;
+  }
+
+  if (outcome === 'still_active') {
+    // Revoking first is what records that a credential was deliberately killed.
+    // Removing a live key would end somebody's integration with no trace of the
+    // decision behind it.
+    response.status(409).json({
+      error: {
+        code: 'API_KEY_STILL_ACTIVE',
+        message: 'Revoke this key first. Removing it while it still works would end the integration using it with no record that anybody decided to.',
+      },
+    });
+    return;
+  }
+
+  response.status(204).send();
+}
+
+export async function deleteAllRevokedApiKeysController(_request: Request, response: Response): Promise<void> {
+  const removed = await deleteAllRevokedApiKeys(
+    response.locals.organizationId,
+    response.locals.session?.user?.id,
+  );
+  response.json({ removed });
 }

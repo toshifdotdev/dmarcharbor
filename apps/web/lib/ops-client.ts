@@ -141,6 +141,23 @@ export const deletePortalAccessRecord = (orgId: string, accessId: string) =>
 export const deleteAllRevokedPortalAccess = (orgId: string) =>
   call<{ removed: number }>(wsPath(orgId, "/portal-access/revoked"), { method: "DELETE" });
 
+/** DELETE /report-shares/:id/permanent — remove a REVOKED share link's row.
+ *  Refused by the API while the link is still live. */
+export const deleteReportShareRecord = (orgId: string, shareId: string) =>
+  call<void>(wsPath(orgId, `/report-shares/${shareId}/permanent`), { method: "DELETE" });
+
+/** DELETE /report-shares/revoked — every revoked share link, gone, with a count. */
+export const deleteAllRevokedReportShares = (orgId: string) =>
+  call<{ removed: number }>(wsPath(orgId, "/report-shares/revoked"), { method: "DELETE" });
+
+/** DELETE /api-keys/:id/permanent — remove a REVOKED key's row. */
+export const deleteApiKeyRecord = (orgId: string, keyId: string) =>
+  call<void>(wsPath(orgId, `/api-keys/${keyId}/permanent`), { method: "DELETE" });
+
+/** DELETE /api-keys/revoked — every revoked key, gone, with a count. */
+export const deleteAllRevokedApiKeys = (orgId: string) =>
+  call<{ removed: number }>(wsPath(orgId, "/api-keys/revoked"), { method: "DELETE" });
+
 // ─── trust center (agency side) ─────────────────────────────────────────────
 
 /** POST /clients/:id/trust-center — publish the public Trust Center. Gated on

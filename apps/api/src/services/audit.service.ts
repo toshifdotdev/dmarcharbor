@@ -76,13 +76,30 @@ export async function recordAuditEvents(inputs: RecordAuditEventInput[]): Promis
 
 export async function listAuditEvents(
   organizationId: string,
-  options: { domainId?: string; action?: string; limit?: number } = {},
+  options: {
+    domainId?: string;
+    action?: string;
+    limit?: number;
+    /**
+     * Restrict to the last N hours.
+     *
+     * Hours rather than a date string on purpose: "what happened in the last
+     * hour" is the question an operator actually has while something is on fire,
+     * and a bare integer cannot be misread as a timezone. The caller never sends a
+     * client-supplied date that this then parses.
+     */
+    withinHours?: number;
+  } = {},
+  now = new Date(),
 ) {
   return prisma.auditLog.findMany({
     where: {
       organizationId,
       domainId: options.domainId,
       action: options.action as AuditAction | undefined,
+      ...(options.withinHours
+        ? { createdAt: { gte: new Date(now.getTime() - options.withinHours * 60 * 60 * 1000) } }
+        : {}),
     },
     select: {
       id: true,

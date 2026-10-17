@@ -48,12 +48,12 @@ import type { AuditDomainOption } from "@/components/audit-client";
 export default async function AuditSettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ action?: string; domain?: string; limit?: string }>;
+  searchParams: Promise<{ action?: string; domain?: string; limit?: string; withinHours?: string }>;
 }) {
   const { workspaces, active } = await resolveActiveWorkspace();
   if (!active) redirect("/welcome");
 
-  const { action, domain, limit } = await searchParams;
+  const { action, domain, limit, withinHours } = await searchParams;
 
   return (
     <Shell workspaces={workspaces} activeWorkspace={active}>
@@ -74,6 +74,7 @@ export default async function AuditSettingsPage({
             wantedAction={action}
             wantedDomain={domain}
             wantedLimit={limit}
+            wantedWithinHours={withinHours}
           />
         </Suspense>
       </div>
@@ -86,11 +87,13 @@ async function AuditTrailSection({
   wantedAction,
   wantedDomain,
   wantedLimit,
+  wantedWithinHours,
 }: {
   organizationId: string;
   wantedAction: string | undefined;
   wantedDomain: string | undefined;
   wantedLimit: string | undefined;
+  wantedWithinHours: string | undefined;
 }) {
   const action = wantedAction && isAuditAction(wantedAction) ? wantedAction : undefined;
   const ignoredAction = wantedAction && !action ? wantedAction : null;
@@ -104,8 +107,18 @@ async function AuditTrailSection({
       ? Math.min(Math.max(requested, AUDIT_LIMIT_MIN), AUDIT_LIMIT_MAX)
       : AUDIT_LIMIT_MAX;
 
+  // A hand-edited `?withinHours=abc` must mean "no restriction", never "zero
+  // hours" and never a 400. Dropped rather than clamped, because silently
+  // showing a different window than the operator asked for is how an audit view
+  // starts lying about what it covers.
+  const requestedWindow = Number(wantedWithinHours);
+  const withinHours =
+    wantedWithinHours !== undefined && Number.isInteger(requestedWindow) && requestedWindow > 0
+      ? Math.min(requestedWindow, 8760)
+      : undefined;
+
   const [events, clients] = await Promise.all([
-    listAuditEvents(organizationId, { domainId: domain, action, limit }).then(
+    listAuditEvents(organizationId, { domainId: domain, action, limit, withinHours }).then(
       (r) => ({ rows: r.items ?? [], failed: false }),
       () => ({ rows: [] as Awaited<ReturnType<typeof listAuditEvents>>["items"], failed: true }),
     ),
@@ -156,6 +169,7 @@ async function AuditTrailSection({
       selectedAction={action ?? ""}
       selectedDomain={domain ?? ""}
       selectedLimit={limit}
+    selectedWithinHours={withinHours}
     />
   );
 }

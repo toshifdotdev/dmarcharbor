@@ -137,9 +137,18 @@ systemRouter.get(
   requireSession,
   requireOrganizationPermission('report', 'read'),
   async (request, response) => {
-    const query = paginationQuerySchema.safeParse(request.query);
-    const domainId = typeof request.query.domainId === 'string' ? request.query.domainId : undefined;
-    const action = typeof request.query.action === 'string' ? request.query.action : undefined;
+      const query = paginationQuerySchema.safeParse(request.query);
+      const domainId = typeof request.query.domainId === 'string' ? request.query.domainId : undefined;
+      const action = typeof request.query.action === 'string' ? request.query.action : undefined;
+      // `withinHours` is validated rather than trusted: an unbounded or negative
+      // window would either throw or silently mean "everything", and a filter that
+      // can be widened to nothing by a bad query string is worse than none.
+      const withinRaw = request.query.withinHours;
+      const withinHours =
+        typeof withinRaw === 'string' && /^\d{1,4}$/.test(withinRaw)
+          ? Math.min(Math.max(Number(withinRaw), 1), 8760)
+          : undefined;
+
 
     // Awaited rather than floated. A floating promise with no rejection handler
     // is fatal: Node treats an unhandled rejection as an uncaught exception and
@@ -152,6 +161,7 @@ systemRouter.get(
         domainId,
         action,
         limit: query.success ? query.data.limit : undefined,
+        withinHours,
       });
       response.json({ items: events });
     } catch (error) {

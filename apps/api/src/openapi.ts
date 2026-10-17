@@ -389,6 +389,57 @@ export const openApiDocument = {
         responses: { 204: { description: 'Revoked.' }, ...standardErrors },
       },
     },
+    '/workspaces/{organizationId}/report-shares/revoked': {
+      delete: {
+        tags: ['Report sharing'],
+        summary: 'Remove every revoked share link',
+        description: [
+          'Deletes the rows of every revoked share link in the workspace.',
+          'Live links are untouched: somebody is still reading through one.',
+          'Reports how many were actually removed.',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: { 200: { description: 'Removed, with the count.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/report-shares/{shareId}/permanent': {
+      delete: {
+        tags: ['Report sharing'],
+        summary: 'Remove a revoked share link permanently',
+        description: [
+          'Deletes one revoked share link row, so a dead token stops appearing in the list an operator reads.',
+          'Refused with 409 while the link is still live: revoking is what records that the link was pulled.',
+          'The revocation itself remains in the audit trail.',
+        ].join(' '),
+        parameters: [orgParam, idParam('shareId', 'Share link identifier.')],
+        responses: { 204: { description: 'Removed.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/api-keys/revoked': {
+      delete: {
+        tags: ['API keys'],
+        summary: 'Remove every revoked API key',
+        description: [
+          'Deletes the rows of every revoked key in the workspace.',
+          'Live keys are untouched: an integration may still be using one.',
+          'Reports how many were actually removed.',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: { 200: { description: 'Removed, with the count.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/api-keys/{keyId}/permanent': {
+      delete: {
+        tags: ['API keys'],
+        summary: 'Remove a revoked API key permanently',
+        description: [
+          'Deletes one revoked key row. Its name becomes reusable either way, so this is tidiness, not a block.',
+          'Refused with 409 while the key is still live, so a working integration cannot be ended without the revocation being recorded.',
+        ].join(' '),
+        parameters: [orgParam, idParam('keyId', 'Key identifier.')],
+        responses: { 204: { description: 'Removed.' }, ...standardErrors },
+      },
+    },
     '/portal': {
       get: {
         tags: ['Client portal'],
@@ -1434,6 +1485,14 @@ export const openApiDocument = {
           ...queryPagination,
           { name: 'domainId', in: 'query', required: false, schema: { type: 'string' } },
           { name: 'action', in: 'query', required: false, schema: { type: 'string' } },
+          {
+            name: 'withinHours',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', minimum: 1, maximum: 8760 },
+            description:
+              'Restrict to the last N hours. Omitted means every event. A value that is not a positive whole number is ignored rather than rejected, so a hand-edited URL widens to the full trail instead of erroring.',
+          },
         ],
         responses: {
           200: { description: 'Audit events, newest first.' },

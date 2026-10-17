@@ -14,7 +14,7 @@ import { ActionButton } from "@/components/action-button";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { EntitlementNotice } from "@/components/entitlement-gate";
-import { createReportShare, revokeReportShare } from "@/lib/ops-client";
+import { createReportShare, deleteAllRevokedReportShares, deleteReportShareRecord, revokeReportShare } from "@/lib/ops-client";
 import { shareHref } from "@/lib/route-hrefs";
 import { ConfirmAction } from "@/components/confirm-action";
 import type { ApiErrorBody, ReportShareRow } from "@/lib/types";
@@ -53,6 +53,7 @@ export function ShareForm({
   const [copied, setCopied] = useState<string | null>(null);
 
   const mine = shares.filter((s) => s.domain.id === domainId);
+  const revokedShares = mine.filter((s) => s.revokedAt !== null);
 
   /**
    * Copies the ABSOLUTE url, not the relative path.
@@ -209,7 +210,28 @@ export function ShareForm({
       </form>
 
       {mine.length > 0 ? (
-        <ul className="mt-5 border-t pt-4" style={{ borderColor: "var(--color-line)" }}>
+        <div className="mt-5 border-t pt-4" style={{ borderColor: "var(--color-line)" }}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="label">Share links</span>
+            {/* Only when there is something to clear. Appearing unconditionally
+                would put a destructive control on a screen whose common case has
+                nothing to clean up. */}
+            {revokedShares.length > 0 ? (
+              <ConfirmAction
+                label={`Remove all revoked (${revokedShares.length})`}
+                confirmLabel={`remove ${revokedShares.length} revoked link${revokedShares.length === 1 ? "" : "s"}`}
+                consequence={`Deletes ${revokedShares.length} revoked link${revokedShares.length === 1 ? "" : "s"}. They already stopped working, so nobody loses access by removing them.`}
+                testId="share-remove-all-revoked"
+                onConfirm={async () => {
+                  const res = await deleteAllRevokedReportShares(organizationId);
+                  if (!res.ok) return { ok: false, message: res.error?.message };
+                  router.refresh();
+                  return { ok: true };
+                }}
+              />
+            ) : null}
+          </div>
+          <ul className="mt-1.5">
           {mine.map((s) => (
             <li
               key={s.id}
@@ -264,10 +286,30 @@ export function ShareForm({
                     }}
                   />
                 </span>
-              ) : null}
+              ) : (
+                // A revoked link is inert but permanent to look at, and its token
+                // stays copyable nowhere - it is the residue, and the way to clear
+                // it is to say so rather than leave a dead row in the list.
+                <span className="ml-auto">
+                  <ConfirmAction
+                    label="remove"
+                    confirmLabel="remove this row"
+                    tone="ink"
+                    consequence={`Deletes this revoked link and its ${s.viewCount}-view record. It already stopped working.`}
+                    testId={`remove-share-${s.id}`}
+                    onConfirm={async () => {
+                      const res = await deleteReportShareRecord(organizationId, s.id);
+                      if (!res.ok) return { ok: false, message: res.error?.message };
+                      router.refresh();
+                      return { ok: true };
+                    }}
+                  />
+                </span>
+              )}
             </li>
           ))}
-        </ul>
+          </ul>
+        </div>
       ) : (
         <p className="mt-4 text-[12.5px]" style={{ color: "var(--color-ink-3)" }}>
           No share links yet.

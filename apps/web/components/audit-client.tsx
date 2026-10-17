@@ -55,6 +55,20 @@ export interface AuditDomainOption {
 
 const LIMIT_OPTIONS = [25, 50, 100, 200] as const;
 
+/**
+ * Windows offered for the period filter.
+ *
+ * Hours, because that is the unit the question is asked in during an incident.
+ * A week and a month are included because the other common question is a monthly
+ * review, and they read better than "168 hours" or "720 hours".
+ */
+const PERIOD_OPTIONS = [
+  { hours: 1, label: "Last hour" },
+  { hours: 24, label: "Last 24 hours" },
+  { hours: 168, label: "Last 7 days" },
+  { hours: 720, label: "Last 30 days" },
+] as const;
+
 export function AuditTrail({
   timeline,
   domains,
@@ -65,6 +79,7 @@ export function AuditTrail({
   selectedAction,
   selectedDomain,
   selectedLimit,
+  selectedWithinHours,
 }: {
   /** Already grouped by day and written in English, by buildAuditTimeline. */
   timeline: AuditTimeline;
@@ -81,16 +96,19 @@ export function AuditTrail({
   selectedAction: string;
   selectedDomain: string;
   selectedLimit: number;
+  /** Undefined = every event. Set from the URL so a filtered view is shareable. */
+  selectedWithinHours?: number;
 }) {
   const router = useRouter();
   const [outcome, setOutcome] = useState<OutcomeFilter>("ALL");
 
-  function go(next: { action?: string; domain?: string; limit?: number }) {
+  function go(next: { action?: string; domain?: string; limit?: number; withinHours?: number }) {
     router.replace(
       auditHref({
         action: next.action ?? selectedAction,
         domain: next.domain ?? selectedDomain,
         limit: next.limit ?? selectedLimit,
+        withinHours: "withinHours" in next ? next.withinHours : selectedWithinHours,
       }),
     );
   }
@@ -206,7 +224,29 @@ export function AuditTrail({
           </select>
         </label>
 
-        {selectedAction || selectedDomain || outcome !== "ALL" ? (
+        <label className="flex flex-col gap-1.5">
+          <span className="label">Period</span>
+          <select
+            value={selectedWithinHours ?? ""}
+            onChange={(e) =>
+              go({ withinHours: e.target.value === "" ? undefined : Number(e.target.value) })
+            }
+            data-testid="audit-period-filter"
+            style={SELECT_STYLE}
+          >
+            {/* "All time" is the default on purpose: the trail is the record of
+                what happened, and a window that silently hid older events would
+                make an auditor wonder what they are not being shown. */}
+            <option value="">All time</option>
+            {PERIOD_OPTIONS.map((option) => (
+              <option key={option.hours} value={option.hours}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {selectedAction || selectedDomain || selectedWithinHours || outcome !== "ALL" ? (
           <button
             type="button"
             onClick={() => {
@@ -216,6 +256,7 @@ export function AuditTrail({
                   action: "",
                   domain: "",
                   limit: selectedLimit,
+                  withinHours: undefined,
                 }),
               );
             }}

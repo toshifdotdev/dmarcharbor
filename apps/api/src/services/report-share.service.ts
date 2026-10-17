@@ -5,6 +5,7 @@ import { getDomainInsights } from './report-intelligence.service.js';
 import { resolveLimit } from '../utils/pagination.js';
 import { domainRef } from './domain-ref.js';
 import { assessPolicyReadiness } from './onboarding.service.js';
+import { recordAuditEvent } from './audit.service.js';
 
 const defaultShareDays = 30;
 const maximumShareDays = 365;
@@ -106,6 +107,93 @@ export async function revokeReportShare(organizationId: string, shareId: string)
   });
 
   return result.count > 0;
+}
+
+/**
+ * Removes a REVOKED share link's row.
+ *
+ * Revoking stops the link working and keeps the row so the workspace can show
+ * what was sent and to whom. Removing the row afterwards is a different act, and
+ * a separate one for a reason: a share link is a published address. Leaving dead
+ * tokens lying around in a list an operator reads forever is how one of them
+ * gets pasted into a ticket months later.
+ *
+ * Refused while the link is still live, so this can never be used to kill a
+ * working share without the revocation appearing in the trail.
+ *
+ * `viewCount` is copied into the audit detail because it is the one piece of the
+ * row that says somebody actually read the report, and it dies with the row.
+ */
+export async function deleteRevokedReportShare(
+  organizationId: string,
+  shareId: string,
+  actorUserId?: string | null,
+): Promise<'deleted' | 'not_found' | 'still_active'> {
+  const existing = await prisma.reportShare.findFirst({
+    where: { id: shareId, organizationId },
+    select: {
+      id: true,
+      revokedAt: true,
+      viewCount: true,
+      client: { select: { name: true } },
+      domain: { select: { name: true } },
+    },
+  });
+
+  if (!existing) {
+    return 'not_found';
+  }
+
+  if (existing.revokedAt === null) {
+    return 'still_active';
+  }
+
+  await prisma.reportShare.delete({ where: { id: existing.id } });
+
+  await recordAuditEvent({
+    organizationId,
+    actorUserId: actorUserId ?? undefined,
+    action: 'REPORT_SHARE_DELETED',
+    targetType: 'report_share',
+    targetId: existing.id,
+    detail: {
+      clientName: existing.client.name,
+      domainName: existing.domain.name,
+      viewCount: existing.viewCount,
+      revokedAt: existing.revokedAt.toISOString(),
+    },
+  });
+
+  return 'deleted';
+}
+
+/** Every revoked share link in the workspace, removed in one call. */
+export async function deleteAllRevokedReportShares(
+  organizationId: string,
+  actorUserId?: string | null,
+): Promise<number> {
+  const revoked = await prisma.reportShare.findMany({
+    where: { organizationId, revokedAt: { not: null } },
+    select: { id: true },
+  });
+
+  if (revoked.length === 0) {
+    return 0;
+  }
+
+  const result = await prisma.reportShare.deleteMany({
+    where: { id: { in: revoked.map((row) => row.id) } },
+  });
+
+  await recordAuditEvent({
+    organizationId,
+    actorUserId: actorUserId ?? undefined,
+    action: 'REPORT_SHARE_DELETED',
+    targetType: 'report_share',
+    detail: { bulk: true, removed: result.count },
+  });
+
+  return result.count;
 }
 
 export interface PublicReportView {

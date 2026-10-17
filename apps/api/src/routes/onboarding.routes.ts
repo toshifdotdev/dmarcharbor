@@ -1,6 +1,8 @@
 import express, { Router } from 'express';
 import {
   createReportShareController,
+  deleteAllRevokedReportSharesController,
+  deleteReportShareController,
   dmarcRecordController,
   listReportSharesController,
   onboardingStateController,
@@ -53,6 +55,25 @@ onboardingRouter.get(
   requireSession,
   requireOrganizationPermission('report', 'read'),
   listReportSharesController,
+);
+/**
+ * Residue cleanup, declared BEFORE `/:shareId`.
+ *
+ * Express matches in registration order, so with these below the parameter route
+ * "revoked" is read as a share id and the call 404s for a share that does not
+ * exist. The same mistake on the portal routes shipped once already.
+ */
+onboardingRouter.delete(
+  '/workspaces/:organizationId/report-shares/revoked',
+  requireSession,
+  requireOrganizationPermission('report', 'delete'),
+  deleteAllRevokedReportSharesController,
+);
+onboardingRouter.delete(
+  '/workspaces/:organizationId/report-shares/:shareId/permanent',
+  requireSession,
+  requireOrganizationPermission('report', 'delete'),
+  deleteReportShareController,
 );
 onboardingRouter.delete(
   '/workspaces/:organizationId/report-shares/:shareId',

@@ -13,6 +13,8 @@ import {
 import { domainRef } from '../services/domain-ref.js';
 import {
   createReportShare,
+  deleteAllRevokedReportShares,
+  deleteRevokedReportShare,
   getPublicReport,
   listReportShares,
   revokeReportShare,
@@ -167,6 +169,51 @@ export async function revokeReportShareController(request: Request, response: Re
   });
 
   response.status(204).send();
+}
+
+export async function deleteReportShareController(request: Request, response: Response): Promise<void> {
+  const shareId = parseId(request.params.shareId);
+  if (!shareId) {
+    response.status(400).json({ error: { message: 'A valid share identifier is required.' } });
+    return;
+  }
+
+  const outcome = await deleteRevokedReportShare(
+    response.locals.organizationId,
+    shareId,
+    response.locals.session?.user?.id,
+  );
+
+  if (outcome === 'not_found') {
+    response.status(404).json({ error: { message: 'That share link is not in this workspace.' } });
+    return;
+  }
+
+  if (outcome === 'still_active') {
+    // Revoking first is the point: it is what records that the link was pulled
+    // rather than quietly disappearing, which is what a client would otherwise
+    // experience as the link failing with no explanation.
+    response.status(409).json({
+      error: {
+        code: 'REPORT_SHARE_STILL_ACTIVE',
+        message: 'Revoke this share link first. Removing it while it still works would kill a link somebody is holding without any record that it was pulled.',
+      },
+    });
+    return;
+  }
+
+  response.status(204).send();
+}
+
+export async function deleteAllRevokedReportSharesController(
+  _request: Request,
+  response: Response,
+): Promise<void> {
+  const removed = await deleteAllRevokedReportShares(
+    response.locals.organizationId,
+    response.locals.session?.user?.id,
+  );
+  response.json({ removed });
 }
 
 export async function publicReportController(request: Request, response: Response): Promise<void> {

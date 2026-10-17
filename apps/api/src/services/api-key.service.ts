@@ -223,6 +223,81 @@ export async function revokeApiKey(
   return true;
 }
 
+/**
+ * Removes a REVOKED key's row.
+ *
+ * Revoking keeps the row so the settings screen can show what was issued and
+ * what has been killed, and so the duplicate-name check can tell a live key from
+ * a dead one - which check already ignores revoked rows, so a key's name is
+ * reusable the moment it is revoked and this deletion is never in the way.
+ *
+ * Refused while the key is live. A live key is a credential, and removing it
+ * quietly would end an integration with no record that anybody decided to.
+ *
+ * The name and prefix go into the audit detail because they are the part of the
+ * row that names the credential, and the row is about to stop existing.
+ */
+export async function deleteRevokedApiKey(
+  organizationId: string,
+  keyId: string,
+  actorUserId?: string | null,
+): Promise<'deleted' | 'not_found' | 'still_active'> {
+  const existing = await prisma.apiKey.findFirst({
+    where: { id: keyId, organizationId },
+    select: { id: true, name: true, prefix: true, revokedAt: true },
+  });
+
+  if (!existing) {
+    return 'not_found';
+  }
+
+  if (existing.revokedAt === null) {
+    return 'still_active';
+  }
+
+  await prisma.apiKey.delete({ where: { id: existing.id } });
+
+  await recordAuditEvent({
+    organizationId,
+    actorUserId: actorUserId ?? undefined,
+    action: 'API_KEY_DELETED',
+    targetType: 'api_key',
+    targetId: existing.id,
+    detail: { name: existing.name, prefix: existing.prefix, revokedAt: existing.revokedAt.toISOString() },
+  });
+
+  return 'deleted';
+}
+
+/** Every revoked key in the workspace, removed in one call. */
+export async function deleteAllRevokedApiKeys(
+  organizationId: string,
+  actorUserId?: string | null,
+): Promise<number> {
+  const revoked = await prisma.apiKey.findMany({
+    where: { organizationId, revokedAt: { not: null } },
+    select: { id: true },
+  });
+
+  if (revoked.length === 0) {
+    return 0;
+  }
+
+  const result = await prisma.apiKey.deleteMany({
+    where: { id: { in: revoked.map((row) => row.id) } },
+  });
+
+  await recordAuditEvent({
+    organizationId,
+    actorUserId: actorUserId ?? undefined,
+    action: 'API_KEY_DELETED',
+    targetType: 'api_key',
+    detail: { bulk: true, removed: result.count },
+  });
+
+  return result.count;
+}
+
 export const idempotencyTtlHours = 24;
 
 /**

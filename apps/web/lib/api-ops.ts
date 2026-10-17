@@ -284,6 +284,14 @@ export interface AuditEventQuery {
   domainId?: string;
   action?: AuditAction;
   limit?: number;
+  /**
+   * Restrict to the last N hours.
+   *
+   * Undefined means no restriction, and it is omitted rather than sent: the API
+   * reads a missing `withinHours` as "every event", so sending 0 to mean the same
+   * thing would be a lie the reader has to know to ignore.
+   */
+  withinHours?: number;
 }
 
 /** What the API clamps `limit` to (apps/api/src/services/audit.service.ts). */
@@ -298,7 +306,9 @@ export function listAuditEvents(
 ): Promise<{ items: AuditEventRow[] }> {
   const query = new URLSearchParams();
   if (options.domainId) query.set("domainId", options.domainId);
-  if (options.action) query.set("action", options.action);
+    if (options.action) query.set("action", options.action);
+    if (options.withinHours) query.set("withinHours", String(options.withinHours));
+
   query.set(
     "limit",
     String(
