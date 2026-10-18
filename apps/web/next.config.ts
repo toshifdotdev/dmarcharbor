@@ -11,8 +11,40 @@ if (process.env.NODE_ENV === "production" && !process.env.API_BASE_URL) {
   );
 }
 
+/**
+ * Origins the DEV SERVER will serve for.
+ *
+ * Next 16 refuses its plain-HTTP root fallback for any hostname it does not
+ * recognise, answering `NotAllowedRootHTTPFallbackError`. That is a real
+ * protection against a DNS-rebinding attack pointed at a developer's machine,
+ * and it is also what stops white-label testing: the app resolves branding from
+ * the request Host, so `portal.linkshift.in` has to actually reach the dev
+ * server for any of it to be visible. Without this the page renders with no
+ * stylesheet at all - raw serif markup, which looks like a broken build rather
+ * than a blocked origin.
+ *
+ * Local loopback hosts are listed because they are what `npm run dev` is opened
+ * as by default. Real domains come from `DEV_ALLOWED_ORIGINS` so this file does
+ * not accumulate one agency's hostname every time somebody tests a custom
+ * domain; the value is a comma-separated list of hostnames, without ports.
+ *
+ * Development only. It grants nothing in a production build, where a custom
+ * domain is served by the deployment itself and arrives through the real
+ * hostname.
+ */
+const devAllowedOrigins = [
+  "localhost",
+  "127.0.0.1",
+  "[::1]",
+  ...(process.env.DEV_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+];
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  allowedDevOrigins: devAllowedOrigins,
   /**
    * Security headers.
    *
