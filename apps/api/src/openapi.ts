@@ -1705,6 +1705,42 @@ export const openApiDocument = {
         responses: { 201: { description: 'Domain created.' }, ...standardErrors },
       },
     },
+    '/workspaces/{organizationId}/clients/{clientId}/domains/bulk': {
+      post: {
+        tags: ['Clients and domains'],
+        summary: 'Add many domains to a client',
+        description: [
+          'The session-authenticated twin of POST /api/v1/domains/bulk, returning the same per-row verdicts.',
+          'Exists because the public endpoint authenticates with a bearer API key, which a browser signed in with a cookie cannot present. Onboarding an agency that sent eighty domains otherwise meant calling the API by hand.',
+          'Duplicates are reported per row rather than failing the request: a name already in the workspace is something the operator can remove from the list, and a 400 for the whole batch would throw away every row that was fine.',
+          'A request over the per-call cap is refused with 402 and the limit in the error details, rather than being silently truncated.',
+        ].join(' '),
+        parameters: [orgParam, idParam('clientId', 'Client identifier.')],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['domains'],
+                properties: {
+                  domains: {
+                    type: 'array',
+                    minItems: 1,
+                    items: { type: 'string' },
+                    description: 'Domain names. Duplicates within the request are handled: the first is created and the rest are reported as duplicates.',
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          201: { description: 'Processed, with per-row verdicts for created, failed and plan-blocked rows.' },
+          ...standardErrors,
+        },
+      },
+    },
     '/workspaces/{organizationId}/domains/{domainId}/verify': {
       post: {
         tags: ['Clients and domains'],

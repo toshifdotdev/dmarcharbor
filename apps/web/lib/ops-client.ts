@@ -428,9 +428,55 @@ export const createDomain = (
     // rather than the cuid. It is the same field the list endpoints return.
     call<{ id: string; slug: string; name: string }>(
 
-    wsPath(orgId, `/clients/${clientId}/domains`),
-    { method: "POST", body: JSON.stringify(body) },
-  );
+wsPath(orgId, `/clients/${clientId}/domains`),
+      { method: "POST", body: JSON.stringify(body) },
+    );
+
+/** One row of a bulk import that did not create a domain. */
+export interface BulkDomainFailure {
+  index: number;
+  name: string;
+  reason: string;
+}
+
+/** A domain a bulk import created, with what has to be published to verify it. */
+export interface BulkDomainCreated {
+  index: number;
+  domainId: string;
+  slug: string;
+  name: string;
+  clientId: string;
+  verificationHost: string;
+  verificationValue: string;
+}
+
+export interface BulkDomainResult {
+  created: number;
+  failed: number;
+  planBlocked: number;
+  domains: BulkDomainCreated[];
+  failures: BulkDomainFailure[];
+  planLimitRejections: BulkDomainFailure[];
+  limits: { maxDomains: number };
+}
+
+/**
+ * Adds many domains to a client at once.
+ *
+ * The three verdict lists stay separate all the way to the screen: a duplicate is
+ * a line the operator can delete from the list, a plan-blocked row needs a plan
+ * change, and collapsing them into one "some failed" count is what makes a bulk
+ * import feel like it did not work.
+ */
+export const bulkCreateDomains = (
+  orgId: string,
+  clientId: string,
+  domains: string[],
+) =>
+  call<BulkDomainResult>(wsPath(orgId, `/clients/${clientId}/domains/bulk`), {
+    method: "POST",
+    body: JSON.stringify({ domains }),
+  });
 
 /** Live DNS ownership lookup. PENDING is a normal propagation answer. */
 export const verifyDomain = (orgId: string, domainId: string) =>

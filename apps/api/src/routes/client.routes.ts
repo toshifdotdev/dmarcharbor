@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import {
+  bulkCreateDomainsController,
   createClientController,
   createDomainController,
   listClientsController,
@@ -37,6 +38,17 @@ clientRouter.post(
   requireOrganizationPermission('domain', 'create'),
   requireQuota('activeDomain'),
   createDomainController,
+);
+clientRouter.post(
+  '/workspaces/:organizationId/clients/:clientId/domains/bulk',
+  requireSession,
+  requireOrganizationPermission('domain', 'create'),
+  // The per-call cap is enforced inside the service, not by `requireQuota`: that
+  // guard measures one domain against the plan allowance and would then let four
+  // hundred through, which is a worse answer than a clear refusal. The larger
+  // body reader for this path is registered in app.ts, ahead of the global
+  // parser, because a body-parser that has already read a body skips it.
+  bulkCreateDomainsController,
 );
 clientRouter.post(
   '/workspaces/:organizationId/domains/:domainId/verify',

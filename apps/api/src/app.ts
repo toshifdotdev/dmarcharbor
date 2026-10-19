@@ -120,6 +120,23 @@ export function createApp(): express.Express {
   app.use('/api', alertRouter);
   app.use('/api', onboardingRouter);
   app.use('/api', notificationRouter);
+  /**
+   * A larger body reader for one path, registered BEFORE the 10kb parser below.
+   *
+   * The largest legal bulk import is 500 domains at 253 characters each, about
+   * 126KB. Under the global limit a paste of a few hundred names was refused by
+   * the parser as "request entity too large" - an answer naming neither the limit
+   * nor the fix, and arriving before the controller could say "a single import
+   * takes at most 500 domains".
+   *
+   * Order is the whole mechanism: body-parser skips a body it has already read,
+   * so this has to run first to have any effect at all, and the global parser
+   * then leaves it alone. Scoped to this one path on purpose - a 256KB parser on
+   * every endpoint is a larger blast radius for no benefit, since nothing else in
+   * the app posts a list.
+   */
+  app.use('/api/workspaces/:organizationId/clients/:clientId/domains/bulk', express.json({ limit: '256kb' }));
+
   // The raw body is retained alongside the parsed one because both payment
   // providers sign the exact bytes they sent. Re-serialising the parsed object
   // produces different bytes, so a signature verified against it fails

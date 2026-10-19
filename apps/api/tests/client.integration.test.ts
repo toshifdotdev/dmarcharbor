@@ -248,3 +248,146 @@ describe('clients and domains', () => {
     expect(response.status).toBe(403);
   });
 });
+
+describe('bulk domain import from the console', () => {
+  beforeAll(resetDatabase);
+
+  // A name prefix per test. Domain names are unique across the whole
+  // installation, not per workspace, so two tests that both used "taken.example"
+  // would leave the second one asserting against the first one's row.
+  let testNumber = 0;
+  function uniqueName(label: string): string {
+    testNumber += 1;
+    return `bulk-${testNumber}-${label}.example`;
+  }
+
+  async function workspaceWithClient(): Promise<{
+    agent: ReturnType<typeof request.agent>;
+    organizationId: string;
+    clientId: string;
+  }> {
+    const { agent, organizationId } = await createWorkspace();
+    const client = await agent.post(`/api/workspaces/${organizationId}/clients`).send({
+      name: 'Bulk Agency',
+      slug: `bulk-agency-${Date.now()}-${fixtureId}`,
+    });
+    expect(client.status).toBe(201);
+    return { agent, organizationId, clientId: client.body.id as string };
+  }
+
+  it('imports many domains in one request and reports each row', async () => {
+    const { agent, organizationId, clientId } = await workspaceWithClient();
+
+    const response = await agent
+      .post(`/api/workspaces/${organizationId}/clients/${clientId}/domains/bulk`)
+      .send({ domains: [uniqueName('one'), uniqueName('two'), uniqueName('three')] });
+
+    expect(response.status).toBe(201);
+    expect(response.body.created).toBe(3);
+    expect(response.body.failed).toBe(0);
+    expect(response.body.domains).toHaveLength(3);
+    // The console renders a setup link per row and a DNS record to copy, so a row
+    // missing a slug or a verification value would render a dead link or an
+    // instruction the operator cannot follow.
+    for (const domain of response.body.domains) {
+      expect(domain.slug).toBeTruthy();
+      expect(domain.verificationHost).toContain('_dmarc-harbor');
+      expect(domain.verificationValue).toBeTruthy();
+    }
+  });
+
+  it('creates nothing on a second run of the same list', async () => {
+    // Deliberately one workspace for both runs. A second workspace would not do:
+    // domain names are unique across the whole installation, so the same names
+    // would come back as "already monitored by another workspace" and the test
+    // would pass for the wrong reason.
+    const { agent, organizationId, clientId } = await workspaceWithClient();
+    const body = { domains: [uniqueName('repeat-one'), uniqueName('repeat-two')] };
+
+    const first = await agent.post(`/api/workspaces/${organizationId}/clients/${clientId}/domains/bulk`).send(body);
+    expect(first.status).toBe(201);
+    expect(first.body.created).toBe(2);
+
+    // A paste that gets re-run must not create a second copy of anything, and
+    // must say so per row rather than reporting success.
+    const second = await agent.post(`/api/workspaces/${organizationId}/clients/${clientId}/domains/bulk`).send(body);
+    expect(second.status).toBe(201);
+    expect(second.body.created).toBe(0);
+    expect(second.body.failed).toBe(2);
+    expect(second.body.failures[0].reason).toMatch(/already in this workspace/i);
+
+    const stored = await prisma.domain.count({ where: { name: body.domains[0], client: { organizationId } } });
+    expect(stored).toBe(1);
+  });
+
+  it('marks a domain repeated inside one paste instead of creating it twice', async () => {
+    const { agent, organizationId, clientId } = await workspaceWithClient();
+    const doubled = uniqueName('doubled');
+
+    const response = await agent
+      .post(`/api/workspaces/${organizationId}/clients/${clientId}/domains/bulk`)
+      .send({ domains: [doubled, doubled] });
+
+    expect(response.status).toBe(201);
+    expect(response.body.created).toBe(1);
+    expect(response.body.failed).toBe(1);
+
+    const stored = await prisma.domain.count({ where: { name: doubled, client: { organizationId } } });
+    expect(stored).toBe(1);
+  });
+
+  it('refuses a paste past the per-call limit, naming the limit', async () => {
+    const { agent, organizationId, clientId } = await workspaceWithClient();
+
+    // 501 short names is comfortably over the 500 cap yet well under the size at
+    // which the body parser objects, so this asserts the cap itself and not the
+    // parser. The message matters: a bare 413 tells an operator nothing about
+    // what to change.
+    const domains = Array.from({ length: 501 }, (_unused, index) => `cap-${index}.example`);
+    const response = await agent
+      .post(`/api/workspaces/${organizationId}/clients/${clientId}/domains/bulk`)
+      .send({ domains });
+
+    expect(response.status).toBe(402);
+    expect(response.body.error.message).toMatch(/up to 500 domains/i);
+  });
+
+  it('keeps a bulk import to one client even when another client owns the name', async () => {
+    const { agent, organizationId, clientId } = await workspaceWithClient();
+    const other = await agent.post(`/api/workspaces/${organizationId}/clients`).send({
+      name: 'Other Agency',
+      slug: `other-agency-${Date.now()}-${fixtureId}`,
+    });
+    expect(other.status).toBe(201);
+
+    const taken = uniqueName('taken');
+    const response = await agent
+      .post(`/api/workspaces/${organizationId}/clients/${clientId}/domains/bulk`)
+      .send({ domains: [taken] });
+    expect(response.status).toBe(201);
+    expect(response.body.created).toBe(1);
+
+    const crossClient = await agent
+      .post(`/api/workspaces/${organizationId}/clients/${other.body.id as string}/domains/bulk`)
+      .send({ domains: [taken] });
+
+    expect(crossClient.status).toBe(201);
+    expect(crossClient.body.created).toBe(0);
+    expect(crossClient.body.failed).toBe(1);
+  });
+
+  it('rejects a bulk import from a user outside the workspace', async () => {
+    const { organizationId, clientId } = await workspaceWithClient();
+    const outsider = request.agent(app);
+    const email = `bulk-outsider-${Date.now()}@example.com`;
+    await outsider.post('/api/auth/sign-up/email').send({ name: 'Outsider', email, password });
+    await prisma.user.update({ where: { email }, data: { emailVerified: true } });
+    await outsider.post('/api/auth/sign-in/email').send({ email, password });
+
+    const response = await outsider
+      .post(`/api/workspaces/${organizationId}/clients/${clientId}/domains/bulk`)
+      .send({ domains: [uniqueName('not-mine')] });
+
+    expect(response.status).toBe(403);
+  });
+});

@@ -16,7 +16,7 @@ import { ActionButton } from "@/components/action-button";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { EntitlementNotice } from "@/components/entitlement-gate";
-import { createClient, createDomain } from "@/lib/ops-client";
+import { bulkCreateDomains, createClient, createDomain, type BulkDomainResult } from "@/lib/ops-client";
 import { onboardingHref } from "@/lib/route-hrefs";
 import type { ApiErrorBody } from "@/lib/types";
 
@@ -149,14 +149,58 @@ export function AddDomainForm({
     clients && clients.length > 0 ? clients[0] : clientId ? { id: clientId, name: clientName ?? "" } : null,
   );
 
+  /**
+   * One domain or many.
+   *
+   * A toggle rather than two forms, because the client picker and the wording
+   * are identical either way and two near-identical forms drift apart the moment
+   * either changes.
+   */
+  const [many, setMany] = useState(false);
+  const [pasted, setPasted] = useState("");
+  const [result, setResult] = useState<BulkDomainResult | null>(null);
+
+  /**
+   * Split here rather than server-side, so the count in the button is the count
+   * that will be sent. Silent trimming on the server would make the button say
+   * "Add 5" and the request carry 3, which is the sort of mismatch that makes an
+   * operator distrust the summary underneath it.
+   *
+   * Lowercased because a DNS name is case-insensitive and the uniqueness
+   * constraint is plain; one canonical stored form is what makes the constraint
+   * mean what routing assumed.
+   */
+  const lines = pasted
+    .split(/[\r\n,;]+/)
+    .map((line) => line.trim().toLowerCase())
+    .filter(Boolean);
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!target) {
       setError({ code: "INVALID_REQUEST", message: "Choose which client this domain belongs to." });
       return;
     }
+
     setBusy(true);
     setError(null);
+    setResult(null);
+
+    if (many) {
+      const res = await bulkCreateDomains(organizationId, target.id, lines);
+      setBusy(false);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setResult(res.data);
+      // The pasted list is cleared, not the textarea, because the failures below
+      // it are the reason somebody comes back to fix a typo and re-paste.
+      setPasted("");
+      router.refresh();
+      return;
+    }
+
     const res = await createDomain(organizationId, target.id, {
       name: name.trim().toLowerCase(),
     });
@@ -204,8 +248,40 @@ export function AddDomainForm({
         </h2>
       )}
       <p className="mt-1.5 text-[13px]" style={{ color: "var(--color-ink-2)" }}>
-        Paste the domain exactly as it sends mail. Verification comes next.
+        {many
+          ? "An agency's domain list arrives as a list. Paste the lot and see which rows went in."
+          : "Paste the domain exactly as it sends mail. Verification comes next."}
       </p>
+
+      {/* The switch lives here rather than on the form's edge because it changes
+          what the form IS, not which client it targets. */}
+      <div className="mt-3 inline-flex gap-1" role="tablist" aria-label="How many domains">
+        {([
+          { key: false, label: "One domain" },
+          { key: true, label: "Many domains" },
+        ] as const).map((option) => (
+          <button
+            key={String(option.key)}
+            type="button"
+            role="tab"
+            aria-selected={many === option.key}
+            onClick={() => {
+              setMany(option.key);
+              setError(null);
+              setResult(null);
+            }}
+            data-testid={option.key ? "bulk-mode" : "single-mode"}
+            className="cursor-pointer rounded-[2px] border px-3 py-1 text-[12px] font-medium transition-colors disabled:cursor-not-allowed"
+            style={{
+              borderColor: many === option.key ? "var(--color-accent)" : "var(--color-line-strong)",
+              background: many === option.key ? "var(--color-accent-soft)" : "transparent",
+              color: many === option.key ? "var(--color-ink)" : "var(--color-ink-3)",
+            }}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
 
       {error ? (
         error.code === "FEATURE_NOT_IN_PLAN" ? (
@@ -233,28 +309,105 @@ export function AddDomainForm({
         </p>
       ) : null}
 
-      <div className="mt-4 flex flex-wrap items-end gap-3">
-        <div className="min-w-[260px] flex-1">
-          <Field label="Domain">
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              minLength={3}
-              placeholder="example.com"
-              data-testid="domain-name"
-            />
-          </Field>
+      {/*
+        * Per row, not a count.
+        *
+        * "3 added" tells an operator nothing they cannot act on. Which three, and
+        * what happened to the rest, is the answer they actually need - the
+        * duplicates to delete from the list before re-pasting, and the plan-blocked
+        * rows that need a plan change rather than a retry.
+        *
+        * The three lists stay apart because they are three different problems: a
+        * duplicate is a typo to fix, a plan block is a purchase decision, and
+        * folding them into one "some failed" is what makes a bulk import feel
+        * like it did not work.
+        */}
+      {result ? (
+        <div className="mt-4 border-t pt-3" style={{ borderColor: "var(--color-line)" }} data-testid="bulk-result">
+          <p role="status" className="text-[13px]" style={{ color: "var(--color-pass)" }}>
+            Added {result.created}
+            {result.failed > 0 || result.planBlocked > 0
+              ? ` · skipped ${result.failed + result.planBlocked}`
+              : ""}
+          </p>
+
+          {result.domains.length > 0 ? (
+            <ul className="mt-2.5 flex flex-col gap-1">
+              {result.domains.map((d) => (
+                <li key={d.domainId} className="flex flex-wrap items-baseline gap-x-2 text-[12.5px]">
+                  <span className="num" style={{ color: "var(--color-ink)" }}>
+                    {d.name}
+                  </span>
+                  <a
+                    href={onboardingHref(d.slug)}
+                    className="underline"
+                    style={{ color: "var(--color-ink-2)" }}
+                  >
+                    set up DNS →
+                  </a>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          {[...result.failures, ...result.planLimitRejections].length > 0 ? (
+            <ul className="mt-2.5 flex flex-col gap-1">
+              {[...result.failures, ...result.planLimitRejections].map((f, i) => (
+                <li
+                  key={`${f.index}-${f.name}-${i}`}
+                  className="text-[12.5px]"
+                  style={{ color: "var(--color-ink-3)" }}
+                >
+                  <span className="num">{f.name}</span> — {f.reason}
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </div>
+      ) : null}
+
+      <div className="mt-4 flex flex-wrap items-end gap-3">
+        {many ? (
+          <div className="min-w-[260px] flex-1">
+            <Field label="Domains, one per line">
+              <textarea
+                value={pasted}
+                onChange={(e) => setPasted(e.target.value)}
+                rows={7}
+                placeholder={"acme-one.com\nacme-two.com\nacme-three.com"}
+                data-testid="bulk-domain-input"
+              />
+            </Field>
+          </div>
+        ) : (
+          <div className="min-w-[260px] flex-1">
+            <Field label="Domain">
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required={!many}
+                minLength={3}
+                placeholder="example.com"
+                data-testid="domain-name"
+              />
+            </Field>
+          </div>
+        )}
         <ActionButton
           type="submit"
-          label={"Add domain"}
-          loadingLabel={"Adding…"}
+          label={many ? `Add ${lines.length} domain${lines.length === 1 ? "" : "s"}` : "Add domain"}
+          loadingLabel={many ? "Adding…" : "Adding…"}
           busy={busy}
-          disabled={!name.trim()}
+          disabled={many ? lines.length === 0 : !name.trim()}
           testId="add-domain"
         />
       </div>
+      {many ? (
+        <p className="mt-2 text-[11.5px]" style={{ color: "var(--color-ink-3)" }}>
+          One per line. Blank lines and duplicates are skipped. Each is created
+          PENDING and needs its own DNS record afterwards.
+        </p>
+      ) : null}
     </form>
   );
 }
@@ -265,7 +418,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="label">{label}</span>
       {children}
       <style>{`
-        label input:not([type="checkbox"]) {
+        label input:not([type="checkbox"]),
+        label textarea {
           background: var(--color-elevate);
           border: 1px solid var(--color-line-strong);
           border-radius: 2px;
@@ -274,6 +428,15 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
           font-size: 14px;
           outline: revert;
           width: 100%;
+        }
+        /* The paste box is monospace: a domain list is machine text being
+           corrected by eye, and a proportional face makes "acme-one.com" and
+           "acme-one .corn" harder to tell apart than it should be. */
+        label textarea {
+          font-family: var(--font-inter), ui-monospace, monospace;
+          font-size: 13px;
+          line-height: 1.7;
+          resize: vertical;
         }
       `}</style>
     </label>
