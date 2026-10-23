@@ -149,8 +149,10 @@ export function startCheckout(
 export function changeBillingPlan(
   organizationId: string,
   body: { plan: string; interval?: "monthly" | "annual"; currency?: "USD" | "INR" },
-): Promise<{ status: "scheduled" | "applied"; effectiveAt: string }> {
-  return opsFetch<{ status: "scheduled" | "applied"; effectiveAt: string }>(
+): Promise<{ status: "scheduled" | "cancelling"; effectiveAt: string }> {
+  // MOORING answers "cancelling"; every other plan "scheduled" (even on Paddle,
+  // which applies it at once). The API never answers "applied".
+  return opsFetch<{ status: "scheduled" | "cancelling"; effectiveAt: string }>(
     `/api/workspaces/${organizationId}/billing/plan`,
     {
       method: "PATCH",
@@ -161,8 +163,8 @@ export function changeBillingPlan(
 
 export function cancelSubscription(
   organizationId: string,
-): Promise<{ status: "cancelling"; effectiveAt: string }> {
-  return opsFetch<{ status: "cancelling"; effectiveAt: string }>(
+): Promise<{ status: "cancelling"; accessUntil: string | null }> {
+  return opsFetch<{ status: "cancelling"; accessUntil: string | null }>(
     `/api/workspaces/${organizationId}/billing/cancel`,
     { method: "POST" },
   );

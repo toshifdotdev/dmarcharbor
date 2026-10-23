@@ -135,8 +135,9 @@ export function extractErrorCode(rawBody: string): string | null {
       const code = (nested as Record<string, unknown>).code;
       if (typeof code === "string" && code.trim()) return code.trim();
     } else if (typeof nested === "string" && nested.trim()) {
-      // Slack's controller sends { error: "message" } with no code at all.
-      return "REQUEST_FAILED";
+      // Slack's controller sends { error: "message", code } with the code
+      // beside the message, not inside it; without one it is a plain failure.
+      return typeof obj.code === "string" && obj.code.trim() ? obj.code.trim() : "REQUEST_FAILED";
     }
     if (typeof obj.code === "string" && obj.code.trim()) return obj.code.trim();
     return null;

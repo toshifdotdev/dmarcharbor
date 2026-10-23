@@ -26,6 +26,7 @@ import type { ReactNode } from "react";
 import { Button, ButtonLink } from "./button";
 import { Lock, Refresh } from "./icons";
 import { TideMark } from "./tide";
+import { planRefusalText } from "@/lib/plan-features";
 
 /**
  * Waiting, shown as the Tide alone, centred. No visible word: the mark already
@@ -220,7 +221,7 @@ export function UpgradeNotice({
     >
       <p className="legend text-fg!">Not on this workspace&rsquo;s plan</p>
       <p className="mt-1.5 text-body font-semibold text-fg">
-        {message ?? "This capability is not included in the current plan."}
+        {planRefusalText(message, feature) ?? "This capability is not included in the current plan."}
       </p>
       {context ? <p className="mt-1 max-w-[68ch] text-ui text-fg-2">{context}</p> : null}
       <div className="mt-4 flex flex-wrap items-center gap-3">

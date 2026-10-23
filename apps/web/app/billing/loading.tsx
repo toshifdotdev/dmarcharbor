@@ -1,6 +1,6 @@
-import { LegacyLoading } from "@/components/legacy-boundary";
+import { PageLoading } from "@/components/harbor/page-loading";
 
-/** Billing is still on the dark theme: its wait is dark too. */
+/** Pending UI for /billing, on the paper ground the page is on. */
 export default function Loading() {
-  return <LegacyLoading label="Loading billing" />;
+  return <PageLoading label="Reading billing" rows={6} />;
 }

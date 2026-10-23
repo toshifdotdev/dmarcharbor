@@ -167,7 +167,12 @@ let organizationId = wsList.body?.find((w) => w.slug === WORKSPACE.slug)?.id;
 if (!organizationId) {
   const ws = await api(
     "/api/workspaces",
-    { method: "POST", body: JSON.stringify(WORKSPACE) },
+    // The API refuses a workspace without the Terms and DPA acceptances
+    // (workspace.controller.ts); the welcome form sends the same three flags.
+    {
+      method: "POST",
+      body: JSON.stringify({ ...WORKSPACE, tosAccepted: true, dpaHasRead: true, dpaConfirmsAuthority: true }),
+    },
     cookie,
   );
   log("workspace created", String(ws.status));
@@ -193,6 +198,12 @@ await prisma.subscription.deleteMany({ where: { organizationId } });
 await prisma.subscription.create({
   data: { organizationId, plan: "HARBOR", status: "ACTIVE", provider: "NONE" },
 });
+// The plan is the account's as well as the workspace's: entitlements resolve
+// from the owner's user.plan first (entitlement.service.ts). Written the way
+// the API's own writePlan does, or every client after the first is refused.
+await prisma.organization.update({ where: { id: organizationId }, data: { plan: "HARBOR" } });
+const seedOwner = await prisma.member.findFirst({ where: { organizationId, role: "owner" }, select: { userId: true } });
+if (seedOwner) await prisma.user.update({ where: { id: seedOwner.userId }, data: { plan: "HARBOR" } });
 log("plan headroom", "subscription HARBOR via test pattern");
 
 // ─── 3. clients + domains (idempotent) ────────────────────────────────────────

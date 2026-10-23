@@ -84,6 +84,10 @@ runTestPattern(`
       },
     });
     await prisma.organization.updateMany({ data: { plan: "HARBOR" } });
+    // The plan is the owner account's too (entitlement.service.ts resolves it
+    // from user.plan first), so the baseline resets it the way writePlan does.
+    const owners = await prisma.member.findMany({ where: { role: "owner" }, select: { userId: true } });
+    await prisma.user.updateMany({ where: { id: { in: owners.map((o) => o.userId) } }, data: { plan: "HARBOR" } });
     await prisma.subscription.updateMany({
       data: {
         plan: "HARBOR", status: "ACTIVE", provider: "NONE",
@@ -288,6 +292,14 @@ ws.on("message", (raw) => {
 // retry until the value survives a render — the click loops downstream depend
 // on the fill actually being in the form.
 const fillInput = async (selector, value) => {
+  // A DOM value check alone passes before hydration: the value sits in the
+  // DOM until React's first render of that subtree resets it to state. So
+  // wait until this very element carries React's props expando first.
+  await waitForEval(
+    `(() => { const el = document.querySelector(${JSON.stringify(selector)}); return Boolean(el && Object.keys(el).some(k => k.startsWith('__reactProps'))); })()`,
+    (v) => v === true,
+    20000,
+  );
   for (let i = 0; i < 10; i++) {
     await evalJs(`(() => {
       const el = document.querySelector(${JSON.stringify(selector)});
@@ -326,9 +338,24 @@ async function shot(name) {
 // ─── 3. the click-through ─────────────────────────────────────────────────────
 
 // 3a. the sign-in page renders
+// The browser keeps the previous run's last account (a fixture with no
+// workspace), and a signed-in visit to /sign-in is sent on to the app. Every
+// run starts signed out.
+await cdp("Network.clearBrowserCookies");
 await navigate(`${WEB}/sign-in`);
-const signInHeading = await evalJs("document.querySelector('h1')?.textContent ?? ''");
-check("sign-in page renders", signInHeading.includes("DMARC Harbor"), signInHeading.trim());
+await waitForEval(`!!document.querySelector('h1')`, (v) => v === true, 30000);
+// The heading names the task ("Sign in"); the brand sits in the frame beside it.
+const signInAudit = await evalJs(`(() => ({
+  heading: (document.querySelector('h1')?.textContent ?? '').trim(),
+  brand: document.body.textContent.includes('DMARC Harbor'),
+  form: Boolean(document.querySelector('input[type="email"]') && document.querySelector('input[type="password"]')),
+}))()`);
+const signInHeading = signInAudit?.heading ?? "";
+check(
+  "sign-in page renders",
+  signInHeading === "Sign in" && Boolean(signInAudit?.brand) && Boolean(signInAudit?.form),
+  JSON.stringify(signInAudit),
+);
 const shotSignIn = await shot("01-sign-in.png");
 
 // 3b. fill the form and click sign in — the real React form, real inputs.
@@ -801,7 +828,7 @@ check(
   JSON.stringify({ features: billingAudit?.fullFeatureLists, comparison: billingAudit?.comparison }),
 );
 check(
-  "billing renders limits only — no invented usage, no usage bar, no jargon",
+  "billing renders limits and API-backed usage — no progress widget, no float artefacts, no jargon",
   Boolean(
     billingAudit &&
       billingAudit.limitsOnly &&
@@ -1209,6 +1236,9 @@ function bumpPlanViaTestPattern(organizationId, plan) {
         data: { organizationId: ${JSON.stringify(organizationId)}, plan: ${JSON.stringify(plan)}, status: "ACTIVE", provider: "NONE" },
       });
       await prisma.organization.update({ where: { id: ${JSON.stringify(organizationId)} }, data: { plan: ${JSON.stringify(plan)} } });
+      // The owner account's plan too, as writePlan does: entitlements resolve from it.
+      const owner = await prisma.member.findFirst({ where: { organizationId: ${JSON.stringify(organizationId)}, role: "owner" }, select: { userId: true } });
+      if (owner) await prisma.user.update({ where: { id: owner.userId }, data: { plan: ${JSON.stringify(plan)} } });
       await prisma.$disconnect();
     })().catch((e) => { console.error(e); process.exit(1); });
   `;
@@ -1241,6 +1271,10 @@ function writeCustomDomainState(organizationId, patch) {
         where: { organizationId: ${JSON.stringify(organizationId)} },
         data: { plan: "ADMIRALTY" },
       });
+      // White label is entitled from the owner's user.plan, as writePlan does;
+      // without it the API answers branded:false and the host reads as a miss.
+      const owner = await prisma.member.findFirst({ where: { organizationId: ${JSON.stringify(organizationId)}, role: "owner" }, select: { userId: true } });
+      if (owner) await prisma.user.update({ where: { id: owner.userId }, data: { plan: "ADMIRALTY" } });
       await prisma.$disconnect();
     })().catch((e) => { console.error(e); process.exit(1); });
   `;
@@ -1331,6 +1365,8 @@ function writeSubscriptionState(organizationId, patch) {
         },
       });
       await prisma.organization.update({ where: { id: organizationId }, data: { plan: ${rows.plan} } });
+      const owner = await prisma.member.findFirst({ where: { organizationId, role: "owner" }, select: { userId: true } });
+      if (owner) await prisma.user.update({ where: { id: owner.userId }, data: { plan: ${rows.plan} } });
       await prisma.$disconnect();
     })().catch((e) => { console.error(e); process.exit(1); });
   `;
@@ -1782,8 +1818,9 @@ if (refusalOrg) {
   );
 
   // 7c. Dunning: what failed, what still works, how long the grace runs, and
-  //      the honest resolution path (billing portal) with the retry spot
-  //      labelled "coming soon" — never a fake retry button.
+  //      the honest resolution path (billing portal), and a plain statement
+  //      that the provider retries the charge — never a fake retry button and
+  //      never a promise of one.
   await writeSubscriptionState(refusalOrg, {
     plan: "HARBOR",
     pendingPlan: null,
@@ -1804,7 +1841,9 @@ if (refusalOrg) {
         stillWorks: t.includes('still works') || t.includes('keeps running'),
         graceStated: /grace|day[s]? left|until/.test(t),
         portalPath: !!document.querySelector('[data-testid="dunning-portal"]'),
-        retrySpot: !!document.querySelector('[data-testid="retry-coming"]') && t.includes('coming soon'),
+        // Who retries the charge, said plainly, and no promise of a retry the
+        // API cannot perform (there is no charge-retry endpoint).
+        retrySpot: !!document.querySelector('[data-testid="retry-by-provider"]') && t.includes('provider retries') && !t.includes('coming soon'),
       };
     })()`,
     (d) => d && d.shown,
@@ -2526,13 +2565,18 @@ const halfCheck = spawnSync(
   ],
   {
     cwd: join(process.cwd(), "..", "api"),
-    env: { ...process.env },
+    // The API's env module refuses to load as production without a mail
+    // provider; this probe only imports a pure function.
+    env: { ...process.env, NODE_ENV: process.env.NODE_ENV ?? "development" },
     stdio: ["ignore", "pipe", "ignore"],
   },
 );
 let halfResult = null;
 try {
-  halfResult = JSON.parse(String(halfCheck.stdout));
+  // dotenv prints its own "injected env" lines to stdout; the probe's answer
+  // is the last line.
+  const lines = String(halfCheck.stdout).trim().split(/\r?\n/);
+  halfResult = JSON.parse(lines[lines.length - 1]);
 } catch {
   // A probe that could not run reports as null — the check below fails
   // honestly rather than passing on nothing.
@@ -2643,23 +2687,14 @@ check(
 // and the stranger is in a real workspace.
 const wsName = `Stranger WS ${Date.now()}`;
 const wsSlug = `stranger-ws-${Date.now()}`;
-await evalJs(`
-  (() => {
-    const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-    const name = document.querySelector('input[name="name"]');
-    const slug = document.querySelector('input[name="slug"]');
-    set.call(name, ${JSON.stringify(wsName)});
-    name.dispatchEvent(new Event('input', { bubbles: true }));
-    set.call(slug, ${JSON.stringify(wsSlug)});
-    slug.dispatchEvent(new Event('input', { bubbles: true }));
-    return 'filled';
-  })()
-`);
-// The DPA gate is real: a stranger ticks both boxes before creating,
-// exactly as the form requires. Without these the create refuses — which
-// is the gate working, not the path failing.
+await fillInput('input[name="name"]', wsName);
+await fillInput('input[name="slug"]', wsSlug);
+// The agreement gate is real: the API takes tosAccepted, dpaHasRead and
+// dpaConfirmsAuthority, and the form asks for each as its own tick. A
+// stranger ticks all three before creating. Without them the button stays
+// disabled — which is the gate working, not the path failing.
 await evalJs(`(() => {
-  for (const b of document.querySelectorAll('input[type="checkbox"][name^="dpa-"]')) {
+  for (const b of document.querySelectorAll('input[type="checkbox"][name^="dpa-"], input[type="checkbox"][name^="tos-"]')) {
     if (!b.checked) b.click();
   }
   return true;
@@ -2715,7 +2750,10 @@ const shotWorkspace = await shot("34-stranger-workspace.png");
 // 9e. The button fix the user reported: with a loading state showing, the
 //     spinner must be CENTRED in the button and the button must not change
 //     width between idle and busy (the reflow bug). Measured, not eyeballed.
-await fetch(WEB + "/api/auth/sign-out", { method: "POST", credentials: "include" }).catch(() => {});
+// A Node fetch carries none of the browser's cookies, so it cannot sign the
+// browser out; clear them in the browser itself. A signed-in visit to
+// /sign-in is sent on to the app, and the form would never render.
+await cdp("Network.clearBrowserCookies");
 await navigate(WEB + "/sign-in");
 await waitForEval(`!!document.querySelector('[data-testid="auth-submit"]')`, (v) => v === true);
 const btnBefore = await evalJs(`(() => {
@@ -3046,6 +3084,9 @@ check(
 
 // 10e. The checkout ack: present on the billing page, never pre-ticked, and
 //      linking the actual documents — our own acknowledgement beside Paddle's.
+// The DPA fixture account is still signed in, and a signed-in visit to
+// /sign-in is sent on to the app; sign the browser out first.
+await cdp("Network.clearBrowserCookies");
 await navigate(WEB + "/sign-in");
 await waitForEval(`!!document.querySelector('button[type=submit]')`, (v) => v === true);
 await waitForHydration();
@@ -3065,7 +3106,7 @@ await navigate(`${WEB}/dpa`);
 const pageVersion = await waitForEval(
   `(() => {
     const el = document.querySelector('[data-testid="legal-version"]');
-    return el ? (el.textContent.match(/version\\s+([^ ]+)/)?.[1] ?? null) : null;
+    return el ? (el.textContent.match(/version\\s+([^ ]+)/i)?.[1] ?? null) : null;
   })()`,
   (v) => typeof v === "string" && v.length > 0,
   20000,

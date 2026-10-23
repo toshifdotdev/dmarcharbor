@@ -100,6 +100,17 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  // The API's billing-portal session returns customers to `/app/billing`
+  // (billing.controller.ts builds `${BETTER_AUTH_URL}/app/billing`), a path this
+  // app never had. Until the API sends `/billing`, a paying customer coming
+  // back from the provider lands on the real page instead of a 404. Temporary
+  // (307), so nothing caches it once the API is fixed.
+  async redirects() {
+    return [
+      { source: "/app/billing", destination: "/billing", permanent: false },
+      { source: "/app/billing/:path*", destination: "/billing", permanent: false },
+    ];
+  },
   // Browser-side calls (better-auth sign-in, sign-out) hit the same origin and are
   // proxied to the API, so the session cookie stays first-party and no CORS
   // dance is needed. Server components call the API directly (lib/api.ts).

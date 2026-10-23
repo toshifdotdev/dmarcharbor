@@ -55,6 +55,18 @@ export function planFeatureLabel(key: string): string {
   return LABEL.get(key) ?? featureLabel(key);
 }
 
+/**
+ * The API's 402 sentence opens with the raw entitlement key ("auth.sso is not
+ * included in Harbor. Upgrade to Admiralty to use it."). The sentence is kept,
+ * because it names the plans; only the key is swapped for its plain label, so
+ * the person reads "Single sign-on (OIDC and SAML) is not included in Harbor".
+ */
+export function planRefusalText(message: string | null | undefined, feature: string | null | undefined): string | null {
+  if (!message) return null;
+  if (!feature || !message.includes(feature)) return message;
+  return message.split(feature).join(planFeatureLabel(feature));
+}
+
 function byReadingOrder(a: string, b: string): number {
   return (ORDER.get(a) ?? 999) - (ORDER.get(b) ?? 999) || a.localeCompare(b);
 }

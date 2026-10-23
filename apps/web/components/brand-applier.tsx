@@ -44,6 +44,24 @@ function contrastInk(hex: string): string {
   return onWhite >= onInk ? "#ffffff" : "#13212c";
 }
 
+/**
+ * The Chart-side custom properties for a tenant's two colours, for a surface
+ * that receives its brand from the API rather than from the request host (the
+ * client portal). Invalid values are dropped, exactly as above.
+ */
+export function chartBrandVars(primaryColor: string | null, accentColor: string | null): Record<string, string> {
+  const primary = primaryColor && HEX.test(primaryColor) ? primaryColor : null;
+  const ink = accentColor && HEX.test(accentColor) ? accentColor : null;
+  if (!primary) return ink ? { "--color-accent-ink": ink } : {};
+  const onPrimary = ink ?? contrastInk(primary);
+  return {
+    "--color-accent": primary,
+    "--color-accent-ink": onPrimary,
+    "--hb-primary": primary,
+    "--hb-primary-ink": onPrimary,
+  };
+}
+
 export async function BrandApplier() {
   const brand = await readHostBrand();
   if (brand.state !== "verified") return null;

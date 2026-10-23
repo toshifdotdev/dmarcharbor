@@ -654,8 +654,10 @@ export interface BillingStatus {
    * anything, and never a client-side guess.
    */
   pendingPlan?: PendingPlan | null;
-  /** NONE | WARNING | WITHDRAWING — how far payment recovery has gone. */
+  /** NONE | WARNED | WITHDRAWN — how far payment recovery has gone. */
   dunningStage?: DunningStage;
+  /** The interval actually billed, so the price matches it. */
+  interval?: "MONTHLY" | "ANNUAL";
   /** Non-null means the workspace is still working during payment recovery:
    *  say how long is left, because this is the state people email support
    *  about instead of fixing their card. */

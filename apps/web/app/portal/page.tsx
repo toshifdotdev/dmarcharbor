@@ -1,168 +1,198 @@
+import type { Metadata } from "next";
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { getPortalOverview, PortalError } from "@/lib/api-portal";
+import { getSessionUser } from "@/lib/api";
+import { getPortalDomain, getPortalOverview, PortalError } from "@/lib/api-portal";
+import { dayLabel, verdictFor, type Verdict } from "@/lib/portal-verdict";
 import { portalDomainHref } from "@/lib/route-hrefs";
-import { PortalDenied } from "@/components/portal-denied";
-import { SignOutButton } from "@/components/sign-out";
+import { signInRedirect } from "@/lib/session";
+import type { PortalDomainDetail, PortalOverview } from "@/lib/types";
+import { PortalFrame, PortalNotice } from "@/components/harbor/portal-frame";
+import { Badge } from "@/components/ui/badge";
+import { ArrowRight } from "@/components/ui/icons";
+
+export const metadata: Metadata = { title: "Your domains", robots: { index: false, follow: false } };
 
 /**
- * The client portal. A contact sees their own organization's verified domains
- * and what the world's mail servers say about them — nothing else. FORENSIC
- * DATA NEVER APPEARS HERE (brief rule 5): this page and its domain view fetch
- * only the portal endpoints, which never carry it.
+ * /portal — the agency's client, reading how their email is doing.
  *
- * White-label surface: the agency's brand is resolved server-side and applied
- * from the API's own branding response. A logo the agency typed is NEVER
- * rendered — only uploaded objects served by the platform.
+ * The first screen answers the three questions in this order: is anything
+ * wrong (the summary line and the domains that need attention, first), is my
+ * mail protected (one verdict per domain), and what do I do (the next step,
+ * on the domain itself). Each domain's page carries the evidence and the ways
+ * to forward it.
+ *
+ * Verdicts need each domain's measurement, which only the domain read returns,
+ * so the domains are read in parallel here. One that fails says so on its own
+ * row; it never takes the page down and never reads as "fine".
+ *
+ * Access is the API's: a grant on the signed-in email address decides it. A
+ * signed-out reader goes to sign-in and comes back here.
  */
 export default async function PortalPage() {
-  let overview;
-  try {
-    overview = await getPortalOverview();
-  } catch (error) {
-    if (error instanceof PortalError) {
-      if (error.status === 401) redirect("/sign-in");
+  const [overviewResult, user] = await Promise.all([
+    getPortalOverview().then(
+      (o) => ({ ok: true as const, o }),
+      (e: unknown) => ({ ok: false as const, e }),
+    ),
+    getSessionUser().catch(() => null),
+  ]);
+
+  if (!overviewResult.ok) {
+    const e = overviewResult.e;
+    if (e instanceof PortalError && e.status === 401) await signInRedirect();
+    if (e instanceof PortalError && e.status === 403) {
       return (
-        <PortalDenied
-          message={
-            error.status === 403
-              ? "Ask the agency that manages your email authentication to invite you to a report."
-              : (error.message ?? "The portal is temporarily unavailable.")
-          }
-        />
+        <PortalNotice brand={null} email={user?.email ?? null} title="There is no report for this account yet">
+          <p>
+            You are signed in as <span className="data text-fg">{user?.email ?? "this account"}</span>, and no report has
+            been shared with that address. Reports are shared by the company that manages your email security: ask them to
+            invite this exact address.
+          </p>
+        </PortalNotice>
       );
     }
-    throw error;
+    if (e instanceof PortalError && e.status === 400) {
+      return (
+        <PortalNotice brand={null} email={user?.email ?? null} title="This account has reports from more than one provider">
+          <p>
+            Your address has been invited by more than one company, and this page can show one at a time. Ask your provider
+            for the direct link to their report.
+          </p>
+        </PortalNotice>
+      );
+    }
+    if (e instanceof PortalError) {
+      return (
+        <PortalNotice brand={null} email={user?.email ?? null} title="Your report is unavailable just now">
+          <p>This is a problem reaching the report, not a problem with your email. Please try again in a few minutes.</p>
+        </PortalNotice>
+      );
+    }
+    throw e;
   }
 
-  const brand = overview.branding;
-  const accent = brand.branded && brand.primaryColor ? brand.primaryColor : undefined;
+  const overview: PortalOverview = overviewResult.o;
+  const agency = overview.branding?.workspaceName ?? overview.workspace.name;
+  const now = Date.now();
+
+  const domains = overview.clients.flatMap((c) => c.domains.map((d) => ({ ...d, clientName: c.name })));
+  const details = await Promise.all(
+    domains.map((d) => getPortalDomain(d.id).catch(() => null as PortalDomainDetail | null)),
+  );
+  const rows = domains
+    .map((d, i) => ({ d, detail: details[i], verdict: verdictFor(details[i], agency, now) }))
+    .sort((a, b) => a.verdict.rank - b.verdict.rank || a.d.name.localeCompare(b.d.name));
+
+  const attention = rows.filter((r) => r.verdict.kind === "attention");
+  const silent = rows.filter((r) => r.verdict.kind === "silent");
+  const clientNames = [...new Set(overview.clients.map((c) => c.name))];
+
+  const summary =
+    rows.length === 0
+      ? `No domains are ready to show yet. They appear here once ${agency} has finished setting them up.`
+      : attention.length > 0
+        ? attention.length === rows.length
+          ? `${rows.length === 1 ? "Your domain needs" : `All ${rows.length} of your domains need`} attention. Open ${rows.length === 1 ? "it" : "each one"} to see what was observed and what to do.`
+          : `${attention.length} of ${rows.length} domains need${attention.length === 1 ? "s" : ""} attention. The rest are listed below with what was observed.`
+        : silent.length > 0
+          ? `Nothing is failing, but reports have stopped for ${silent.length} domain${silent.length === 1 ? "" : "s"}, so ${silent.length === 1 ? "it" : "they"} cannot be confirmed right now.`
+          : rows.every((r) => r.verdict.kind === "waiting")
+            ? "Your domains are set up. Reports have not arrived yet, which is normal in the first few days."
+            : "Nothing needs attention. Every message mail servers observed being sent as your domains passed the checks.";
 
   return (
-    <div data-surface="artefact" className="artefact relative z-10 min-h-screen">
-      {/* The contact-facing header: the AGENCY's brand when licensed, never
-          our own mark on a white-labelled surface. */}
-      <header
-        className="border-b px-6 py-4"
-        style={{ borderColor: "var(--color-line-strong)", background: "var(--color-surface)" }}
-      >
-        <div className="mx-auto flex max-w-4xl items-center gap-3">
-          {brand.branded && brand.logoUrl ? (
-            // Only a platform-served uploaded object ever reaches an <img> here:
-            // a user-typed logo URL is filtered out server-side and rendering
-            // one would be a security bug (brief rule 4).
-            <img src={brand.logoUrl} alt={`${brand.workspaceName} logo`} height={28} />
-          ) : (
-            <span
-              className="num flex size-8 items-center justify-center text-[12px] font-semibold"
-              style={{ background: accent ?? "var(--color-accent)", color: "var(--color-accent-ink)" }}
-            >
-              {brand.workspaceName.slice(0, 2).toUpperCase()}
-            </span>
-          )}
-          <div>
-            <div className="text-[15px] font-semibold" style={{ color: "var(--color-ink)" }}>
-              {brand.workspaceName}
+    <PortalFrame brand={overview.branding} email={user?.email ?? null}>
+      <div className="flex flex-col gap-8">
+        <header className="flex flex-col gap-2">
+          <p className="legend">{clientNames.length ? clientNames.join(", ") : "Client reports"}</p>
+          <h1 className="display text-[30px] leading-[1.05] text-fg sm:text-[38px]">Your domains</h1>
+          <p className="max-w-[68ch] text-lead text-fg-2" data-testid="portal-summary">
+            {summary}
+          </p>
+          {overview.lastReportAt ? (
+            <p className="text-meta text-fg-3">
+              Most recent report received {dayLabel(overview.lastReportAt)}. Updated as reports arrive, usually once a day.
+            </p>
+          ) : null}
+        </header>
+
+        {rows.length > 0 ? (
+          <ol className="hb-stagger flex flex-col border-y border-fg">
+            {rows.map(({ d, verdict }, i) => (
+              <DomainRow key={d.id} index={i} id={d.id} name={d.name} clientName={clientNames.length > 1 ? d.clientName : null} verdict={verdict} />
+            ))}
+          </ol>
+        ) : null}
+
+        <section aria-labelledby="how-head" className="grid gap-x-10 gap-y-4 border-t border-rule pt-6 md:grid-cols-3">
+          <h2 id="how-head" className="sr-only">
+            How to read this
+          </h2>
+          {[
+            ["What the checks are", "When your company sends an email, the receiving mail server checks that it really came from you. A fake fails."],
+            ["Where the figures come from", "Mail servers that receive email in your name send a daily report of what they observed. This page summarises those reports."],
+            ["What you need to do", `Only what a domain's next step says. ${agency} looks after the settings.`],
+          ].map(([k, v]) => (
+            <div key={k}>
+              <p className="text-ui font-semibold text-fg">{k}</p>
+              <p className="mt-1 text-ui text-fg-2">{v}</p>
             </div>
-            <div className="num text-[10px] tracking-[0.16em] uppercase" style={{ color: "var(--color-ink-3)" }}>
-              client reports
-            </div>
-          </div>
-          {/*
-            The same control the operator chrome uses, rather than a link.
-            Better Auth registers /api/auth/sign-out as POST only, so the <a>
-            this replaced was a GET against it: a 405, and the only sign-out on
-            this screen silently did nothing. `SignOutButton` posts correctly and
-            redirects, so there is one implementation of signing out rather than
-            two that can drift.
-          */}
-          <span className="ml-auto">
-            <SignOutButton />
-          </span>
-        </div>
-      </header>
+          ))}
+        </section>
+      </div>
+    </PortalFrame>
+  );
+}
 
-      <main className="mx-auto max-w-4xl px-6 py-12">
-        <h1 className="text-[30px] leading-tight" style={{ color: "var(--color-ink)" }}>
-          What the world's mail servers say about your domains.
-        </h1>
-        <p className="mt-4 text-[15px] leading-relaxed" style={{ color: "var(--color-ink-2)" }}>
-          Measurement and evidence only: this portal shows what was observed,
-          and never claims to block, filter or control anything.
-        </p>
+const TONE_BAR: Record<Verdict["tone"], string> = {
+  fail: "shadow-[inset_3px_0_0_var(--color-fail)]",
+  warn: "shadow-[inset_3px_0_0_var(--color-warn-mark)]",
+  ok: "shadow-[inset_3px_0_0_var(--color-ok)]",
+  neutral: "shadow-[inset_3px_0_0_var(--color-rule-2)]",
+};
 
-        <div className="num mt-4 flex gap-6 text-[11px]" style={{ color: "var(--color-ink-3)" }}>
-          <span>{overview.totals.domains} domain{overview.totals.domains === 1 ? "" : "s"}</span>
-          <span>{overview.totals.reports.toLocaleString("en-US")} reports received</span>
-          <span>
-            last report{" "}
-            {overview.lastReportAt
-              ? new Date(overview.lastReportAt).toLocaleDateString("en-GB", {
-                  day: "numeric",
-                  month: "short",
-                  year: "numeric",
-                })
-              : "never"}
-          </span>
-        </div>
-
-        {overview.clients.map((client) => (
-          <section key={client.id} className="mt-10">
-            <h2
-              className="num border-b pb-2 text-[11px] tracking-[0.16em] uppercase"
-              style={{ borderColor: "var(--color-line-strong)", color: "var(--color-ink-3)" }}
-            >
-              {client.name}
-            </h2>
-            {client.domains.length === 0 ? (
-              <p className="mt-4 text-[13.5px]" style={{ color: "var(--color-ink-3)" }}>
-                No verified domains yet. Measurement begins once a domain is
-                verified and its reporters send their first aggregate report.
-              </p>
-            ) : (
-              <ul className="mt-3 flex flex-col">
-                {client.domains.map((d) => (
-                  <li key={d.id}>
-                    <Link
-                      href={portalDomainHref(d.slug)}
-                      className="flex flex-wrap items-baseline gap-x-5 gap-y-1 border-b py-4 transition-colors"
-                      style={{ borderColor: "var(--color-line)" }}
-                    >
-                      <span className="num text-[15px]" style={{ color: "var(--color-ink)" }}>
-                        {d.name}
-                      </span>
-                      <span className="num text-[11.5px]" style={{ color: "var(--color-ink-2)" }}>
-                        {d.dmarcPolicy ? `p=${d.dmarcPolicy}` : "no policy published"}
-                      </span>
-                      <span
-                        className="num ml-auto text-[10px] tracking-[0.14em] uppercase"
-                        style={{ color: "var(--color-ink-3)" }}
-                      >
-                        last scan{" "}
-                        {d.lastScanAt
-                          ? new Date(d.lastScanAt).toLocaleDateString("en-GB")
-                          : "never"}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        ))}
-      </main>
-
-      <footer
-        className="mx-auto max-w-4xl border-t px-6 py-8"
-        style={{ borderColor: "var(--color-line)" }}
+function DomainRow({
+  id,
+  name,
+  clientName,
+  verdict,
+  index,
+}: {
+  id: string;
+  name: string;
+  clientName: string | null;
+  verdict: Verdict;
+  index: number;
+}) {
+  return (
+    <li
+      data-verdict={verdict.kind}
+      style={{ "--i": Math.min(index, 10) } as React.CSSProperties}
+      className={`border-b border-rule last:border-b-0 ${TONE_BAR[verdict.tone]}`}
+    >
+      <Link
+        href={portalDomainHref(id)}
+        className="group grid gap-x-8 gap-y-2 py-4 pl-5 pr-2 hover:bg-paper-2/70 sm:grid-cols-[minmax(0,15rem)_minmax(0,1fr)_auto]"
       >
-        <p className="num text-[10.5px] leading-relaxed" style={{ color: "var(--color-ink-3)" }}>
-          Reports you can see here are aggregate evidence about your domains.
-          Forensic detail is held to a stricter boundary and is not part of this
-          portal. Export and erasure of personal data are available on every
-          plan at no cost.
-        </p>
-      </footer>
-    </div>
+        <div className="min-w-0">
+          <p className="data break-all text-body font-semibold text-fg group-hover:text-act">{name}</p>
+          {clientName ? <p className="mt-0.5 text-meta text-fg-3">{clientName}</p> : null}
+        </div>
+        <div className="min-w-0">
+          <p className="flex flex-wrap items-baseline gap-2">
+            <Badge tone={verdict.tone === "neutral" ? "neutral" : verdict.tone} boxed>
+              {verdict.title}
+            </Badge>
+          </p>
+          <p className="mt-1.5 max-w-[72ch] text-ui text-fg-2">{verdict.meaning}</p>
+          {verdict.kind === "attention" || verdict.kind === "silent" ? (
+            <p className="mt-1.5 max-w-[72ch] text-ui font-semibold text-fg">{verdict.next}</p>
+          ) : null}
+        </div>
+        <span className="flex items-center gap-1 self-center text-meta font-semibold text-act">
+          See the evidence <ArrowRight size={13} />
+        </span>
+      </Link>
+    </li>
   );
 }

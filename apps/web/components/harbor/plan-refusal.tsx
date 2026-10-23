@@ -11,6 +11,7 @@
  *                  plan is unknown, which is not the same as "not included".
  */
 
+import { planRefusalText } from "@/lib/plan-features";
 import { ButtonLink } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 
@@ -39,7 +40,7 @@ export function ActionRefusal({ error, className }: { error: ActionError | null;
             </ButtonLink>
           }
         >
-          {error.message}
+          {planRefusalText(error.message, error.feature)}
         </Notice>
       </div>
     );

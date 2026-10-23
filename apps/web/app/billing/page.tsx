@@ -1,260 +1,215 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { getSessionUser, listClients, readWorkspaceAllowance } from "@/lib/api";
 import {
   getBillingCurrency,
   getBillingStatus,
+  getCapabilities,
   getPlanCatalog,
   getWorkspaceEntitlements,
+  listWorkspaceMembers,
+  OpsError,
 } from "@/lib/api-ops";
-import Link from "next/link";
-import { getMe } from "@/lib/api-phase7";
 import { resolveActiveWorkspace } from "@/lib/session";
-import { featureLabel } from "@/lib/feature-label";
-import { Shell } from "@/components/shell";
-import { PlanPicker } from "@/components/billing-client";
-import { DunningPanel } from "@/components/dunning-client";
-import { getServiceMeta } from "@/lib/api-public";
+import type { PlanDefinition } from "@/lib/types";
+import { AppShell } from "@/components/harbor/app-shell";
+import { BillingBoard, type Usage } from "@/components/harbor/billing-board";
+import { BillingStanding } from "@/components/harbor/billing-standing";
+import { PageHeader } from "@/components/harbor/page-header";
+import { RefreshButton } from "@/components/harbor/refresh-button";
+import { Notice } from "@/components/ui/notice";
+import { ErrorState, PermissionState } from "@/components/ui/states";
+
+export const metadata: Metadata = { title: "Billing" };
+
+function dateLabel(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+}
 
 /**
- * Billing renders from two API reads only:
- *   GET /api/workspaces/:id/entitlements — plan, limits, features
- *   GET /api/plans                       — the catalog with prices
- * Plan names, prices and limits are never hardcoded here. Limits are shown as
- * given: entitlements carry no usage figure and no endpoint provides one, so
- * no usage bar exists on this page.
+ * /billing — for the person paying the bill.
+ *
+ * In the order the owner asks: where do I stand (plan, price, when it renews or
+ * ends, anything wrong with the payment), how much of the plan is used, what
+ * would changing plan change (per plan, the gains, the losses and the timing,
+ * before anything is sent), and what happens to the account on a downgrade, a
+ * cancellation or a failed payment.
+ *
+ * Prices, plans, limits and features come from the API only (GET /api/plans,
+ * /billing, /entitlements). Retention durations are not shown: the catalog
+ * carries them, nothing enforces them. No trial, no discount beyond annual
+ * being ten months' price.
+ *
+ * Only the owner can change billing (billing:update); everyone else sees the
+ * same page read-only and is told why.
  */
-export default async function BillingPage() {
+export default async function BillingPage({ searchParams }: { searchParams: Promise<{ checkout?: string }> }) {
   const { workspaces, active } = await resolveActiveWorkspace();
   if (!active) redirect("/welcome");
+  const { checkout } = await searchParams;
 
-  const entitlements = await getWorkspaceEntitlements(active.id).catch(() => null);
-  const catalog = await getPlanCatalog().catch(() => null);
-  const billing = await getBillingStatus(active.id).catch(() => null);
-  const currencyPref = await getBillingCurrency(active.id).catch(() => null);
-  // The checkout contact is the signed-in account. Read here (server-only
-  // module) and passed down: the API validates name and email, so an empty
-  // contact is a guaranteed 400.
-  const me = await getMe().catch(() => null);
-  const account =
-    me?.user?.name && me?.user?.email
-      ? { name: me.user.name, email: me.user.email }
-      : null;
+  const [status, entitlements, catalog, capabilities, currencyPref, clients, members, allowance, me] = await Promise.all([
+    getBillingStatus(active.id).then(
+      (s) => ({ ok: true as const, s }),
+      (e: unknown) => ({ ok: false as const, forbidden: e instanceof OpsError && e.status === 403 }),
+    ),
+    getWorkspaceEntitlements(active.id).catch(() => null),
+    getPlanCatalog().catch(() => null),
+    getCapabilities().catch(() => null),
+    getBillingCurrency(active.id).catch(() => null),
+    listClients(active.id).catch(() => null),
+    listWorkspaceMembers(active.id).catch(() => null),
+    readWorkspaceAllowance().catch(() => null),
+    getSessionUser().catch(() => null),
+  ]);
 
-  /**
-   * The retention this deployment enforces.
-   *
-   * Public and unauthenticated, so this costs nothing extra, and it is the only
-   * source that is true. The plan's own `dataRetentionDays` and `auditRetentionDays`
-   * were being shown here as retention limits and govern nothing: the first is a
-   * quota input about dormant domains, the second is read nowhere at all. Caught to
-   * null, because a missing number is better than a wrong one on a page someone may
-   * rely on when deciding what to buy.
-   */
-  const meta = await getServiceMeta().catch(() => null);
-
-  // The currency a checkout will charge is the stored preference (INR by
-  // default until Paddle is approved), not the provider of an existing
-  // subscription. billing.currency reports the provider's currency and would
-  // mislabel a workspace that has not paid yet.
-  const currency = currencyPref?.preferredCurrency ?? "INR";
-
-  // The plan catalog owns plan NAMES. A pending plan arrives as a tier enum
-  // (FAIRWAY), and a customer-facing row reads Fairway: never the enum.
-  const planLabel = (tier: string) =>
-    catalog?.plans.find((p) => p.tier === tier)?.label ?? tier;
-
-  return (
-    <Shell workspaces={workspaces} activeWorkspace={active}>
-      <div className="flex flex-col gap-5">
-        <header>
-          <h1 className="label">Billing</h1>
-          <p className="mt-1.5 text-[15.5px]" style={{ color: "var(--color-ink-2)" }}>
-            Everything each plan carries, in full: so the choice is made on
-            facts, not on a sales call.{" "}
-            {/* The refund question arises HERE, not in a footer nobody reads
-                mid-decision — so the policy is linked here. */}
-            <Link
-              href="/refunds"
-              className="underline"
-              style={{ color: "var(--color-ink)" }}
-            >
-              Refund policy
-            </Link>
-            .
-          </p>
-        </header>
-
-        {entitlements ? (
-          <section
-            className="lift rounded-[2px] border p-6"
-            style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
-          >
-            <div className="flex flex-wrap items-baseline gap-x-10 gap-y-4">
-              <div>
-                <div className="label">Your plan</div>
-                <div className="text-[22.5px] font-semibold tracking-[-0.015em]" style={{ color: "var(--color-ink)" }}>
-                  {entitlements.label}
-                </div>
-                <div className="num mt-1 text-[13px] tracking-[0.12em] uppercase" style={{ color: "var(--color-ink-3)" }}>
-                  {entitlements.status.toLowerCase()}
-                  {entitlements.currentPeriodEnd
-                    ? ` · period ends ${new Date(entitlements.currentPeriodEnd).toLocaleDateString("en-GB")}`
-                    : ""}
-                  {entitlements.cancelAtPeriodEnd ? " · cancels at period end" : ""}
-                </div>
-              </div>
-
-              {/* Scheduled change, shown beside the current plan rather than
-                  instead of it — a customer with both needs to see both. Null
-                  means nothing scheduled; a field still landing renders the
-                  spot without asserting anything. */}
-              <div data-testid="pending-plan">
-                <div className="label">Scheduled change</div>
-                {billing?.pendingPlan ? (
-                  <>
-                    <div
-                      className="text-[22.5px] font-semibold tracking-[-0.015em]"
-                      style={{ color: "var(--color-unverified)" }}
-                    >
-                      {planLabel(billing.pendingPlan.plan)}
-                    </div>
-                    <div className="num mt-1 text-[13px] tracking-[0.12em] uppercase" style={{ color: "var(--color-ink-3)" }}>
-                      {billing.pendingPlan.interval} · applies{" "}
-                      {billing.pendingPlan.effectiveAt
-                        ? new Date(billing.pendingPlan.effectiveAt).toLocaleDateString("en-GB", {
-                            day: "numeric",
-                            month: "long",
-                          })
-                        : "at the end of your current period"}
-                    </div>
-                    <p className="mt-1.5 max-w-[30ch] text-[12.5px]" style={{ color: "var(--color-ink-2)" }}>
-                      {billing.pendingPlan.effectiveAt ? (
-                        <>
-                          You are on {entitlements.label} until{" "}
-                          {new Date(billing.pendingPlan.effectiveAt).toLocaleDateString("en-GB", {
-                            day: "numeric",
-                            month: "long",
-                          })}
-                          , then {planLabel(billing.pendingPlan.plan)}. Everything you have now
-                          stays until then.
-                        </>
-                      ) : (
-                        <>
-                          {planLabel(billing.pendingPlan.plan)} applies at the end of your
-                          current period. Everything you have now stays until
-                          then.
-                        </>
-                      )}
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <div className="text-[16px]" style={{ color: "var(--color-ink-3)" }}>
-                      nothing scheduled
-                    </div>
-                    <p className="mt-1 max-w-[30ch] text-[12px]" style={{ color: "var(--color-ink-3)" }}>
-                      A plan change you schedule appears here before it takes
-                      effect.
-                    </p>
-                  </>
-                )}
-              </div>
-
-              <div>
-                <div className="label">What it covers</div>
-                <div className="num mt-1 text-[15px]" style={{ color: "var(--color-ink-2)" }}>
-                  {entitlements.maxClients} clients · {entitlements.maxActiveDomains} active domains ·{" "}
-                  {entitlements.maxMembers} members · reports kept{" "}
-                  {/*
-                    The enforced aggregate report window, not `dataRetentionDays`.
-
-                    That plan field is read in exactly one place in the whole service,
-                    and it is a quota rule deciding whether a dormant domain still
-                    counts against the active-domain limit. It is not a retention
-                    window and printing it as one was the same false statement the plan
-                    cards were making.
-                  */}
-                  {meta ? `${meta.retention.reportDays} days` : "per the retention policy"}
-                </div>
-              </div>
-            </div>
-
-            {billing ? (
-              <DunningPanel
-                organizationId={active.id}
-                stage={billing.dunningStage}
-                graceEnds={billing.graceEnds}
-                status={billing.status}
-              />
-            ) : null}
-
-            <div className="mt-5 border-t pt-4" style={{ borderColor: "var(--color-line)" }}>
-              <div className="label">Included right now</div>
-              <div className="mt-2.5 flex flex-wrap gap-1.5">
-                {Object.entries(entitlements.features)
-                  .filter(([, on]) => on)
-                  .map(([key]) => (
-                    <span
-                      key={key}
-                      className="rounded-[2px] border px-2.5 py-1 text-[13px]"
-                      style={{
-                        borderColor: "var(--color-line-strong)",
-                        color: "var(--color-ink-2)",
-                      }}
-                    >
-                      {featureLabel(key)}
-                    </span>
-                  ))}
-              </div>
-            </div>
-          </section>
-        ) : (
-          <p role="alert" className="text-[15px]" style={{ color: "var(--color-block)" }}>
-            Your plan details could not be loaded.
-          </p>
-        )}
-
-        {catalog ? (
-          <PlanPicker
-            organizationId={active.id}
-            plans={catalog.plans}
-            order={catalog.order}
-            currentPlan={entitlements?.plan ?? ""}
-            currency={currency}
-            status={entitlements?.status ?? "NONE"}
-            provider={billing?.provider ?? "NONE"}
-            cancelAtPeriodEnd={entitlements?.cancelAtPeriodEnd ?? false}
-            account={account}
-            retention={meta?.retention ?? null}
-          />
-        ) : (
-          <p role="alert" className="text-[15px]" style={{ color: "var(--color-block)" }}>
-            The plan catalog could not be loaded: prices are never guessed here.
-          </p>
-        )}
-
-        <section
-          className="lift rounded-[2px] border p-5"
-          style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
-        >
-          <h2 className="text-[16.5px] font-semibold tracking-[-0.012em]">
-            Included in every plan, at no cost
-          </h2>
-          <ul className="mt-3 flex flex-col gap-2">
-            <li className="text-[15px]" style={{ color: "var(--color-ink-2)" }}>
-              <strong style={{ color: "var(--color-ink)" }}>Export of personal data</strong>:
-              available on every plan. It is not a paid feature.
-            </li>
-            <li className="text-[15px]" style={{ color: "var(--color-ink-2)" }}>
-              <strong style={{ color: "var(--color-ink)" }}>Erasure of personal data</strong>:
-              available on every plan. It is not a paid feature.
-            </li>
-            <li className="text-[15px]" style={{ color: "var(--color-ink-2)" }}>
-              <strong style={{ color: "var(--color-ink)" }}>The same measurement engine</strong>:
-              a larger plan carries more cargo; it never parses better.
-            </li>
-          </ul>
-        </section>
+  const shell = (children: React.ReactNode) => (
+    <AppShell workspaces={workspaces} activeWorkspace={active} trail={[{ label: "Billing" }]}>
+      <div className="flex flex-col gap-8">
+        <PageHeader
+          title="Billing"
+          lede="The plan this workspace is on, what it costs, how much of it is used, and what changing it would change."
+          actions={<RefreshButton />}
+        />
+        {children}
       </div>
-    </Shell>
+    </AppShell>
+  );
+
+  if (!status.ok) {
+    return shell(
+      status.forbidden ? (
+        <PermissionState what="billing" detail="Billing is visible to the workspace's members; this account's role does not include it." />
+      ) : (
+        <ErrorState what="the billing status" detail="Nothing about the plan or any payment was changed; the read failed." />
+      ),
+    );
+  }
+  if (!catalog) {
+    return shell(<ErrorState what="the plan catalog" detail="No prices are shown rather than old ones. The plan itself is unchanged." />);
+  }
+
+  const s = status.s;
+  const plans = catalog.order
+    .map((tier) => catalog.plans.find((p) => p.tier === tier))
+    .filter((p): p is PlanDefinition => Boolean(p));
+  const current = plans.find((p) => p.tier === s.plan) ?? null;
+  const free = plans.find((p) => p.prices.USD.monthlyMinor === 0 && p.prices.INR.monthlyMinor === 0) ?? null;
+
+  const memberRows = members?.members ?? null;
+  const myRole = memberRows?.find((m) => (m.userId ?? m.user?.id) === me?.id)?.role ?? null;
+  const canChange = myRole === "owner";
+
+  const domainTotal = clients ? clients.reduce((n, c) => n + c.domains.length, 0) : null;
+  const usage: Usage = {
+    clients: clients ? { used: clients.length, exact: (allowance?.used ?? 1) <= 1 } : null,
+    domains: domainTotal === null ? null : { used: domainTotal, exact: false },
+    members: memberRows ? { used: memberRows.length, exact: true } : null,
+    workspaces: allowance ? { used: allowance.used, exact: true } : null,
+  };
+
+  const chargeable = (["INR", "USD"] as const).filter((c) => capabilities?.currencies.includes(c));
+  const hasSubscription = s.provider !== "NONE";
+  const periodEnd = dateLabel(s.currentPeriodEnd);
+
+  return shell(
+    <>
+      {checkout === "complete" ? (
+        <Notice tone="ok" title="Payment sent to the provider" testId="checkout-complete">
+          The plan changes as soon as the provider confirms the payment to us, usually within a minute. If this page still
+          shows the old plan, refresh it shortly.
+        </Notice>
+      ) : checkout === "cancelled" ? (
+        <Notice tone="info" title="Checkout was not completed" testId="checkout-cancelled">
+          The plan is unchanged. You can start again whenever you like.
+        </Notice>
+      ) : null}
+
+      <BillingStanding
+        organizationId={active.id}
+        status={s}
+        currentLabel={current?.label ?? s.plan}
+        freeLabel={free?.label ?? "the free plan"}
+        pendingLabel={s.pendingPlan ? (plans.find((p) => p.tier === s.pendingPlan?.plan)?.label ?? s.pendingPlan.plan) : null}
+        periodEnd={periodEnd}
+        pendingAt={dateLabel(s.pendingPlan?.effectiveAt)}
+        // Only the API's own date. The grace length is a backend constant the
+        // API does not expose, so it is never recomputed here.
+        graceUntil={dateLabel(s.graceEnds)}
+        canChange={canChange}
+      />
+
+      <BillingBoard
+        organizationId={active.id}
+        plans={plans}
+        currentTier={s.plan}
+        pendingTier={s.pendingPlan?.plan ?? null}
+        provider={s.provider}
+        hasSubscription={hasSubscription}
+        cancelling={s.cancelAtPeriodEnd}
+        periodEnd={periodEnd}
+        currency={s.currency}
+        currencyLocked={currencyPref?.locked ?? hasSubscription}
+        currentInterval={s.interval === "ANNUAL" ? "annual" : "monthly"}
+        chargeable={[...chargeable]}
+        capabilitiesKnown={capabilities !== null}
+        usage={usage}
+        canChange={canChange}
+        contact={me ? { name: me.name ?? "", email: me.email } : null}
+        entitlementsKnown={entitlements !== null}
+      />
+
+      <section aria-labelledby="consequences-head" className="grid gap-x-10 gap-y-6 border-t border-rule pt-6 lg:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]">
+        <h2 id="consequences-head" className="text-h2 font-bold tracking-[-0.02em] text-fg">
+          If you downgrade, cancel or a payment fails
+        </h2>
+        <dl className="grid gap-x-8 gap-y-5 md:grid-cols-2">
+          {[
+            [
+              "Moving to a smaller plan",
+              s.provider === "PADDLE"
+                ? "Applies at once, and Paddle adjusts the charge for the rest of the period. It is refused while the workspace has more clients, active domains or members than the smaller plan allows: remove the excess first. Nothing is deleted or switched off to make it fit."
+                : "Applies when the period you have paid for ends, with no charge in between. It is refused while the workspace has more clients, active domains or members than the smaller plan allows: remove the excess first. Nothing is deleted or switched off to make it fit.",
+            ],
+            [
+              "Cancelling",
+              `The plan stays until the paid period ends${periodEnd ? ` (${periodEnd})` : ""}, then the workspace moves to ${free?.label ?? "the free plan"}. Every client, domain and report is kept, and you can resume before the period ends.`,
+            ],
+            [
+              "A payment that fails",
+              "Nothing changes while the paid period runs: the provider retries the card. After the period ends there is a short grace period to fix it. If it is still unpaid, the workspace moves to the free plan with every client, domain and report intact, and choosing a plan again restores it.",
+            ],
+            // Only for a plan that has a logo to lose.
+            ...(current?.features["branding.logoUpload"]
+              ? [
+                  [
+                    `Leaving ${current.label}`,
+                    "The uploaded white-label logo is removed when the workspace moves to a plan without logo upload. Upload it again after moving back.",
+                  ],
+                ]
+              : []),
+          ].map(([k, v]) => (
+            <div key={k}>
+              <dt className="text-ui font-semibold text-fg">{k}</dt>
+              <dd className="mt-1 text-ui text-fg-2">{v}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="text-meta text-fg-3 lg:col-start-2">
+          Export of personal data and erasure of personal data are free on every plan, the free one included: they are on
+          Settings, under Export and Erasure. Refunds follow the{" "}
+          <a href="/refunds" className="link">
+            Refund Policy
+          </a>
+          ; ask{" "}
+          <a href="/support" className="link">
+            support
+          </a>{" "}
+          if a charge looks wrong.
+        </p>
+      </section>
+    </>,
   );
 }

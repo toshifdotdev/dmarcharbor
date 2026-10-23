@@ -19,6 +19,7 @@ import type {
   ErasurePreview,
   ExportJob,
   IssuedApiKey,
+  PlanOverageRow,
   PortalGrant,
   SlackDestination,
   VerifyDomainResult,
@@ -100,17 +101,32 @@ async function call<T>(
  * routed its upgrade prompt as "unknown". Keys only: the message is already
  * carried, and nothing is parsed out of a sentence.
  */
-function planKeys(raw: string): { feature?: string; quota?: string } {
+function planKeys(raw: string): Pick<ApiErrorBody["error"], "feature" | "quota" | "overage" | "from" | "to"> {
   try {
     const body = JSON.parse(raw) as {
-      error?: { feature?: unknown; quota?: unknown; details?: { feature?: unknown; quota?: unknown } };
+      error?: {
+        feature?: unknown;
+        quota?: unknown;
+        overage?: unknown;
+        from?: unknown;
+        to?: unknown;
+        details?: { feature?: unknown; quota?: unknown };
+      };
     };
     const e = body?.error;
     const feature = e?.feature ?? e?.details?.feature;
     const quota = e?.quota ?? e?.details?.quota;
+    // A refused downgrade names its overage as rows (PLAN_CHANGE_OVER_QUOTA);
+    // they are carried so the screen renders the numbers, never a paragraph.
+    const overage = Array.isArray(e?.overage)
+      ? (e.overage as PlanOverageRow[]).filter((r) => r && typeof r.used === "number" && typeof r.limit === "number")
+      : undefined;
     return {
       ...(typeof feature === "string" ? { feature } : {}),
       ...(typeof quota === "string" ? { quota } : {}),
+      ...(overage ? { overage } : {}),
+      ...(typeof e?.from === "string" ? { from: e.from } : {}),
+      ...(typeof e?.to === "string" ? { to: e.to } : {}),
     };
   } catch {
     return {};
@@ -701,21 +717,29 @@ export const startCheckout = (
     currency: "USD" | "INR";
     contact: { name: string; email: string; taxId?: string | null };
   },
-) => call<{ url?: string; checkoutUrl?: string }>(
+) => call<{ url?: string; checkoutUrl?: string; priceLabel?: string; currency?: string }>(
   wsPath(orgId, "/billing/checkout"),
   { method: "POST", body: JSON.stringify(body) },
 );
 
+/** PATCH /billing/plan. MOORING is a cancellation at period end and answers
+ *  `cancelling`; any other plan answers `scheduled`, even on Paddle, which
+ *  applies it at once (the screen re-reads the plan rather than trusting it). */
 export const changeBillingPlan = (
   orgId: string,
   body: { plan: string; interval?: "monthly" | "annual" },
-) => call(wsPath(orgId, "/billing/plan"), { method: "PATCH", body: JSON.stringify(body) });
+) =>
+  call<{ status: "scheduled" | "cancelling"; effectiveAt: string }>(wsPath(orgId, "/billing/plan"), {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
 
+/** POST /billing/cancel. Access runs until `accessUntil`, the paid period's end. */
 export const cancelSubscription = (orgId: string) =>
-  call(wsPath(orgId, "/billing/cancel"), { method: "POST" });
+  call<{ status: "cancelling"; accessUntil: string | null }>(wsPath(orgId, "/billing/cancel"), { method: "POST" });
 
 export const resumeSubscription = (orgId: string) =>
-  call(wsPath(orgId, "/billing/resume"), { method: "POST" });
+  call<{ status: "active" }>(wsPath(orgId, "/billing/resume"), { method: "POST" });
 
 export const openBillingPortal = (orgId: string) =>
   call<{ url: string }>(wsPath(orgId, "/billing/portal"), { method: "POST" });

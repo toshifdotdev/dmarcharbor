@@ -64,10 +64,13 @@ export async function DocumentFrame({
             <h1 className="display text-[32px] leading-[1.05] text-fg sm:text-[44px]">{title}</h1>
             <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-meta">
               <span data-testid="legal-version" className="text-fg-2">
-                <span className="legend mr-1.5">Version</span>
-                <span className="tnum data font-semibold text-fg">{LEGAL_VERSION}</span>
-                <span className="mx-2 text-fg-4">·</span>
-                <span className="legend mr-1.5">Effective</span>
+                {/* Real spaces between the parts, so copied and spoken text
+                    reads "Version 2026-10-04 · Effective ..." rather than
+                    running the words together. */}
+                <span className="legend">Version</span>{" "}
+                <span className="tnum data font-semibold text-fg">{LEGAL_VERSION}</span>{" "}
+                <span className="mx-1 text-fg-4">·</span>{" "}
+                <span className="legend">Effective</span>{" "}
                 {pending ? (
                   <mark className="rounded-[2px] bg-warn-wash px-1 font-semibold text-warn">{LEGAL_EFFECTIVE_DATE}</mark>
                 ) : (
