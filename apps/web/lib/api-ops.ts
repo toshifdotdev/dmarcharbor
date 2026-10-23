@@ -129,6 +129,8 @@ export interface DeploymentCapabilities {
   currencies: string[];
   defaultCurrency: string;
   providers: { razorpay: boolean; paddle: boolean };
+  /** A demonstration reference, shaped like a real one and matching no pack. */
+  compliancePack?: { exampleReference: string; exampleFilename: string };
 }
 export function getCapabilities(): Promise<DeploymentCapabilities> {
   return opsFetch<DeploymentCapabilities>("/api/capabilities");

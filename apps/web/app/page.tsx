@@ -1,17 +1,20 @@
 import { Suspense } from "react";
-import Link from "next/link";
-import { ApiError, listClients, listWorkspaces, getAllDomainSignals } from "@/lib/api";
-import { resolvePosture } from "@/lib/posture";
+import type { Metadata } from "next";
+import { ApiError, getAllDomainSignals, listClients, listWorkspaces } from "@/lib/api";
+import { instantLabel } from "@/lib/instant";
+import { daysSinceReport, policyLabel, resolvePosture, type Posture } from "@/lib/posture";
 import { pickActiveWorkspace } from "@/lib/session";
-import type { DomainSignals } from "@/lib/types";
-import { Shell } from "@/components/shell";
-import { MarketingHome } from "@/components/marketing";
-import { PortfolioGrid, type PortfolioRow } from "@/components/portfolio";
-import { EmptyState, ErrorState, LoadingState } from "@/components/data-states";
-import { UpgradePrompt } from "@/components/upgrade-gate";
 import { requestOrigin } from "@/lib/metadata-origin";
 import { publicMetadata } from "@/lib/seo";
-import type { Metadata } from "next";
+import type { WorkspaceSummary } from "@/lib/types";
+import { AppShell } from "@/components/harbor/app-shell";
+import { Landing } from "@/components/harbor/landing";
+import { PageHeader } from "@/components/harbor/page-header";
+import { PortfolioBoard, type BoardRow } from "@/components/harbor/portfolio-board";
+import { RefreshButton } from "@/components/harbor/refresh-button";
+import { FirstDomain } from "@/components/harbor/first-domain";
+import { getWorkspaceEntitlements } from "@/lib/api-ops";
+import { ErrorState, LoadingState, UpgradeNotice } from "@/components/ui/states";
 
 /** The root route serves two different readers (stranger and operator), and
  *  the stranger's page is the one a search engine sees. Its metadata describes
@@ -28,39 +31,26 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 /**
- * The root route serves two audiences:
+ * The root route serves two audiences, and must never collapse into one:
  *
- *   stranger   — the marketing homepage: what the product does and who it is
- *                for, in plain words, with sign-up and sign-in entry points.
- *                resolveActiveWorkspace redirects 401/403 to /sign-in, so a
- *                session probe is the branch — never a hardcoded landing page
- *                shown to a signed-in operator.
- *   signed in  — the portfolio, in three distinguishable states — never two:
+ *   stranger   the public landing page. A definite 401/403 from the workspace
+ *              read is the only thing that means "stranger".
+ *   signed in  the Portfolio, in distinguishable states: loading (the data is
+ *              slow, not missing), empty (a first run, which teaches the next
+ *              step), failed (says what failed, never "no domains"), plan
+ *              (a 402, in the API's own words), and the board itself.
  *
- *                loading — a slow call on a slow connection is a waiting state
- *                          (the Tide), not a blank page and not an error
- *                empty   — a first run. Says what to do next (create a
- *                          client), never an empty table standing in for
- *                          "welcome"
- *                failed  — says what failed and offers a retry, and never
- *                          renders as "no domains" — that lie costs someone an
- *                          afternoon
- *
- * The fetch body sits behind Suspense so the loading state is real: server
- * data is awaited before render, so without a boundary a 2-11s call paints a
- * page that looks broken while it is merely slow.
+ * A slow or failing API must never show a landing page to someone who has just
+ * signed in, which is why anything other than 401/403 is rethrown into the
+ * app's error boundary rather than treated as "not signed in".
  */
 export default async function RootPage() {
-  // One workspace call answers both questions: a definite 401/403 means
-  // "stranger" and renders the marketing homepage; anything else is the app,
-  // which has its own error states. A slow or failing API must never show a
-  // landing page to someone who just signed in.
-  let workspaces;
+  let workspaces: WorkspaceSummary[];
   try {
     workspaces = await listWorkspaces();
   } catch (error) {
     if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
-      return <MarketingHome />;
+      return <Landing />;
     }
     throw error;
   }
@@ -68,85 +58,131 @@ export default async function RootPage() {
   const active = await pickActiveWorkspace(workspaces);
 
   return (
-    <Shell workspaces={workspaces} activeWorkspace={active}>
-      <div className="flex flex-col gap-4">
-        <div className="flex items-baseline gap-4">
-          <h1 className="label">Portfolio</h1>
-          <Link
-            href="/"
-            className="num ml-auto text-[12px] tracking-[0.12em] uppercase transition-colors"
-            style={{ color: "var(--color-ink-3)" }}
-          >
-            refresh ↻
-          </Link>
-        </div>
-
-        <Suspense fallback={<LoadingState label="Loading portfolio" />}>
-          <PortfolioData organizationId={active ? active.id : ""} />
+    <AppShell workspaces={workspaces} activeWorkspace={active} trail={[{ label: "Portfolio" }]}>
+      <div className="flex flex-col gap-6">
+        <PageHeader
+          title="Portfolio"
+          actions={<RefreshButton />}
+        />
+        <Suspense fallback={<LoadingState label="Reading the portfolio" rows={8} />}>
+          <PortfolioData organizationId={active ? active.id : ""} workspaceName={active?.name ?? "This workspace"} />
         </Suspense>
       </div>
-    </Shell>
+    </AppShell>
   );
 }
 
-async function PortfolioData({ organizationId }: { organizationId: string }) {
-  let rows: PortfolioRow[] = [];
-  let loadError: string | null = null;
-  let planError: string | null = null;
+async function PortfolioData({ organizationId, workspaceName }: { organizationId: string; workspaceName: string }) {
+  let rows: BoardRow[];
+  let clientCount: number;
+  let clientList: Array<{ id: string; name: string }>;
 
   try {
     const clients = await listClients(organizationId);
-    const domains = clients.flatMap((c) => c.domains);
-    const signals = await getAllDomainSignals(organizationId, domains);
+    clientCount = clients.length;
+    clientList = clients.map((c) => ({ id: c.id, name: c.name }));
+    const signals = await getAllDomainSignals(
+      organizationId,
+      clients.flatMap((c) => c.domains),
+    );
+    // One clock read, on the server, for every age on the board.
+    const now = Date.now();
 
     rows = clients.flatMap((client) =>
-      client.domains.map((domain) => {
-        const s: DomainSignals | null = signals.get(domain.id) ?? null;
+      client.domains.map((domain): BoardRow => {
+        const s = signals.get(domain.id) ?? null;
+        // Rule Zero: no signals, no posture. resolvePosture only ever runs on
+        // a real measurement.
+        const resolved = s ? resolvePosture(s) : null;
+        const policy = policyLabel(domain.dmarcPolicy, s?.reportedPolicy ?? null);
         return {
-          client,
-          domain,
-          signals: s,
-          // Rule Zero: a row with no signals is "signals pending", never a
-          // posture. resolvePosture only runs on real measurements.
-          resolved: s ? resolvePosture(s) : null,
+          domainId: domain.id,
+          slug: domain.slug,
+          domain: domain.name,
+          ownership: domain.status,
+          clientName: client.name,
+          posture: resolved?.posture ?? null,
+          reason: resolved?.reason ?? null,
+          messages: s ? s.messageCount : null,
+          failed: s ? s.failedMessages : null,
+          spfRate: s?.spfPassRate ?? null,
+          dkimRate: s?.dkimPassRate ?? null,
+          policy: policy === "not observed" ? null : policy,
+          lastReportAgeDays: daysSinceReport(s?.lastReportAt ?? null, now),
+          lastReportLabel: s?.lastReportAt ? instantLabel(s.lastReportAt) : null,
         };
       }),
     );
   } catch (err) {
     if (err instanceof ApiError && err.status === 402) {
-      planError = err.message;
-    } else {
-      // A failed load is never shown as "nothing here".
-      loadError = "the portfolio";
+      return (
+        <UpgradeNotice
+          message={err.message}
+          feature={err.feature ?? "reports.aggregate"}
+          context="Portfolio monitoring needs a plan that carries it."
+        />
+      );
     }
-  }
-
-  if (planError) {
-    return (
-      <UpgradePrompt
-        error={{ feature: "reports.aggregate", message: planError }}
-        context="Portfolio monitoring needs a plan that carries it."
-      />
-    );
-  }
-  if (loadError) {
+    // A failed load is never shown as "nothing here".
     return (
       <ErrorState
-        what={loadError}
+        what="the portfolio"
         detail="This is a connection or API problem, not an empty portfolio."
       />
     );
   }
+
   if (rows.length === 0) {
-    // A first run, not an absence.
+    // The empty portfolio is the setup itself. The plan's limits are shown
+    // when they can be read; a failed read only drops the line, never the form.
+    const ent = await getWorkspaceEntitlements(organizationId).catch(() => null);
     return (
-      <EmptyState
-        title="Add your first client to start measuring"
-        description="A client is a company whose domains you monitor. Create one, add its domains, and the portfolio fills in as reports arrive: usually within 24 to 48 hours of publishing the DMARC record."
-        action={{ label: "Create a client", href: "/clients" }}
+      <FirstDomain
+        organizationId={organizationId}
+        workspaceName={workspaceName}
+        clients={clientList}
+        limits={ent ? { plan: ent.label, maxClients: ent.maxClients, maxActiveDomains: ent.maxActiveDomains } : null}
       />
     );
   }
 
-  return <PortfolioGrid rows={rows} />;
+  return (
+    <div className="flex flex-col gap-6">
+      <Summary rows={rows} />
+      <PortfolioBoard rows={rows} clientCount={clientCount} />
+    </div>
+  );
+}
+
+/** The one-line answer to "what needs me today", from the same counts as the board. */
+function Summary({ rows }: { rows: BoardRow[] }) {
+  const n = (p: Posture) => rows.filter((r) => r.posture === p).length;
+  const block = n("block");
+  const unverified = n("unverified");
+  const stale = n("stale");
+  const unmeasured = n("unmeasured");
+  const pass = n("pass");
+  const attention = block + unverified;
+  const plural = (k: number, word: string) => `${k} ${word}${k === 1 ? "" : "s"}`;
+
+  let line: string;
+  if (attention > 0) {
+    const parts = [block ? `${block} blocking` : null, unverified ? `${unverified} unverified` : null].filter(Boolean);
+    line = `${plural(attention, "domain")} need${attention === 1 ? "s" : ""} attention: ${parts.join(", ")}.`;
+  } else if (stale + unmeasured > 0) {
+    line = `Nothing is blocking or unverified. ${stale + unmeasured} of ${rows.length} prove nothing either way yet: ${stale} stale, ${unmeasured} not measured.`;
+  } else if (pass === rows.length) {
+    line = `All ${plural(pass, "domain")} aligned within their current report windows.`;
+  } else {
+    line = "Some domains could not be read just now; their posture is unknown, not aligned.";
+  }
+
+  return (
+    <p className="max-w-[90ch] border-l-2 border-fg pl-3 text-lead font-medium text-fg" data-testid="portfolio-summary">
+      {line}
+      {attention > 0 && stale + unmeasured > 0 ? (
+        <span className="text-fg-3"> {stale + unmeasured} more have no current measurement.</span>
+      ) : null}
+    </p>
+  );
 }

@@ -1,44 +1,75 @@
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
-import { listClients, getOnboardingState, ApiError } from "@/lib/api";
-import {
-  listReportShares,
-  OpsError,
-} from "@/lib/api-ops";
+import { notFound, redirect, unstable_rethrow } from "next/navigation";
+import type { CSSProperties } from "react";
+import { clsx } from "clsx";
+import { ApiError, getOnboardingState, listClients } from "@/lib/api";
+import { listReportShares, OpsError } from "@/lib/api-ops";
+import { domainHref } from "@/lib/route-hrefs";
 import { resolveActiveWorkspace } from "@/lib/session";
-import type { OnboardingState, ReportShareRow, DomainRow } from "@/lib/types";
-import { Shell } from "@/components/shell";
-import { VerifyControls } from "@/components/onboarding-client";
-import { DomainDelete } from "@/components/domain-delete";
-import { ShareForm } from "@/components/shares-client";
-import { ErrorState } from "@/components/data-states";
+import type { DomainRow, OnboardingState, ReportShareRow } from "@/lib/types";
+import { AppShell } from "@/components/harbor/app-shell";
+import { DomainRecords } from "@/components/harbor/domain-records";
+import { DomainRemoval } from "@/components/harbor/domain-removal";
+import { PageHeader, SectionHead } from "@/components/harbor/page-header";
+import { ShareLinks, type ShareView } from "@/components/harbor/share-links";
+import { Badge, type Tone } from "@/components/ui/badge";
+import { ButtonLink } from "@/components/ui/button";
+import { ArrowRight } from "@/components/ui/icons";
+import { ErrorState } from "@/components/ui/states";
 
 /**
- * The onboarding funnel: verify ownership → publish the DMARC record → await
- * reports. Every string on this page is the API's own: the TXT record and its
- * lookup status come from the verify response, the DMARC record is
- * onboarding.suggestedRecord rendered verbatim (never assembled client-side,
- * so pct, ruf and the notes stay consistent with what the backend verifies),
- * and the step list is the API's own progress model — the UI invents none.
+ * A domain's setup page: from "added" to "reports arriving", with nothing left
+ * to guess.
  *
- * HONESTY RULE: a domain publishing rua=https: is CONFIGURED but we do not
- * COLLECT those reports. The aggregate_reporting step carries that
- * distinction in its status and detail ("does not read reports from there
- * yet"), and this page renders it as-is. Never "reports not configured",
- * never "reports will be delivered" for a web-only record.
+ * Every string about the domain's state is the API's own. The records are the
+ * API's (the ownership record from the verify call, the DMARC record from
+ * onboarding.suggestedRecord, never assembled here), and the step list is the
+ * API's progress model, rendered as-is. The page adds only the order to read
+ * it in: what to do now, at the top; how far along it is, beside it.
+ *
+ * HONESTY RULE: a domain publishing rua=https: is CONFIGURED but its reports
+ * are not COLLECTED. The aggregate_reporting step carries that distinction in
+ * its own detail, and the page links the fix (the report mailbox) rather than
+ * claiming delivery.
+ *
+ * The URL carries a slug or an id. The API calls below use the id read from
+ * the client list, because some API reads resolve a slug for the domain but not
+ * for its child queries (a known backend defect, logged, not fixed here).
  */
-export default async function OnboardingPage({
-  params,
-}: {
-  params: Promise<{ domainId: string }>;
-}) {
+
+/** Rolling out a policy in stages is not offered, so it is not listed. */
+const HIDDEN_STEPS = new Set(["canary_rollout"]);
+
+const STATE_BADGE: Record<OnboardingState["state"], { label: string; tone: Tone }> = {
+  ADDED: { label: "Added", tone: "neutral" },
+  AWAITING_VERIFICATION: { label: "Awaiting ownership check", tone: "warn" },
+  AWAITING_DMARC_RECORD: { label: "Awaiting DMARC record", tone: "warn" },
+  AWAITING_REPORTS: { label: "Awaiting first reports", tone: "neutral" },
+  MONITORING: { label: "Measuring", tone: "ok" },
+  NEEDS_ATTENTION: { label: "Needs attention", tone: "fail" },
+};
+
+const STEP_WORD: Record<OnboardingState["steps"][number]["status"], string> = {
+  done: "Done",
+  pending: "To do",
+  blocked: "Waiting",
+  optional: "Optional",
+};
+
+function dateLabel(value: string): string {
+  const d = new Date(value);
+  return Number.isNaN(d.getTime())
+    ? "not recorded"
+    : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+export default async function OnboardingPage({ params }: { params: Promise<{ domainId: string }> }) {
   const { domainId } = await params;
   const { workspaces, active } = await resolveActiveWorkspace();
   if (!active) redirect("/welcome");
 
-  // A failed client list is an API problem, NOT a missing domain: rendering
-  // not-found here told an operator their domain was gone on every transient
-  // blip. Distinguish the two facts.
+  // Three facts kept apart: the client list failed (an API problem), the
+  // domain is not in this workspace (a real 404), and the domain exists.
   let domain: DomainRow | null = null;
   let clientName = "";
   let clientsFailed = false;
@@ -54,284 +85,253 @@ export default async function OnboardingPage({
       break;
     }
   }
-  // Three facts the old code blurred into one notFound(): the client list
-  // failed (an API problem), the domain is not yours (a real 404), and the
-  // domain exists. Only the middle one is a missing domain. This page used to
-  // POST a live DNS verification on EVERY RENDER, which mutated domain status,
-  // emitted a webhook and emailed the customer again per page view: the lookup
-  // now happens when the operator presses the button, never on render.
-  let onboarding: OnboardingState | null = null;
-  let stateFailed: string | null = null;
-  const shares: ReportShareRow[] = (await listReportShares(active.id).catch(() => ({ items: [] }))).items;
 
-  // A failed load is its own page, not a ternary branch inside this one: a
-  // fragment spanning the whole body is how JSX nesting breaks, and the
-  // failure deserves a full page of its own anyway.
+  const shell = (children: React.ReactNode, trail = [{ label: "Clients", href: "/clients" }, { label: "Setup" }]) => (
+    <AppShell workspaces={workspaces} activeWorkspace={active} trail={trail}>
+      {children}
+    </AppShell>
+  );
+
   if (clientsFailed) {
-    return (
-      <Shell workspaces={workspaces} activeWorkspace={active}>
-        <div className="mx-auto w-full max-w-[560px] px-6 py-16">
-          <ErrorState
-            what="the client list"
-            detail="This page could not confirm which domain this is. That is an API problem, not a missing domain: the domain is still yours."
-          />
-        </div>
-      </Shell>
+    return shell(
+      <div className="flex flex-col gap-6">
+        <PageHeader title="Domain setup" />
+        <ErrorState
+          what="the client list"
+          detail="This page could not confirm which domain this is. That is an API problem, not a missing domain: the domain is still yours."
+        />
+      </div>,
     );
   }
-  // Only now, after the failure branch has returned. `notFound()` throws, so a
-  // check placed above it pre-empts the branch above and an operator whose API
-  // call timed out gets a 404 for a domain that is still theirs. Placing it here
-  // also narrows `domain` to non-null for the rest of the render, which is what
-  // the type checker needs and what the JSX below assumes.
   if (!domain) notFound();
 
+  // Never POST /verify here: a lookup changes the domain's status and can
+  // notify people, so it runs only when the operator presses the check.
+  let onboarding: OnboardingState | null = null;
+  let stateFailed = false;
   try {
-    onboarding = await getOnboardingState(active.id, domainId);
+    onboarding = await getOnboardingState(active.id, domain.id);
   } catch (error) {
-    if ((error instanceof OpsError || error instanceof ApiError) && error.status === 404) {
-      notFound();
-    }
-    // A transient failure is a failure state on this page, not a blank
-    // screen and not a not-found: the operator's domain did not go anywhere.
-    stateFailed =
-      error instanceof Error ? error.message : "The domain state could not be loaded.";
+    unstable_rethrow(error);
+    if ((error instanceof OpsError || error instanceof ApiError) && error.status === 404) notFound();
+    stateFailed = true;
   }
 
-  // Read after the assignment, not before it: these are derived from what the
-  // state call returned, and reading them above the try block would look at a
-  // value that is still null.
-  const steps = onboarding?.steps ?? [];
-  const suggested = onboarding?.suggestedRecord ?? null;
+  const trail = [
+    { label: "Clients", href: "/clients" },
+    { label: clientName, href: "/clients" },
+    { label: domain.name, mono: true },
+  ];
 
-  if (stateFailed) {
-    return (
-      <Shell workspaces={workspaces} activeWorkspace={active}>
-        <div className="mx-auto w-full max-w-[560px] px-6 py-16">
-          <ErrorState what="this domain's state" detail={stateFailed} />
-        </div>
-      </Shell>
+  if (stateFailed || !onboarding) {
+    return shell(
+      <div className="flex flex-col gap-6">
+        <PageHeader title={domain.name} titleMono />
+        <ErrorState what="this domain's setup" detail="The domain and its records are unchanged; the setup state did not load." />
+      </div>,
+      trail,
     );
   }
 
-  return (
-    <Shell workspaces={workspaces} activeWorkspace={active}>
-      <div className="flex flex-col gap-6">
-        <div>
-          <Link
-            href="/clients"
-            className="num text-[11px] tracking-[0.14em] uppercase transition-colors"
-            style={{ color: "var(--color-ink-3)" }}
-          >
-            ← Clients
-          </Link>
-          <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-            <h1
-              className="num text-[24px] font-semibold tracking-[-0.02em]"
-              style={{ color: "var(--color-ink)" }}
-            >
-              {domain.name}
-            </h1>
-            <span className="text-[12px]" style={{ color: "var(--color-ink-3)" }}>
-              {clientName}
+  // Shares are a side panel: a failed read hides the list, never the setup.
+  const now = Date.now();
+  const shareRows: ReportShareRow[] | null = await listReportShares(active.id)
+    .then((r) => r.items)
+    .catch(() => null);
+  const shares: ShareView[] = (shareRows ?? [])
+    .filter((s) => s.domain.id === domain.id)
+    .map((s) => ({
+      id: s.id,
+      token: s.token,
+      createdLabel: dateLabel(s.createdAt),
+      expiresLabel: dateLabel(s.expiresAt),
+      revokedLabel: s.revokedAt ? dateLabel(s.revokedAt) : null,
+      expired: !s.revokedAt && new Date(s.expiresAt).getTime() < now,
+      viewCount: s.viewCount,
+      includeSources: s.includeSources,
+      includeForensics: s.includeForensics,
+    }));
+
+  const steps = onboarding.steps.filter((s) => !HIDDEN_STEPS.has(s.id));
+  const required = steps.filter((s) => s.status !== "optional");
+  const doneCount = required.filter((s) => s.status === "done").length;
+  const nextStep = steps.find((s) => s.status === "pending") ?? null;
+  const badge = STATE_BADGE[onboarding.state];
+  const measuring = onboarding.state === "MONITORING";
+  const verified = domain.status === "VERIFIED" || onboarding.domain.status === "VERIFIED";
+
+  const lede = (() => {
+    switch (onboarding.state) {
+      case "ADDED":
+      case "AWAITING_VERIFICATION":
+        return "Publish the records below wherever this domain's DNS is managed, then check DNS. Nothing here changes how mail is delivered.";
+      case "AWAITING_DMARC_RECORD":
+        return "Ownership is verified. Publish the DMARC record below to start receiving reports.";
+      case "AWAITING_REPORTS":
+        return "The records are in place. Receivers usually send their first reports within 24 to 48 hours; this page and the domain page update as they arrive.";
+      case "MONITORING":
+        return "Reports are arriving and the domain is being measured. Its posture, senders and history are on the domain page.";
+      case "NEEDS_ATTENTION":
+        return nextStep ? `Needs attention: ${nextStep.detail}` : "Something in the setup needs attention: see the steps.";
+    }
+  })();
+
+  const pct = required.length > 0 ? (doneCount / required.length) * 100 : 0;
+
+  return shell(
+    <div className="flex flex-col gap-8">
+      <PageHeader
+        title={domain.name}
+        titleMono
+        status={
+          <Badge tone={badge.tone} boxed>
+            {badge.label}
+          </Badge>
+        }
+        lede={lede}
+        meta={
+          <>
+            <span>{clientName}</span>
+            <span>
+              Setup: <span className="tnum font-semibold text-fg-2">{doneCount}</span> of{" "}
+              <span className="tnum">{required.length}</span> steps done
             </span>
-            <span
-              className="num ml-auto text-[10.5px] tracking-[0.14em] uppercase"
-              style={{ color: "var(--color-ink-3)" }}
-            >
-              {onboarding?.completedSteps ?? 0} of {onboarding?.totalSteps ?? 0} steps done
-            </span>
-          </div>
-          <p className="mt-1.5 max-w-3xl text-[13.5px]" style={{ color: "var(--color-ink-2)" }}>
-            Get this domain measuring: verify you own it, publish the DMARC
-            record, and wait for the world's reporters to send their first
-            summary.
-          </p>
-        </div>
+          </>
+        }
+        actions={
+          <ButtonLink href={domainHref(domain.slug)} variant={measuring ? "primary" : "secondary"}>
+            Open the domain page
+            <ArrowRight size={14} />
+          </ButtonLink>
+        }
+      />
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-          <div className="flex flex-col gap-4">
-            {/* Step 1+2: ownership and the record. */}
-            <section
-              className="lift rounded-[2px] border p-5"
-              style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
-            >
-              <h2 className="text-[16px] font-semibold tracking-[-0.012em]">
-                1 · Verify domain ownership
-              </h2>
-              <p className="mt-1.5 text-[13px]" style={{ color: "var(--color-ink-2)" }}>
-                Publish the TXT record below at your DNS provider, then run the
-                check.{" "}
-                <strong style={{ color: "var(--color-ink)" }}>
-                  A lookup that finds nothing is normal
-                </strong>{" "}
-               : DNS takes time to propagate.
-              </p>
-              <div className="mt-4">
-                <VerifyControls
-                  organizationId={active.id}
-                  domainId={domainId}
-                  initial={null}
-                  published={domain.status === "VERIFIED"}
-                />
-              </div>
-            </section>
+      <div aria-hidden className="h-[3px] w-full max-w-[520px] bg-rule">
+        <div
+          className="hb-rail-fill h-full bg-act"
+          style={{ "--from": "0%", "--to": `${pct}%`, width: `${pct}%` } as CSSProperties}
+        />
+      </div>
 
-            <section
-              className="lift rounded-[2px] border p-5"
-              style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
-            >
-              <h2 className="text-[16px] font-semibold tracking-[-0.012em]">
-                2 · Publish the DMARC record
-              </h2>
-              {suggested ? (
-                <>
-                  <p className="mt-1.5 text-[13px]" style={{ color: "var(--color-ink-2)" }}>
-                    Generated by the platform: publish it at{" "}
-                    <span className="num">{suggested.host}</span>. It is exactly
-                    what the backend will verify, so the two cannot disagree.
-                  </p>
-                  <div
-                    className="lift mt-3 rounded-[2px] border"
-                    style={{
-                      background: "var(--color-elevate)",
-                      borderColor: "var(--color-line-strong)",
-                    }}
-                  >
-                    <div className="flex items-center justify-between border-b px-4 py-2.5" style={{ borderColor: "var(--color-line)" }}>
-                      <span className="num text-[10.5px] tracking-[0.14em] uppercase" style={{ color: "var(--color-ink-3)" }}>
-                        {suggested.host} · {suggested.type}
-                      </span>
-                      <span className="num text-[10.5px]" style={{ color: "var(--color-ink-3)" }}>
-                        p={suggested.policy} · pct={suggested.pct}
-                      </span>
-                    </div>
-                    <p
-                      className="num px-4 py-3 text-[12.5px] break-all"
-                      style={{ color: "var(--color-ink)" }}
-                      data-testid="suggested-record"
-                    >
-                      {suggested.value}
-                    </p>
-                  </div>
-                  {suggested.notes.length > 0 ? (
-                    <ul className="mt-3 flex flex-col gap-1.5">
-                      {suggested.notes.map((n) => (
-                        <li key={n} className="text-[12px]" style={{ color: "var(--color-ink-3)" }}>
-                          · {n}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </>
-              ) : (
-                <p className="mt-2 text-[13px]" style={{ color: "var(--color-ink-3)" }}>
-                  The generated record appears once domain ownership is verified.
-                </p>
-              )}
-            </section>
-
-            {/* Shares: create, list, revoke. Links the existing public
-                GET /api/reports/share/:token surface — never rebuilt here. */}
-            <ShareForm
+      {/* Records first, then the steps, then sharing and deletion: on a phone
+          the progress sits right after the work it measures, not under the
+          delete button. On wide screens the steps are the right-hand column. */}
+      <div className="grid gap-x-10 gap-y-10 lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-[auto_1fr]">
+        <div className="flex min-w-0 flex-col gap-10 lg:col-start-1 lg:row-start-1">
+          <section aria-labelledby="records-head">
+            <SectionHead
+              id="records-head"
+              title={measuring ? "Records" : "Records to publish"}
+              aside="TXT records, at the DNS host for this domain"
+            />
+            <DomainRecords
               organizationId={active.id}
               domainId={domain.id}
-              shares={shares}
+              domainName={domain.name}
+              verified={verified}
+              dmarc={onboarding.suggestedRecord ?? null}
+              publishedPolicy={onboarding.reporting.publishedPolicy}
             />
-          </div>
+          </section>
+        </div>
 
-          {/* The API's own progress model, rendered as-is. */}
-          <section
-            className="lift rounded-[2px] border p-5"
-            style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
-          >
-            <h2 className="text-[16px] font-semibold tracking-[-0.012em]">
-              3 · Setup progress
-            </h2>
-            <p className="mt-1.5 text-[12.5px]" style={{ color: "var(--color-ink-3)" }}>
-              Each step below is the platform's own assessment of this domain.
-            </p>
-            <ol className="mt-4 flex flex-col">
-              {steps.map((s, i) => (
+        <aside
+          aria-labelledby="steps-head"
+          className="flex flex-col gap-3 self-start lg:sticky lg:top-[104px] lg:col-start-2 lg:row-span-2 lg:row-start-1"
+        >
+          <SectionHead id="steps-head" title="Setup steps" aside="The platform's own reading" />
+          <ol className="hb-stagger border-t border-rule">
+            {steps.map((s, i) => {
+              const isNext = s === nextStep;
+              return (
                 <li
                   key={s.id}
                   data-step={s.id}
                   data-step-status={s.status}
-                  className="border-b py-3.5"
-                  style={{ borderColor: "rgba(255,255,255,0.055)" }}
+                  style={{ "--i": i } as CSSProperties}
+                  className={clsx(
+                    "grid grid-cols-[20px_minmax(0,1fr)] gap-x-2.5 border-b border-rule py-3",
+                    isNext && "border-l-2 border-l-act bg-paper-2 pl-2.5 pr-2",
+                  )}
                 >
-                  <div className="flex items-baseline gap-3">
-                    <span
-                      className="num text-[10px] tracking-[0.14em] uppercase"
-                      style={{
-                        minWidth: 56,
-                        color:
-                          s.status === "done"
-                            ? "var(--color-pass)"
-                            : s.status === "blocked"
-                              ? "var(--color-ink-3)"
-                              : s.status === "optional"
-                                ? "var(--color-unmeasured)"
-                                : "var(--color-unverified)",
-                      }}
-                    >
-                      {s.status}
-                    </span>
-                    <div>
-                      <div className="text-[13px]" style={{ color: "var(--color-ink)" }}>
-                        {i + 1} · {s.title}
-                      </div>
-                      <div className="mt-1 text-[12px] leading-relaxed" style={{ color: "var(--color-ink-2)" }}>
-                        {s.detail}
-                        {/* The rua=https thread: a domain whose reports go to a
-                            web endpoint is fixed by collecting from a mailbox —
-                            so the step points at that section rather than
-                            leaving the operator to find it. */}
-                        {s.id === "aggregate_reporting" &&
-                        s.status !== "done" &&
-                        s.detail.includes("web endpoint") ? (
-                          <>
-                            {" "}
-                            <Link
-                              href="/settings/mailbox"
-                              className="underline"
-                              style={{ color: "var(--color-ink)" }}
-                              data-testid="rua-mailbox-link"
-                            >
-                              Set up the report mailbox →
-                            </Link>
-                          </>
-                        ) : null}
-                      </div>
-                    </div>
+                  <StepMark status={s.status} />
+                  <div className="min-w-0">
+                    <p className="flex flex-wrap items-baseline justify-between gap-x-3">
+                      <span className={clsx("text-ui font-semibold", s.status === "blocked" ? "text-fg-3" : "text-fg")}>
+                        {s.title}
+                      </span>
+                      <span
+                        className={clsx(
+                          "text-meta font-semibold",
+                          s.status === "done" ? "text-ok" : isNext ? "text-act" : "text-fg-3",
+                        )}
+                      >
+                        {isNext ? "Next" : STEP_WORD[s.status]}
+                      </span>
+                    </p>
+                    <p className="mt-0.5 text-meta leading-[1.5] text-fg-2">
+                      {s.detail}
+                      {s.id === "aggregate_reporting" && s.status !== "done" && s.detail.includes("web endpoint") ? (
+                        <>
+                          {" "}
+                          <Link href="/settings/mailbox" className="link font-semibold" data-testid="rua-mailbox-link">
+                            Set up the report mailbox
+                          </Link>
+                        </>
+                      ) : null}
+                    </p>
                   </div>
                 </li>
-              ))}
-            </ol>
-          </section>
-        </div>
-
-        {/* Bottom of the page, and deliberately last: the most destructive
-            control in the product belongs where it is reached deliberately,
-            not beside the setup steps somebody is working through. */}
-        <section
-          className="lift rounded-[2px] border p-5"
-          style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
-        >
-          <h2 className="text-[16px] font-semibold tracking-[-0.012em]">Delete</h2>
-          <p className="mt-1.5 text-[13px]" style={{ color: "var(--color-ink-2)" }}>
-            Use this when the client is offboarded or the domain is retired. It
-            takes every piece of evidence with it.
+              );
+            })}
+          </ol>
+          <p className="text-meta text-fg-3">
+            {measuring ? (
+              <>
+                Policy changes from here are guided on the{" "}
+                <Link href={domainHref(domain.slug)} className="link">
+                  domain page
+                </Link>
+                , from what the reports show.
+              </>
+            ) : (
+              "Steps update as DNS and reports change. Reload, or check DNS, to read them again."
+            )}
           </p>
-          <div className="mt-2.5">
-            <DomainDelete
-              organizationId={active.id}
-              domainId={domain.id}
-              domainName={domain.name}
-            />
-          </div>
-        </section>
+        </aside>
+
+        <div className="flex min-w-0 flex-col gap-10 lg:col-start-1 lg:row-start-2">
+          {shareRows === null ? (
+            <p className="border-y border-rule py-3 text-ui text-fg-3">
+              Share links did not load just now. Reload to manage them; existing links keep working.
+            </p>
+          ) : (
+            <ShareLinks organizationId={active.id} domainId={domain.id} domainName={domain.name} shares={shares} />
+          )}
+
+          <DomainRemoval organizationId={active.id} domainId={domain.id} domainName={domain.name} />
+        </div>
       </div>
-    </Shell>
+    </div>,
+    trail,
   );
+}
+
+function StepMark({ status }: { status: OnboardingState["steps"][number]["status"] }) {
+  if (status === "done") {
+    return (
+      <span aria-hidden className="mt-[3px] grid size-4 place-items-center rounded-full bg-ok">
+        <svg viewBox="0 0 16 16" className="hb-draw-check size-2.5 text-white">
+          <path d="M2.5 8.5 6.5 12.5 13.5 3.5" fill="none" stroke="currentColor" strokeWidth="2.6" />
+        </svg>
+      </span>
+    );
+  }
+  if (status === "pending") {
+    return <span aria-hidden className="mt-[3px] block size-4 rounded-full border-2 border-act" />;
+  }
+  if (status === "optional") {
+    return <span aria-hidden className="mt-[3px] block size-4 rounded-full border border-fg-4" />;
+  }
+  return <span aria-hidden className="mt-[3px] block size-4 rounded-full border border-rule-2 bg-paper-3" />;
 }

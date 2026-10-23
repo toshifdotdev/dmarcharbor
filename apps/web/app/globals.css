@@ -221,29 +221,6 @@ select:-webkit-autofill {
   transition: background-color 9999s ease-out 0s;
 }
 
-/* DNS resolution: the one animation on the marketing surface. Each step
-   fades up in sequence, ONCE, when the block is scrolled into view (.resolve-on
-   is set by the component). Play-once, never a loop: this is a demonstration,
-   not ambience. Under reduced motion the block renders resolved immediately. */
-.resolve-on .resolve-step {
-  animation: resolve-step 420ms ease-out backwards;
-}
-.resolve-on .resolve-step:nth-child(1) { animation-delay: 0ms; }
-.resolve-on .resolve-step:nth-child(2) { animation-delay: 550ms; }
-.resolve-on .resolve-step:nth-child(3) { animation-delay: 1100ms; }
-.resolve-on .resolve-step:nth-child(4) { animation-delay: 1650ms; }
-
-@keyframes resolve-step {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -251,5 +228,523 @@ select:-webkit-autofill {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============================================================================
+   DMARC HARBOR — CHART system (Phase 1 of the rebuild)
+
+   The identity is an Admiralty chart: ink on paper, single hairline rules,
+   soundings set in figures that line up. Dense, calm, printed-instrument
+   precise.
+
+   COEXISTENCE. Everything above this line is the old Monolith layer and stays
+   until Phase 2 removes its last consumer. Everything below is new, and
+   applies only inside an element carrying `data-harbor`. New token names never
+   reuse an old one, with one deliberate exception: `--color-accent` and
+   `--color-accent-ink`, because those are the white-label contract
+   (components/brand-applier.tsx writes them for a verified tenant domain).
+
+   ACCENT RULE. The accent is a signal: links, focus rings, active and
+   selected states, small marks. Never a large flat fill, never a tint behind
+   content. Primary actions are ink (`cta`), and become the tenant's colour
+   under white-label. Every one of these reads its variable at the element
+   (`@theme inline`), so a tenant override reaches them all at runtime. Data is
+   never drawn in the accent: a tenant's brand colour must never be mistaken
+   for a measurement, so chart series stay ink.
+
+   STATE RULE. ok / warn / fail / crit / void are reserved for state. They
+   never decorate, and every state colour travels with a shape and a word.
+   ========================================================================= */
+
+@theme {
+  --font-ui: var(--font-archivo), "Archivo", ui-sans-serif, system-ui,
+    "Segoe UI", sans-serif;
+  --font-data: var(--font-hyper-mono), "Atkinson Hyperlegible Mono",
+    ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  /* Paper. A cool, faintly blue-grey off-white: the instrument face, not a
+     printed page. Contrast figures below are WCAG ratios against --color-paper. */
+  --color-paper: #f3f5f7; /* the ground every screen sits on */
+  --color-paper-2: #fbfcfd; /* a sheet laid on the ground: tables, panels */
+  --color-paper-3: #e8ecf0; /* recessed: wells, code, disabled controls */
+  --color-sea: #e3e9ef; /* water on the explanatory diagram only */
+  --color-sea-2: #c5d0da; /* the depth contour line */
+
+  /* Ink. Near-black with a cool cast. Primary actions are set in it. */
+  --color-fg: #121a22; /* 16.1:1 */
+  --color-fg-2: #343f4a; /* secondary and body copy, 9.8:1 */
+  --color-fg-3: #505b66; /* labels and meta, 6.3:1 */
+  --color-fg-4: #646f7a; /* placeholders, empty cells, axis ticks: 4.7:1, still AA */
+
+  /* Rules. Hairlines carry structure; shadows almost never do. */
+  --color-rule: #dce1e6;
+  --color-rule-2: #bcc4cc;
+
+  /* State: reserved for state. Every text value passes AA on paper. */
+  --color-ok: #1a6b45; /* 5.9:1 */
+  --color-ok-wash: #e2efe8;
+  --color-warn: #835200; /* 6.1:1 */
+  --color-warn-mark: #c58a14; /* shapes and fills, never text */
+  --color-warn-wash: #f6eedc;
+  --color-fail: #ac241b; /* 6.4:1 */
+  --color-fail-wash: #f8e5e2;
+  --color-crit: #7c1016;
+  --color-void: #5d6670; /* 5.3:1 */
+  --color-void-wash: #e7eaee;
+
+  --radius-ctl: 3px;
+  --radius-sheet: 4px;
+
+  --shadow-float: 0 1px 0 rgb(18 26 34 / 0.04), 0 10px 30px -10px rgb(18 26 34 / 0.28);
+
+  /* Type scale, in px because an instrument is set to the pixel. */
+  --text-cap: 11px;
+  --text-cap--line-height: 14px;
+  --text-meta: 12px;
+  --text-meta--line-height: 16px;
+  --text-ui: 13px;
+  --text-ui--line-height: 18px;
+  --text-body: 14px;
+  --text-body--line-height: 21px;
+  --text-lead: 16px;
+  --text-lead--line-height: 25px;
+  --text-h3: 17px;
+  --text-h3--line-height: 22px;
+  --text-h2: 21px;
+  --text-h2--line-height: 26px;
+  --text-h1: 28px;
+  --text-h1--line-height: 32px;
+  --text-d2: 40px;
+  --text-d2--line-height: 42px;
+  --text-d1: 64px;
+  --text-d1--line-height: 62px;
+}
+
+/* The white-label colours, resolved at the element that uses them. A tenant's
+   :root override therefore lands on every button, link, ring and active state
+   without any component knowing a tenant exists. */
+@theme inline {
+  --color-act: var(--color-accent);
+  --color-act-ink: var(--color-accent-ink);
+  --color-act-line: color-mix(in oklab, var(--color-accent) 45%, transparent);
+  /* The primary-action fill and its pressed/hover shade. These point at REAL
+     variables declared on [data-harbor] below: an `@theme inline` token is
+     never emitted as a CSS variable, so building a hover colour from
+     var(--color-cta) made the declaration invalid, the fill went transparent
+     and the white label vanished on hover. */
+  --color-cta: var(--hb-primary);
+  --color-cta-ink: var(--hb-primary-ink);
+  --color-cta-hover: var(--hb-primary-hover);
+  --color-cta-press: var(--hb-primary-press);
+}
+
+/* Inside the new system only. Old screens keep their bone accent until they
+   move. BrandApplier writes the tenant's values to this selector too, after
+   this stylesheet, so a verified tenant still wins here.
+
+   SIGNAL BLUE, #1f56b5. One colour for primary actions, links, focus rings
+   and active states. Chosen against five alternatives rendered on this paper:
+   ink buttons read as black slabs; navy and slate were too close to the ink
+   for active states to register; petrol teal sat beside the ok green; cobalt
+   leaned violet on cool paper. Signal blue is 6.4:1 on paper, 6.9:1 under
+   white text, clearly distinct from ink and from ok / warn / fail.
+
+   Hover and press DARKEN the fill and keep the white label. A verified
+   tenant's colour replaces all of it (BrandApplier sets both variables). */
+[data-harbor] {
+  --color-accent: #1f56b5;
+  --color-accent-ink: #ffffff;
+  --hb-primary: var(--color-accent);
+  --hb-primary-ink: var(--color-accent-ink);
+  --hb-primary-hover: color-mix(in oklab, var(--hb-primary) 86%, black);
+  --hb-primary-press: color-mix(in oklab, var(--hb-primary) 76%, black);
+  /* Tailwind also emits the `act` aliases on :root, where var(--color-accent)
+     resolves to the Monolith bone. Redeclared here so that any var(--color-act)
+     read inside a Chart screen (custom utilities, SVG attributes) resolves
+     against this element's accent, tenant override included. */
+  --color-act: var(--color-accent);
+  --color-act-ink: var(--color-accent-ink);
+  --color-act-line: color-mix(in oklab, var(--color-accent) 45%, transparent);
+
+  color-scheme: light;
+  position: relative;
+  z-index: 10;
+  min-height: 100vh;
+  background: var(--color-paper);
+  color: var(--color-fg);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+html:has([data-harbor]) {
+  color-scheme: light;
+  background: var(--color-paper);
+}
+body:has([data-harbor]) {
+  background: var(--color-paper);
+}
+/* The Monolith film grain exists to stop dark gradients banding. Paper has no
+   such problem, and grain on paper reads as dirt. */
+body:has([data-harbor])::before {
+  display: none;
+}
+
+[data-harbor] ::selection {
+  background: color-mix(in oklab, var(--color-accent) 20%, transparent);
+}
+
+[data-harbor] :focus-visible {
+  outline: 2px solid var(--color-act);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+[data-harbor] option {
+  background-color: var(--color-paper-2);
+  color: var(--color-fg);
+}
+
+[data-harbor] input:-webkit-autofill,
+[data-harbor] input:-webkit-autofill:hover,
+[data-harbor] input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px var(--color-paper-2) inset;
+  box-shadow: 0 0 0 1000px var(--color-paper-2) inset;
+  -webkit-text-fill-color: var(--color-fg);
+  caret-color: var(--color-fg);
+}
+
+/* Element resets live in the base layer so every utility outranks them. An
+   unlayered `[data-harbor] p { margin: 0 }` beats `mt-6` from the utilities
+   layer, whatever its specificity. */
+@layer base {
+  [data-harbor] a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  [data-harbor] h1,
+  [data-harbor] h2,
+  [data-harbor] h3,
+  [data-harbor] p,
+  [data-harbor] figure,
+  [data-harbor] dl,
+  [data-harbor] dd,
+  [data-harbor] ol,
+  [data-harbor] ul {
+    margin: 0;
+  }
+
+  [data-harbor] ol,
+  [data-harbor] ul {
+    padding: 0;
+    list-style: none;
+  }
+}
+
+/* Figures that line up: every number column, every readout. */
+@utility tnum {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* Data face: domains, DNS records, IPs, tokens, IDs, timestamps. Atkinson
+   Hyperlegible Mono is drawn so 0/O, 1/l/I and 5/S cannot be mistaken, which is
+   the whole job when an operator copies a selector or compares two addresses. */
+@utility data {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-feature-settings: "zero" 1;
+  letter-spacing: -0.01em;
+}
+
+/* Archivo's width axis does the work a second typeface would: headings set
+   wide like a chart title, legends set narrow so labels sit in tight columns. */
+@utility wide {
+  font-stretch: 112%;
+}
+@utility narrow {
+  font-stretch: 88%;
+}
+/* The display voice: Archivo at its normal width. Weight, size and tight
+   tracking do the work. Width is never synthesised for headings: stretched
+   past 112% the counters close up and the face reads as a poster trick, and
+   an MSP reading evidence wants a page that looks measured, not shouted.
+   Compared against Schibsted Grotesk, Hanken Grotesk, Source Serif 4 and
+   Newsreader at landing and form sizes: at this width and weight Archivo
+   holds its own, and keeping one family keeps the headings in the same
+   voice as the instrument below them. */
+@utility display {
+  font-family: var(--font-ui);
+  font-stretch: 100%;
+  font-weight: 720;
+  letter-spacing: -0.03em;
+  font-kerning: normal;
+}
+
+/* A chart legend label: narrow caps, small, tracked. */
+@utility legend {
+  font-family: var(--font-ui);
+  font-stretch: 90%;
+  font-size: var(--text-cap);
+  line-height: var(--text-cap--line-height);
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-fg-3);
+}
+
+/* A link in running text: the accent, underlined on a hairline offset. */
+@utility link {
+  color: var(--color-act);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--color-act-line);
+  &:hover {
+    text-decoration-color: currentColor;
+  }
+}
+
+/* Not measured: the honest face of silence. A hatch, never a fill. */
+@utility void-hatch {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent 0 3px,
+    color-mix(in oklab, var(--color-void) 32%, transparent) 3px 4.5px
+  );
+}
+
+/* ── Rules ────────────────────────────────────────────────────────────────
+   A boundary is one solid hairline or nothing. No striped, dashed, dotted or
+   tiled rules anywhere in this system, and no heavy frames around content
+   bands: separation comes from spacing first, a hairline second.
+
+   The one hatch that remains is not a rule: it is the data encoding for "not
+   measured" (chart columns, the posture mark, the fleet bar), where absence of
+   measurement must look different from a measured zero. */
+
+/* Loading: a single hairline with a short accent segment travelling along it.
+   One line, one moving mark; under reduced motion the mark rests. */
+.hb-scan {
+  position: relative;
+  overflow: hidden;
+  height: 1px;
+  background: var(--color-rule-2);
+}
+.hb-scan::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 40px;
+  left: -40px;
+  background: var(--color-act);
+  animation: hb-scan 1.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+@keyframes hb-scan {
+  to {
+    left: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hb-scan::after {
+    animation: none;
+    left: 0;
+  }
+}
+
+/* The setup rail: the filled rule grows from the previous stop to this one,
+   once, on arrival. Under reduced motion the global clamp makes it instant. */
+.hb-rail-fill {
+  animation: hb-rail-grow 900ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+@keyframes hb-rail-grow {
+  from {
+    width: var(--from);
+  }
+  to {
+    width: var(--to);
+  }
+}
+@keyframes hb-pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-act) 45%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 9px transparent;
+  }
+}
+
+/* A row arriving in a list it was just added to: it settles in from above and
+   its background fades from a faint highlight, so the eye finds the new thing. */
+@keyframes hb-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+    background-color: color-mix(in oklab, var(--color-act) 10%, transparent);
+  }
+  60% {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    background-color: transparent;
+  }
+}
+.hb-arrive {
+  animation: hb-arrive 900ms ease-out both;
+}
+
+/* Staggered reveal for a set of things that appear together (records to
+   publish, pricing figures after a switch). --i is the item's index. */
+.hb-stagger > * {
+  animation: hb-rise 260ms ease-out both;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+
+/* A figure that changed value: it rises into place, so a switch of currency or
+   interval is visibly a change and not a reflow. Keyed by value in React. */
+.hb-figure {
+  display: inline-block;
+  animation: hb-rise 220ms ease-out both;
+}
+
+/* A check mark that draws itself when a state becomes true. */
+.hb-draw-check path {
+  stroke-dasharray: 20;
+  stroke-dashoffset: 20;
+  animation: hb-check 420ms 120ms ease-out forwards;
+}
+@keyframes hb-check {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Interaction feedback. Short, functional, never entrance theatre. */
+@keyframes hb-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes hb-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes hb-slide-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* Native <dialog>: the browser owns focus trapping, inertness and Escape. */
+dialog.hb-dialog {
+  /* Tailwind's preflight zeroes every margin, which pins a modal <dialog> to
+     the top-left corner. The UA's auto margin is what centres it. */
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--color-rule-2);
+  border-radius: var(--radius-sheet);
+  background: var(--color-paper-2);
+  color: var(--color-fg);
+  box-shadow: var(--shadow-float);
+  max-width: min(560px, calc(100vw - 32px));
+  width: 100%;
+  font-family: var(--font-ui);
+}
+dialog.hb-dialog[open] {
+  animation: hb-rise 160ms ease-out;
+}
+dialog.hb-dialog::backdrop {
+  background: rgb(18 26 34 / 0.36);
+  animation: hb-fade 160ms ease-out;
+}
+dialog.hb-sheet {
+  margin: 0;
+  height: 100dvh;
+  max-height: 100dvh;
+  max-width: min(320px, 88vw);
+  border-radius: 0;
+  border-width: 0 1px 0 0;
+}
+dialog.hb-sheet[open] {
+  animation: hb-slide-in 200ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+/* The chart water on the marketing diagram: contour lines, drawn once. */
+.hb-draw {
+  stroke-dasharray: var(--len, 2000);
+  stroke-dashoffset: var(--len, 2000);
+  animation: hb-draw 1.8s cubic-bezier(0.3, 0.6, 0.2, 1) forwards;
+}
+@keyframes hb-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hb-draw {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
+
+/* The recommended plan's mark: its accent rule draws in once, left to right,
+   shortly after the plans arrive. One motion, once, then still. Under reduced
+   motion it is simply there (the global clamp keeps delays, so it is named). */
+.hb-rule-draw {
+  transform-origin: left center;
+  animation: hb-rule-draw 700ms cubic-bezier(0.2, 0.7, 0.2, 1) 420ms both;
+}
+@keyframes hb-rule-draw {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hb-rule-draw {
+    animation: none;
+    transform: none;
+  }
+}
+
+/* The Tide (components/ui/tide.tsx): two strokes drifting in phase. */
+.hb-tide {
+  animation: hb-tide 1.2s ease-in-out infinite;
+}
+.hb-tide-late {
+  animation-delay: 0.15s;
+}
+@keyframes hb-tide {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(14px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hb-tide {
+    animation: none;
   }
 }

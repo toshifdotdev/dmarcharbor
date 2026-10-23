@@ -95,6 +95,24 @@ export function listWorkspaces(): Promise<WorkspaceSummary[]> {
  * Returns null rather than throwing on 401: a screen that only wants to hide a
  * button has no business redirecting the whole page over it.
  */
+/**
+ * The signed-in person, for the account menu: who the operator is signed in
+ * as is a fact the shell must state, because an MSP shares machines and
+ * browsers more than anyone admits. Null on any failure: a menu that cannot
+ * name the user says "Signed in", it does not redirect.
+ */
+export async function getSessionUser(): Promise<{ id: string; name: string | null; email: string } | null> {
+  try {
+    const session = await apiFetch<{ user?: { id?: string; name?: string | null; email?: string } } | null>(
+      "/api/auth/get-session",
+    );
+    const u = session?.user;
+    return u?.id && u.email ? { id: u.id, name: u.name?.trim() || null, email: u.email } : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getSessionUserId(): Promise<string | null> {
   try {
     const session = await apiFetch<{ user?: { id?: string } } | null>("/api/auth/get-session");

@@ -1,15 +1,6 @@
-import { LoadingState } from "@/components/data-states";
+import { PageLoading } from "@/components/harbor/page-loading";
 
-/**
- * loading.tsx — pending UI for the onboarding funnel. The steps and the
- * generated record arrive from the API; waiting is the honest render.
- */
+/** Pending UI for a domain's setup page: the steps and the generated record. */
 export default function Loading() {
-  return (
-    <div className="flex min-h-screen w-full items-center justify-center px-6 py-10">
-      <div className="w-full max-w-[320px]">
-        <LoadingState label="Loading the setup steps" />
-      </div>
-    </div>
-  );
+  return <PageLoading label="Reading this domain's setup" rows={8} />;
 }

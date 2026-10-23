@@ -1,8 +1,13 @@
+import type { Metadata } from "next";
 import { verifyCompliancePack, PublicError } from "@/lib/api-public";
-import { ComplianceVerifyForm } from "@/components/compliance-verify";
+import { getCapabilities } from "@/lib/api-ops";
 import { requestOrigin } from "@/lib/metadata-origin";
 import { publicMetadata } from "@/lib/seo";
-import type { Metadata } from "next";
+import type { CompliancePackRecord } from "@/lib/types";
+import { ArtefactFrame } from "@/components/harbor/artefact-frame";
+import { FileCheck, ReferenceForm } from "@/components/harbor/pack-verifier";
+import { KeyValue } from "@/components/ui/notice";
+import { CopyButton, CopyValue } from "@/components/ui/copy";
 
 /** Indexed on purpose. The page is only useful to someone who already holds a
  *  pack and needs to check it, and they arrive by searching for it rather than
@@ -13,159 +18,183 @@ export async function generateMetadata(): Promise<Metadata> {
   return publicMetadata({
     title: "Compliance pack fingerprint verifier",
     description:
-      "Check that a compliance pack you hold is the one we issued. We publish a SHA-256 digest of the exact bytes against a reference, and a copy is genuine when its digest matches. No account needed.",
+      "Check that a compliance pack you hold is the one that was issued. A SHA-256 digest of the exact bytes is published against the pack's reference, and a copy is genuine when its digest matches. No account needed.",
     path: "/verify",
     origin,
   });
 }
 
+function dateLabel(value: string): string {
+  const d = new Date(value);
+  return Number.isNaN(d.getTime())
+    ? "not recorded"
+    : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function bytesLabel(n: number): string {
+  if (n < 1024) return `${n} bytes`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB (${n.toLocaleString("en-GB")} bytes)`;
+  return `${(n / 1024 / 1024).toFixed(2)} MB (${n.toLocaleString("en-GB")} bytes)`;
+}
+
 /**
- * The compliance pack verifier. PUBLIC, no auth — an auditor checks a document
- * they hold against the platform's published fingerprint with no account.
- * The answer is only ever about a digest: never the document, never a client
- * name. Monolith dark, the product typeface: a legal artefact, not a second
- * product with its own look.
+ * The compliance pack verifier. PUBLIC, no auth: an auditor checks a document
+ * they hold against the published fingerprint with no account. The answer is
+ * only ever about a digest: never the document, never a client name.
+ *
+ * This is not email verification. Email links land on the API's own
+ * verify-email endpoint and then on /sign-in.
+ *
+ * Three outcomes, each said as what it is: a match is recorded, no pack carries
+ * the reference (a withdrawn one answers the same way, by design), or the
+ * lookup itself failed, which is not a "no".
  */
-export default async function VerifyPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ reference?: string }>;
-}) {
+export default async function VerifyPage({ searchParams }: { searchParams: Promise<{ reference?: string }> }) {
   const { reference } = await searchParams;
   const trimmed = (reference ?? "").trim();
 
-  let result: Awaited<ReturnType<typeof verifyCompliancePack>> | null = null;
-  let notFound = false;
-
+  let packs: CompliancePackRecord[] | null = null;
+  let outcome: "none" | "found" | "missing" | "failed" = "none";
   if (trimmed) {
     try {
-      result = await verifyCompliancePack(trimmed);
+      const res = await verifyCompliancePack(trimmed);
+      packs = res.packs;
+      outcome = res.found && res.packs.length > 0 ? "found" : "missing";
     } catch (error) {
-      if (error instanceof PublicError && error.status === 404) notFound = true;
-      else throw error;
+      outcome = error instanceof PublicError && error.status === 404 ? "missing" : "failed";
     }
   }
 
+  // The API's own demonstration reference, so the shape shown is real.
+  const example = (await getCapabilities().catch(() => null))?.compliancePack?.exampleReference ?? null;
+
+  // Current first, then superseded: the reader usually holds the latest.
+  const ordered = (packs ?? []).slice().sort((a, b) => Number(a.superseded) - Number(b.superseded));
+
   return (
-    <main data-surface="artefact" className="artefact relative z-10 min-h-screen">
-      <div className="mx-auto max-w-2xl px-6 py-16">
-        <header>
-          <p
-            className="num text-[11px] tracking-[0.22em] uppercase"
-            style={{ color: "var(--color-ink-3)" }}
-          >
-            Compliance pack · public verifier
-          </p>
-          <h1 className="mt-4 text-[32px] leading-tight" style={{ color: "var(--color-ink)" }}>
-            Does this document match the one we issued?
-          </h1>
-          <p className="mt-4 text-[15px] leading-relaxed" style={{ color: "var(--color-ink-2)" }}>
-            Every compliance pack we issue is published as a SHA-256 digest of
-            the exact bytes. A copy you hold is genuine when its digest matches
-            the one recorded here: that is the whole test, and it needs no
-            account.
-          </p>
-        </header>
+    <ArtefactFrame kind="Compliance pack verifier" meta={<>Public. No account needed. Answers only about a fingerprint.</>}>
+      <div className="grid gap-x-14 gap-y-12 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="flex min-w-0 flex-col gap-8">
+          <header className="max-w-[62ch]">
+            <h1 className="display text-[34px] leading-[1.02] text-fg sm:text-[40px]">
+              Is this the compliance pack that was issued?
+            </h1>
+            <p className="mt-3 text-body text-fg-2">
+              Every compliance pack is published as a SHA-256 digest of its exact bytes, under the reference printed on
+              its cover. A copy is genuine when its digest matches the one recorded here.
+            </p>
+          </header>
 
-        <ComplianceVerifyForm initialReference={trimmed} />
+          <ReferenceForm initialReference={trimmed} example={example} />
 
-        {trimmed && notFound ? (
-          <div
-            role="status"
-            className="mt-8 border-t pt-6"
-            style={{ borderColor: "var(--color-line-strong)" }}
-          >
-            <p
-              className="num text-[11px] tracking-[0.18em] uppercase"
-              style={{ color: "var(--color-block)" }}
-            >
-              No match
-            </p>
-            <p className="mt-2 text-[14px]" style={{ color: "var(--color-ink-2)" }}>
-              No issued pack carries this reference. Check the reference printed
-              in the document: it appears on the cover page: and try again.
-              A pack whose link was withdrawn also answers this way, by design.
-            </p>
-          </div>
-        ) : null}
+          {outcome === "missing" ? (
+            <section role="status" data-verify-result="missing" className="border-t border-rule pt-5 [animation:hb-rise_220ms_ease-out]">
+              <p className="legend text-fail!">No pack under this reference</p>
+              <p className="data mt-2 break-all text-meta text-fg-3">{trimmed}</p>
+              <p className="mt-2 max-w-[64ch] text-ui text-fg-2">
+                No issued pack carries this reference. Check it against the cover page, character by character. A pack
+                whose link was withdrawn answers the same way, by design, so this page cannot confirm that a pack ever
+                existed.
+              </p>
+            </section>
+          ) : null}
 
-        {result?.found ? (
-          <div className="mt-8 border-t pt-6" style={{ borderColor: "var(--color-line-strong)" }}>
-            <p
-              className="num text-[11px] tracking-[0.18em] uppercase"
-              style={{ color: "var(--color-pass)" }}
-            >
-              Published
-            </p>
-            <p
-              className="num mt-2 text-[11.5px] break-all"
-              style={{ color: "var(--color-ink-3)" }}
-            >
-              reference {result.packs[0]?.reference ?? trimmed}
-            </p>
-            <p className="mt-2 text-[14px]" style={{ color: "var(--color-ink-2)" }}>
-              This reference is recorded. Compare the digest below against the
-              SHA-256 of the PDF you hold: a match means the bytes are exactly
-              what we issued.
-            </p>
-            <ul className="mt-5 flex flex-col gap-4">
-              {result.packs.map((p) => (
-                <li
-                  key={p.reference}
-                  className="border p-4"
-                  style={{
-                    borderColor: p.superseded ? "var(--color-line)" : "var(--color-line-strong)",
-                    opacity: p.superseded ? 0.6 : 1,
-                  }}
-                >
-                  <div className="flex items-baseline justify-between gap-4">
-                    <span
-                      className="num text-[10.5px] tracking-[0.14em] uppercase"
-                      style={{ color: "var(--color-ink-3)" }}
-                    >
-                      {p.documentVersion}
-                    </span>
-                    <span
-                      className="num text-[10.5px] tracking-[0.14em] uppercase"
-                      style={{
-                        color: p.superseded ? "var(--color-unmeasured)" : "var(--color-pass)",
-                      }}
-                    >
-                      {p.superseded ? "superseded" : "current"}
-                    </span>
-                  </div>
-                  <p
-                    className="num mt-2 text-[11px] break-all"
-                    style={{ color: "var(--color-ink)" }}
-                    aria-label="SHA-256 digest of the issued document"
-                  >
-                    sha256: {p.sha256}
-                  </p>
-                  <p className="num mt-2 text-[11px]" style={{ color: "var(--color-ink-3)" }}>
-                    {p.pageCount} page{p.pageCount === 1 ? "" : "s"} · {p.byteSize} bytes ·{" "}
-                    issued {new Date(p.issuedAt).toLocaleDateString("en-GB")} · as of{" "}
-                    {new Date(p.dataAsOf).toLocaleDateString("en-GB")}
-                  </p>
+          {outcome === "failed" ? (
+            <section role="alert" data-verify-result="failed" className="border-t border-rule pt-5">
+              <p className="legend text-warn!">The lookup did not run</p>
+              <p className="mt-2 max-w-[64ch] text-ui text-fg-2">
+                The record could not be reached just now. This is not a &ldquo;no match&rdquo;: try again in a moment.
+              </p>
+            </section>
+          ) : null}
+
+          {outcome === "found" ? (
+            <section data-verify-result="found" aria-labelledby="published-head" className="flex flex-col gap-6 border-t border-rule pt-5">
+              <div className="[animation:hb-rise_220ms_ease-out]">
+                <p className="legend text-ok!">Recorded</p>
+                <h2 id="published-head" className="data mt-1.5 break-all text-[17px] font-semibold text-fg">
+                  {ordered[0]?.reference ?? trimmed}
+                </h2>
+                <p className="mt-1.5 max-w-[64ch] text-ui text-fg-2">
+                  This reference is on record. Compare the digest below with the SHA-256 of the PDF you hold, here or
+                  by hand.
+                </p>
+              </div>
+
+              <ol className="hb-stagger flex flex-col gap-6">
+                {ordered.map((p, i) => (
+                  <li key={`${p.sha256}-${i}`} style={{ "--i": i } as React.CSSProperties} className={p.superseded ? "opacity-75" : undefined}>
+                    <div className="flex flex-wrap items-baseline justify-between gap-2 pb-2">
+                      <span className="text-ui font-semibold text-fg">Document version {p.documentVersion}</span>
+                      <span className={p.superseded ? "text-meta font-semibold text-fg-3" : "text-meta font-semibold text-ok"}>
+                        {p.superseded ? "Superseded by a newer pack" : "Current"}
+                      </span>
+                    </div>
+                    <div data-copy-scope className="flex items-start gap-2 rounded-ctl border border-rule-2 bg-paper-2 px-3 py-2.5">
+                      <p data-copy-value className="data min-w-0 flex-1 break-all text-ui text-fg" aria-label="SHA-256 digest of the issued document">
+                        <span className="text-fg-3">sha256 </span>
+                        {p.sha256}
+                      </p>
+                      <CopyButton value={p.sha256} label="Copy the SHA-256 digest" />
+                    </div>
+                    <KeyValue
+                      className="mt-3"
+                      labelWidth={120}
+                      rows={[
+                        ["Issued", dateLabel(p.issuedAt)],
+                        ["Data as of", dateLabel(p.dataAsOf)],
+                        ["Pages", <span key="p" className="tnum">{p.pageCount}</span>],
+                        ["Size", <span key="s" className="tnum">{bytesLabel(p.byteSize)}</span>],
+                      ]}
+                    />
+                  </li>
+                ))}
+              </ol>
+
+              <FileCheck
+                published={ordered.map((p) => ({ sha256: p.sha256, documentVersion: p.documentVersion, superseded: p.superseded }))}
+              />
+            </section>
+          ) : null}
+        </div>
+
+        <aside className="flex flex-col gap-6 self-start border-t border-rule pt-5 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
+          <div>
+            <p className="legend pb-2">How the check works</p>
+            <ol className="flex flex-col gap-3 text-ui">
+              {[
+                ["Look up the reference", "From the pack's cover page. The record answers with the digest it was issued with."],
+                ["Hash the file you hold", "Here, in the browser, or by hand with the command below."],
+                ["Compare", "Identical digests mean identical bytes: the file has not changed since it was issued."],
+              ].map(([k, v], i) => (
+                <li key={k} className="grid grid-cols-[22px_minmax(0,1fr)] gap-2">
+                  <span className="tnum font-bold text-fg-3">{i + 1}</span>
+                  <span>
+                    <span className="block font-semibold text-fg">{k}</span>
+                    <span className="text-fg-2">{v}</span>
+                  </span>
                 </li>
               ))}
-            </ul>
-            <p className="mt-5 text-[12px]" style={{ color: "var(--color-ink-3)" }}>
-              This page answers only about a fingerprint. It never serves the
-              document and never names a client: verification and confidentiality
-              are different jobs, and this one is deliberately the former.
+            </ol>
+          </div>
+          <div>
+            <p className="legend pb-2">By hand</p>
+            <CopyValue value="sha256sum dmarc-compliance-pack.pdf" label="Copy the command" />
+            <p className="mt-1.5 text-meta text-fg-3">
+              On Windows: <code className="data text-fg-2">certutil -hashfile file.pdf SHA256</code>. On macOS:{" "}
+              <code className="data text-fg-2">shasum -a 256 file.pdf</code>.
             </p>
           </div>
-        ) : null}
-
-        <footer className="mt-16 border-t pt-6" style={{ borderColor: "var(--color-line-strong)" }}>
-          <p className="num text-[10.5px] leading-relaxed" style={{ color: "var(--color-ink-3)" }}>
-            This verifier is public by design: an auditor holds a document long
-            before anyone at their company has an account with us. Hashing the
-            file you hold (for example <code>sha256sum dmarc-compliance-….pdf</code>)
-            and comparing it to the digest above is the complete test.
-          </p>
-        </footer>
+          <div className="border-t border-rule pt-4">
+            <p className="legend pb-1.5">What a match proves</p>
+            <p className="text-meta text-fg-2">
+              That the document is unaltered since it was issued. It is a self attestation by the issuer, not a third
+              party audit, and it says nothing about the issuer beyond that. This page never serves the document and
+              never names a client.
+            </p>
+          </div>
+        </aside>
       </div>
-    </main>
+    </ArtefactFrame>
   );
 }

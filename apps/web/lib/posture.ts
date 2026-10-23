@@ -14,7 +14,7 @@
  *
  * STALE and NOT MEASURED are different facts and must never read as one:
  *   stale        = we HAVE a measurement window and it has aged past the
- *                  threshold (measured, then quiet);
+ *                  threshold (measured, then no report since);
  *   not measured = no measurement exists (never measured).
  * Both stay out of the aligned count and out of any pass rate.
  */
@@ -47,8 +47,10 @@ export const POSTURE_META: Record<
   stale: {
     label: "Stale",
     action: "Recheck",
+    // "No report", never "quiet": all we can observe is that receivers stopped
+    // sending reports. Whether the domain stopped sending mail is unknown.
     meaning:
-      "Measured once, then the feed went quiet. The window has aged out: past measurements are shown, not current health.",
+      "Reports used to arrive, then none came for more than 5 days. Past measurements are shown, not current health.",
   },
   unmeasured: {
     label: "Not measured",
@@ -61,6 +63,18 @@ export const POSTURE_META: Record<
 export const UNKNOWN_SHARE_FLOOR = 0.25;
 export const STALE_AFTER_DAYS = 5;
 
+/**
+ * Whole days since the last report was received: the ONE definition every
+ * screen uses (posture, chart annotation, silence band), so they cannot
+ * disagree about whether a domain is stale. Elapsed time, floored, not a
+ * calendar-day difference: a report at 23:50 yesterday is 0 days old, not 1.
+ */
+export function daysSinceReport(lastReportAt: string | null, now: number): number | null {
+  if (!lastReportAt) return null;
+  const t = new Date(lastReportAt).getTime();
+  return Number.isNaN(t) ? null : Math.max(0, Math.floor((now - t) / 86_400_000));
+}
+
 export type ResolvedPosture = { posture: Posture; reason: string };
 
 export function fmtVolume(n: number): string {
@@ -68,10 +82,9 @@ export function fmtVolume(n: number): string {
 }
 
 export function resolvePosture(s: DomainSignals): ResolvedPosture {
-  const ageDays =
-    s.lastReportAt === null
-      ? Infinity
-      : (Date.now() - new Date(s.lastReportAt).getTime()) / 86_400_000;
+  // Whole days, by the same rule the chart and the silence band print, so a
+  // domain can never read "5 days" beside a Stale badge.
+  const ageDays = daysSinceReport(s.lastReportAt, Date.now()) ?? Infinity;
 
   // 1. Never measured outranks everything: nothing was ever observed.
   if (s.messageCount === 0) {
@@ -80,13 +93,13 @@ export function resolvePosture(s: DomainSignals): ResolvedPosture {
       : { posture: "unmeasured", reason: "never measured: reports received, but no messages in them" };
   }
 
-  // 2. Stale outranks blocking: a feed that went quiet cannot be read as
+  // 2. Stale outranks blocking: a feed with no recent report cannot be read as
   //    current failure, and its past measurements must not masquerade as
   //    present state.
   if (ageDays > STALE_AFTER_DAYS) {
     return {
       posture: "stale",
-      reason: `measured, then quiet: ${fmtVolume(s.messageCount)} messages, last report ${Math.floor(ageDays)} days ago`,
+      reason: `no report for ${ageDays} days: ${fmtVolume(s.messageCount)} messages measured before that`,
     };
   }
 

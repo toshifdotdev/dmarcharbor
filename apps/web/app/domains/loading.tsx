@@ -1,15 +1,6 @@
-import { LoadingState } from "@/components/data-states";
+import { PageLoading } from "@/components/harbor/page-loading";
 
-/**
- * loading.tsx — pending UI for the domain detail. The evidence panels arrive
- * from several calls; a waiting state is the honest render while they do.
- */
+/** Pending UI for the domain detail: the evidence arrives from several calls. */
 export default function Loading() {
-  return (
-    <div className="flex min-h-screen w-full items-center justify-center px-6 py-10">
-      <div className="w-full max-w-[320px]">
-        <LoadingState label="Loading the domain" />
-      </div>
-    </div>
-  );
+  return <PageLoading label="Reading the domain's evidence" rows={10} />;
 }

@@ -1,142 +1,116 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { listClients } from "@/lib/api";
 import { getWorkspaceEntitlements, listReportDigests } from "@/lib/api-ops";
-import { resolveActiveWorkspace } from "@/lib/session";
-import { Shell } from "@/components/shell";
-import { UpgradePrompt } from "@/components/upgrade-gate";
-import { EmptyState, ErrorState } from "@/components/data-states";
+import { nextDigestDue, scheduleLabel } from "@/lib/digest-schedule";
 import { featureOf } from "@/lib/entitlements";
-import { PlanUnavailableNotice } from "@/components/plan-unavailable-notice";
-import { DigestActions, DigestForm } from "@/components/digests-client";
-import { DigestRunControls, RunAllDigestsButton } from "@/components/digest-controls";
+import { instantLabel } from "@/lib/instant";
+import { resolveActiveWorkspace } from "@/lib/session";
+import { AppShell } from "@/components/harbor/app-shell";
+import { DigestBoard, type DigestView } from "@/components/harbor/digest-board";
+import { DigestForm } from "@/components/harbor/digest-form";
+import { PageHeader } from "@/components/harbor/page-header";
+import { PlanUnknown } from "@/components/harbor/plan-refusal";
+import { RefreshButton } from "@/components/harbor/refresh-button";
+import { ErrorState, UpgradeNotice } from "@/components/ui/states";
 
+export const metadata: Metadata = { title: "Digests" };
+
+/**
+ * /digests — the report emails that go out on a schedule, per domain.
+ *
+ * Each digest is one domain's summary, sent weekly or monthly at an hour in
+ * UTC to up to 20 addresses: the client's IT contact, a colleague, the
+ * account manager. The list says when each one goes next, worked out with the
+ * scheduler's own rule (lib/digest-schedule.ts), when it last went, and lets
+ * it be sent at once with what was sent shown back.
+ *
+ * Gating follows the API: creating a digest needs `digests` on the plan;
+ * reading, pausing, editing, sending and deleting do not. A failed list read
+ * is the failure state, never "no digests yet".
+ */
 export default async function DigestsPage() {
   const { workspaces, active } = await resolveActiveWorkspace();
   if (!active) redirect("/welcome");
 
-  const entitlements = await getWorkspaceEntitlements(active.id).catch(() => null);
-  const digestsEnabled = featureOf(entitlements, "digests");
-  const allowForensics = featureOf(entitlements, "reports.forensic");
-
-  const [clients, digests] = await Promise.all([
-    // Three states, never two: a failed load must never render as "no digests
-    // yet": that is a lie that costs someone an afternoon.
+  const [entitlements, clients, digests] = await Promise.all([
+    getWorkspaceEntitlements(active.id).catch(() => null),
     listClients(active.id).catch(() => null),
     listReportDigests(active.id).catch(() => null),
   ]);
-  const loadFailed = clients === null || digests === null;
-  const clientRows = clients ?? [];
-  const digestRows = digests ? digests.items : [];
-  const domains = clientRows.flatMap((c) => c.domains.map((d) => ({ id: d.id, name: d.name })));
+  const digestsOnPlan = featureOf(entitlements, "digests");
+  const forensicsOnPlan = featureOf(entitlements, "reports.forensic");
+
+  const now = new Date();
+  const views: DigestView[] = (digests?.items ?? []).map((d) => {
+    const next = d.enabled ? nextDigestDue(d, now) : null;
+    return {
+      ...d,
+      scheduleLabel: scheduleLabel(d),
+      // In UTC, like the schedule it is computed from: "Mondays at 09:00 UTC,
+      // next 14:30" in another zone reads as a contradiction.
+      nextLabel:
+        next === null
+          ? null
+          : next === "now"
+            ? "now"
+            : Number.isNaN(next.getTime())
+              ? null
+              : `${next.toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "UTC" })} UTC`,
+      lastSentLabel: d.lastSentAt ? instantLabel(d.lastSentAt) : null,
+    };
+  });
+  const enabled = views.filter((d) => d.enabled).length;
+  const domainGroups = (clients ?? [])
+    .filter((c) => c.domains.length > 0)
+    .map((c) => ({ clientName: c.name, domains: c.domains.map((d) => ({ id: d.id, name: d.name })) }));
 
   return (
-    <Shell workspaces={workspaces} activeWorkspace={active}>
-      <div className="flex flex-col gap-5">
-        <header>
-          <h1 className="label">Digests</h1>
-          <p className="mt-1.5 text-[14.5px]" style={{ color: "var(--color-ink-2)" }}>
-            Scheduled report summaries sent to client contacts under your brand.
-          </p>
-        </header>
+    <AppShell workspaces={workspaces} activeWorkspace={active} trail={[{ label: "Digests" }]}>
+      <div className="flex flex-col gap-8">
+        <PageHeader
+          title="Digests"
+          lede="A domain's report summary, emailed on a schedule to the people who need it: the client's IT contact, a colleague, the account manager. Weekly or monthly, at an hour in UTC."
+          meta={
+            digests && views.length > 0 ? (
+              <span>
+                <span className="tnum font-semibold text-fg-2">{enabled}</span> of <span className="tnum">{views.length}</span> scheduled digest
+                {views.length === 1 ? "" : "s"} active
+              </span>
+            ) : null
+          }
+          actions={<RefreshButton />}
+        />
 
-{entitlements === null ? (
-  <PlanUnavailableNotice />
-        ) : !digestsEnabled ? (
-            <UpgradePrompt
-              error={{
-                feature: "digests",
-                message: "Scheduled digests are not included in this plan.",
-              }}
-              context="The API owns which plan carries digests; this workspace's current plan does not."
-            />
-          ) : (
-            <>
-              <section className="panel p-5">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="max-w-xl">
-                    <h2 className="text-[15px] font-semibold">Send without waiting</h2>
-                    <p className="mt-1 text-[13px]" style={{ color: "var(--color-ink-2)" }}>
-                      Useful the first time you set a digest up, when the only other
-                      way to find out whether it works is to wait for the schedule.
-                    </p>
-                  </div>
-                  <RunAllDigestsButton organizationId={active.id} />
-                </div>
-              </section>
+        {entitlements === null ? <PlanUnknown what="scheduled digests" /> : null}
 
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <DigestForm
-                organizationId={active.id}
-                domains={domains}
-                allowForensics={allowForensics === true}
+        <div className="grid gap-x-10 gap-y-10 lg:grid-cols-[minmax(0,1fr)_380px]">
+          <section aria-labelledby="scheduled-head" className="flex min-w-0 flex-col gap-3">
+            <h2 id="scheduled-head" className="text-h2 font-bold tracking-[-0.02em] text-fg">
+              Scheduled
+            </h2>
+            {digests === null ? (
+              <ErrorState what="the scheduled digests" detail="This is a connection or API problem, not an empty schedule." />
+            ) : (
+              <DigestBoard organizationId={active.id} digests={views} forensicsOnPlan={forensicsOnPlan === true} />
+            )}
+          </section>
+
+          <aside className="flex flex-col gap-3 self-start lg:sticky lg:top-[104px]">
+            {digestsOnPlan === false ? (
+              <UpgradeNotice
+                message="Scheduled digests are not included in this workspace's plan."
+                feature="digests"
+                context="Digests already scheduled keep their settings and can still be paused, edited, sent or deleted."
               />
-
-              <section
-                className="lift rounded-[2px] border"
-                style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
-              >
-                <header className="border-b px-5 py-3.5" style={{ borderColor: "var(--color-line)" }}>
-                  <h2 className="text-[16.5px] font-semibold tracking-[-0.012em]">Scheduled</h2>
-                </header>
-                {loadFailed ? (
-                  <div className="p-5">
-                    <ErrorState what="the scheduled digests" detail="This is a connection or API problem, not an empty schedule." />
-                  </div>
-                ) : digestRows.length === 0 ? (
-                  <div className="p-5">
-                    <EmptyState
-                      title="No digests scheduled yet"
-                      description="A digest is a recurring report summary sent to your client's contacts under your brand. Create the first one on the left: weekly or monthly, with the recipient list you choose."
-                    />
-                  </div>
-                ) : (
-                  <ul>
-                    {digestRows.map((d) => (
-                      <li
-                        key={d.id}
-                        className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b px-5 py-3"
-                        style={{
-                          borderColor: "rgba(255,255,255,0.055)",
-                          boxShadow: d.enabled ? undefined : "inset 2px 0 0 var(--color-unmeasured)",
-                        }}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="text-[14px]" style={{ color: "var(--color-ink)" }}>
-                            {d.domain?.name}
-                          </div>
-                          <div className="num text-[12px]" style={{ color: "var(--color-ink-3)" }}>
-                            {d.frequency.toLowerCase()} · {String(d.sendHourUtc).padStart(2, "0")}:00 UTC ·{" "}
-                            {d.frequency === "WEEKLY"
-                              ? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.weekday]
-                              : `day ${d.dayOfMonth}`}{" "}
-                            · {d.recipientEmails.length} recipient
-                            {d.recipientEmails.length === 1 ? "" : "s"}
-                            {d.includeForensics ? " · forensic included" : ""}
-                          </div>
-                        </div>
-                        <span
-                          className="num text-[11.5px] tracking-[0.12em] uppercase"
-                          style={{ color: d.enabled ? "var(--color-pass)" : "var(--color-unmeasured)" }}
-                        >
-                          {d.enabled ? "active" : "paused"}
-                        </span>
-<DigestActions organizationId={active.id} digest={d} />
-                          <div className="basis-full">
-                            <DigestRunControls
-                              organizationId={active.id}
-                              digestId={d.id}
-                              digestLabel={d.domain?.name ?? "this digest"}
-                            />
-                          </div>
-                        </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
-            </div>
-          </>
-        )}
+            ) : clients === null ? (
+              <ErrorState what="the domain list" detail="The new-digest form needs it to offer domains." />
+            ) : (
+              <DigestForm organizationId={active.id} domainGroups={domainGroups} forensicsOnPlan={forensicsOnPlan === true} />
+            )}
+          </aside>
+        </div>
       </div>
-    </Shell>
+    </AppShell>
   );
 }

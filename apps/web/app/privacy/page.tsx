@@ -1,4 +1,4 @@
-import { LegalDocView } from "@/components/legal-doc-view";
+import { LegalDocument } from "@/components/harbor/legal-document";
 import { requestOrigin } from "@/lib/metadata-origin";
 import { legalMetadata } from "@/lib/seo";
 
@@ -11,5 +11,5 @@ export async function generateMetadata() {
 }
 
 export default function Page() {
-  return <LegalDocView slug="privacy" />;
+  return <LegalDocument slug="privacy" />;
 }

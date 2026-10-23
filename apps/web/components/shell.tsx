@@ -12,7 +12,7 @@ import { redirect } from "next/navigation";
 import type { WorkspaceSummary } from "@/lib/types";
 import { readHostBrand } from "@/lib/host-brand";
 import { PierMark } from "@/components/mark";
-import { LEGAL_FOOTER_LINKS } from "@/components/marketing";
+import { LEGAL_FOOTER_LINKS } from "@/lib/site-links";
 import { SignOutButton } from "@/components/sign-out";
 import { UnreadBadge } from "@/components/unread-badge";
 import { WorkspaceSwitcher } from "@/components/workspace-switcher";

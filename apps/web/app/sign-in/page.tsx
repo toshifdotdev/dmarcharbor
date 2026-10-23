@@ -1,34 +1,51 @@
 import Link from "next/link";
-import { PierMark } from "@/components/mark";
-import { AuthForm } from "@/components/auth-form";
-import { SocialButtons } from "@/components/social-buttons";
+import { redirect } from "next/navigation";
+import { getSessionUserId } from "@/lib/api";
+import { safeNext } from "@/lib/session";
+import { AuthFrame } from "@/components/harbor/auth-frame";
+import { AuthPanel } from "@/components/harbor/auth-panel";
 
-export default function SignInPage() {
+/**
+ * /sign-in — also where a password reset link lands (?token=…) and where a
+ * session that expired mid-task sends you (?next=/the/page/you/were/on).
+ *
+ * Someone already signed in is sent on, not shown a form for an account they
+ * are already using.
+ */
+
+const URL_ERRORS: Record<string, string> = {
+  social: "That sign-in did not complete with the provider. Try again, or sign in with email.",
+  INVALID_TOKEN: "That reset link is not valid any more: it was used already or it is over an hour old. Ask for a new one.",
+};
+
+export default async function SignInPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string; token?: string; error?: string }>;
+}) {
+  const { next: rawNext, token, error } = await searchParams;
+  const next = safeNext(rawNext);
+
+  // A reset link is for someone who cannot sign in, so it never redirects.
+  if (!token && (await getSessionUserId())) redirect(next ?? "/");
+
   return (
-    <main className="relative z-10 flex min-h-screen flex-col items-center justify-center gap-10 px-6">
-      <div className="flex flex-col items-center gap-4">
-        <PierMark size={44} />
-        <h1
-          className="text-[27.5px] font-semibold tracking-[-0.03em]"
-          style={{ fontFamily: "var(--font-display)" }}
-        >
-          DMARC Harbor
-        </h1>
-        <p className="max-w-xs text-center text-[14.5px]" style={{ color: "var(--color-ink-2)" }}>
-          Measurement and evidence about what the world's mail servers think
-          of your sending infrastructure.
-        </p>
-      </div>
-
-      <AuthForm mode="sign-in" />
-      <SocialButtons />
-
-      <p className="text-[14px]" style={{ color: "var(--color-ink-3)" }}>
-        No account yet?{" "}
-        <Link href="/sign-up" className="underline" style={{ color: "var(--color-ink-2)" }}>
-          Create one
-        </Link>
-      </p>
-    </main>
+    <AuthFrame
+      aside={
+        <>
+          <span className="hidden text-fg-3 sm:inline">New here?</span>
+          <Link href="/sign-up" className="link font-semibold">
+            Create an account
+          </Link>
+        </>
+      }
+    >
+      <AuthPanel
+        initialMode="sign-in"
+        next={next}
+        resetToken={token && !error ? token : null}
+        initialError={error ? (URL_ERRORS[error] ?? "That did not work. Try again.") : null}
+      />
+    </AuthFrame>
   );
 }

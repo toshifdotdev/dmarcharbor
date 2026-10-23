@@ -75,7 +75,7 @@ async function call<T>(
     return {
       ok: false,
       status: ui.status,
-      error: { code: extractErrorCode(raw) ?? String(res.status), message: ui.message },
+      error: { code: extractErrorCode(raw) ?? String(res.status), message: ui.message, ...planKeys(raw) },
     };
   }
 
@@ -89,6 +89,31 @@ async function call<T>(
       status: res.status,
       error: { code: "BAD_RESPONSE", message: "The server sent a response we could not read." },
     };
+  }
+}
+
+/**
+ * The entitlement or quota key on a 402, wherever the API put it.
+ *
+ * The middleware spreads it onto the error (`error.feature`); the bulk import
+ * nests it (`error.details.feature`). Dropping it meant every mutation 402
+ * routed its upgrade prompt as "unknown". Keys only: the message is already
+ * carried, and nothing is parsed out of a sentence.
+ */
+function planKeys(raw: string): { feature?: string; quota?: string } {
+  try {
+    const body = JSON.parse(raw) as {
+      error?: { feature?: unknown; quota?: unknown; details?: { feature?: unknown; quota?: unknown } };
+    };
+    const e = body?.error;
+    const feature = e?.feature ?? e?.details?.feature;
+    const quota = e?.quota ?? e?.details?.quota;
+    return {
+      ...(typeof feature === "string" ? { feature } : {}),
+      ...(typeof quota === "string" ? { quota } : {}),
+    };
+  } catch {
+    return {};
   }
 }
 

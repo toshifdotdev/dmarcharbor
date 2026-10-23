@@ -1,19 +1,21 @@
-import { LoadingState } from "@/components/data-states";
+import { LoadingState } from "@/components/ui/states";
 
 /**
- * loading.tsx — pending UI while a segment's server components stream in.
- * A slow page shows waiting (the Tide loader), never a white screen: a white
- * screen on a slow API reads as a broken app.
+ * loading.tsx — pending UI for every route without a boundary of its own.
  *
- * Full viewport height and centred. The loader used to sit at the top of the
- * page in a bordered box, which reads as a fragment that failed to load rather
- * than a page that is waiting: a centred mark in the middle of the viewport is
- * the one position that is unambiguously "still working on it".
+ * It renders inside a data-harbor element on purpose. The paper ground exists
+ * only while one is mounted (globals.css: body:has([data-harbor])); without it
+ * the body falls back to the old dark ground, and a transition between two
+ * light pages flashed black. The wrapper fills the viewport, so the paper is
+ * there for the whole wait.
+ *
+ * Routes still on the old dark theme carry their own dark boundary, so they do
+ * not flash light on the way in.
  */
 export default function Loading() {
   return (
-    <div className="flex min-h-screen w-full items-center justify-center px-6 py-12">
-      <div className="w-full max-w-[320px]">
+    <div data-harbor className="flex min-h-screen w-full flex-col bg-paper">
+      <div className="mx-auto flex w-full max-w-[560px] flex-1 flex-col justify-center px-6 py-16">
         <LoadingState label="Loading" />
       </div>
     </div>

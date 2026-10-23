@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Archivo, Atkinson_Hyperlegible_Mono, Inter } from "next/font/google";
 import { BrandApplier } from "@/components/brand-applier";
 import { StructuredData } from "@/components/structured-data-view";
 import { requestOrigin } from "@/lib/metadata-origin";
@@ -17,6 +17,30 @@ const inter = Inter({
   weight: ["400", "500", "600", "700"],
   variable: "--font-inter",
   display: "swap",
+});
+
+/**
+ * The Chart system's two faces (globals.css, "CHART system"). Inter above stays
+ * until Phase 2 moves the last Monolith screen.
+ *
+ * Archivo is loaded with its width axis: headings set wide, legends set narrow,
+ * one family doing the work of two. Atkinson Hyperlegible Mono is the data face,
+ * chosen because it is drawn to keep 0/O, 1/l/I and 5/S apart.
+ */
+const archivo = Archivo({
+  subsets: ["latin"],
+  axes: ["wdth"],
+  variable: "--font-archivo",
+  display: "swap",
+});
+
+const hyperMono = Atkinson_Hyperlegible_Mono({
+  subsets: ["latin"],
+  variable: "--font-hyper-mono",
+  display: "swap",
+  // Next has no fallback metrics for this family; without this it warns and
+  // falls back to the platform monospace unadjusted anyway.
+  adjustFontFallback: false,
 });
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -79,7 +103,7 @@ export default async function RootLayout({
 }) {
   const origin = await requestOrigin();
   return (
-    <html lang="en" className={inter.variable}>
+    <html lang="en" className={`${inter.variable} ${archivo.variable} ${hyperMono.variable}`}>
       <body>
         {/* Both of these emit a raw element - a <style> and a <script> - and
             they live INSIDE <body> on purpose.

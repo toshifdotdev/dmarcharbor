@@ -1,40 +1,35 @@
 import Link from "next/link";
+import { ButtonLink } from "@/components/ui/button";
 
 /**
- * The 404. A route that does not exist is not an error state with a retry —
- * it says where the reader can actually go.
+ * The 404. A route that does not exist is not an error state with a retry: it
+ * says where the reader can actually go. On the paper ground, because every
+ * page it can be reached from is.
  */
 export default function NotFound() {
   return (
-    <main className="relative z-10 flex min-h-screen flex-col items-center justify-center gap-6 px-6">
-      <p className="num text-[11px] tracking-[0.16em] uppercase" style={{ color: "var(--color-ink-3)" }}>
-        404
-      </p>
-      <h1
-        className="text-[25.5px] font-semibold tracking-[-0.03em]"
-        style={{ fontFamily: "var(--font-display)" }}
-      >
-        This page does not exist.
-      </h1>
-      <p className="max-w-sm text-center text-[14px]" style={{ color: "var(--color-ink-2)" }}>
-        The address may have changed or the link may be wrong. The routes below
-        all exist.
-      </p>
-      <div className="flex flex-wrap items-center gap-4">
-        <Link
-          href="/"
-          className="rounded-[2px] px-5 py-2.5 text-[13.5px] font-semibold"
-          style={{ background: "var(--color-accent)", color: "var(--color-accent-ink)" }}
-        >
-          Go home
-        </Link>
-        <Link href="/pricing" className="text-[13.5px] underline" style={{ color: "var(--color-ink-2)" }}>
-          Pricing
-        </Link>
-        <Link href="/sign-in" className="text-[13.5px] underline" style={{ color: "var(--color-ink-2)" }}>
-          Sign in
-        </Link>
-      </div>
-    </main>
+    <div data-harbor className="flex min-h-screen w-full flex-col bg-paper">
+      <main className="mx-auto flex w-full max-w-[600px] flex-1 flex-col justify-center gap-4 px-6 py-16">
+        <p className="legend">404 · Not found</p>
+        <h1 className="display text-h1 text-fg">This page does not exist.</h1>
+        <p className="text-body text-fg-2">
+          The address may have changed, or the link may be wrong. These all exist:
+        </p>
+        <div className="flex flex-wrap items-center gap-4">
+          <ButtonLink href="/" variant="primary">
+            Go to the start
+          </ButtonLink>
+          <Link href="/clients" className="link text-ui">
+            Clients
+          </Link>
+          <Link href="/pricing" className="link text-ui">
+            Pricing
+          </Link>
+          <Link href="/sign-in" className="link text-ui">
+            Sign in
+          </Link>
+        </div>
+      </main>
+    </div>
   );
 }
