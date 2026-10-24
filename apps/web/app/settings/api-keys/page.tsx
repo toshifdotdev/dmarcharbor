@@ -1,71 +1,79 @@
-import { redirect } from "next/navigation";
-import { listApiKeys, getWorkspaceEntitlements } from "@/lib/api-ops";
-import { resolveActiveWorkspace } from "@/lib/session";
-import Link from "next/link";
-import { Shell } from "@/components/shell";
-import { SettingsNav } from "@/components/settings-nav";
-import { PlanUnavailableNotice } from "@/components/plan-unavailable-notice";
+import type { Metadata } from "next";
+import { getWorkspaceEntitlements, listApiKeys, OpsError } from "@/lib/api-ops";
 import { featureOf } from "@/lib/entitlements";
-import { ApiKeysPanel } from "@/components/api-keys-client";
-import { ErrorState } from "@/components/data-states";
+import { instantLabel } from "@/lib/instant";
+import { settingsContext } from "@/lib/settings-context";
+import type { ApiKeyRow } from "@/lib/types";
+import { PlanUnknown } from "@/components/harbor/plan-refusal";
+import { ApiKeysBoard, type KeyView } from "@/components/harbor/settings/api-keys";
+import { SettingsFrame } from "@/components/harbor/settings/frame";
+import { ErrorState, PermissionState } from "@/components/ui/states";
+
+export const metadata: Metadata = { title: "API keys" };
+
+const DAY = 24 * 60 * 60 * 1000;
+
+function view(k: ApiKeyRow, now: number): KeyView {
+  const expires = k.expiresAt ? new Date(k.expiresAt).getTime() : null;
+  const state: KeyView["state"] = k.revokedAt ? "revoked" : expires !== null && expires <= now ? "expired" : "live";
+  return {
+    id: k.id,
+    name: k.name,
+    prefix: k.prefix,
+    scopes: k.scopes,
+    state,
+    createdLabel: k.createdAt ? instantLabel(k.createdAt) : null,
+    lastUsedLabel: k.lastUsedAt ? instantLabel(k.lastUsedAt) : null,
+    lastUsedIp: k.lastUsedIp,
+    expiresLabel: k.expiresAt ? instantLabel(k.expiresAt) : null,
+    daysLeft: state === "live" && expires !== null ? Math.floor((expires - now) / DAY) : null,
+    endedLabel: k.revokedAt ? instantLabel(k.revokedAt) : null,
+  };
+}
 
 /**
- * API keys. A failed key list is NOT "no keys": on this screen the list IS
- * the audit of who can call the public API, and a silent empty list would
- * hide a key an operator is trying to find. Failure renders as failure.
+ * /settings/api-keys — owners and admins list and revoke (organization:update);
+ * issuing and erasing a revoked record are the owner's (billing:update),
+ * because a key acts for the whole workspace. Anyone else is told why, not
+ * refused by a 403 they can only guess at.
  */
-export default async function ApiKeysSettingsPage() {
-  const { workspaces, active } = await resolveActiveWorkspace();
-  if (!active) redirect("/welcome");
+export default async function ApiKeysPage() {
+  const ctx = await settingsContext();
+  // Owners and admins read and revoke; only the owner issues.
+  const mayRead = ctx.role === null || ctx.role === "owner" || ctx.role === "admin";
+  const [listed, entitlements] = mayRead
+    ? await Promise.all([
+        listApiKeys(ctx.active.id).catch((e: unknown) => (e instanceof OpsError && e.status === 403 ? ("forbidden" as const) : null)),
+        getWorkspaceEntitlements(ctx.active.id).catch(() => null),
+      ])
+    : (["forbidden" as const, null] as const);
 
-  const [keyRes, entitlements] = await Promise.all([
-    listApiKeys(active.id)
-      .then((r) => ({ keys: r.apiKeys ?? [], failed: false }))
-      .catch(() => ({ keys: [], failed: true })),
-    getWorkspaceEntitlements(active.id).catch(() => null),
-  ]);
-  const allowApi = featureOf(entitlements, "api.access");
-
+  const now = Date.now();
   return (
-    <Shell workspaces={workspaces} activeWorkspace={active}>
-      <div className="flex flex-col gap-5">
-        <header>
-          <h1 className="label">Settings · API keys</h1>
-          <p className="mt-1.5 max-w-3xl text-[14px]" style={{ color: "var(--color-ink-2)" }}>
-            Keys for the public API. A key is shown once at creation and never
-            again: the platform stores only its hash.
-          </p>
-        </header>
-        <SettingsNav current="api-keys" />
-        {entitlements === null ? <PlanUnavailableNotice /> : null}
-
-        {keyRes.failed ? (
-          <ErrorState
-            what="the API key list"
-            detail="This list is the audit of who can call the public API: an empty list here would hide keys that exist, not show a clean account."
+    <SettingsFrame
+      ctx={ctx}
+      section="api-keys"
+      lede="Keys for the public API. Each acts for this whole workspace until it is revoked or expires, so the decision here is mostly which to revoke."
+    >
+      {listed === "forbidden" ? (
+        <PermissionState
+          what="API keys"
+          detail="Owners and admins see and revoke keys; only the owner issues them, because a key acts with the whole workspace's access. Ask the owner to issue one for your integration."
+          back={{ label: "All settings", href: "/settings" }}
+        />
+      ) : listed === null ? (
+        <ErrorState what="the API key list" detail="No key was changed. Retry to read the list." />
+      ) : (
+        <>
+          {entitlements === null ? <PlanUnknown what="issuing API keys" /> : null}
+          <ApiKeysBoard
+            organizationId={ctx.active.id}
+            keys={listed.apiKeys.map((k) => view(k, now))}
+            issuing={featureOf(entitlements, "api.access")}
+            canIssue={ctx.role === null || ctx.role === "owner"}
           />
-        ) : allowApi ? (
-          <ApiKeysPanel organizationId={active.id} keys={keyRes.keys} />
-        ) : (
-          <section
-            className="lift rounded-[2px] border p-5"
-            style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
-            data-feature="api.access"
-          >
-            <h2 className="text-[16px] font-semibold tracking-[-0.012em]">API keys</h2>
-            <p className="mt-2 text-[13.5px]" style={{ color: "var(--color-ink-2)" }}>
-              API access is not included in your current plan.
-            </p>
-            <Link
-              href="/billing"
-              className="mt-2 inline-block text-[13px] font-semibold underline"
-              style={{ color: "var(--color-ink)" }}
-            >
-              See plan options
-            </Link>
-          </section>
-        )}
-      </div>
-    </Shell>
+        </>
+      )}
+    </SettingsFrame>
   );
 }

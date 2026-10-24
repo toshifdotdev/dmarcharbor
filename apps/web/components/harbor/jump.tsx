@@ -27,6 +27,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { clsx } from "clsx";
 import { opsCall } from "@/lib/ops-client";
 import { domainHref, onboardingHref } from "@/lib/route-hrefs";
+import { SETTINGS_SECTIONS } from "@/lib/settings-map";
 import type { ClientRow, WorkspaceSummary } from "@/lib/types";
 import { Search } from "@/components/ui/icons";
 import { Kbd } from "@/components/ui/notice";
@@ -51,21 +52,8 @@ const SCREENS: Array<[string, string, string?]> = [
   ["/digests", "Digests", "scheduled report email"],
   ["/notifications", "Notifications", "inbox"],
   ["/settings", "Settings"],
-  ["/settings/workspace", "Settings: Workspace", "name delete"],
-  ["/settings/members", "Settings: Members", "invite roles team"],
-  ["/settings/portal", "Settings: Client portal", "access contacts"],
-  ["/settings/branding", "Settings: Branding", "white label logo colour custom domain"],
-  ["/settings/audit", "Settings: Audit trail", "log history"],
-  ["/settings/api-keys", "Settings: API keys", "token"],
-  ["/settings/sso", "Settings: SSO", "saml oidc single sign on"],
-  ["/settings/sessions", "Settings: Sessions", "signed in devices"],
-  ["/settings/webhooks", "Settings: Webhooks", "endpoint deliveries"],
-  ["/settings/slack", "Settings: Slack", "channel"],
-  ["/settings/mailbox", "Settings: Report mailbox", "imap inbox rua"],
-  ["/settings/compliance", "Settings: Compliance packs", "evidence pdf fingerprint"],
-  ["/settings/export", "Settings: Export", "download data"],
-  ["/settings/erasure", "Settings: Erasure", "delete gdpr"],
-  ["/settings/forensics", "Settings: Forensic reports", "ruf failure samples"],
+  // The same sections and plain task phrases the settings index searches.
+  ...SETTINGS_SECTIONS.map((s): [string, string, string] => [s.href, `Settings: ${s.label}`, s.tasks.join(" ")]),
   ["/billing", "Billing", "plan invoice subscription"],
 ];
 

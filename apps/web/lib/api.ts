@@ -15,6 +15,7 @@
  * getAllDomainSignals as the single place to collapse when the endpoint lands.
  */
 
+import { cache } from "react";
 import { API_BASE, apiFetch as apiRequest } from "./api-fetch";
 import { cookies } from "next/headers";
 import type {
@@ -101,7 +102,11 @@ export function listWorkspaces(): Promise<WorkspaceSummary[]> {
  * browsers more than anyone admits. Null on any failure: a menu that cannot
  * name the user says "Signed in", it does not redirect.
  */
-export async function getSessionUser(): Promise<{ id: string; name: string | null; email: string } | null> {
+// Per-request memo (React cache): the shell, the settings context and a page
+// all ask who is signed in, and three identical get-session calls per render
+// were enough to trip the auth rate limit under load, which then read as "role
+// unknown" on screen.
+export const getSessionUser = cache(async (): Promise<{ id: string; name: string | null; email: string } | null> => {
   try {
     const session = await apiFetch<{ user?: { id?: string; name?: string | null; email?: string } } | null>(
       "/api/auth/get-session",
@@ -111,16 +116,9 @@ export async function getSessionUser(): Promise<{ id: string; name: string | nul
   } catch {
     return null;
   }
-}
+});
 
-export async function getSessionUserId(): Promise<string | null> {
-  try {
-    const session = await apiFetch<{ user?: { id?: string } } | null>("/api/auth/get-session");
-    return session?.user?.id ?? null;
-  } catch {
-    return null;
-  }
-}
+export const getSessionUserId = cache(async (): Promise<string | null> => (await getSessionUser())?.id ?? null);
 
 /**
  * The workspace allowance: how many the account may hold and how many it holds.

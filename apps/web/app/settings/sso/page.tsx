@@ -1,67 +1,62 @@
-import { redirect } from "next/navigation";
-import Link from "next/link";
-import { getWorkspaceEntitlements, listSsoConnections } from "@/lib/api-ops";
-import { resolveActiveWorkspace } from "@/lib/session";
-import { Shell } from "@/components/shell";
-import { SettingsNav } from "@/components/settings-nav";
-import { PlanUnavailableNotice } from "@/components/plan-unavailable-notice";
-import { featureOf } from "@/lib/entitlements";
-import { SsoSection } from "@/components/settings-client";
+import type { Metadata } from "next";
+import { listSsoConnections, OpsError } from "@/lib/api-ops";
+import { settingsContext } from "@/lib/settings-context";
+import { mayChange } from "@/lib/settings-map";
+import type { SsoConnectionRow } from "@/lib/types";
+import { SettingsFrame } from "@/components/harbor/settings/frame";
+import { SsoBoard } from "@/components/harbor/settings/sso";
+import { ErrorState, PermissionState, UpgradeNotice } from "@/components/ui/states";
+
+export const metadata: Metadata = { title: "Single sign-on" };
+
+type Read =
+  | { kind: "ok"; connections: SsoConnectionRow[] }
+  | { kind: "plan"; message: string | null; feature: string }
+  | { kind: "forbidden" }
+  | { kind: "failed" };
 
 /**
- * SSO connections — Admiralty only. The allowlist of verified email domains is
- * surfaced on every connection: a connection that silently refuses everyone
- * looks like a broken feature, so the list is never hidden in a drawer.
- *
- * GET /sso/:connectionId/start is what customers link from their identity
- * provider — the UI never fetches it.
+ * /settings/sso — the plan gate (auth.sso) is on the read itself, so a 402 here
+ * is the answer "not on this plan", said with the API's own sentence and the
+ * key on a data attribute.
  */
-export default async function SsoSettingsPage() {
-  const { workspaces, active } = await resolveActiveWorkspace();
-  if (!active) redirect("/welcome");
-
-  const [entitlements, ssoRes] = await Promise.all([
-    getWorkspaceEntitlements(active.id).catch(() => null),
-    listSsoConnections(active.id).catch(() => ({ connections: [] })),
-  ]);
-  const allowSso = featureOf(entitlements, "auth.sso");
+export default async function SsoPage() {
+  const ctx = await settingsContext();
+  const read: Read = await listSsoConnections(ctx.active.id)
+    .then((r): Read => ({ kind: "ok", connections: r.connections }))
+    .catch((e: unknown): Read => {
+      if (e instanceof OpsError && e.status === 402) return { kind: "plan", message: e.body?.message ?? null, feature: e.feature ?? "auth.sso" };
+      if (e instanceof OpsError && e.status === 403) return { kind: "forbidden" };
+      return { kind: "failed" };
+    });
 
   return (
-    <Shell workspaces={workspaces} activeWorkspace={active}>
-      <div className="flex flex-col gap-5">
-        <header>
-          <h1 className="label">Settings · Single sign-on</h1>
-          <p className="mt-1.5 max-w-3xl text-[14px]" style={{ color: "var(--color-ink-2)" }}>
-            Let your team sign in through your own identity provider. A
-            connection is gated on its allowlist of verified email domains:
-            only people whose addresses match can sign in through it.
-          </p>
-        </header>
-        <SettingsNav current="sso" />
-        {entitlements === null ? <PlanUnavailableNotice /> : null}
-
-        {allowSso ? (
-          <SsoSection organizationId={active.id} connections={ssoRes.connections ?? []} />
-        ) : (
-          <section
-            className="lift rounded-[2px] border p-5"
-            style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
-            data-feature="auth.sso"
-          >
-            <h2 className="text-[16px] font-semibold tracking-[-0.012em]">Single sign-on</h2>
-            <p className="mt-2 text-[13.5px]" style={{ color: "var(--color-ink-2)" }}>
-              Single sign-on is not included in your current plan.
-            </p>
-            <Link
-              href="/billing"
-              className="mt-2 inline-block text-[13px] font-semibold underline"
-              style={{ color: "var(--color-ink)" }}
-            >
-              See plan options
-            </Link>
-          </section>
-        )}
-      </div>
-    </Shell>
+    <SettingsFrame
+      ctx={ctx}
+      section="sso"
+      lede="Sign in through your identity provider instead of passwords. The decision is who it lets in: the email domains on its allowlist, and the role they arrive with."
+    >
+      {read.kind === "ok" ? (
+        <SsoBoard
+          organizationId={ctx.active.id}
+          connections={read.connections}
+          canManage={ctx.role === null ? true : mayChange(ctx.role, "admin")}
+        />
+      ) : read.kind === "plan" ? (
+        <UpgradeNotice
+          message={read.message ?? "Single sign-on is not included in this workspace's plan."}
+          feature={read.feature}
+          context="Everyone keeps signing in with a password or a social account."
+        />
+      ) : read.kind === "forbidden" ? (
+        <PermissionState
+          what="single sign-on"
+          detail="Connections are set up by an owner or admin, because each one decides who can join this workspace."
+          back={{ label: "All settings", href: "/settings" }}
+        />
+      ) : (
+        <ErrorState what="the SSO connections" detail="No connection was changed. Retry to read them." />
+      )}
+    </SettingsFrame>
   );
 }

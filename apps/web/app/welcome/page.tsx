@@ -5,6 +5,7 @@ import { ApiError, listWorkspaces, readWorkspaceAllowance, type WorkspaceAllowan
 import { signInRedirect } from "@/lib/session";
 import type { WorkspaceSummary } from "@/lib/types";
 import { AuthFrame } from "@/components/harbor/auth-frame";
+import { InvitationsForYou } from "@/components/harbor/invitations";
 import { SetupRail } from "@/components/harbor/setup-rail";
 import { WorkspaceSetup, type WorkspaceFormState } from "@/components/harbor/workspace-setup";
 
@@ -94,6 +95,7 @@ export default async function WelcomePage() {
 
       <div className={hasOne ? "grid gap-10 md:grid-cols-[minmax(0,1fr)_280px]" : ""}>
         <div className="flex flex-col gap-6 [animation:hb-rise_240ms_ease-out]">
+          <InvitationsForYou />
           <div>
             {hasOne ? null : <p className="legend text-ok!">Email verified · you are signed in</p>}
             <h1 className="display mt-2 text-[32px] leading-[1.05] text-fg">

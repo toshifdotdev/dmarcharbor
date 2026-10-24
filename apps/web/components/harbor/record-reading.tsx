@@ -316,7 +316,8 @@ export function RecordReading() {
           <p className="text-meta text-fg-3">
             {result ? (
               <>
-                Read from public DNS just now. No account, nothing stored about the domain.{" "}
+                Read <span className="data text-fg-2">_dmarc.{result.domain}</span> from public DNS just now. No account,
+                nothing stored about the domain.{" "}
                 <button type="button" className="link" onClick={() => { setResult(null); setDomain(""); input.current?.focus(); }}>
                   Back to the example
                 </button>

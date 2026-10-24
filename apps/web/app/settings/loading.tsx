@@ -1,9 +1,6 @@
-import { LegacyLoading } from "@/components/legacy-boundary";
+import { PageLoading } from "@/components/harbor/page-loading";
 
-/**
- * loading.tsx — pending UI for the settings sections, on the dark theme they
- * are still on. A slow settings API shows waiting, never a blank screen.
- */
+/** Pending UI for every settings section, on the paper ground they are on. */
 export default function Loading() {
-  return <LegacyLoading label="Loading settings" />;
+  return <PageLoading label="Reading settings" rows={6} />;
 }

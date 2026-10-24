@@ -1,50 +1,45 @@
-import { redirect } from "next/navigation";
+import type { Metadata } from "next";
 import { listSessions } from "@/lib/api-phase7";
-import { resolveActiveWorkspace } from "@/lib/session";
-import { Shell } from "@/components/shell";
-import { SettingsNav } from "@/components/settings-nav";
-import { SessionsPanel } from "@/components/sessions-client";
-import { ErrorState } from "@/components/data-states";
+import { instantLabel } from "@/lib/instant";
+import { settingsContext } from "@/lib/settings-context";
+import { deviceLabel } from "@/lib/user-agent";
+import { SettingsFrame } from "@/components/harbor/settings/frame";
+import { SessionsBoard, type SessionView } from "@/components/harbor/settings/sessions";
+import { ErrorState } from "@/components/ui/states";
 
-/**
- * Sessions — account security, the surface an MSP reaches for when a laptop
- * is lost. "Sign out everywhere else" is the primary action and spares this
- * session; the confirm-gated "everywhere, including this device" is the
- * deliberate compromise-response control.
- *
- * A failed load is NOT "0 devices": this is the one screen whose silence would
- * tell a reader their account is clean when we simply could not look. The
- * failure renders as a failure with a retry.
- */
-export default async function SessionsSettingsPage() {
-  const { workspaces, active } = await resolveActiveWorkspace();
-  if (!active) redirect("/welcome");
+export const metadata: Metadata = { title: "Signed-in devices" };
 
-  const loaded = await listSessions()
-    .then((r) => ({ sessions: r.sessions ?? [], failed: false }))
-    .catch(() => ({ sessions: [], failed: true }));
+/** /settings/sessions — account level: the same list in every workspace. */
+export default async function SessionsPage() {
+  const ctx = await settingsContext();
+  const listed = await listSessions().catch(() => null);
+  const sessions: SessionView[] | null = listed
+    ? [...listed.sessions]
+        .sort((a, b) => Number(b.current) - Number(a.current))
+        .map((s) => ({
+          id: s.id,
+          current: s.current,
+          device: deviceLabel(s.userAgent),
+          userAgent: s.userAgent || null,
+          // The unspecified address (:: written out as zeros) means the API
+          // did not learn one; it is not an address anyone can act on.
+          ip: s.ipAddress && !/^[0:.]+$/.test(s.ipAddress) ? s.ipAddress : null,
+          startedLabel: instantLabel(s.createdAt),
+          endsLabel: instantLabel(s.expiresAt),
+        }))
+    : null;
 
   return (
-    <Shell workspaces={workspaces} activeWorkspace={active}>
-      <div className="flex flex-col gap-5">
-        <header>
-          <h1 className="label">Settings · Sessions</h1>
-          <p className="mt-1.5 max-w-3xl text-[14px]" style={{ color: "var(--color-ink-2)" }}>
-            Every device signed in to your account. Revoke anything you do not
-            recognise: and if a laptop is lost, sign out everywhere else in one
-            step.
-          </p>
-        </header>
-        <SettingsNav current="sessions" />
-        {loaded.failed ? (
-          <ErrorState
-            what="the signed-in device list"
-            detail="Check for a device you do not recognise only once this loads: an empty list here would be a guess, not a finding."
-          />
-        ) : (
-          <SessionsPanel sessions={loaded.sessions} />
-        )}
-      </div>
-    </Shell>
+    <SettingsFrame
+      ctx={ctx}
+      section="sessions"
+      lede="Every device signed in as you, in any workspace. Sign out the ones you do not recognise: the cost of a wrong guess is one sign-in."
+    >
+      {sessions ? (
+        <SessionsBoard sessions={sessions} />
+      ) : (
+        <ErrorState what="the list of signed-in devices" detail="No session was signed out. Retry to read the list." />
+      )}
+    </SettingsFrame>
   );
 }

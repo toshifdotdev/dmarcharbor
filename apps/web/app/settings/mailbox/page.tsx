@@ -1,116 +1,53 @@
-import { redirect } from "next/navigation";
-import Link from "next/link";
-import { getReportInbox, getWorkspaceEntitlements } from "@/lib/api-ops";
-import { resolveActiveWorkspace } from "@/lib/session";
-import { Shell } from "@/components/shell";
-import { SettingsNav } from "@/components/settings-nav";
-import { ErrorState } from "@/components/data-states";
-import { featureOf } from "@/lib/entitlements";
-import { PlanUnavailableNotice } from "@/components/plan-unavailable-notice";
-import { ReportInboxForm } from "@/components/settings-client";
+import type { Metadata } from "next";
+import { getReportInbox, OpsError } from "@/lib/api-ops";
+import { instantLabel } from "@/lib/instant";
+import { settingsContext } from "@/lib/settings-context";
+import { mayChange } from "@/lib/settings-map";
+import type { ReportInboxSettings } from "@/lib/types";
+import { SettingsFrame } from "@/components/harbor/settings/frame";
+import { MailboxBoard, RuaThread } from "@/components/harbor/settings/mailbox";
+import { ErrorState, PermissionState, UpgradeNotice } from "@/components/ui/states";
 
-/**
- * Report mailbox — the shared mailbox DMARC reports are collected from.
- *
- * This section is the answer to the rua=https problem, and the two are
- * connected on purpose: a domain publishing reports to a web endpoint we
- * cannot read can point its rua tag at a mailbox collected here instead.
- * The onboarding step for such a domain links straight to this section.
- */
-export default async function MailboxSettingsPage() {
-  const { workspaces, active } = await resolveActiveWorkspace();
-  if (!active) redirect("/welcome");
+export const metadata: Metadata = { title: "Report mailbox" };
 
-  const [inbox, entitlements] = await Promise.all([
-    getReportInbox(active.id).catch(() => null),
-    getWorkspaceEntitlements(active.id).catch(() => null),
-  ]);
-  // Tri-state, not boolean. A failed entitlements read is not the same fact as a
-  // plan that lacks the feature, and the two need different copy: one is an error
-  // to retry, the other is a reason to upgrade.
-  const allowInbox = featureOf(entitlements, "reports.inbox");
+type Read =
+  | { kind: "ok"; inbox: ReportInboxSettings }
+  | { kind: "plan"; message: string | null; feature: string }
+  | { kind: "forbidden" }
+  | { kind: "failed" };
+
+/** /settings/mailbox — gated on reports.inbox at the read itself. */
+export default async function MailboxPage() {
+  const ctx = await settingsContext();
+  const read: Read = await getReportInbox(ctx.active.id)
+    .then((inbox): Read => ({ kind: "ok", inbox }))
+    .catch((e: unknown): Read => {
+      if (e instanceof OpsError && e.status === 402) return { kind: "plan", message: e.body?.message ?? null, feature: e.feature ?? "reports.inbox" };
+      if (e instanceof OpsError && e.status === 403) return { kind: "forbidden" };
+      return { kind: "failed" };
+    });
 
   return (
-    <Shell workspaces={workspaces} activeWorkspace={active}>
-      <div className="flex flex-col gap-5">
-        <header>
-          <h1 className="label">Settings · Report mailbox</h1>
-          <p className="mt-1.5 max-w-3xl text-[14px]" style={{ color: "var(--color-ink-2)" }}>
-            One shared mailbox per workspace. Every domain points its rua tag at
-            our reporting address: so no customer ever hands over IMAP
-            credentials.
-          </p>
-        </header>
-        <SettingsNav current="mailbox" />
-
-        {/* The rua=https thread. A domain publishing reports to a web endpoint
-            is configured but not collectable — this is how that is fixed. */}
-        <section
-          className="lift rounded-[2px] border px-5 py-4"
-          style={{
-            borderColor: "var(--color-unverified)",
-            background: "var(--color-unverified-soft)",
-          }}
-          data-testid="rua-thread"
-        >
-          <p
-            className="num text-[11px] font-semibold tracking-[0.12em] uppercase"
-            style={{ color: "var(--color-unverified)" }}
-          >
-            Reports published to a web endpoint
-          </p>
-          <p className="mt-2 text-[13px] leading-relaxed" style={{ color: "var(--color-ink-2)" }}>
-            If one of your domains publishes its reports to a web endpoint
-            (common with Google, Microsoft and Yahoo) rather than a mailbox, its
-            DMARC record is <strong style={{ color: "var(--color-ink)" }}>correctly
-            configured</strong>: but this platform cannot read those reports yet,
-            so that domain will show no report data. Fixing it means pointing the
-            domain's <span className="num">rua=</span> tag at a mailbox collected
-            here. The domain's setup screen says so too, and links back to this
-            section.
-          </p>
-          <p className="mt-2 text-[12px]" style={{ color: "var(--color-ink-3)" }}>
-            Leave the record as it is until you are ready: a domain showing
-            "not collecting yet" is not a broken domain.
-          </p>
-        </section>
-
-        {/*
-          Three states, not two. The plan genuinely does not include the mailbox,
-          the plan does but the read failed, and the mailbox exists. The middle
-          one used to fall out as nothing at all, because this branch sat inside
-          `{inbox ? ... : null}` and a failed read is exactly when inbox is null:
-          so a workspace that had paid saw an empty section with no explanation.
-        */}
-        {allowInbox === null ? (
-          <PlanUnavailableNotice />
-        ) : allowInbox === false ? (
-          <section
-            className="lift rounded-[2px] border p-5"
-            style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
-            data-feature="reports.inbox"
-          >
-            <h2 className="text-[16px] font-semibold tracking-[-0.012em]">Report mailbox</h2>
-            <p className="mt-2 text-[13.5px]" style={{ color: "var(--color-ink-2)" }}>
-              The shared report mailbox is not included in your current plan.
-            </p>
-            <Link
-              href="/billing"
-              className="mt-2 inline-block text-[13px] font-semibold underline"
-              style={{ color: "var(--color-ink)" }}
-            >
-              See plan options
-            </Link>
-          </section>
-        ) : inbox === null ? (
-          <ErrorState
-            what="the report mailbox"
-            detail="The mailbox could not be read. This is an API problem, not a missing mailbox: leave the record as it is until this clears."
-          />
-        ) : (
-          <ReportInboxForm organizationId={active.id} inbox={inbox} />
-        )}
-      </div>
-    </Shell>
+    <SettingsFrame ctx={ctx} section="mailbox">
+      <RuaThread />
+      {read.kind === "ok" ? (
+        <MailboxBoard
+          organizationId={ctx.active.id}
+          inbox={read.inbox}
+          canManage={ctx.role === null ? true : mayChange(ctx.role, "admin")}
+          lastPolledLabel={read.inbox.lastPolledAt ? instantLabel(read.inbox.lastPolledAt) : null}
+        />
+      ) : read.kind === "plan" ? (
+        <UpgradeNotice
+          message={read.message ?? "Collecting reports from your own mailbox is not included in this workspace's plan."}
+          feature={read.feature}
+          context="Reports sent to the addresses on each domain's setup page are collected on every plan. The API accepts mailbox ports 993, 143 and 2525 once it is included."
+        />
+      ) : read.kind === "forbidden" ? (
+        <PermissionState what="the report mailbox" back={{ label: "All settings", href: "/settings" }} />
+      ) : (
+        <ErrorState what="the report mailbox" detail="Nothing was changed. Retry to read it." />
+      )}
+    </SettingsFrame>
   );
 }

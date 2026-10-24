@@ -1,63 +1,49 @@
-import { redirect } from "next/navigation";
+import type { Metadata } from "next";
 import { listClients } from "@/lib/api";
 import { listExports } from "@/lib/api-ops";
-import { resolveActiveWorkspace } from "@/lib/session";
-import { Shell } from "@/components/shell";
-import { SettingsNav } from "@/components/settings-nav";
-import { ExportPanel } from "@/components/export-client";
-import { ErrorState } from "@/components/data-states";
+import { instantLabel } from "@/lib/instant";
+import { settingsContext } from "@/lib/settings-context";
+import { ExportBoard, type ExportView } from "@/components/harbor/settings/export";
+import { SettingsFrame } from "@/components/harbor/settings/frame";
+import { ErrorState } from "@/components/ui/states";
 
-/**
- * Data export — a data-subject right, free on every plan. The API's lifecycle
- * is request → prepare → available → expire; the panel presents exactly that,
- * never as an instant download.
- */
-export default async function ExportSettingsPage() {
-  const { workspaces, active } = await resolveActiveWorkspace();
-  if (!active) redirect("/welcome");
+export const metadata: Metadata = { title: "Data export" };
 
-  const [clients, exportsRes] = await Promise.all([
-    listClients(active.id).catch(() => []),
-    listExports(active.id)
-      .then((r) => ({
-        exports: r.exports ?? [],
-        linkDays: r.linkDays ?? 7,
-        recordRetentionDays: r.recordRetentionDays ?? 400,
-        failed: false,
-      }))
-      .catch(() => ({
-        exports: [],
-        linkDays: 7,
-        recordRetentionDays: 400,
-        failed: true,
-      })),
+/** /settings/export — every role may request one (report:read). */
+export default async function ExportPage() {
+  const ctx = await settingsContext();
+  const [listed, clients] = await Promise.all([
+    listExports(ctx.active.id).catch(() => null),
+    listClients(ctx.active.id).catch(() => null),
   ]);
 
+  const jobs: ExportView[] = (listed?.exports ?? []).map((j) => ({
+    id: j.id,
+    scopeLabel: j.scopeLabel,
+    format: j.format,
+    state: j.state,
+    requestedLabel: instantLabel(j.createdAt),
+    linkEndsLabel: j.downloadExpiresAt ? instantLabel(j.downloadExpiresAt) : null,
+    downloadedLabel: j.downloadedAt ? instantLabel(j.downloadedAt) : null,
+  }));
+
   return (
-    <Shell workspaces={workspaces} activeWorkspace={active}>
-      <div className="flex flex-col gap-5">
-        <header>
-          <h1 className="label">Settings · Data export</h1>
-          <p className="mt-1.5 max-w-3xl text-[14px]" style={{ color: "var(--color-ink-2)" }}>
-            Request a copy of the data held in this workspace: for yourself or
-            for a client's data-subject request. Free on every plan, always.
-          </p>
-        </header>
-        <SettingsNav current="export" />
-        {exportsRes.failed ? (
-          <ErrorState
-            what="the export job list"
-            detail="A prepared export is a data-subject request somebody is waiting on: an empty list here would hide it, not show there are none."
-          />
-        ) : (
-          <ExportPanel
-            organizationId={active.id}
-            jobs={exportsRes.exports ?? []}
-            linkDays={exportsRes.linkDays ?? 7}
-            clients={clients.map((c) => ({ id: c.id, name: c.name }))}
-          />
-        )}
-      </div>
-    </Shell>
+    <SettingsFrame
+      ctx={ctx}
+      section="export"
+      lede="A complete copy of what this workspace holds, for a data-protection request, a migration, or your own records. Free on every plan."
+    >
+      {listed === null ? (
+        <ErrorState what="the export list" detail="No export was requested or revoked. Retry to read the list." />
+      ) : (
+        <ExportBoard
+          organizationId={ctx.active.id}
+          jobs={jobs}
+          linkDays={listed.linkDays}
+          clients={(clients ?? []).map((c) => ({ id: c.id, name: c.name, domains: c.domains.map((d) => ({ id: d.id, name: d.name })) }))}
+          canRevoke={ctx.role === null || ["owner", "admin", "analyst"].includes(ctx.role)}
+        />
+      )}
+    </SettingsFrame>
   );
 }

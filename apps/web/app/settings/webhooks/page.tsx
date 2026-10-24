@@ -1,83 +1,72 @@
-import { redirect } from "next/navigation";
-import { listWebhookDeliveries, listWebhookEndpoints } from "@/lib/api-ops";
-import { resolveActiveWorkspace } from "@/lib/session";
-import { Shell } from "@/components/shell";
-import { SettingsNav } from "@/components/settings-nav";
-import { WebhooksPanel } from "@/components/webhooks-client";
-import type { WebhookDeliveryRow, WebhookEndpointRow, WebhookEventName } from "@/lib/types";
+import type { Metadata } from "next";
+import { listWebhookDeliveries, listWebhookEndpoints, OpsError } from "@/lib/api-ops";
+import { instantLabel } from "@/lib/instant";
+import { settingsContext } from "@/lib/settings-context";
+import { mayChange } from "@/lib/settings-map";
+import { canReplayWebhookDelivery } from "@/lib/webhooks-client";
+import { SettingsFrame } from "@/components/harbor/settings/frame";
+import { WebhooksBoard, type DeliveryView, type EndpointView } from "@/components/harbor/settings/webhooks";
+import { ErrorState, PermissionState } from "@/components/ui/states";
 
-/**
- * Outbound webhooks: where this workspace posts signed events, and what came
- * back each time it tried.
- *
- * THREE STATES, NEVER TWO. Both reads are attempted and each one records whether
- * it failed, because a failed endpoint list must not render as "no integrations"
- * and a failed delivery log must not render as "nothing was ever sent". Both are
- * passed down to the panel rather than being collapsed here: the endpoint list
- * and the delivery log are separate claims, and failing one must not erase the
- * other.
- *
- * NO ENTITLEMENT GATE, deliberately. The webhook routes carry requireSession and
- * requireOrganizationPermission('organization', 'update') and nothing else: there
- * is no requireFeature on them, and no webhooks key exists in the plan catalog
- * (apps/api/src/services/entitlements/plan-catalog.ts). An earlier version of
- * this section gated on `api.access`, which would have hidden the feature from
- * a workspace the API would have served. The API owns that decision; this page
- * must not invent a second one.
- *
- * The signing secret never reaches this component. It exists only in the create
- * response, in the browser, in the client panel, once.
- */
-export default async function WebhooksSettingsPage() {
-  const { workspaces, active } = await resolveActiveWorkspace();
-  if (!active) redirect("/welcome");
+export const metadata: Metadata = { title: "Webhooks" };
 
-  const [endpointRes, deliveryRes] = await Promise.all([
-    listWebhookEndpoints(active.id)
-      .then((r) => ({
-        endpoints: r.endpoints ?? ([] as WebhookEndpointRow[]),
-        // The catalogue comes from the API. It cannot be empty in practice, but
-        // an empty one would render a form with no checkboxes, so the fallback
-        // keeps the create form usable rather than presenting a dead control.
-        events: (r.events ?? []) as WebhookEventName[],
-        defaultEvents: (r.defaultEvents ?? []) as WebhookEventName[],
-        failed: false,
-      }))
-      .catch(() => ({
-        endpoints: [] as WebhookEndpointRow[],
-        events: [] as WebhookEventName[],
-        defaultEvents: [] as WebhookEventName[],
-        failed: true,
-      })),
-    listWebhookDeliveries(active.id)
-      .then((r) => ({ deliveries: r.deliveries ?? ([] as WebhookDeliveryRow[]), failed: false }))
-      .catch(() => ({ deliveries: [] as WebhookDeliveryRow[], failed: true })),
+/** /settings/webhooks — no plan gate; reading needs owner or admin. */
+export default async function WebhooksPage() {
+  const ctx = await settingsContext();
+  const [listed, log] = await Promise.all([
+    listWebhookEndpoints(ctx.active.id).catch((e: unknown) => (e instanceof OpsError && e.status === 403 ? ("forbidden" as const) : null)),
+    listWebhookDeliveries(ctx.active.id).catch(() => null),
   ]);
 
-  return (
-    <Shell workspaces={workspaces} activeWorkspace={active}>
-      <div className="flex flex-col gap-5">
-        <header>
-          <h1 className="label">Settings · Webhooks</h1>
-          <p className="mt-1.5 max-w-3xl text-[14px]" style={{ color: "var(--color-ink-2)" }}>
-            Signed events posted to an address you control: a domain verified, an
-            alert fired, a report arrived. Every delivery is recorded with the
-            response your endpoint gave, so a broken integration is visible before
-            a customer reports it.
-          </p>
-        </header>
-        <SettingsNav current="webhooks" />
+  const now = Date.now();
+  const endpoints: EndpointView[] =
+    listed && listed !== "forbidden"
+      ? listed.endpoints.map((e) => ({
+          id: e.id,
+          name: e.name,
+          url: e.url,
+          events: e.events,
+          active: e.active,
+          suspendedUntilLabel: e.suspendedAt && new Date(e.suspendedAt).getTime() > now ? instantLabel(e.suspendedAt) : null,
+          failureCount: e.failureCount,
+          lastDeliveryLabel: e.lastDeliveryAt ? instantLabel(e.lastDeliveryAt) : null,
+        }))
+      : [];
+  const names = new Map(endpoints.map((e) => [e.id, e.name]));
+  const deliveries: DeliveryView[] | null = log
+    ? log.deliveries.map((d) => ({
+        id: d.id,
+        endpointName: names.get(d.endpointId) ?? "A removed endpoint",
+        event: d.event,
+        status: d.status,
+        attempts: d.attempts,
+        responseCode: d.responseCode,
+        lastError: d.lastError,
+        whenLabel: instantLabel(d.deliveredAt ?? d.createdAt),
+        replayable: canReplayWebhookDelivery(d),
+      }))
+    : null;
 
-        <WebhooksPanel
-          organizationId={active.id}
-          endpoints={endpointRes.endpoints}
-          events={endpointRes.events}
-          defaultEvents={endpointRes.defaultEvents}
-          deliveries={deliveryRes.deliveries}
-          endpointsFailed={endpointRes.failed}
-          deliveriesFailed={deliveryRes.failed}
+  return (
+    <SettingsFrame
+      ctx={ctx}
+      section="webhooks"
+      lede="Events from this workspace, posted to your own systems as signed requests. Use them to open a ticket when an alert fires, or to sync domains into a PSA."
+    >
+      {listed === "forbidden" ? (
+        <PermissionState what="webhooks" back={{ label: "All settings", href: "/settings" }} />
+      ) : listed === null ? (
+        <ErrorState what="the webhook endpoints" detail="Nothing was changed. Retry to read them." />
+      ) : (
+        <WebhooksBoard
+          organizationId={ctx.active.id}
+          endpoints={endpoints}
+          deliveries={deliveries}
+          events={listed.events}
+          defaultEvents={listed.defaultEvents}
+          canManage={ctx.role === null ? true : mayChange(ctx.role, "admin")}
         />
-      </div>
-    </Shell>
+      )}
+    </SettingsFrame>
   );
 }

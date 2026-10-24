@@ -24,6 +24,7 @@ import type {
   BillingStatus,
   BillingCurrencyPreference,
   BrandingSettings,
+  PortalBranding,
   CheckoutRequest,
   CheckoutSummary,
   CreatedShare,
@@ -149,10 +150,10 @@ export function startCheckout(
 export function changeBillingPlan(
   organizationId: string,
   body: { plan: string; interval?: "monthly" | "annual"; currency?: "USD" | "INR" },
-): Promise<{ status: "scheduled" | "cancelling"; effectiveAt: string }> {
-  // MOORING answers "cancelling"; every other plan "scheduled" (even on Paddle,
-  // which applies it at once). The API never answers "applied".
-  return opsFetch<{ status: "scheduled" | "cancelling"; effectiveAt: string }>(
+): Promise<{ status: "scheduled" | "applied" | "cancelling"; effectiveAt: string; effectiveDate?: string | null }> {
+  // MOORING answers "cancelling"; otherwise "applied" (Paddle, at once) or
+  // "scheduled" (Razorpay, at period end).
+  return opsFetch<{ status: "scheduled" | "applied" | "cancelling"; effectiveAt: string; effectiveDate?: string | null }>(
     `/api/workspaces/${organizationId}/billing/plan`,
     {
       method: "PATCH",
@@ -742,6 +743,13 @@ export function getBranding(
   organizationId: string,
 ): Promise<BrandingSettings> {
   return opsFetch<BrandingSettings>(`/api/workspaces/${organizationId}/branding`);
+}
+
+/** GET /branding/resolved — what a client actually gets: the logo only when it
+ *  is a platform-served object and the plan carries white label, colours only
+ *  under that licence. Same shape as the portal's PortalBranding. */
+export function getResolvedBranding(organizationId: string): Promise<PortalBranding> {
+  return opsFetch<PortalBranding>(`/api/workspaces/${organizationId}/branding/resolved`);
 }
 
 export function setCustomDomain(

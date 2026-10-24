@@ -1,30 +1,40 @@
-import { redirect } from "next/navigation";
-import { getSlackDestination } from "@/lib/api-ops";
-import { resolveActiveWorkspace } from "@/lib/session";
-import { Shell } from "@/components/shell";
-import { SettingsNav } from "@/components/settings-nav";
-import { SlackForm } from "@/components/slack-client";
+import type { Metadata } from "next";
+import { getSlackDestination, OpsError } from "@/lib/api-ops";
+import { instantLabel } from "@/lib/instant";
+import { settingsContext } from "@/lib/settings-context";
+import { mayChange } from "@/lib/settings-map";
+import type { SlackDestination } from "@/lib/types";
+import { SettingsFrame } from "@/components/harbor/settings/frame";
+import { SlackBoard } from "@/components/harbor/settings/slack";
+import { ErrorState, PermissionState } from "@/components/ui/states";
 
-export default async function SlackSettingsPage() {
-  const { workspaces, active } = await resolveActiveWorkspace();
-  if (!active) redirect("/welcome");
+export const metadata: Metadata = { title: "Slack alerts" };
 
-  const destination = await getSlackDestination(active.id).catch(() => null);
+/** /settings/slack — on every plan; reading it needs owner or admin. */
+export default async function SlackPage() {
+  const ctx = await settingsContext();
+  const read = await getSlackDestination(ctx.active.id)
+    .then((d) => ({ kind: "ok" as const, destination: d as SlackDestination | null }))
+    .catch((e: unknown) => ({ kind: e instanceof OpsError && e.status === 403 ? ("forbidden" as const) : ("failed" as const) }));
 
   return (
-    <Shell workspaces={workspaces} activeWorkspace={active}>
-      <div className="flex flex-col gap-5">
-        <header>
-          <h1 className="label">Settings · Slack alerts</h1>
-          <p className="mt-1.5 max-w-3xl text-[14px]" style={{ color: "var(--color-ink-2)" }}>
-            The alerts your rules raise, delivered into a Slack channel. Same
-            notifications, no new plan: this is about where the team watches,
-            not what the product measures.
-          </p>
-        </header>
-        <SettingsNav current="slack" />
-        <SlackForm organizationId={active.id} destination={destination} />
-      </div>
-    </Shell>
+    <SettingsFrame
+      ctx={ctx}
+      section="slack"
+      lede="Alerts your rules raise can also go to one Slack channel, through a Slack incoming webhook. Email alerts are unaffected either way."
+    >
+      {read.kind === "ok" ? (
+        <SlackBoard
+          organizationId={ctx.active.id}
+          destination={read.destination}
+          canManage={ctx.role === null ? true : mayChange(ctx.role, "admin")}
+          lastDeliveredLabel={read.destination?.lastDeliveredAt ? instantLabel(read.destination.lastDeliveredAt) : null}
+        />
+      ) : read.kind === "forbidden" ? (
+        <PermissionState what="the Slack destination" back={{ label: "All settings", href: "/settings" }} />
+      ) : (
+        <ErrorState what="the Slack destination" detail="Nothing was changed. Retry to read it." />
+      )}
+    </SettingsFrame>
   );
 }

@@ -303,6 +303,9 @@ export interface ApiKeyRow {
   lastUsedIp: string | null;
   revokedAt: string | null;
   expiresAt?: string | null;
+  /** Returned by the list (api-key.service select); absent on older rows only
+   *  if the API ever stops sending it. */
+  createdAt?: string;
 }
 
 /** POST /api-keys — `key` is returned EXACTLY ONCE and cannot be retrieved
@@ -421,6 +424,10 @@ export interface ErasurePreview {
     evidenceRetained: number;
   };
   executeAfter?: string;
+  /** The grace period the API holds a request for before it runs. */
+  graceDays?: number;
+  /** The API's own plain statement of what an erasure does. */
+  statement?: string;
 }
 
 export interface ErasureRequestRow {
@@ -619,8 +626,9 @@ export interface PlanDefinition {
    * limits so the number a customer is buying is the number they can see.
    */
   maxWorkspaces: number;
-  dataRetentionDays: number;
-  auditRetentionDays: number;
+  /** How long a domain keeps counting toward the active-domain limit after
+   *  its last report. A quota rule, not a retention period: never show it as one. */
+  activeDomainWindowDays: number;
   features: Record<EntitlementKey, boolean>;
 }
 
@@ -633,10 +641,12 @@ export interface ResolvedEntitlements {
   maxClients: number;
   maxActiveDomains: number;
   maxMembers: number;
-  dataRetentionDays: number;
-  auditRetentionDays: number;
+  activeDomainWindowDays: number;
   features: Partial<Record<EntitlementKey, boolean>>;
   overrides: Array<{ entitlement: string; enabled: boolean; expiresAt: string | null }>;
+  /** What the quota check counts: clients and active domains across the
+   *  owner's workspaces, members in this one. */
+  usage?: Record<"client" | "activeDomain" | "member", { used: number; limit: number }>;
 }
 
 export interface BillingStatus {
@@ -662,6 +672,8 @@ export interface BillingStatus {
    *  say how long is left, because this is the state people email support
    *  about instead of fixing their card. */
   graceEnds?: string | null;
+  /** How long the failed-payment grace runs after the paid period ends. */
+  graceDays?: number;
 }
 
 export type AlertMetric =
@@ -790,7 +802,15 @@ export type AuditAction =
   | "REPORT_INBOX_REMOVED"
   | "SSO_CONNECTION_CREATED"
   | "SSO_CONNECTION_REMOVED"
-  | "SSO_SIGN_IN";
+  | "SSO_CONNECTION_UPDATED"
+  | "SSO_SIGN_IN"
+  | "REPORT_SHARE_DELETED"
+  | "API_KEY_DELETED"
+  | "PORTAL_ACCESS_DELETED"
+  | "TERMS_ACCEPTED"
+  | "DOMAIN_DELETED"
+  | "CLIENT_DELETED"
+  | "WORKSPACE_DELETED";
 
 /**
  * AuditOutcome is SUCCESS or DENIED. There is no FAILED value: the trail records

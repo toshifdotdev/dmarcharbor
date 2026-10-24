@@ -56,6 +56,7 @@ const ACTION_SENTENCES: Record<AuditAction, string> = {
   ERASURE_COMPLETED: "Erasure completed",
   API_KEY_CREATED: "API key issued",
   API_KEY_REVOKED: "API key revoked",
+  API_KEY_DELETED: "Revoked API key record removed",
   CLIENTS_BULK_IMPORTED: "Clients imported in bulk",
   DOMAINS_BULK_IMPORTED: "Domains imported in bulk",
   REFUND_ISSUED: "Refund issued",
@@ -84,7 +85,14 @@ const ACTION_SENTENCES: Record<AuditAction, string> = {
   REPORT_INBOX_REMOVED: "Report inbox removed",
   SSO_CONNECTION_CREATED: "Single sign-on connection added",
   SSO_CONNECTION_REMOVED: "Single sign-on connection removed",
+  SSO_CONNECTION_UPDATED: "Single sign-on connection changed",
   SSO_SIGN_IN: "Signed in through single sign-on",
+  REPORT_SHARE_DELETED: "Revoked report share link record removed",
+  PORTAL_ACCESS_DELETED: "Revoked portal access record removed",
+  TERMS_ACCEPTED: "Terms of Service accepted",
+  DOMAIN_DELETED: "Domain deleted",
+  CLIENT_DELETED: "Client deleted",
+  WORKSPACE_DELETED: "Workspace deleted",
 };
 
 /**

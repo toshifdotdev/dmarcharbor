@@ -1,90 +1,60 @@
-import { redirect } from "next/navigation";
-import Link from "next/link";
+import type { Metadata } from "next";
 import { listClients } from "@/lib/api";
-import { getWorkspaceEntitlements, listPortalAccess } from "@/lib/api-ops";
-import { requestOrigin } from "@/lib/metadata-origin";
-import { resolveActiveWorkspace } from "@/lib/session";
-import { Shell } from "@/components/shell";
-import { SettingsNav } from "@/components/settings-nav";
-import { PlanUnavailableNotice } from "@/components/plan-unavailable-notice";
+import { getBranding, getWorkspaceEntitlements, listPortalAccess } from "@/lib/api-ops";
 import { featureOf } from "@/lib/entitlements";
-import { PortalAccessPanel } from "@/components/portal-access-client";
-import { ErrorState } from "@/components/data-states";
+import { instantLabel } from "@/lib/instant";
+import { requestOrigin } from "@/lib/metadata-origin";
+import { settingsContext } from "@/lib/settings-context";
+import { mayChange } from "@/lib/settings-map";
+import { PlanUnknown } from "@/components/harbor/plan-refusal";
+import { SettingsFrame } from "@/components/harbor/settings/frame";
+import { PortalBoard, type GrantView } from "@/components/harbor/settings/portal";
+import { ErrorState } from "@/components/ui/states";
 
-/**
- * Client portal access — the agency-side grants surface. The portal routes
- * (/portal, /portal/domain/[id]) already existed and could never be reached:
- * no grant could ever exist, so the paid feature was dead on arrival. This is
- * where a contact is granted, listed and revoked.
- *
- * The boundary is stated where the grant is made: a contact sees report
- * volume, sending sources and spoofing warnings, and never forensic data or
- * named recipients.
- */
-export default async function PortalSettingsPage() {
-  const { workspaces, active } = await resolveActiveWorkspace();
-  if (!active) redirect("/welcome");
+export const metadata: Metadata = { title: "Client portal access" };
 
-  const [clientsResult, grantsResult, entitlements] = await Promise.all([
-    listClients(active.id)
-      .then((rows) => ({ clients: rows, failed: false }))
-      .catch(() => ({ clients: [], failed: true })),
-    listPortalAccess(active.id)
-      .then((r) => ({ grants: r.grants ?? [], failed: false }))
-      .catch(() => ({ grants: [], failed: true })),
-    getWorkspaceEntitlements(active.id).catch(() => null),
+/** /settings/portal — grants per client; reading needs client:read (every role). */
+export default async function PortalAccessPage() {
+  const ctx = await settingsContext();
+  const [clients, access, entitlements, branding, origin] = await Promise.all([
+    listClients(ctx.active.id).catch(() => null),
+    listPortalAccess(ctx.active.id).catch(() => null),
+    getWorkspaceEntitlements(ctx.active.id).catch(() => null),
+    getBranding(ctx.active.id).catch(() => null),
+    requestOrigin(),
   ]);
+  const host = branding?.customDomain && branding.customDomainVerifiedAt ? `https://${branding.customDomain}` : origin;
 
-  const allowPortal = featureOf(entitlements, "portal.client");
-  const origin = await requestOrigin();
+  const grants: GrantView[] = (access?.grants ?? []).map((g) => ({
+    id: g.id,
+    clientId: g.clientId,
+    clientName: g.clientName,
+    email: g.email,
+    displayName: g.displayName,
+    active: g.active,
+    firstSeenLabel: g.firstSeenAt ? instantLabel(g.firstSeenAt) : null,
+    grantedLabel: instantLabel(g.createdAt),
+  }));
 
   return (
-    <Shell workspaces={workspaces} activeWorkspace={active}>
-      <div className="flex flex-col gap-5">
-        <header>
-          <h1 className="label">Settings · Client portal</h1>
-          <p className="mt-1.5 max-w-3xl text-[14px]" style={{ color: "var(--color-ink-2)" }}>
-            A read-only portal for one client contact per client: report
-            volume, sending sources and spoofing warnings, in your brand.
-            Forensic data and named recipients are never shown there, no matter
-            who asks.
-          </p>
-        </header>
-        <SettingsNav current="portal" />
-        {entitlements === null ? <PlanUnavailableNotice /> : null}
-
-        {clientsResult.failed || grantsResult.failed ? (
-          <ErrorState
-            what="the portal access surface"
-            detail="Grants and clients could not be loaded. Nothing was created or removed."
-          />
-        ) : !allowPortal ? (
-          <section
-            className="lift rounded-[2px] border p-5"
-            style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
-            data-feature="portal.client"
-          >
-            <h2 className="text-[16px] font-semibold tracking-[-0.012em]">Client portal</h2>
-            <p className="mt-2 text-[13.5px]" style={{ color: "var(--color-ink-2)" }}>
-              The client portal is not included in your current plan.
-            </p>
-            <Link
-              href="/billing"
-              className="mt-2 inline-block text-[13px] font-semibold underline"
-              style={{ color: "var(--color-ink)" }}
-            >
-              See plan options
-            </Link>
-          </section>
-        ) : (
-          <PortalAccessPanel
-            organizationId={active.id}
-            clients={clientsResult.clients.map((c) => ({ id: c.id, name: c.name }))}
-            grants={grantsResult.grants}
-            origin={origin}
-          />
-        )}
-      </div>
-    </Shell>
+    <SettingsFrame
+      ctx={ctx}
+      section="portal"
+      lede="Give a client's own people a read-only view of their domains. The decision is who sees a client's results: each grant is one email address and one client."
+    >
+      {entitlements === null ? <PlanUnknown what="the client portal" /> : null}
+      {clients === null || access === null ? (
+        <ErrorState what={clients === null ? "the client list" : "the portal access list"} detail="No access was changed. Retry to read it." />
+      ) : (
+        <PortalBoard
+          organizationId={ctx.active.id}
+          clients={clients.map((c) => ({ id: c.id, name: c.name, domainCount: c.domains.length }))}
+          grants={grants}
+          canManage={ctx.role === null ? true : mayChange(ctx.role, "admin")}
+          granting={featureOf(entitlements, "portal.client")}
+          portalUrl={`${host}/portal`}
+        />
+      )}
+    </SettingsFrame>
   );
 }

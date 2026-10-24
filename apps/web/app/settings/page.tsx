@@ -1,85 +1,40 @@
-import { redirect } from "next/navigation";
-import Link from "next/link";
-import { listWorkspaceMembers } from "@/lib/api-ops";
-import { resolveActiveWorkspace } from "@/lib/session";
-import { Shell } from "@/components/shell";
-import { SettingsNav, SECTIONS } from "@/components/settings-nav";
-import { ErrorState } from "@/components/data-states";
+import type { Metadata } from "next";
+import { settingsContext } from "@/lib/settings-context";
+import { AppShell } from "@/components/harbor/app-shell";
+import { PageHeader } from "@/components/harbor/page-header";
+import { SettingsDirectory } from "@/components/harbor/settings/directory";
+
+export const metadata: Metadata = { title: "Settings" };
+
+const ROLE_SENTENCE: Record<string, string> = {
+  owner: "You are an owner of this workspace, so every section here is yours to change.",
+  admin: "You are an admin here: you can change everything except billing, issuing API keys, erasure and deleting the workspace, which are the owner's.",
+  analyst: "You are an analyst here. Most sections are read-only for you; your own devices, the audit trail and data export are not.",
+  viewer: "You are a viewer here. Most sections are read-only for you; your own devices, the audit trail and data export are not.",
+};
 
 /**
- * Settings hub. Each capability is its own section with its own route and its
- * own description, so this page is a directory rather than a wall of forms —
- * the brief's "independently understandable" applies to the whole surface.
+ * /settings — a directory, not a wall of forms.
  *
- * The member count is the one fetched fact here: a failed load renders a
- * failure, never "0 members". The count is how someone checks who has access,
- * and a silent zero is a lie on exactly that question.
+ * Fifteen sections in four groups named for the job, with a search over the
+ * phrases people actually use. Each entry carries who can change it, so the
+ * person knows before opening a section whether it is theirs to change.
  */
-export default async function SettingsPage() {
-  const { workspaces, active } = await resolveActiveWorkspace();
-  if (!active) redirect("/welcome");
-
-  const loaded = await listWorkspaceMembers(active.id)
-    .then((r) => ({ members: r.members ?? [], failed: false }))
-    .catch(() => ({ members: [], failed: true }));
-  const members = loaded.members;
-
+export default async function SettingsIndex() {
+  const ctx = await settingsContext();
   return (
-    <Shell workspaces={workspaces} activeWorkspace={active}>
-      <div className="flex flex-col gap-5">
-        <header>
-          <h1 className="label">Settings</h1>
-          <p className="mt-1.5 max-w-3xl text-[14px]" style={{ color: "var(--color-ink-2)" }}>
-            Each capability has its own section. Pick the one you came for:
-            every section explains itself and saves on its own.
-          </p>
-        </header>
-
-        <SettingsNav current="hub" />
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {SECTIONS.map((s) => (
-            <Link
-              key={s.key}
-              href={s.href}
-              className="lift rounded-[2px] border p-4 transition-colors hover:bg-[var(--color-raised)]"
-              style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
-            >
-              <div className="text-[15px] font-semibold" style={{ color: "var(--color-ink)" }}>
-                {s.label}
-              </div>
-              <div className="mt-1.5 text-[12.5px] leading-relaxed" style={{ color: "var(--color-ink-3)" }}>
-                {s.blurb}
-              </div>
-            </Link>
-          ))}
-        </div>
-
-        <section
-          className="lift rounded-[2px] border p-5"
-          style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
-        >
-          <h2 className="text-[15px] font-semibold tracking-[-0.012em]">
-            Who is in this workspace
-          </h2>
-          {loaded.failed ? (
-            <div className="mt-2.5">
-              <ErrorState
-                what="the member list"
-                detail="The count of who can work in this workspace could not be read. It is not zero: we could not look."
-              />
-            </div>
-          ) : (
-            <p className="mt-1.5 text-[12.5px]" style={{ color: "var(--color-ink-2)" }}>
-              {members.length} member{members.length === 1 ? "" : "s"} ·{" "}
-              <Link href="/settings/members" className="underline" style={{ color: "var(--color-ink)" }}>
-                open the members section
-              </Link>{" "}
-              for roles and permissions.
-            </p>
-          )}
-        </section>
+    <AppShell workspaces={ctx.workspaces} activeWorkspace={ctx.active} trail={[{ label: "Settings" }]}>
+      <div className="flex max-w-[1180px] flex-col gap-8">
+        <PageHeader
+          title="Settings"
+          lede={
+            ctx.role
+              ? (ROLE_SENTENCE[ctx.role] ?? "Each section says who can change it.")
+              : "Your role here could not be read just now. Each section still says who can change it, and the API decides."
+          }
+        />
+        <SettingsDirectory role={ctx.role} />
       </div>
-    </Shell>
+    </AppShell>
   );
 }

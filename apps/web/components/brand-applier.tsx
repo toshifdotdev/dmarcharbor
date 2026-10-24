@@ -27,40 +27,16 @@
  * on whatever they picked. The Monolith side is unchanged.
  */
 
+import { contrastInk, HEX } from "@/lib/brand-vars";
 import { readHostBrand } from "@/lib/host-brand";
-
-const HEX = /^#[0-9a-f]{6}$/i;
-
-/** Black or white, whichever reads better on the given #rrggbb. */
-function contrastInk(hex: string): string {
-  const channel = (offset: number) => {
-    const v = parseInt(hex.slice(offset, offset + 2), 16) / 255;
-    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-  };
-  const luminance = 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
-  // Contrast against white vs against near-black ink.
-  const onWhite = 1.05 / (luminance + 0.05);
-  const onInk = (luminance + 0.05) / 0.0155;
-  return onWhite >= onInk ? "#ffffff" : "#13212c";
-}
 
 /**
  * The Chart-side custom properties for a tenant's two colours, for a surface
  * that receives its brand from the API rather than from the request host (the
- * client portal). Invalid values are dropped, exactly as above.
+ * client portal). Lives in lib/brand-vars.ts so the white-label preview in the
+ * browser computes the same values; re-exported here for existing importers.
  */
-export function chartBrandVars(primaryColor: string | null, accentColor: string | null): Record<string, string> {
-  const primary = primaryColor && HEX.test(primaryColor) ? primaryColor : null;
-  const ink = accentColor && HEX.test(accentColor) ? accentColor : null;
-  if (!primary) return ink ? { "--color-accent-ink": ink } : {};
-  const onPrimary = ink ?? contrastInk(primary);
-  return {
-    "--color-accent": primary,
-    "--color-accent-ink": onPrimary,
-    "--hb-primary": primary,
-    "--hb-primary-ink": onPrimary,
-  };
-}
+export { chartBrandVars } from "@/lib/brand-vars";
 
 export async function BrandApplier() {
   const brand = await readHostBrand();

@@ -295,13 +295,15 @@ export const removeReportDigest = (orgId: string, digestId: string) =>
  */
 export const patchBranding = (
   orgId: string,
-  body: { brandPrimaryColor?: string | null; brandAccentColor?: string | null },
+  body: { brandPrimaryColor?: string | null; brandAccentColor?: string | null; logoUrl?: null },
 ) =>
   call(wsPath(orgId, "/branding"), {
     method: "PATCH",
     body: JSON.stringify({
       ...(body.brandPrimaryColor === undefined ? {} : { primaryColor: body.brandPrimaryColor }),
       ...(body.brandAccentColor === undefined ? {} : { accentColor: body.brandAccentColor }),
+      // Only ever cleared from here: a logo is set by upload, never by URL.
+      ...(body.logoUrl === null ? { logoUrl: null } : {}),
     }),
   });
 
@@ -446,8 +448,60 @@ export interface SsoCreateBody {
 export const createSsoConnection = (orgId: string, body: SsoCreateBody) =>
   call(wsPath(orgId, "/sso-connections"), { method: "POST", body: JSON.stringify(body) });
 
+/** PATCH a connection: on/off, label, who may join and as what. The provider
+ *  details are not editable; a corrected provider is a new connection. */
+export const updateSsoConnection = (
+  orgId: string,
+  connectionId: string,
+  body: Partial<Pick<SsoCreateBody, "label" | "allowedEmailDomains" | "provisioning" | "defaultRole">> & { enabled?: boolean },
+) =>
+  call<unknown>(wsPath(orgId, `/sso-connections/${connectionId}`), { method: "PATCH", body: JSON.stringify(body) });
+
 export const removeSsoConnection = (orgId: string, connectionId: string) =>
   call(wsPath(orgId, `/sso-connections/${connectionId}`), { method: "DELETE" });
+
+// ─── members and invitations (Better Auth organization plugin) ──────────────
+//
+// The API adds no routes of its own for these: the organization plugin serves
+// them under /api/auth/organization, with its own permission checks (owner
+// and admin for member and invitation actions). Inviting emails the address a
+// link to /welcome (sendInvitationEmail in the API's auth.config.ts), where the
+// invitation is listed (list-user-invitations) with Join and Decline. Joining
+// through the workspace's SSO connection also accepts it on the way in.
+
+const orgCall = <T>(path: string, body: unknown) =>
+  call<T>(`/api/auth/organization/${path}`, { method: "POST", body: JSON.stringify(body) });
+
+export const inviteMember = (orgId: string, email: string, role: "admin" | "analyst" | "viewer") =>
+  orgCall<{ id: string; email: string; role: string; expiresAt?: string }>("invite-member", {
+    organizationId: orgId,
+    email,
+    role,
+  });
+
+export const cancelInvitation = (orgId: string, invitationId: string) =>
+  orgCall<unknown>("cancel-invitation", { organizationId: orgId, invitationId });
+
+export const updateMemberRole = (orgId: string, memberId: string, role: string) =>
+  orgCall<unknown>("update-member-role", { organizationId: orgId, memberId, role });
+
+export const removeMember = (orgId: string, memberId: string) =>
+  orgCall<unknown>("remove-member", { organizationId: orgId, memberIdOrEmail: memberId });
+
+/** Invitations addressed to the signed-in person, from any workspace. */
+export interface InvitationForMe {
+  id: string;
+  organizationId: string;
+  organizationName?: string;
+  email: string;
+  role: string;
+  status: string;
+  expiresAt?: string;
+}
+
+export const acceptInvitation = (invitationId: string) => orgCall<unknown>("accept-invitation", { invitationId });
+
+export const rejectInvitation = (invitationId: string) => orgCall<unknown>("reject-invitation", { invitationId });
 
 // ─── onboarding funnel (Phase 5) ─────────────────────────────────────────────
 
@@ -723,13 +777,13 @@ export const startCheckout = (
 );
 
 /** PATCH /billing/plan. MOORING is a cancellation at period end and answers
- *  `cancelling`; any other plan answers `scheduled`, even on Paddle, which
- *  applies it at once (the screen re-reads the plan rather than trusting it). */
+ *  `cancelling`; otherwise `applied` when the provider moved the plan at once
+ *  (Paddle) or `scheduled` when it moves at period end (Razorpay). */
 export const changeBillingPlan = (
   orgId: string,
   body: { plan: string; interval?: "monthly" | "annual" },
 ) =>
-  call<{ status: "scheduled" | "cancelling"; effectiveAt: string }>(wsPath(orgId, "/billing/plan"), {
+  call<{ status: "scheduled" | "applied" | "cancelling"; effectiveAt: string; effectiveDate?: string | null }>(wsPath(orgId, "/billing/plan"), {
     method: "PATCH",
     body: JSON.stringify(body),
   });

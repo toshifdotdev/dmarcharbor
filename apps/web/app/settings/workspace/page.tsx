@@ -1,111 +1,122 @@
-import { redirect } from "next/navigation";
-import { getSessionUserId, listClients } from "@/lib/api";
-import { listWorkspaceMembers } from "@/lib/api-ops";
-import { resolveActiveWorkspace } from "@/lib/session";
-import type { WorkspaceMemberRow } from "@/lib/types";
-import { Shell } from "@/components/shell";
-import { SettingsNav } from "@/components/settings-nav";
-import { WorkspaceDelete } from "@/components/workspace-delete";
+import type { Metadata } from "next";
+import Link from "next/link";
+import { listClients } from "@/lib/api";
+import { getDpaAcceptance, getWorkspaceEntitlements } from "@/lib/api-ops";
+import { settingsContext } from "@/lib/settings-context";
+import { SettingsFrame } from "@/components/harbor/settings/frame";
+import { Panel } from "@/components/harbor/settings/parts";
+import { WorkspaceDeletion } from "@/components/harbor/settings/workspace";
+import { CopyValue } from "@/components/ui/copy";
+import { KeyValue } from "@/components/ui/notice";
+
+export const metadata: Metadata = { title: "Workspace" };
 
 /**
- * Workspace — identity at the top, deletion at the bottom, and nothing in
- * between that could be mistaken for either.
+ * /settings/workspace — what this workspace is, and deleting it.
  *
- * The delete control is owner-only, decided from the member roster cross-checked
- * against the session user rather than from "this account created it". An admin
- * who can see the owner's row in the members list must not be shown the owner's
- * button; the API refuses them anyway, and a control that can only ever fail is
- * worse than no control.
+ * Read-only facts first (the API offers no rename route of its own, so none is
+ * offered here), then the one destructive control, set apart.
  */
-export default async function WorkspaceSettingsPage() {
-  const { workspaces, active } = await resolveActiveWorkspace();
-  if (!active) redirect("/welcome");
-
-  const [userId, members, clientCount] = await Promise.all([
-    getSessionUserId(),
-    listWorkspaceMembers(active.id)
-      .then((r) => r.members)
-      .catch(() => [] as WorkspaceMemberRow[]),
-    listClients(active.id).then((c) => c.length).catch(() => null),
+export default async function WorkspacePage() {
+  const ctx = await settingsContext();
+  const [entitlements, clients, dpa] = await Promise.all([
+    getWorkspaceEntitlements(ctx.active.id).catch(() => null),
+    listClients(ctx.active.id).catch(() => null),
+    getDpaAcceptance(ctx.active.id).catch(() => null),
   ]);
-
-  const isOwner =
-    userId !== null && members.some((member) => member.userId === userId && member.role === "owner");
+  const domains = clients ? clients.reduce((n, c) => n + c.domains.length, 0) : null;
+  const unread = <span className="text-fg-3">could not be read</span>;
 
   return (
-    <Shell workspaces={workspaces} activeWorkspace={active}>
-      <div className="flex flex-col gap-5">
-        <header>
-          <h1 className="label">Settings · Workspace</h1>
-          <p className="mt-1.5 max-w-3xl text-[14px]" style={{ color: "var(--color-ink-2)" }}>
-            The workspace your clients, domains and reports live in. Everything
-            here belongs to everyone in it.
-          </p>
-        </header>
+    <SettingsFrame
+      ctx={ctx}
+      section="workspace"
+      lede="The workspace holds its own clients, domains, people and plan. Nothing in it is shared with your other workspaces."
+    >
+      <Panel id="ws-facts" title="This workspace">
+        <KeyValue
+          labelWidth={200}
+          rows={[
+            ["Name", <span key="n" className="font-semibold">{ctx.active.name}</span>],
+            ["Slug", <CopyValue key="s" value={ctx.active.slug} label="workspace slug" className="max-w-[420px]" />],
+            [
+              "Workspace ID",
+              <div key="i" className="max-w-[420px]">
+                <CopyValue value={ctx.active.id} label="workspace ID" />
+                <p className="mt-1 text-meta text-fg-3">Support asks for this. It is not a secret.</p>
+              </div>,
+            ],
+            [
+              "Plan",
+              entitlements ? (
+                <span key="p">
+                  <span className="font-semibold">{entitlements.label}</span>{" "}
+                  <Link href="/billing" className="link ml-2 text-meta">
+                    Billing
+                  </Link>
+                </span>
+              ) : (
+                unread
+              ),
+            ],
+            [
+              "Holds",
+              clients && domains !== null ? (
+                <span key="h" className="tnum">
+                  {clients.length} client{clients.length === 1 ? "" : "s"}, {domains} domain{domains === 1 ? "" : "s"}
+                </span>
+              ) : (
+                unread
+              ),
+            ],
+            [
+              "People",
+              ctx.members ? (
+                <span key="m">
+                  <span className="tnum">{ctx.members.length}</span> member{ctx.members.length === 1 ? "" : "s"}
+                  <Link href="/settings/members" className="link ml-2 text-meta">
+                    Members and roles
+                  </Link>
+                </span>
+              ) : (
+                unread
+              ),
+            ],
+            ["Your role", ctx.role ? <span key="r" className="capitalize">{ctx.role}</span> : unread],
+            [
+              "Data Processing Agreement",
+              dpa ? (
+                <span key="d">
+                  {dpa.accepted && dpa.version ? (
+                    <>
+                      Version <span className="data">{dpa.version}</span> accepted
+                      {dpa.requiresReconsent ? (
+                        <span className="ml-2 font-semibold text-warn">version {dpa.currentVersion} is current and needs accepting</span>
+                      ) : (
+                        <span className="ml-2 text-fg-3">the current version</span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="font-semibold text-warn">Not accepted for this workspace</span>
+                  )}
+                  <Link href="/dpa" className="link ml-2 text-meta">
+                    Read it
+                  </Link>
+                </span>
+              ) : (
+                unread
+              ),
+            ],
+          ]}
+        />
+      </Panel>
 
-        <SettingsNav current="workspace" />
-
-        <section
-          className="lift rounded-[2px] border p-5"
-          style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
-        >
-          <h2 className="text-[16px] font-semibold tracking-[-0.012em]">Identity</h2>
-          <dl className="mt-3 grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
-            <div>
-              <dt className="label">Name</dt>
-              <dd className="mt-1 text-[14px]">{active.name}</dd>
-            </div>
-            <div>
-              <dt className="label">Address</dt>
-              <dd className="num mt-1 text-[13px]" style={{ color: "var(--color-ink-2)" }}>
-                harbor.dmarcharbor.com/w/{active.slug}
-              </dd>
-            </div>
-            <div>
-              <dt className="label">Clients</dt>
-              <dd className="num mt-1 text-[13px]" style={{ color: "var(--color-ink-2)" }}>
-                {clientCount === null ? "unavailable" : clientCount}
-              </dd>
-            </div>
-            <div>
-              <dt className="label">Members</dt>
-              <dd className="num mt-1 text-[13px]" style={{ color: "var(--color-ink-2)" }}>
-                {members.length}
-              </dd>
-            </div>
-          </dl>
-        </section>
-
-        <section
-          className="lift rounded-[2px] border p-5"
-          style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
-        >
-          <h2 className="text-[16px] font-semibold tracking-[-0.012em]">Delete this workspace</h2>
-          {isOwner ? (
-            <>
-              <p className="mt-1.5 max-w-3xl text-[13px]" style={{ color: "var(--color-ink-2)" }}>
-                For closing an account down, not for removing one client. This
-                destroys every client, domain, report, scan, alert and key in the
-                workspace for every member, and it cannot be undone. To offboard a
-                single client, delete that client from the{" "}
-                <a href="/clients" className="underline" style={{ color: "var(--color-ink)" }}>
-                  clients page
-                </a>{" "}
-                instead.
-              </p>
-              <div className="mt-4 max-w-[520px]">
-                <WorkspaceDelete organizationId={active.id} workspaceName={active.name} />
-              </div>
-            </>
-          ) : (
-            <p className="mt-1.5 max-w-3xl text-[13px]" style={{ color: "var(--color-ink-2)" }}>
-              Only the workspace owner can delete it. Ask the owner if this account
-              is being closed down — they will find these exact controls on this
-              page.
-            </p>
-          )}
-        </section>
-      </div>
-    </Shell>
+      <WorkspaceDeletion
+        organizationId={ctx.active.id}
+        name={ctx.active.name}
+        slug={ctx.active.slug}
+        isOwner={ctx.role === null ? null : ctx.role === "owner"}
+      />
+    </SettingsFrame>
   );
 }

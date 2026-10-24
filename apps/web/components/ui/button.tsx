@@ -74,15 +74,20 @@ function Inner({ busy, busyLabel, children }: { busy?: boolean; busyLabel?: stri
 /** Three marks taken in turn: the busy state, sized to sit inside a button. */
 function Soundings() {
   return (
-    <span className="inline-flex gap-[3px]">
+    // One svg rather than three spans, so the mark is a single box that can be
+    // centred (and measured as centred) in the button.
+    <svg width="21" height="5" viewBox="0 0 21 5" className="block" aria-hidden>
       {[0, 1, 2].map((i) => (
-        <span
+        <rect
           key={i}
-          className="block size-[5px] bg-current"
+          x={i * 8}
+          width="5"
+          height="5"
+          fill="currentColor"
           style={{ animation: `hb-fade 0.9s ${i * 0.15}s ease-in-out infinite alternate` }}
         />
       ))}
-    </span>
+    </svg>
   );
 }
 

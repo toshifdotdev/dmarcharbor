@@ -1,98 +1,49 @@
-import { redirect } from "next/navigation";
-import { getBranding, getWorkspaceEntitlements } from "@/lib/api-ops";
-import { resolveActiveWorkspace } from "@/lib/session";
-import { Shell } from "@/components/shell";
-import { SettingsNav } from "@/components/settings-nav";
-import { PlanUnavailableNotice } from "@/components/plan-unavailable-notice";
+import type { Metadata } from "next";
+import { getBranding, getResolvedBranding, getWorkspaceEntitlements, OpsError } from "@/lib/api-ops";
 import { featureOf } from "@/lib/entitlements";
-import { WhiteLabelForm } from "@/components/settings-client";
+import { settingsContext } from "@/lib/settings-context";
+import { mayChange } from "@/lib/settings-map";
+import { PlanUnknown } from "@/components/harbor/plan-refusal";
+import { BrandingBoard } from "@/components/harbor/settings/branding";
+import { SettingsFrame } from "@/components/harbor/settings/frame";
+import { ErrorState, PermissionState } from "@/components/ui/states";
 
-/**
- * White label — Admiralty for the branding features. Two things the brief
- * insists on, both enforced here:
- *
- * - If the custom domain is unverified, SAY SO PLAINLY. The form states that
- *   the domain serves only after its TXT record verifies — never letting a
- *   customer assume their branding is live.
- * - A typed logo URL is never rendered. Logos are platform-served uploaded
- *   objects only (three-step upload, confirm with the workspace's own
- *   objectKey).
- */
-export default async function BrandingSettingsPage() {
-  const { workspaces, active } = await resolveActiveWorkspace();
-  if (!active) redirect("/welcome");
+export const metadata: Metadata = { title: "White label" };
 
-  const [branding, entitlements] = await Promise.all([
-    getBranding(active.id).catch(() => null),
-    getWorkspaceEntitlements(active.id).catch(() => null),
+/** /settings/branding — reading needs owner or admin (organization:read). */
+export default async function BrandingPage() {
+  const ctx = await settingsContext();
+  const [branding, resolved, entitlements] = await Promise.all([
+    getBranding(ctx.active.id).catch((e: unknown) => (e instanceof OpsError && e.status === 403 ? ("forbidden" as const) : null)),
+    getResolvedBranding(ctx.active.id).catch(() => null),
+    getWorkspaceEntitlements(ctx.active.id).catch(() => null),
   ]);
-  const allowWhiteLabel = featureOf(entitlements, "branding.whitelabel");
-  const allowLogoUpload = featureOf(entitlements, "branding.logoUpload");
 
   return (
-    <Shell workspaces={workspaces} activeWorkspace={active}>
-      <div className="flex flex-col gap-5">
-        <header>
-          <h1 className="label">Settings · White label</h1>
-          <p className="mt-1.5 max-w-3xl text-[14px]" style={{ color: "var(--color-ink-2)" }}>
-            Client-facing pages in your brand, not ours: the portal, the
-            digests, the report shares.
-          </p>
-        </header>
-        <SettingsNav current="branding" />
-        {entitlements === null ? <PlanUnavailableNotice /> : null}
-
-        {branding ? (
-          <>
-            {/* Plainly: unverified means the branding is NOT live yet. */}
-            {branding.customDomain ? (
-              branding.customDomainVerifiedAt ? (
-                <div
-                  data-testid="domain-verified"
-                  className="rounded-[2px] border px-4 py-3"
-                  style={{ borderColor: "var(--color-pass)", background: "var(--color-pass-soft)" }}
-                >
-                  <p className="num text-[11px] font-semibold tracking-[0.12em] uppercase" style={{ color: "var(--color-pass)" }}>
-                    Custom domain live
-                  </p>
-                  <p className="mt-1.5 text-[13px]" style={{ color: "var(--color-ink-2)" }}>
-                    <span className="num">{branding.customDomain}</span> verified{" "}
-                    {new Date(branding.customDomainVerifiedAt).toLocaleDateString("en-GB")}:
-                    client-facing pages are being served under your brand there.
-                  </p>
-                </div>
-              ) : (
-                <div
-                  data-testid="domain-unverified"
-                  className="rounded-[2px] border px-4 py-3"
-                  style={{ borderColor: "var(--color-unverified)", background: "var(--color-unverified-soft)" }}
-                >
-                  <p className="num text-[11px] font-semibold tracking-[0.12em] uppercase" style={{ color: "var(--color-unverified)" }}>
-                    Custom domain not live yet
-                  </p>
-                  <p className="mt-1.5 text-[13px]" style={{ color: "var(--color-ink-2)" }}>
-                    <span className="num">{branding.customDomain}</span> is saved but{" "}
-                    <strong style={{ color: "var(--color-ink)" }}>its TXT record has not
-                    been verified</strong>, so your branding is NOT being served there yet.
-                    Publish the TXT record at your DNS provider, then verify below.
-                  </p>
-                </div>
-              )
-            ) : null}
-
-            <WhiteLabelForm
-              organizationId={active.id}
-              branding={branding}
-              allowLogoUpload={allowLogoUpload === true}
-              allowWhiteLabel={allowWhiteLabel === true}
-            />
-          </>
-        ) : (
-          <p role="alert" className="text-[13.5px]" style={{ color: "var(--color-block)" }}>
-            Branding settings could not be loaded.
-          </p>
-        )}
-      </div>
-    </Shell>
+    <SettingsFrame
+      ctx={ctx}
+      section="branding"
+      lede="White label puts your name, logo and colours on everything a client opens, in place of ours. Check the preview before you save: it is what they will see."
+    >
+      {entitlements === null ? <PlanUnknown what="white label" /> : null}
+      {branding === "forbidden" ? (
+        <PermissionState what="white label" back={{ label: "All settings", href: "/settings" }} />
+      ) : branding === null ? (
+        <ErrorState what="the white label settings" detail="Nothing was changed. Retry to read them." />
+      ) : (
+        <BrandingBoard
+          organizationId={ctx.active.id}
+          workspaceName={resolved?.workspaceName ?? ctx.active.name}
+          primary={branding.brandPrimaryColor}
+          ink={branding.brandAccentColor}
+          logoUrl={resolved?.logoUrl ?? null}
+          customDomain={branding.customDomain}
+          customDomainVerified={Boolean(branding.customDomainVerifiedAt)}
+          whitelabel={featureOf(entitlements, "branding.whitelabel")}
+          logoUpload={featureOf(entitlements, "branding.logoUpload")}
+          canManage={ctx.role === null ? true : mayChange(ctx.role, "admin")}
+        />
+      )}
+    </SettingsFrame>
   );
 }
