@@ -2367,8 +2367,11 @@ const hostAudit = await waitForEval(
       notDefault: !t.includes('dmarc harbor'),
     };
   })()`,
-  (h) => h && (h.brandName || h.colorApplied),
-  30000,
+  // Wait for everything asserted below. The colour is in the head before the
+  // body streams in, so stopping at the colour read the loading fallback and
+  // failed a production run on a name that rendered a moment later.
+  (h) => h && h.brandName && h.colorApplied && h.brandedAttr === "verified",
+  45000,
 );
 check(
   "custom domain serves the agency's brand, not the default",
@@ -2398,8 +2401,10 @@ const unverifiedAudit = await waitForEval(
       notBranded: !t.includes('example agency'),
     };
   })()`,
-  (u) => u && (u.banner || u.notBranded),
-  30000,
+  // Wait for the rendered page, not the loading fallback: "Loading" alone is
+  // also "not branded", which would pass this check without testing anything.
+  (u) => u && u.hostState !== "" && (u.banner || u.notBranded),
+  45000,
 );
 check(
   "unverified custom domain says so plainly — never half-branded",
