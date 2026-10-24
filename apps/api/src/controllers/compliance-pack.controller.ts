@@ -110,7 +110,7 @@ export async function verifyCompliancePackController(request: Request, response:
         'Compute the SHA-256 digest of the downloaded file and compare it with sha256 above. A match means the file has not been altered since it was issued.',
       limitations:
         'This is a self attestation. It proves the document is unaltered, not that the provider is trustworthy, and it is not a third party audit.',
-      trustCenter: `${env.BETTER_AUTH_URL.replace(/\/$/, '')}/trust`,
+      trustCenter: `${env.APP_URL.replace(/\/$/, '')}/trust`,
     });
   } catch (error) {
     sendError(response, error);

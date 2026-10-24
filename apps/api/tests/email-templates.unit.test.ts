@@ -43,7 +43,8 @@ describe('email templates', () => {
       domainVerificationNotice({ workspaceName: 'W', domainName: 'acme.test', verified: false, appUrl: 'https://a.test/d' }),
       paymentFailedEmail({ workspaceName: 'W', planLabel: 'Harbor', graceEndsAt: '2026-10-01T00:00:00.000Z', billingUrl: 'https://a.test/b' }),
       subscriptionCancelledEmail({ workspaceName: 'W', planLabel: 'Harbor', accessUntil: '2026-10-01T00:00:00.000Z', billingUrl: 'https://a.test/b' }),
-      planChangedEmail({ workspaceName: 'W', fromLabel: 'Fairway', toLabel: 'Harbor', effectiveAt: '2026-10-01T00:00:00.000Z', billingUrl: 'https://a.test/b' }),
+      planChangedEmail({ workspaceName: 'W', fromLabel: 'Fairway', toLabel: 'Harbor', effectiveAt: '2026-10-01T00:00:00.000Z', timing: 'cycle_end', billingUrl: 'https://a.test/b' }),
+      planChangedEmail({ workspaceName: 'W', fromLabel: 'Fairway', toLabel: 'Harbor', effectiveAt: '2026-10-01T00:00:00.000Z', timing: 'immediate', billingUrl: 'https://a.test/b' }),
       exportReadyEmail({ workspaceName: 'W', scopeLabel: 'workspace', downloadUrl: 'https://a.test/e', expiresAt: '2026-10-01T00:00:00.000Z' }),
       erasureScheduledEmail({ workspaceName: 'W', scopeLabel: 'client', executesAt: '2026-10-01T00:00:00.000Z', cancelUrl: 'https://a.test/x' }),
       erasureCompletedEmail({ workspaceName: 'W', scopeLabel: 'client', completedAt: '2026-10-01T00:00:00.000Z' }),
@@ -57,6 +58,20 @@ describe('email templates', () => {
       expect(rendered.html).toContain('</html>');
       expect(rendered.subject.length).toBeGreaterThan(10);
     }
+  });
+
+  it('words a plan change by when it actually takes effect', () => {
+    const base = { workspaceName: 'W', fromLabel: 'Fairway', toLabel: 'Harbor', effectiveAt: '2026-10-01T00:00:00.000Z', billingUrl: 'https://a.test/b' };
+    const scheduled = planChangedEmail({ ...base, timing: 'cycle_end' });
+    const immediate = planChangedEmail({ ...base, timing: 'immediate' });
+
+    expect(scheduled.text).toContain('already paid for');
+    expect(scheduled.text).toContain('not charged a mid-cycle amount');
+    // Paddle applies at once and prorates, so promising no mid-cycle charge
+    // or a future date would be false.
+    expect(immediate.text).not.toContain('mid-cycle');
+    expect(immediate.text).not.toContain('already paid for');
+    expect(immediate.text).toContain('adjusts the charge');
   });
 
   it('keeps the action link reachable as plain text', () => {

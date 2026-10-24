@@ -272,8 +272,9 @@ if (parsed.data.NODE_ENV === 'production') {
 
   // Better Auth derives `useSecureCookies` from the baseURL protocol, so a plain
   // http default here means session cookies are issued without the Secure flag.
-  // Both URLs are also baked into emails the customer receives: erasure
-  // cancellation and export download links are built from BETTER_AUTH_URL.
+  // Both URLs are also baked into what the customer receives: every emailed
+  // link (billing, erasure, export, portal) is built from APP_URL, and the
+  // auth callbacks from BETTER_AUTH_URL.
   for (const name of ['BETTER_AUTH_URL', 'APP_URL'] as const) {
     const value = parsed.data[name];
     if (!value.startsWith('https://')) {

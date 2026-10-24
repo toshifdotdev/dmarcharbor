@@ -26,8 +26,10 @@ import {
  * action that triggered it.
  */
 
+/** A page in the web app. APP_URL is the web origin; BETTER_AUTH_URL is the
+ *  API's, which serves none of these pages. */
 function appUrl(path = ''): string {
-  return `${env.BETTER_AUTH_URL.replace(/\/$/, '')}${path}`;
+  return `${env.APP_URL.replace(/\/$/, '')}${path}`;
 }
 
 /**
@@ -132,7 +134,7 @@ async function sendDomainVerificationEmailImpl(input: {
         workspaceName: name,
         domainName: domain.name,
         verified: input.verified,
-        appUrl: appUrl(`/app/domains/${input.domainId}`),
+        appUrl: appUrl(`/domains/${input.domainId}`),
       }),
       email,
       // One notice per domain per outcome, so a repeated background re-check
@@ -148,7 +150,7 @@ async function sendPaymentFailedEmailImpl(input: {
   graceEndsAt: Date;
 }): Promise<void> {
   const name = await workspaceName(input.organizationId);
-  const billingUrl = appUrl('/app/billing');
+  const billingUrl = appUrl('/billing');
 
   for (const email of await ownersOf(input.organizationId)) {
     queueEmail(
@@ -176,7 +178,7 @@ async function sendSubscriptionCancelledEmailImpl(input: {
         workspaceName: name,
         planLabel: planLabel(input.plan),
         accessUntil: input.accessUntil.toISOString(),
-        billingUrl: appUrl('/app/billing'),
+        billingUrl: appUrl('/billing'),
       }),
       email,
     );
@@ -188,6 +190,7 @@ async function sendPlanChangedEmailImpl(input: {
   fromPlan: Parameters<typeof planLabel>[0];
   toPlan: Parameters<typeof planLabel>[0];
   effectiveAt: Date;
+  timing: 'immediate' | 'cycle_end';
 }): Promise<void> {
   const name = await workspaceName(input.organizationId);
 
@@ -198,7 +201,8 @@ async function sendPlanChangedEmailImpl(input: {
         fromLabel: planLabel(input.fromPlan),
         toLabel: planLabel(input.toPlan),
         effectiveAt: input.effectiveAt.toISOString(),
-        billingUrl: appUrl('/app/billing'),
+        timing: input.timing,
+        billingUrl: appUrl('/billing'),
       }),
       email,
     );

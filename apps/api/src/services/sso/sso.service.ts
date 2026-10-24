@@ -206,6 +206,98 @@ export async function listSsoConnections(organizationId: string): Promise<SsoCon
   }));
 }
 
+/**
+ * Changes a connection in place: switch it off or on, rename it, change who
+ * may join (allowlist, provisioning mode) and the role they arrive with.
+ *
+ * Deliberately not the identity provider details (issuer, entry point, client
+ * id, secret, certificate). Those decide which provider is trusted, and a typo
+ * there is fixed by adding a corrected connection and removing the old one, so
+ * the trusted provider never changes underneath an existing session.
+ *
+ * The allowlist rule is the same one creation enforces: just in time
+ * provisioning with no permitted domain is refused, whichever field changed.
+ */
+export async function updateSsoConnection(
+  organizationId: string,
+  connectionId: string,
+  patch: {
+    enabled?: boolean;
+    label?: string;
+    allowedEmailDomains?: string[];
+    provisioning?: SsoProvisioningMode;
+    defaultRole?: 'analyst' | 'viewer' | 'admin';
+  },
+): Promise<{ before: SsoConnectionView; after: SsoConnectionView }> {
+  const existing = await prisma.ssoConnection.findFirst({
+    where: { id: connectionId, organizationId },
+    include: { connections: { select: { domain: true } } },
+  });
+  if (!existing) {
+    throw new SsoError('No such connection in this workspace.', 'SSO_NOT_FOUND', 404);
+  }
+
+  const provisioning = patch.provisioning ?? existing.provisioning;
+  const domains = assertUsableDomains(
+    patch.allowedEmailDomains ?? existing.connections.map((entry) => entry.domain),
+    provisioning,
+  );
+
+  await prisma.$transaction(async (tx) => {
+    await tx.ssoConnection.update({
+      where: { id: existing.id },
+      data: {
+        ...(patch.enabled === undefined ? {} : { enabled: patch.enabled }),
+        ...(patch.label === undefined ? {} : { label: patch.label.trim().slice(0, 120) }),
+        ...(patch.provisioning === undefined ? {} : { provisioning: patch.provisioning }),
+        ...(patch.defaultRole === undefined ? {} : { defaultRole: patch.defaultRole }),
+      },
+    });
+    if (patch.allowedEmailDomains !== undefined) {
+      await tx.ssoConnectionDomain.deleteMany({ where: { connectionId: existing.id } });
+      if (domains.length > 0) {
+        await tx.ssoConnectionDomain.createMany({ data: domains.map((domain) => ({ connectionId: existing.id, domain })) });
+      }
+    }
+  });
+
+  const views = await listSsoConnections(organizationId);
+  const before = viewOf(existing);
+  const after = views.find((view) => view.id === existing.id) ?? before;
+  return { before, after };
+}
+
+function viewOf(row: {
+  id: string;
+  label: string;
+  protocol: SsoProtocol;
+  issuer: string;
+  entryPoint: string;
+  clientId: string;
+  idpCertificate: string | null;
+  provisioning: SsoProvisioningMode;
+  defaultRole: string;
+  enabled: boolean;
+  createdAt: Date;
+  connections: { domain: string }[];
+}): SsoConnectionView {
+  return {
+    id: row.id,
+    label: row.label,
+    protocol: row.protocol,
+    issuer: row.issuer,
+    entryPoint: row.entryPoint,
+    clientId: row.clientId,
+    callbackUrls: callbackUrlsFor(row.id),
+    ...ssoIdentifiersFor(row),
+    provisioning: row.provisioning,
+    defaultRole: row.defaultRole,
+    enabled: row.enabled,
+    allowedEmailDomains: row.connections.map((entry) => entry.domain).sort(),
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
 export async function deleteSsoConnection(organizationId: string, connectionId: string): Promise<void> {
   // Scoped to the organization in the delete itself, so a connection id from
   // another workspace removes nothing rather than reaching across tenants.

@@ -2,10 +2,11 @@ import type { Metadata } from "next";
 import { getSessionUser } from "@/lib/api";
 import { getPortalBranding, getPortalDomain, PortalError } from "@/lib/api-portal";
 import { dayLabel, policyPlain, senderName, senderPlain, summaryText, verdictFor } from "@/lib/portal-verdict";
+import { portalHref } from "@/lib/route-hrefs";
 import { signInRedirect } from "@/lib/session";
 import type { PortalBranding, PortalDomainDetail } from "@/lib/types";
 import { ForwardReport } from "@/components/harbor/portal-client";
-import { PortalFrame, PortalNotice } from "@/components/harbor/portal-frame";
+import { PortalFrame, PortalNotice, PortalPaused } from "@/components/harbor/portal-frame";
 import { Badge } from "@/components/ui/badge";
 import { CopyValue } from "@/components/ui/copy";
 
@@ -23,14 +24,22 @@ export const metadata: Metadata = { title: "Domain report", robots: { index: fal
  * The address carries the domain's id (the overview does not return a slug);
  * the API accepts either.
  */
-export default async function PortalDomainPage({ params }: { params: Promise<{ domainId: string }> }) {
+export default async function PortalDomainPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ domainId: string }>;
+  searchParams: Promise<{ org?: string }>;
+}) {
   const { domainId } = await params;
+  // The provider, for a contact invited by more than one.
+  const { org } = await searchParams;
   const [detailResult, brand, user] = await Promise.all([
-    getPortalDomain(domainId).then(
+    getPortalDomain(domainId, org).then(
       (d) => ({ ok: true as const, d }),
       (e: unknown) => ({ ok: false as const, e }),
     ),
-    getPortalBranding().catch(() => null as PortalBranding | null),
+    getPortalBranding(org).catch(() => null as PortalBranding | null),
     getSessionUser().catch(() => null),
   ]);
   const email = user?.email ?? null;
@@ -38,6 +47,9 @@ export default async function PortalDomainPage({ params }: { params: Promise<{ d
   if (!detailResult.ok) {
     const e = detailResult.e;
     if (e instanceof PortalError && e.status === 401) await signInRedirect();
+    if (e instanceof PortalError && e.code === "PORTAL_PAUSED") {
+      return <PortalPaused email={email} provider={e.workspaceName} />;
+    }
     if (e instanceof PortalError) {
       return (
         <PortalNotice
@@ -74,7 +86,7 @@ export default async function PortalDomainPage({ params }: { params: Promise<{ d
   const spoofKeys = new Set(detail.possibleSpoofingSources.map((s) => s.senderKey));
 
   return (
-    <PortalFrame brand={brand} email={email} back={{ href: "/portal", label: "All your domains" }}>
+    <PortalFrame brand={brand} email={email} home={portalHref(org)} back={{ href: portalHref(org), label: "All your domains" }}>
       <div className="flex flex-col gap-10">
         <header className="flex flex-col gap-3">
           <p className="legend">{detail.domain.client.name}</p>

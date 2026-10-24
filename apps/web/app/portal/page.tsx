@@ -3,10 +3,10 @@ import Link from "next/link";
 import { getSessionUser } from "@/lib/api";
 import { getPortalDomain, getPortalOverview, PortalError } from "@/lib/api-portal";
 import { dayLabel, verdictFor, type Verdict } from "@/lib/portal-verdict";
-import { portalDomainHref } from "@/lib/route-hrefs";
+import { portalDomainHref, portalHref } from "@/lib/route-hrefs";
 import { signInRedirect } from "@/lib/session";
 import type { PortalDomainDetail, PortalOverview } from "@/lib/types";
-import { PortalFrame, PortalNotice } from "@/components/harbor/portal-frame";
+import { PortalFrame, PortalNotice, PortalPaused } from "@/components/harbor/portal-frame";
 import { Badge } from "@/components/ui/badge";
 import { ArrowRight } from "@/components/ui/icons";
 
@@ -28,9 +28,11 @@ export const metadata: Metadata = { title: "Your domains", robots: { index: fals
  * Access is the API's: a grant on the signed-in email address decides it. A
  * signed-out reader goes to sign-in and comes back here.
  */
-export default async function PortalPage() {
+export default async function PortalPage({ searchParams }: { searchParams: Promise<{ org?: string }> }) {
+  // The provider, for a contact invited by more than one.
+  const { org } = await searchParams;
   const [overviewResult, user] = await Promise.all([
-    getPortalOverview().then(
+    getPortalOverview(org).then(
       (o) => ({ ok: true as const, o }),
       (e: unknown) => ({ ok: false as const, e }),
     ),
@@ -40,6 +42,9 @@ export default async function PortalPage() {
   if (!overviewResult.ok) {
     const e = overviewResult.e;
     if (e instanceof PortalError && e.status === 401) await signInRedirect();
+    if (e instanceof PortalError && e.code === "PORTAL_PAUSED") {
+      return <PortalPaused email={user?.email ?? null} provider={e.workspaceName} />;
+    }
     if (e instanceof PortalError && e.status === 403) {
       return (
         <PortalNotice brand={null} email={user?.email ?? null} title="There is no report for this account yet">
@@ -48,6 +53,26 @@ export default async function PortalPage() {
             been shared with that address. Reports are shared by the company that manages your email security: ask them to
             invite this exact address.
           </p>
+        </PortalNotice>
+      );
+    }
+    if (e instanceof PortalError && e.code === "CHOOSE_WORKSPACE" && e.workspaces.length > 0) {
+      return (
+        <PortalNotice brand={null} email={user?.email ?? null} title="Which provider's report do you want to open?">
+          <p>Your address has been invited by more than one company. Each keeps its own report; open one at a time.</p>
+          <ul className="mt-4 flex flex-col border-y border-rule" data-testid="portal-choose">
+            {e.workspaces.map((w) => (
+              <li key={w.organizationId} className="border-b border-rule last:border-b-0">
+                <Link href={portalHref(w.organizationId)} className="group flex items-center gap-4 py-3 hover:bg-paper-2/70">
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-body font-semibold text-fg group-hover:text-act">{w.name}</span>
+                    {w.clients.length > 0 ? <span className="block text-meta text-fg-3">{w.clients.join(", ")}</span> : null}
+                  </span>
+                  <ArrowRight size={14} className="text-fg-4 group-hover:text-act" />
+                </Link>
+              </li>
+            ))}
+          </ul>
         </PortalNotice>
       );
     }
@@ -77,7 +102,7 @@ export default async function PortalPage() {
 
   const domains = overview.clients.flatMap((c) => c.domains.map((d) => ({ ...d, clientName: c.name })));
   const details = await Promise.all(
-    domains.map((d) => getPortalDomain(d.id).catch(() => null as PortalDomainDetail | null)),
+    domains.map((d) => getPortalDomain(d.id, org).catch(() => null as PortalDomainDetail | null)),
   );
   const rows = domains
     .map((d, i) => ({ d, detail: details[i], verdict: verdictFor(details[i], agency, now) }))
@@ -101,7 +126,7 @@ export default async function PortalPage() {
             : "Nothing needs attention. Every message mail servers observed being sent as your domains passed the checks.";
 
   return (
-    <PortalFrame brand={overview.branding} email={user?.email ?? null}>
+    <PortalFrame brand={overview.branding} email={user?.email ?? null} home={portalHref(org)}>
       <div className="flex flex-col gap-8">
         <header className="flex flex-col gap-2">
           <p className="legend">{clientNames.length ? clientNames.join(", ") : "Client reports"}</p>
@@ -119,7 +144,7 @@ export default async function PortalPage() {
         {rows.length > 0 ? (
           <ol className="hb-stagger flex flex-col border-y border-fg">
             {rows.map(({ d, verdict }, i) => (
-              <DomainRow key={d.id} index={i} id={d.id} name={d.name} clientName={clientNames.length > 1 ? d.clientName : null} verdict={verdict} />
+              <DomainRow key={d.id} index={i} href={portalDomainHref(d.slug || d.id, org)} name={d.name} clientName={clientNames.length > 1 ? d.clientName : null} verdict={verdict} />
             ))}
           </ol>
         ) : null}
@@ -152,13 +177,13 @@ const TONE_BAR: Record<Verdict["tone"], string> = {
 };
 
 function DomainRow({
-  id,
+  href,
   name,
   clientName,
   verdict,
   index,
 }: {
-  id: string;
+  href: string;
   name: string;
   clientName: string | null;
   verdict: Verdict;
@@ -171,7 +196,7 @@ function DomainRow({
       className={`border-b border-rule last:border-b-0 ${TONE_BAR[verdict.tone]}`}
     >
       <Link
-        href={portalDomainHref(id)}
+        href={href}
         className="group grid gap-x-8 gap-y-2 py-4 pl-5 pr-2 hover:bg-paper-2/70 sm:grid-cols-[minmax(0,15rem)_minmax(0,1fr)_auto]"
       >
         <div className="min-w-0">

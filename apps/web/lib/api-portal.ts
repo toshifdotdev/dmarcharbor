@@ -8,19 +8,43 @@ import type { PortalBranding, PortalOverview, PortalDomainDetail } from "./types
  * THROUGH THIS FILE: portal contacts are outside that boundary by contract
  * (brief rule 5), so there is no call here that could fetch it — not even
  * speculatively behind a guard.
+ *
+ * A contact invited by more than one provider names which one with `org`;
+ * without it the API answers CHOOSE_WORKSPACE with the choices.
  */
 
+export interface PortalWorkspaceChoice {
+  organizationId: string;
+  name: string;
+  clients: string[];
+}
 
 export class PortalError extends Error {
   readonly status: number;
   readonly code: string | undefined;
+  readonly workspaces: PortalWorkspaceChoice[];
+  /** Sent with PORTAL_PAUSED: the provider whose plan no longer includes the portal. */
+  readonly workspaceName: string | null;
 
-  constructor(status: number, code: string | undefined, message: string | undefined) {
+  constructor(
+    status: number,
+    code: string | undefined,
+    message: string | undefined,
+    workspaces: PortalWorkspaceChoice[] = [],
+    workspaceName: string | null = null,
+  ) {
     super(message ?? `Portal request failed (${status})`);
     this.name = "PortalError";
     this.status = status;
     this.code = code;
+    this.workspaces = workspaces;
+    this.workspaceName = workspaceName;
   }
+}
+
+function withOrg(path: string, org?: string | null): string {
+  if (!org) return path;
+  return `${path}${path.includes("?") ? "&" : "?"}organizationId=${encodeURIComponent(org)}`;
 }
 
 async function portalFetch<T>(path: string): Promise<T> {
@@ -37,8 +61,16 @@ async function portalFetch<T>(path: string): Promise<T> {
   const text = await res.text();
   const body = text ? JSON.parse(text) : null;
   if (!res.ok) {
-    const err = body as { error?: { code?: string; message?: string } } | null;
-    throw new PortalError(res.status, err?.error?.code, err?.error?.message);
+    const err = body as {
+      error?: { code?: string; message?: string; workspaces?: PortalWorkspaceChoice[]; workspaceName?: string | null };
+    } | null;
+    throw new PortalError(
+      res.status,
+      err?.error?.code,
+      err?.error?.message,
+      Array.isArray(err?.error?.workspaces) ? err.error.workspaces : [],
+      typeof err?.error?.workspaceName === "string" ? err.error.workspaceName : null,
+    );
   }
   return body as T;
 }
@@ -48,14 +80,14 @@ async function portalFetch<T>(path: string): Promise<T> {
  * client grant, and the middleware decides that — this app never invents its
  * own permission logic. A 401 or 403 sends the reader to a plain explanation.
  */
-export async function getPortalOverview(): Promise<PortalOverview> {
-  return portalFetch<PortalOverview>("/api/portal");
+export async function getPortalOverview(org?: string | null): Promise<PortalOverview> {
+  return portalFetch<PortalOverview>(withOrg("/api/portal", org));
 }
 
-export function getPortalDomain(domainId: string): Promise<PortalDomainDetail> {
-  return portalFetch<PortalDomainDetail>(`/api/portal/domains/${domainId}`);
+export function getPortalDomain(domainId: string, org?: string | null): Promise<PortalDomainDetail> {
+  return portalFetch<PortalDomainDetail>(withOrg(`/api/portal/domains/${domainId}`, org));
 }
 
-export function getPortalBranding(): Promise<PortalBranding> {
-  return portalFetch<PortalBranding>("/api/portal/branding");
+export function getPortalBranding(org?: string | null): Promise<PortalBranding> {
+  return portalFetch<PortalBranding>(withOrg("/api/portal/branding", org));
 }

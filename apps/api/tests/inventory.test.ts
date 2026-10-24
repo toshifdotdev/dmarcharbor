@@ -151,8 +151,9 @@ describe('erasure certificate', () => {
     );
   });
 
-  it('states plainly that evidence is kept and why', () => {
-    expect(certificate.statement).toContain('no recipient data');
+  it('states plainly what was deleted, what was kept and why', () => {
+    expect(certificate.statement).toContain('including its DMARC reports and forensic samples');
+    expect(certificate.statement).toContain('identifying fields cleared');
     expect(certificate.statement).toContain('contains no personal data');
   });
 

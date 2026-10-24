@@ -44,6 +44,10 @@ const devAllowedOrigins = [
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // NEXT_DIST_DIR lets the verification harness build and serve its own copy
+  // (scripts/verify-run.mjs uses `.next-verify`) without touching the `.next`
+  // a running `npm run dev` is using.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   allowedDevOrigins: devAllowedOrigins,
   /**
    * Security headers.
@@ -100,11 +104,11 @@ const nextConfig: NextConfig = {
       },
     ];
   },
-  // The API's billing-portal session returns customers to `/app/billing`
-  // (billing.controller.ts builds `${BETTER_AUTH_URL}/app/billing`), a path this
-  // app never had. Until the API sends `/billing`, a paying customer coming
-  // back from the provider lands on the real page instead of a 404. Temporary
-  // (307), so nothing caches it once the API is fixed.
+  // The API's billing-portal session used to return customers to
+  // `${BETTER_AUTH_URL}/app/billing`, a path this app never had. It now sends
+  // `${APP_URL}/billing`. This stays for portal sessions created before that
+  // change and for links already sitting in inboxes. Temporary (307), so
+  // nothing caches it; safe to drop once those have aged out.
   async redirects() {
     return [
       { source: "/app/billing", destination: "/billing", permanent: false },

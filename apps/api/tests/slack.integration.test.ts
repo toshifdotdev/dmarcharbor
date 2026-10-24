@@ -85,7 +85,7 @@ describe('Slack destination', () => {
       .send({ webhookUrl: 'https://169.254.169.254/latest/meta-data/' });
 
     expect(response.status).toBe(400);
-    expect(response.body.code).toBe('INVALID_WEBHOOK_URL');
+    expect(response.body.error.code).toBe('INVALID_WEBHOOK_URL');
 
     const row = await prisma.slackDestination.findFirst({ where: { organizationId } });
     expect(row).toBeNull();

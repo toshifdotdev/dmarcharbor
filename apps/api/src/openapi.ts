@@ -447,6 +447,8 @@ export const openApiDocument = {
         description: [
           'The whole portal surface for the signed in contact: their clients, their verified domains, their scores and published policy, and when the last report arrived.',
           'Scoped by the resolved grant list rather than by anything in the request, so a contact cannot widen their own view. An account with no grant is refused with a message explaining that they need an invitation.',
+          'A contact invited by more than one workspace is answered 400 CHOOSE_WORKSPACE with the choices until organizationId is passed.',
+          'The plan is checked on every portal read: when the workspace plan no longer includes the client portal, every portal route answers 403 PORTAL_PAUSED with workspaceName. The grants are kept, so an upgrade restores access with nothing to set up.',
           'Contains no forensic evidence, no recipient data, no billing and no other workspace content.',
         ].join(' '),
         responses: { 200: { description: 'The contact own clients and domains.' }, ...standardErrors },
@@ -675,9 +677,10 @@ export const openApiDocument = {
     '/workspaces/{organizationId}/billing/plan': {
       patch: {
         tags: ['Billing'],
-        summary: 'Move to a different plan at the end of the paid period',
+        summary: 'Move to a different plan',
         description: [
-          'Scheduled rather than immediate, so nobody is charged a prorated amount they did not expect. There is no proration in this phase.',
+          'Timing depends on the provider and is returned, not assumed. On Razorpay the change is scheduled for the end of the paid period with no proration, and the answer is status "scheduled" with that date. Paddle cannot schedule a price change, so it applies at once and prorates the rest of the period, and the answer is status "applied".',
+          'A move to a smaller plan is refused with PLAN_CHANGE_OVER_QUOTA while the workspace is over that plan\'s limits.',
           'Moving to the free plan is treated as a cancellation, so the workspace keeps the period already paid for.',
         ].join(' '),
         requestBody: {
@@ -1000,6 +1003,40 @@ export const openApiDocument = {
       },
     },
     '/workspaces/{organizationId}/sso-connections/{connectionId}': {
+      patch: {
+        tags: ['Single sign on'],
+        summary: 'Switch a connection on or off, or change who it admits',
+        description: [
+          'Changes only the parts an administrator adjusts after setup: whether the connection is on, its label, the permitted email domains, provisioning and the default role.',
+          'The identity provider details (protocol, issuer, entry point, client id and secret, certificate) cannot be changed here. An unknown field is refused rather than ignored; to change the provider, add a new connection.',
+          'The same rules as creation apply to the result: provisioning stays refused without a permitted domain, and the default role cannot be owner. Requires organization:update and the auth.sso entitlement.',
+        ].join(' '),
+        parameters: [orgParam, connectionParam],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                additionalProperties: false,
+                minProperties: 1,
+                properties: {
+                  enabled: { type: 'boolean' },
+                  label: { type: 'string' },
+                  allowedEmailDomains: { type: 'array', items: { type: 'string' }, maxItems: 50 },
+                  provisioning: { type: 'string', enum: ['JIT', 'DISABLED'] },
+                  defaultRole: { type: 'string', enum: ['analyst', 'viewer', 'admin'] },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          ...standardErrors,
+          200: { description: 'The connection as it now stands, without the client secret.' },
+          400: { description: 'An unknown field was sent, or the result would provision with no permitted domain.' },
+        },
+      },
       delete: {
         tags: ['Single sign on'],
         summary: 'Stop trusting a provider',
@@ -1325,7 +1362,7 @@ export const openApiDocument = {
         summary: 'Execute an erasure now',
         description: [
           'Inside the seven day grace period this requires an explicit confirmation, because it is irreversible.',
-          'Named recipient records are destroyed, identifying fields on security records are cleared while the records are kept, and DMARC authentication evidence is retained because it holds no recipient data.',
+          'Everything in scope is deleted, including DMARC reports, forensic samples and named recipient records; audit and billing records are kept with identifying fields cleared.',
           'A certificate is written before the deletes and survives them, so there is permanent proof the request was carried out.',
         ].join(' '),
         parameters: [orgParam, idParam('erasureId', 'Erasure request identifier.')],

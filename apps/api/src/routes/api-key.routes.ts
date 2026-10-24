@@ -5,10 +5,16 @@ import { requireOrganizationPermission } from '../middleware/organization-permis
 
 export const apiKeyRouter = Router();
 
+/**
+ * Who may do what. Reading the list and revoking are owner OR admin: the list
+ * holds only prefixes and names, and revoking a leaked key is the urgent, safe
+ * direction, which should not wait for the one owner. Issuing a key (which acts
+ * for the whole workspace) and erasing a revoked key's record stay owner only.
+ */
 apiKeyRouter.get(
   '/workspaces/:organizationId/api-keys',
   requireSession,
-  requireOrganizationPermission('billing', 'update'),
+  requireOrganizationPermission('organization', 'update'),
   listApiKeysController,
 );
 apiKeyRouter.post(
@@ -36,6 +42,6 @@ apiKeyRouter.delete(
 apiKeyRouter.delete(
   '/workspaces/:organizationId/api-keys/:keyId',
   requireSession,
-  requireOrganizationPermission('billing', 'update'),
+  requireOrganizationPermission('organization', 'update'),
   revokeApiKeyController,
 );

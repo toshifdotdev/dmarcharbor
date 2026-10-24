@@ -186,7 +186,8 @@ export class PaddleBillingProvider implements BillingProvider {
    * expect.
    *
    * Paddle takes the change through `subscriptions.update` with the new price
-   * and no proration, so the customer is never charged a mid cycle figure.
+   * and `prorated_immediately`: the change is live at once and Paddle bills or
+   * credits the difference for the rest of the period (reasoning below).
    */
   async changePlan(input: { providerSubscriptionId: string; plan: PlanTier; interval: BillingInterval }): Promise<ProviderSubscription> {
     const live = await this.fetchSubscription(input.providerSubscriptionId);

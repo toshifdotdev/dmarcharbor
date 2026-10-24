@@ -34,6 +34,24 @@ export function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
+/**
+ * A stored instant as a person reads it in an email: "30 October 2026, 14:37 UTC".
+ * Every date reached these emails as a raw ISO string. Anything that is not a
+ * date is passed through unchanged rather than printed as "Invalid Date".
+ */
+export function readableDate(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return `${parsed.toLocaleString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'UTC',
+  })} UTC`;
+}
+
 /** A colour is only ever emitted as a CSS value, so the shape is constrained. */
 function safeColour(value: string | null | undefined, fallback: string): string {
   if (!value) {
@@ -139,6 +157,33 @@ function layout(input: LayoutInput): RenderedEmail {
 
 /* ----------------------------------------------------------------- templates */
 
+/**
+ * An invitation to join a workspace as a team member. Agency facing, so it is
+ * DMARC Harbor's message, not the agency's brand.
+ */
+export function workspaceInvitationEmail(input: {
+  workspaceName: string;
+  inviterName: string;
+  role: string;
+  signInUrl: string;
+  expiresAt: string | null;
+}): RenderedEmail {
+  const article = /^[aeiou]/i.test(input.role) ? 'an' : 'a';
+  return layout({
+    title: `${input.inviterName} invited you to ${input.workspaceName}`,
+    preheader: `Join ${input.workspaceName} on DMARC Harbor as ${article} ${input.role}.`,
+    heading: `Join ${input.workspaceName} on DMARC Harbor`,
+    paragraphs: [
+      `${input.inviterName} has invited you to work in ${input.workspaceName} as ${article} ${input.role}.`,
+      'Sign in, or create an account, with this email address. The invitation is waiting on the first screen.',
+      input.expiresAt ? `The invitation lapses on ${readableDate(input.expiresAt)}.` : '',
+      'If you were not expecting this, you can ignore it. Nothing happens unless you accept.',
+    ].filter(Boolean),
+    action: { label: 'Open the invitation', url: input.signInUrl },
+    footer: 'You are receiving this because someone invited this address to a DMARC Harbor workspace.',
+  });
+}
+
 export function portalAccessGranted(input: {
   brand: BrandLook;
   clientName: string;
@@ -200,11 +245,12 @@ export function paymentFailedEmail(input: {
 }): RenderedEmail {
   return layout({
     title: `Payment failed for ${input.planLabel}`,
-    preheader: 'We will retry automatically. Update your card to avoid losing access.',
+    // The payment provider retries the card, not this service; the copy says so.
+    preheader: 'Your payment provider will retry the charge. Update your card to avoid losing access.',
     heading: `We could not take payment for ${input.planLabel}`,
     paragraphs: [
-      `Your last payment for ${input.planLabel} did not go through. We will retry automatically over the next few days.`,
-      `Your access continues until ${input.graceEndsAt}. If the payment still has not succeeded by then, the workspace moves to the free plan.`,
+      `Your last payment for ${input.planLabel} did not go through. Your payment provider retries the charge on its own once the card works.`,
+      `Your access continues until ${readableDate(input.graceEndsAt)}. If the payment still has not succeeded by then, the workspace moves to the free plan.`,
       'All of your clients, domains and reports are kept either way. Nothing is deleted, and updating your card restores your previous plan immediately.',
     ],
     action: { label: 'Update payment method', url: input.billingUrl },
@@ -224,10 +270,10 @@ export function subscriptionCancelledEmail(input: {
 }): RenderedEmail {
   return layout({
     title: `Your ${input.planLabel} subscription is ending`,
-    preheader: `Access continues until ${input.accessUntil}.`,
+    preheader: `Access continues until ${readableDate(input.accessUntil)}.`,
     heading: `Your ${input.planLabel} subscription will not renew`,
     paragraphs: [
-      `As requested, your ${input.planLabel} subscription is set to end. You keep full access until ${input.accessUntil}, and nothing is deleted.`,
+      `As requested, your ${input.planLabel} subscription is set to end. You keep full access until ${readableDate(input.accessUntil)}, and nothing is deleted.`,
       'Changed your mind? You can keep your plan and every feature you had by resuming before that date.',
     ],
     action: { label: 'Keep my plan', url: input.billingUrl },
@@ -240,16 +286,29 @@ export function planChangedEmail(input: {
   fromLabel: string;
   toLabel: string;
   effectiveAt: string;
+  /**
+   * `immediate` when the provider applied the change at once and adjusted the
+   * charge (Paddle); `cycle_end` when it takes effect at the end of the paid
+   * period with no mid-cycle charge (Razorpay). The two need different words:
+   * one email used to promise "no mid-cycle amount" to both.
+   */
+  timing: 'immediate' | 'cycle_end';
   billingUrl: string;
 }): RenderedEmail {
+  const immediate = input.timing === 'immediate';
   return layout({
-    title: `Your plan changes to ${input.toLabel}`,
-    preheader: `Effective ${input.effectiveAt}.`,
-    heading: `Your plan changes to ${input.toLabel}`,
-    paragraphs: [
-      `Your plan moves from ${input.fromLabel} to ${input.toLabel} on ${input.effectiveAt}, at the end of the period you have already paid for.`,
-      'You are not charged a mid-cycle amount, and your current limits stay in place until the change takes effect.',
-    ],
+    title: immediate ? `Your plan is now ${input.toLabel}` : `Your plan changes to ${input.toLabel}`,
+    preheader: immediate ? 'Effective now.' : `Effective ${readableDate(input.effectiveAt)}.`,
+    heading: immediate ? `Your plan is now ${input.toLabel}` : `Your plan changes to ${input.toLabel}`,
+    paragraphs: immediate
+      ? [
+          `Your plan moved from ${input.fromLabel} to ${input.toLabel} on ${readableDate(input.effectiveAt)}, and the ${input.toLabel} limits apply from now.`,
+          'The payment provider adjusts the charge for the rest of the current period: a move up is billed for the difference, a move down is credited.',
+        ]
+      : [
+          `Your plan moves from ${input.fromLabel} to ${input.toLabel} on ${readableDate(input.effectiveAt)}, at the end of the period you have already paid for.`,
+          'You are not charged a mid-cycle amount, and your current limits stay in place until the change takes effect.',
+        ],
     action: { label: 'Manage plan', url: input.billingUrl },
     footer: 'You are receiving this because you have a paid subscription in DMARC Harbor.',
   });
@@ -266,7 +325,7 @@ export function exportReadyEmail(input: {
     preheader: 'Download it before the link expires.',
     heading: 'Your data export is ready',
     paragraphs: [
-      `The ${input.scopeLabel} export you requested is ready to download. The link expires on ${input.expiresAt}, after which a new export must be requested.`,
+      `The ${input.scopeLabel} export you requested is ready to download. The link expires on ${readableDate(input.expiresAt)}, after which a new export must be requested.`,
       'The export excludes credentials and secrets. Access tokens and API keys are never included.',
     ],
     action: { label: 'Download export', url: input.downloadUrl },
@@ -282,10 +341,10 @@ export function erasureScheduledEmail(input: {
 }): RenderedEmail {
   return layout({
     title: 'Your data deletion is scheduled',
-    preheader: `You can cancel it until ${input.executesAt}.`,
+    preheader: `You can cancel it until ${readableDate(input.executesAt)}.`,
     heading: 'Your data deletion is scheduled',
     paragraphs: [
-      `The ${input.scopeLabel} deletion you requested will run on ${input.executesAt}. You can cancel it any time before then, and nothing has been removed yet.`,
+      `The ${input.scopeLabel} deletion you requested will run on ${readableDate(input.executesAt)}. You can cancel it any time before then, and nothing has been removed yet.`,
       'The audit and billing records needed to show what happened are kept in an anonymised form.',
     ],
     action: { label: 'Cancel deletion', url: input.cancelUrl },
@@ -303,7 +362,7 @@ export function erasureCompletedEmail(input: {
     preheader: `${input.scopeLabel} has been removed.`,
     heading: 'Your data deletion is complete',
     paragraphs: [
-      `The ${input.scopeLabel} deletion finished on ${input.completedAt}. Client records, domains, and DMARC reports in scope have been removed.`,
+      `The ${input.scopeLabel} deletion finished on ${readableDate(input.completedAt)}. Client records, domains, and DMARC reports in scope have been removed.`,
       'Records that exist to evidence the deletion itself are retained in an anonymised form. A copy of that record is available in your workspace.',
     ],
     footer: 'You are receiving this because you requested a deletion in DMARC Harbor.',

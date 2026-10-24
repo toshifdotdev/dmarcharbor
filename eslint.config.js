@@ -10,6 +10,7 @@ export default tseslint.config(
       '**/dist/**',
       '**/node_modules/**',
       '**/.next/**',
+      '**/.next-verify/**',
       '**/next-env.d.ts',
     ],
   },

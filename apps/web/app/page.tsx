@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
-import { ApiError, getAllDomainSignals, listClients, listWorkspaces } from "@/lib/api";
+import { ApiError, getAllDomainSignals, getSessionUser, listClients, listWorkspaces } from "@/lib/api";
 import { instantLabel } from "@/lib/instant";
 import { daysSinceReport, policyLabel, resolvePosture, type Posture } from "@/lib/posture";
 import { pickActiveWorkspace } from "@/lib/session";
@@ -13,13 +13,18 @@ import { PageHeader } from "@/components/harbor/page-header";
 import { PortfolioBoard, type BoardRow } from "@/components/harbor/portfolio-board";
 import { RefreshButton } from "@/components/harbor/refresh-button";
 import { FirstDomain } from "@/components/harbor/first-domain";
+import { InvitationsForYou } from "@/components/harbor/invitations";
 import { getWorkspaceEntitlements } from "@/lib/api-ops";
 import { ErrorState, LoadingState, UpgradeNotice } from "@/components/ui/states";
 
 /** The root route serves two different readers (stranger and operator), and
  *  the stranger's page is the one a search engine sees. Its metadata describes
- *  the product, not the portfolio. */
+ *  the product. A signed-in operator's tab names the screen instead, like every
+ *  other console route ("Clients", "Alerts"), rather than the marketing line. */
 export async function generateMetadata(): Promise<Metadata> {
+  // Per-request memo shared with the shell, so this adds no API call for an
+  // operator; a crawler is never signed in and gets the product metadata.
+  if (await getSessionUser()) return { title: "Portfolio" };
   const origin = await requestOrigin();
   return publicMetadata({
     title: "DMARC reports for MSPs managing client domains",
@@ -64,6 +69,8 @@ export default async function RootPage() {
           title="Portfolio"
           actions={<RefreshButton />}
         />
+        {/* Invitations into other workspaces, for someone who already has one. Renders nothing when there are none. */}
+        <InvitationsForYou />
         <Suspense fallback={<LoadingState label="Reading the portfolio" rows={8} />}>
           <PortfolioData organizationId={active ? active.id : ""} workspaceName={active?.name ?? "This workspace"} />
         </Suspense>

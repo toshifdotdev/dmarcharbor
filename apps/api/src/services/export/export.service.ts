@@ -100,7 +100,9 @@ export async function createExportJob(input: ExportRequest): Promise<{ id: strin
     organizationId: input.organizationId,
     exportJobId: job.id,
     scopeLabel: organization?.name ?? 'workspace',
-    downloadUrl: `${env.BETTER_AUTH_URL.replace(/\/$/, '')}/app/exports/${token}`,
+    // The API's own download route, reached through the web origin's /api
+    // proxy so the signed-in session cookie is first-party.
+    downloadUrl: `${env.APP_URL.replace(/\/$/, '')}/api/workspaces/${input.organizationId}/exports/${job.id}/download?token=${encodeURIComponent(token)}`,
     expiresAt,
   });
 

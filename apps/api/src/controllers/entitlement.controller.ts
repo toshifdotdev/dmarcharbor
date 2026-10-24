@@ -7,6 +7,7 @@ import { entitlementOverrideSchema, planChangeSchema } from '../models/entitleme
 import { recordAuditEvent } from '../services/audit.service.js';
 import {
   planCatalogResponse,
+  quotaUsage,
   removeOverride,
   resolveEntitlements,
   setOrganizationPlan,
@@ -31,13 +32,23 @@ export async function listEntitlementsController(request: Request, response: Res
   const organizationId = response.locals.organizationId;
   const entitlements = await resolveEntitlements(organizationId);
 
+  // The counts the plan's limits are enforced against, computed exactly as the
+  // quota check computes them: clients and active domains across the owner's
+  // workspaces, members within this one. A screen showing "6 of 20" should be
+  // showing the number that will refuse the 21st.
+  const [client, activeDomain, member] = await Promise.all(
+    (['client', 'activeDomain', 'member'] as const).map((quota) => quotaUsage(organizationId, quota, entitlements.plan)),
+  );
+  const usage = { client, activeDomain, member };
+
   if (await canManageBilling(request, organizationId)) {
-    response.json(entitlements);
+    response.json({ ...entitlements, usage });
     return;
   }
 
   response.json({
     ...entitlements,
+    usage,
     overrides: entitlements.overrides.map((override) => ({
       entitlement: override.entitlement,
       enabled: override.enabled,

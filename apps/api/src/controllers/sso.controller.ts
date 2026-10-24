@@ -5,7 +5,13 @@ import { prisma } from '../database/prisma.js';
 import { env } from '../config/env.js';
 import { auth } from '../auth/auth.config.js';
 import { recordAuditEvent } from '../services/audit.service.js';
-import { SsoError, createSsoConnection, deleteSsoConnection, listSsoConnections } from '../services/sso/sso.service.js';
+import {
+  SsoError,
+  createSsoConnection,
+  deleteSsoConnection,
+  listSsoConnections,
+  updateSsoConnection,
+} from '../services/sso/sso.service.js';
 import { zodMessage } from '../utils/zod-messages.js';
 import {
   SESSION_COOKIE,
@@ -178,6 +184,61 @@ export async function createSsoConnectionController(request: Request, response: 
     });
 
     response.status(201).json({ id: created.id });
+  } catch (error) {
+    fail(response, error);
+  }
+}
+
+const updateSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    label: z.string().trim().min(1).max(120).optional(),
+    allowedEmailDomains: z.array(z.string().trim().min(1).max(255)).max(50).optional(),
+    provisioning: z.enum(['JIT', 'DISABLED']).optional(),
+    defaultRole: z.enum(['analyst', 'viewer', 'admin']).optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, { message: 'Send at least one field to change.' });
+
+/**
+ * PATCH a connection. The identity provider details are not editable here (see
+ * `updateSsoConnection`); an unknown field is refused rather than ignored, so a
+ * request that tries to change the issuer is told it cannot.
+ */
+export async function updateSsoConnectionController(request: Request, response: Response): Promise<void> {
+  const body = updateSchema.safeParse(request.body);
+  if (!body.success) {
+    response.status(400).json({
+      error: {
+        code: 'INVALID_REQUEST',
+        message:
+          zodMessage(body.error.issues) ??
+          'Only enabled, label, allowedEmailDomains, provisioning and defaultRole can be changed. To change the provider, add a new connection.',
+      },
+    });
+    return;
+  }
+
+  const organizationId = response.locals.organizationId;
+  const connectionId = request.params.connectionId as string;
+
+  try {
+    const { before, after } = await updateSsoConnection(organizationId, connectionId, body.data);
+    const changed = Object.fromEntries(
+      (Object.keys(body.data) as Array<keyof typeof body.data>).map((key) => [
+        key,
+        { from: before[key as keyof typeof before] ?? null, to: after[key as keyof typeof after] ?? null },
+      ]),
+    );
+    await recordAuditEvent({
+      organizationId,
+      actorUserId: response.locals.session?.user?.id,
+      action: 'SSO_CONNECTION_UPDATED',
+      targetType: 'sso_connection',
+      targetId: connectionId,
+      detail: { label: after.label, changed },
+    });
+    response.json(after);
   } catch (error) {
     fail(response, error);
   }

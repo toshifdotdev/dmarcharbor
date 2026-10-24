@@ -112,7 +112,8 @@ export async function listForensicsController(request: Request, response: Respon
 
   const organizationId = response.locals.organizationId;
   const [{ rows, limit }, includePii] = await Promise.all([
-    listDomainForensics(organizationId, domainId, { limit: page.limit, cursor: page.cursor }),
+    // The resolved id: the path may carry the slug, and samples key on id.
+    listDomainForensics(organizationId, domain.id, { limit: page.limit, cursor: page.cursor }),
     mayIdentify(request, organizationId),
   ]);
 

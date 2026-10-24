@@ -229,6 +229,10 @@ describe('client portal access', () => {
     expect(response.body.senders.length).toBeGreaterThan(0);
     expect(response.body.possibleSpoofingSources.length).toBeGreaterThan(0);
     expect(response.body.possibleSpoofingSources[0].senderDomain).toBe('evil.test');
+    // The contact is the domain owner: the operator's instruction to go and
+    // confirm with them must not be what they are shown.
+    expect(response.body.possibleSpoofingSources[0].detail).not.toContain('Confirm with the domain owner');
+    expect(response.body.possibleSpoofingSources[0].detail).toContain('evil.test');
 
     const serialised = JSON.stringify(response.body);
     expect(serialised.toLowerCase()).not.toContain('forensic');
@@ -253,6 +257,38 @@ describe('client portal access', () => {
 
     expect((await contact.agent.get('/api/portal')).status).toBe(403);
     expect((await contact.agent.get(`/api/portal/domains/${clients[0]!.domainId}`)).status).toBe(403);
+  });
+
+  it('pauses the portal when the plan stops including it, and keeps the grant for an upgrade', async () => {
+    const { agent, organizationId, clients } = await setup();
+    const contactEmail = `paused-${Date.now()}@acme.test`;
+
+    await agent
+      .post(`/api/workspaces/${organizationId}/clients/${clients[0]!.id}/portal-access`)
+      .send({ email: contactEmail });
+    const contact = await createUser(contactEmail);
+    expect((await contact.agent.get('/api/portal')).status).toBe(200);
+
+    // Fairway does not include the client portal.
+    await grantPlan(organizationId, 'FAIRWAY');
+
+    for (const path of ['/api/portal', `/api/portal/domains/${clients[0]!.domainId}`, '/api/portal/branding']) {
+      const paused = await contact.agent.get(path);
+      expect(paused.status, path).toBe(403);
+      expect(paused.body.error.code, path).toBe('PORTAL_PAUSED');
+      expect(paused.body.error.workspaceName, path).toBe('Northgate Digital');
+      // The contact is the agency's client: the refusal names no plan.
+      expect(paused.body.error.message, path).not.toMatch(/fairway|harbor|plan/i);
+    }
+
+    // The grant is kept, so the agency can still see and revoke it...
+    const listed = await agent.get(`/api/workspaces/${organizationId}/portal-access`);
+    expect(listed.status).toBe(200);
+    expect(JSON.stringify(listed.body)).toContain(contactEmail);
+
+    // ...and an upgrade brings the report back with nothing to set up again.
+    await grantPlan(organizationId, 'HARBOR');
+    expect((await contact.agent.get('/api/portal')).status).toBe(200);
   });
 
   it('lets one contact hold grants for two clients and shows only those two', async () => {

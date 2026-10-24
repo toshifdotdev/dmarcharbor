@@ -100,21 +100,29 @@ export async function changePlanController(request: Request, response: Response)
 
   // Downgrading to the free plan is a cancellation, not a plan change, and it
   // is treated as one so the customer keeps the period they already paid for.
-  if (body.data.plan === 'MOORING') {
-    await cancelSubscription({ organizationId: response.locals.organizationId, actorUserId: response.locals.session?.user?.id });
-    response.json({ status: 'cancelling', effectiveAt: 'cycle_end' });
-    return;
-  }
-
   try {
-    await changePlan({
+    // Inside the try: a NO_SUBSCRIPTION refusal here used to escape as a 500
+    // instead of the 409 sendBillingError formats.
+    if (body.data.plan === 'MOORING') {
+      await cancelSubscription({ organizationId: response.locals.organizationId, actorUserId: response.locals.session?.user?.id });
+      response.json({ status: 'cancelling', effectiveAt: 'cycle_end' });
+      return;
+    }
+
+    const outcome = await changePlan({
       organizationId: response.locals.organizationId,
       actorUserId: response.locals.session?.user?.id,
       plan: body.data.plan,
       interval: body.data.interval,
     });
 
-    response.json({ status: 'scheduled', effectiveAt: 'cycle_end' });
+    // `applied` when the provider already moved the plan (Paddle); `scheduled`
+    // when it moves at the end of the paid period (Razorpay).
+    response.json({
+      status: outcome.effectiveAt === 'immediate' ? 'applied' : 'scheduled',
+      effectiveAt: outcome.effectiveAt,
+      effectiveDate: outcome.effectiveDate?.toISOString() ?? null,
+    });
   } catch (error) {
     sendBillingError(response, error);
   }
@@ -178,7 +186,9 @@ export async function billingPortalController(request: Request, response: Respon
   try {
     const url = await billingPortalUrl({
       organizationId: response.locals.organizationId,
-      returnUrl: `${env.BETTER_AUTH_URL}/app/billing`,
+      // The web app's billing page, on the web app's origin. This was the API's
+      // origin (BETTER_AUTH_URL) and a path that does not exist (/app/billing).
+      returnUrl: `${env.APP_URL.replace(/\/$/, '')}/billing`,
     });
     response.json({ url });
   } catch (error) {

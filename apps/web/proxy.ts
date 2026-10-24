@@ -65,7 +65,16 @@ const TTL_MISS_MS = 30 * 1000;
 // In development the cache is kept short on purpose: a custom-domain fixture
 // flips verified → unverified mid-test, and a 2-minute TTL would serve the old
 // state while the test reads it. Production keeps the real durations above.
-const DEV_CACHE_FACTOR = process.env.NODE_ENV === "production" ? 1 : 0;
+// HOST_BRAND_CACHE_FACTOR scales them for a production build run under the
+// clickthrough harness (0 = no cache). Server-side only and set by whoever
+// starts the process; anything unparseable falls back to the default.
+const cacheFactorOverride = Number.parseFloat(process.env.HOST_BRAND_CACHE_FACTOR ?? "");
+const DEV_CACHE_FACTOR =
+  Number.isFinite(cacheFactorOverride) && cacheFactorOverride >= 0
+    ? cacheFactorOverride
+    : process.env.NODE_ENV === "production"
+      ? 1
+      : 0;
 
 // Per-isolate cache. The right consistency level for colours and a logo;
 // correctness of WHO owns a host is enforced server-side (unique column).

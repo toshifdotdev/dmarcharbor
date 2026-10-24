@@ -101,7 +101,15 @@ describe('client data erasure', () => {
     expect(response.status).toBe(200);
     expect(response.body.graceDays).toBe(erasureGraceDays);
     expect(response.body.totals.recordsDeleted).toBeGreaterThan(0);
-    expect(response.body.statement).toContain('retained because it contains no recipient data');
+    // The statement says what the executor does: reports are deleted with the
+    // domains, and the audit trail is kept anonymised.
+    expect(response.body.statement).toContain('including its DMARC reports');
+    expect(response.body.statement).not.toContain('retained because');
+    const reports = response.body.actions.find((entry: { key: string }) => entry.key === 'report');
+    if (reports) {
+      expect(reports.action).toBe('delete');
+      expect(reports.reason).not.toMatch(/retained/i);
+    }
 
     const audit = response.body.actions.find((entry: { key: string }) => entry.key === 'auditLog');
     expect(audit.action).toBe('anonymize');

@@ -6,6 +6,7 @@ import {
   ssoCallbackController,
   ssoInfoController,
   ssoStartController,
+  updateSsoConnectionController,
 } from '../controllers/sso.controller.js';
 import { requireSession } from '../middleware/auth.middleware.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
@@ -28,6 +29,14 @@ ssoRouter.post(
   requireOrganizationPermission('organization', 'update'),
   requireFeature('auth.sso'),
   createSsoConnectionController,
+);
+
+ssoRouter.patch(
+  '/workspaces/:organizationId/sso-connections/:connectionId',
+  requireSession,
+  requireOrganizationPermission('organization', 'update'),
+  requireFeature('auth.sso'),
+  updateSsoConnectionController,
 );
 
 ssoRouter.delete(

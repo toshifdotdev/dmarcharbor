@@ -155,9 +155,12 @@ export async function assessPolicyReadiness(
     throw new Error('Domain not found.');
   }
 
+  // Counted on the resolved id: `domainId` may be the slug, and alert events
+  // key on id, so a slug here counted zero open alerts.
+  const resolvedId = resolved.domain.id;
   const [openAlerts, staleAlerts] = await Promise.all([
-    prisma.alertEvent.count({ where: { domainId, acknowledgedAt: null, resolvedAt: null, staleAt: null } }),
-    prisma.alertEvent.count({ where: { domainId, staleAt: { not: null }, acknowledgedAt: null, resolvedAt: null } }),
+    prisma.alertEvent.count({ where: { domainId: resolvedId, acknowledgedAt: null, resolvedAt: null, staleAt: null } }),
+    prisma.alertEvent.count({ where: { domainId: resolvedId, staleAt: { not: null }, acknowledgedAt: null, resolvedAt: null } }),
   ]);
 
   const messagesObserved = resolved.aggregate.messageCount;

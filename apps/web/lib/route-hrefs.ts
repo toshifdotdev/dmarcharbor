@@ -33,9 +33,15 @@ export function onboardingHref(slug: string): string {
   return `/onboarding/${slug}`;
 }
 
-/** Client portal's domain view — the contact-facing document. */
-export function portalDomainHref(slug: string): string {
-  return `/portal/domain/${slug}`;
+/** Client portal's domain view — the contact-facing document. `org` names the
+ *  provider for a contact invited by more than one. */
+export function portalDomainHref(slug: string, org?: string | null): string {
+  return org ? `/portal/domain/${slug}?org=${encodeURIComponent(org)}` : `/portal/domain/${slug}`;
+}
+
+/** The client portal, for one provider when the contact has several. */
+export function portalHref(org?: string | null): string {
+  return org ? `/portal?org=${encodeURIComponent(org)}` : "/portal";
 }
 
 /** Compliance section scoped to a client. The client picker carries the id in

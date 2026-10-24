@@ -132,8 +132,14 @@ describe('plan catalog integrity', () => {
       expect(higher.maxClients).toBeGreaterThanOrEqual(lower.maxClients);
       expect(higher.maxActiveDomains).toBeGreaterThanOrEqual(lower.maxActiveDomains);
       expect(higher.maxMembers).toBeGreaterThanOrEqual(lower.maxMembers);
-      expect(higher.dataRetentionDays).toBeGreaterThanOrEqual(lower.dataRetentionDays);
-      expect(higher.auditRetentionDays).toBeGreaterThanOrEqual(lower.auditRetentionDays);
+    }
+  });
+
+  it('states no retention period per plan, because retention is the same on every plan', () => {
+    // dataRetentionDays and auditRetentionDays looked like retention promises and
+    // governed no deletion. A field shaped like one invites printing it again.
+    for (const plan of Object.values(planCatalog)) {
+      expect(Object.keys(plan).filter((key) => /retention/i.test(key)), plan.tier).toEqual([]);
     }
   });
 

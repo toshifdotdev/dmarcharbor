@@ -26,6 +26,33 @@ export type EntitlementKey =
 export type QuotaKey = 'client' | 'activeDomain' | 'member';
 
 /**
+ * What each entitlement is called in a sentence a person reads. Refusals used
+ * to open with the raw key ("auth.sso is not included in Harbor"). The same
+ * wording as the web app's plan comparison (apps/web/lib/plan-features.ts).
+ */
+export const entitlementLabels: Record<EntitlementKey, string> = {
+  'reports.aggregate': 'Aggregate DMARC reporting',
+  'reports.forensic': 'Forensic reporting',
+  'reports.forensicNamed': 'Named forensic evidence',
+  'alerts.email': 'Email alerts',
+  'alerts.spoofing': 'Spoofing alerts',
+  'rollout.canary': 'Staged policy rollout',
+  'sharing.links': 'Report share links',
+  digests: 'Scheduled report digests',
+  'audit.trail': 'The audit trail',
+  'portal.client': 'The client portal',
+  'branding.whitelabel': 'White label',
+  'api.access': 'API access',
+  'auth.sso': 'Single sign-on',
+  'data.export': 'Data export',
+  'data.erase': 'Data erasure',
+  'trust.center': 'The Trust Center',
+  'reports.compliancePack': 'The compliance pack',
+  'reports.inbox': 'Report collection from your own mailbox',
+  'branding.logoUpload': 'Logo upload',
+};
+
+/**
  * Currencies a plan can be sold in.
  *
  * The catalog holds both rather than a single price so the same plan ladder
@@ -63,8 +90,20 @@ export interface PlanDefinition {
    * from. Owning one Admiralty workspace already bought the entitlement.
    */
   maxWorkspaces: number;
-  dataRetentionDays: number;
-  auditRetentionDays: number;
+  /**
+   * How long a domain keeps counting toward `maxActiveDomains` after its last
+   * report (countCountedDomainsIn). A quota rule, not a retention period.
+   *
+   * This was `dataRetentionDays`, beside an `auditRetentionDays` that nothing
+   * read, and both looked like promises about how long data is kept. They were
+   * not: retention is the same on every plan and is set per deployment
+   * (REPORT_RETENTION_DAYS, FORENSIC_RETENTION_DAYS, FORENSIC_PII_RETENTION_DAYS),
+   * and the audit log is kept indefinitely as the record of what was done. The
+   * Trust Center and the compliance pack publish those real windows. Plans
+   * differ by quotas and features, never by how long evidence survives, so a
+   * downgrade never deletes history.
+   */
+  activeDomainWindowDays: number;
   features: Record<EntitlementKey, boolean>;
 }
 
@@ -185,8 +224,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     maxActiveDomains: 2,
       maxMembers: 1,
       maxWorkspaces: 1,
-    dataRetentionDays: 30,
-    auditRetentionDays: 30,
+    activeDomainWindowDays: 30,
     features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...off }),
   },
   FAIRWAY: {
@@ -198,8 +236,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     maxActiveDomains: 20,
       maxMembers: 3,
       maxWorkspaces: 2,
-    dataRetentionDays: 365,
-    auditRetentionDays: 365,
+    activeDomainWindowDays: 365,
     features: allFeatures({ ...noNamedForensic, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noDigests }),
   },
   HARBOR: {
@@ -211,8 +248,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     maxActiveDomains: 80,
       maxMembers: 10,
       maxWorkspaces: 3,
-    dataRetentionDays: 1095,
-    auditRetentionDays: 1095,
+    activeDomainWindowDays: 1095,
     features: allFeatures({ ...noSso, ...noBrand, 'trust.center': true }),
   },
   ADMIRALTY: {
@@ -224,8 +260,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     maxActiveDomains: 300,
       maxMembers: 25,
       maxWorkspaces: 5,
-    dataRetentionDays: 3650,
-    auditRetentionDays: 3650,
+    activeDomainWindowDays: 3650,
     features: allFeatures(),
   },
 };

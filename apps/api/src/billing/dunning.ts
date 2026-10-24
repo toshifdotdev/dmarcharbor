@@ -22,6 +22,16 @@ import { sendPaymentFailedEmail } from '../email/mailer.js';
 /** How long a past due subscription is given before the plan is withdrawn. */
 export const dunningGraceDays = 7;
 
+/**
+ * When a failed payment stops being forgiven: the end of the paid period plus
+ * the grace. A period end that was never recorded counts from `now`, which is
+ * the most the customer can be promised.
+ */
+export function graceEndFor(currentPeriodEnd: Date | null, now = new Date()): Date {
+  const from = currentPeriodEnd ? currentPeriodEnd.getTime() : now.getTime();
+  return new Date(from + dunningGraceDays * 24 * 60 * 60 * 1000);
+}
+
 export interface DunningOutcome {
   examined: number;
   warned: number;
@@ -73,13 +83,17 @@ export async function runDunning(now = new Date()): Promise<DunningOutcome> {
     // The period has ended and the payment has not recovered. A short grace
     // follows, because most failed cards succeed on the next retry and
     // withdrawing a plan over a transient decline is how you lose a customer.
+    // The grace runs from the end of the paid period, not from this run, so the
+    // date told to the customer and the date the plan is withdrawn are one date.
+    const graceEndsAt = graceEndFor(subscription.currentPeriodEnd, now);
     if (pastDueMs < dunningGraceDays * 24 * 60 * 60 * 1000) {
       // Claimed before anything is written, so two instances examining the same
       // subscription on the same day do not both warn. Warned is not terminal
       // because the withdrawal still has to happen once the grace is gone.
       const claim = await prisma.subscription.updateMany({
         where: { organizationId: subscription.organizationId, dunningStage: 'NONE' },
-        data: { dunningStage: 'WARNED' },
+        // The grace end is written with the claim, so GET /billing can state it.
+        data: { dunningStage: 'WARNED', graceEndsAt },
       });
 
       if (claim.count !== 1) {
@@ -93,7 +107,7 @@ export async function runDunning(now = new Date()): Promise<DunningOutcome> {
       void sendPaymentFailedEmail({
         organizationId: subscription.organizationId,
         plan: subscription.plan,
-        graceEndsAt: new Date(now.getTime() + dunningGraceDays * 24 * 60 * 60 * 1000),
+        graceEndsAt,
       });
 
       await recordAuditEvent({
@@ -105,7 +119,7 @@ export async function runDunning(now = new Date()): Promise<DunningOutcome> {
           stage: 'grace',
           plan: subscription.plan,
           periodEnded: subscription.currentPeriodEnd?.toISOString() ?? null,
-          graceEnds: new Date(now.getTime() + (dunningGraceDays * 24 * 60 * 60 * 1000 - pastDueMs)).toISOString(),
+          graceEnds: graceEndsAt.toISOString(),
           note: 'Access retained while the payment is retried.',
         },
       });

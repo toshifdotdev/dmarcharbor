@@ -138,6 +138,8 @@ export async function portalOverviewController(_request: Request, response: Resp
         where: { status: 'VERIFIED' },
         select: {
           id: true,
+          // The URL identifier, as every other domain read returns it.
+          slug: true,
           name: true,
           status: true,
           score: true,
@@ -208,6 +210,15 @@ export async function portalDomainController(request: Request, response: Respons
     domain,
     aggregate: insights?.aggregate ?? null,
     senders,
-    possibleSpoofingSources: possibleSpoofingSources(senders),
+    // Same warnings the operator sees, but `detail` there is an instruction to
+    // the operator ("Confirm with the domain owner, then enforce"), and the
+    // person reading the portal IS the domain owner. They get a plain account
+    // of what was seen instead.
+    possibleSpoofingSources: possibleSpoofingSources(senders).map((warning) => ({
+      ...warning,
+      detail:
+        `${warning.senderDomain ?? warning.senderKey} sent mail as this domain and failed both SPF and DKIM on ${warning.failedMessages} of ${warning.totalMessages} messages. ` +
+        'Mail like this is either someone pretending to be you or a service of yours that is not set up correctly yet.',
+    })),
   });
 }

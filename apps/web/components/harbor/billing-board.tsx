@@ -185,7 +185,7 @@ export function BillingBoard({
 function usageLine(u: UsageCount | null, limit: number, l: (typeof LIMITS)[number]): { text: string; over: boolean; near: boolean } {
   if (!u) return { text: `Up to ${limit} ${limit === 1 ? l.one : l.many}. The current count could not be read.`, over: false, near: false };
   const word = u.used === 1 ? l.one : l.many;
-  if (l.usage === "domains") {
+  if (l.usage === "domains" && !u.exact) {
     return {
       text: `${u.used} ${u.used === 1 ? "domain" : "domains"} in this workspace, so at most ${u.used} count as active. A domain counts while reports arrive for it, and for a while after it is added.`,
       over: false,
@@ -200,13 +200,20 @@ function usageLine(u: UsageCount | null, limit: number, l: (typeof LIMITS)[numbe
     };
   }
   const left = limit - u.used;
+  // Counted across every workspace on the owner's account, as the limit is.
+  const scope =
+    l.usage === "domains"
+      ? " Counted across the owner's workspaces: a domain is active while reports arrive for it, and for a while after it is added."
+      : l.usage === "clients"
+        ? " Counted across the owner's workspaces."
+        : "";
   return {
     text:
-      left < 0
+      (left < 0
         ? `${-left} over the limit. Nothing is removed, but a new one cannot be added until the count is under it.`
         : left === 0
           ? `At the limit: adding another needs a larger plan.`
-          : `Room for ${left} more.`,
+          : `Room for ${left} more.`) + scope,
     over: u.used > limit,
     near: u.used >= limit,
   };
@@ -231,7 +238,7 @@ function UsagePanel({ plan, usage }: { plan: PlanDefinition; usage: Usage }) {
                 <span className="tnum text-[26px] font-semibold leading-none text-fg">
                   {u ? (
                     <>
-                      {l.usage === "domains" ? <span className="text-body font-medium text-fg-3">up to </span> : null}
+                      {l.usage === "domains" && !u.exact ? <span className="text-body font-medium text-fg-3">up to </span> : null}
                       {u.used}
                       <span className="text-body font-medium text-fg-3"> of {limit}</span>
                     </>
@@ -464,7 +471,8 @@ function Decision(
         ? `Cancelled. ${currentLabel} stays until ${periodEnd ?? "the period ends"}.`
         : action === "keep"
           ? `The scheduled change is withdrawn; ${plan.label} continues.`
-          : provider === "PADDLE"
+          : // The API now says which happened, rather than the screen inferring it from the provider.
+            res.data.status === "applied"
             ? `Moved to ${plan.label}.`
             : `${plan.label} applies from ${periodEnd ?? "the end of the period"}.`,
     );

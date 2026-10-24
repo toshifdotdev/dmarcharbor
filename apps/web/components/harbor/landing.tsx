@@ -19,6 +19,7 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { getServiceMeta } from "@/lib/api-public";
 import { readHostBrand } from "@/lib/host-brand";
 import { POSTURE_META, type Posture } from "@/lib/posture";
 import { PostureMark } from "@/components/ui/badge";
@@ -31,7 +32,8 @@ import { RecordReading } from "./record-reading";
 const POSTURES: Posture[] = ["pass", "block", "unverified", "stale", "unmeasured"];
 
 export async function Landing() {
-  const brand = await readHostBrand();
+  const [brand, meta] = await Promise.all([readHostBrand(), getServiceMeta().catch(() => null)]);
+  const piiDays = meta?.retention.forensicPiiDays ?? null;
   const name = brandName(brand);
 
   return (
@@ -115,7 +117,14 @@ export async function Landing() {
               ["Evidence", "Revocable share links, compliance packs with a published SHA-256 fingerprint, and a public trust page any auditor can open."],
               ["Client portal", "Your clients see their own domains under your name and colours, on your own domain, on plans that carry it."],
               ["Alerts", "Spoofing and volume-spike rules to email or Slack, scheduled digests, and delivery failures surfaced rather than swallowed."],
-              ["Forensic data", "Recipient addresses in forensic reports are hashed by default. Named mode expires in seven days on every plan."],
+              [
+                "Forensic data",
+                // The deployment's own window (FORENSIC_PII_RETENTION_DAYS via
+                // /api/meta), not a number written into the page.
+                `Recipient addresses in forensic reports are hashed by default. Named recipients are deleted ${
+                  piiDays ? `after ${piiDays} day${piiDays === 1 ? "" : "s"}` : "after a short retention window"
+                } on every plan.`,
+              ],
               ["Your data", "Export and erasure are on every plan, free included. They are rights, not features."],
               ["Jump", "Type a client's name or a domain from anywhere and you are on its evidence: built for the call that starts with one domain."],
             ].map(([k, v]) => (

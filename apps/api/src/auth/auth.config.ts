@@ -6,7 +6,8 @@ import { env } from '../config/env.js';
 import { prisma } from '../database/prisma.js';
 import { recordAuditEvent } from '../services/audit.service.js';
 import { accessControl, organizationRoles } from './permissions.js';
-import { queueAuthEmail } from '../email/email.service.js';
+import { queueAuthEmail, queueEmail } from '../email/email.service.js';
+import { workspaceInvitationEmail } from '../email/templates.js';
 
 const socialProviders = {
   ...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
@@ -147,6 +148,22 @@ export const auth = betterAuth({
       roles: organizationRoles,
       allowUserToCreateOrganization: () => true,
       requireEmailVerificationOnInvitation: true,
+      // Without this the plugin sent nothing, and an invited person never
+      // learned they had been invited. The link opens the web app's /welcome,
+      // which lists invitations waiting for the signed-in address.
+      async sendInvitationEmail(data) {
+        queueEmail(
+          workspaceInvitationEmail({
+            workspaceName: data.organization.name,
+            inviterName: data.inviter.user.name?.trim() || data.inviter.user.email,
+            role: data.role,
+            signInUrl: `${env.APP_URL.replace(/\/$/, '')}/welcome`,
+            expiresAt: data.invitation.expiresAt ? new Date(data.invitation.expiresAt).toISOString() : null,
+          }),
+          data.email,
+          `invitation:${data.id}:${new Date(data.invitation.expiresAt ?? Date.now()).getTime()}`,
+        );
+      },
     }),
   ],
 });

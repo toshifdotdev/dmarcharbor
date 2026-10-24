@@ -13,7 +13,9 @@ function organizationId(request: Request): string {
 
 function handle(error: unknown, response: Response): void {
   if (error instanceof SlackError) {
-    response.status(error.status).json({ error: error.message, code: error.code });
+    // The same nested shape as every other route ({ error: { code, message } });
+    // this was the one controller that put the message where the object goes.
+    response.status(error.status).json({ error: { code: error.code, message: error.message } });
     return;
   }
 
@@ -39,11 +41,14 @@ export async function getSlackDestinationController(request: Request, response: 
 
 export async function configureSlackDestinationController(request: Request, response: Response) {
   try {
-    const body = request.body as { webhookUrl?: string; channelLabel?: string | null };
+    const body = (request.body ?? {}) as { webhookUrl?: unknown; channelLabel?: unknown };
+    // Read as strings or not at all: a non-string used to reach the service as
+    // whatever the JSON held. The service validates the URL itself.
+    const channelLabel = typeof body.channelLabel === 'string' ? body.channelLabel.trim().slice(0, 80) || null : null;
     const destination = await configureSlackDestination({
       organizationId: organizationId(request),
-      webhookUrl: body.webhookUrl ?? '',
-      channelLabel: body.channelLabel ?? null,
+      webhookUrl: typeof body.webhookUrl === 'string' ? body.webhookUrl : '',
+      channelLabel,
     });
     response.json(destination);
   } catch (error) {
@@ -53,7 +58,12 @@ export async function configureSlackDestinationController(request: Request, resp
 
 export async function setSlackDestinationEnabledController(request: Request, response: Response) {
   try {
-    const body = request.body as { enabled?: boolean };
+    const body = (request.body ?? {}) as { enabled?: unknown };
+    // A missing or non-boolean flag is refused rather than read as "off".
+    if (typeof body.enabled !== 'boolean') {
+      response.status(400).json({ error: { code: 'INVALID_REQUEST', message: 'Send enabled as true or false.' } });
+      return;
+    }
     await setSlackDestinationEnabled({
       organizationId: organizationId(request),
       enabled: body.enabled === true,

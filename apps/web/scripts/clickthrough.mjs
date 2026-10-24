@@ -3,16 +3,26 @@
  * -in form and the portfolio, exactly as a person would, and save screenshots.
  * Dev tooling, not shipped code.
  *
- * Prereqs: API on :4000, web on :3100, seed.mjs already run.
+ * Preferred: `node scripts/verify-run.mjs`. It migrates the verify database,
+ * starts the API, the fail-proxy and an isolated production build of the web
+ * app, runs this script against them and tears all of it down.
+ *
+ * Standalone prereqs: the verify API behind scripts/fail-proxy.mjs, a web
+ * server built with API_BASE_URL pointing at that proxy, seed.mjs already run,
+ * and DATABASE_URL naming the VERIFY database.
+ * Env: WEB_BASE (default http://localhost:3100), FAIL_PROXY (default
+ * http://127.0.0.1:3103), CT_CDP_PORT (default 9222), CT_STALL_MS (default
+ * 600000: no new check for that long ends the run with exit 2).
  * Run: node scripts/clickthrough.mjs
  */
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import WebSocket from "ws";
 
 const WEB = process.env.WEB_BASE ?? "http://localhost:3100";
+const WEB_PORT = new URL(WEB).port || "80";
 // The harness fail-proxy: API traffic can be failed or slowed at one path on
 // command (see scripts/fail-proxy.mjs). Browser throttling and URL blocking
 // cannot reach server-side fetches — these checks need the API itself to fail
@@ -26,15 +36,70 @@ const FP = process.env.FAIL_PROXY ?? "http://127.0.0.1:3103";
 // which is exactly the claim being tested — when an agency points their domain
 // at us, the app renders their brand.
 const CUSTOM_HOST = "brand-test.example";
-const CDP = "http://127.0.0.1:9222";
+// The custom host reaches the same server as WEB, so it carries WEB's port.
+const CUSTOM_ORIGIN = `http://${CUSTOM_HOST}:${WEB_PORT}`;
+const CDP_PORT = process.env.CT_CDP_PORT ?? "9222";
+const CDP = `http://127.0.0.1:${CDP_PORT}`;
 const SHOTS = join(homedir(), ".capy", "work", "phase1-shots");
 const CHROME = "C:/Program Files/Google/Chrome/Application/chrome.exe";
+// Per CDP call. A renderer that dies mid-call never answers, and without a
+// limit the run hangs forever instead of failing.
+const CDP_TIMEOUT_MS = 60_000;
+const STALL_MS = Number(process.env.CT_STALL_MS ?? 600_000);
+
+// ─── Teardown: one path for a clean end, a failed check, a crash or Ctrl+C.
+//     Chrome is killed as a tree (its GPU, network and renderer children
+//     outlive a plain kill on Windows and hold the profile and RAM), then the
+//     run's own profile directory is removed.
+let chrome = null;
+let profile = null;
+let tornDown = false;
+function teardown() {
+  if (tornDown) return;
+  tornDown = true;
+  if (chrome?.pid) {
+    if (process.platform === "win32") {
+      spawnSync("taskkill", ["/PID", String(chrome.pid), "/T", "/F"], { stdio: "ignore" });
+    } else {
+      try { process.kill(chrome.pid, "SIGKILL"); } catch { /* already gone */ }
+    }
+  }
+  if (profile) {
+    try { rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }); } catch { /* best effort */ }
+  }
+}
+process.on("exit", teardown);
+for (const signal of ["SIGINT", "SIGTERM", "SIGBREAK"]) {
+  process.on(signal, () => { console.error(`[harness] ${signal}, tearing down`); process.exit(130); });
+}
+process.on("uncaughtException", (error) => {
+  console.error("[harness] uncaught:", error);
+  process.exit(1);
+});
+process.on("unhandledRejection", (error) => {
+  console.error("[harness] unhandled rejection:", error);
+  process.exit(1);
+});
 
 const results = [];
+let lastCheckAt = Date.now();
+let lastCheckName = "(none yet)";
 function check(name, ok, detail) {
   results.push({ name, ok, detail });
+  lastCheckAt = Date.now();
+  lastCheckName = name;
   console.log(`[${ok ? "PASS" : "FAIL"}] ${name}${detail ? " — " + detail : ""}`);
 }
+// Stall watchdog: a run that stops producing checks is reported as stalled,
+// naming the last check that did complete, rather than hanging the machine.
+setInterval(() => {
+  if (Date.now() - lastCheckAt > STALL_MS) {
+    console.error(
+      `[harness] STALLED: no check for ${Math.round(STALL_MS / 1000)}s. Last completed check: "${lastCheckName}" (${results.length} so far).`,
+    );
+    process.exit(2);
+  }
+}, 15_000).unref();
 
 // The fixture guard. Every Prisma test-pattern write (plan bumps, subscription
 // states, custom-host rows) needs DATABASE_URL, and without it each one fails
@@ -122,14 +187,25 @@ if (!webStatus) process.exit(1);
 // ─── 2. launch Chrome with CDP ───────────────────────────────────────────────
 
 mkdirSync(SHOTS, { recursive: true });
-const profile = join(homedir(), ".capy", "work", "chrome-ct-profile");
-const chrome = spawn(
+// A fresh profile per run: a reused one carries the last run's cookies,
+// service workers and cache, and a crashed run's lock file can stop Chrome
+// from starting at all.
+profile = mkdtempSync(join(tmpdir(), "dmarcharbor-ct-"));
+chrome = spawn(
   CHROME,
   [
     "--headless=new",
-    "--remote-debugging-port=9222",
+    `--remote-debugging-port=${CDP_PORT}`,
     `--user-data-dir=${profile}`,
     "--no-first-run",
+    "--no-default-browser-check",
+    // Memory: this machine runs the API, the web server and Chrome together.
+    "--disable-gpu",
+    "--disable-extensions",
+    "--disable-background-networking",
+    "--disable-component-update",
+    "--disable-sync",
+    "--renderer-process-limit=2",
     // The custom-host proof: the URL itself carries the agency domain.
     `--host-resolver-rules=MAP ${CUSTOM_HOST} 127.0.0.1`,
     "--window-size=1440,2000",
@@ -164,16 +240,36 @@ const pending = new Map();
 ws.on("message", (data) => {
   const msg = JSON.parse(data.toString());
   if (msg.id && pending.has(msg.id)) {
-    const { resolve, reject } = pending.get(msg.id);
+    const { resolve, reject, timer } = pending.get(msg.id);
+    clearTimeout(timer);
     pending.delete(msg.id);
     if (msg.error) reject(new Error(msg.error.message));
     else resolve(msg.result);
   }
 });
+// If Chrome goes away, every call in flight fails now rather than at its
+// timeout, and the reason is printed once.
+ws.on("close", () => {
+  if (tornDown) return;
+  console.error(`[harness] CDP socket closed with ${pending.size} call(s) in flight; Chrome probably crashed.`);
+  for (const { reject, timer } of pending.values()) {
+    clearTimeout(timer);
+    reject(new Error("CDP socket closed"));
+  }
+  pending.clear();
+});
 function cdp(method, params = {}) {
   const id = ++seq;
   return new Promise((resolve, reject) => {
-    pending.set(id, { resolve, reject });
+    if (ws.readyState !== WebSocket.OPEN) {
+      reject(new Error(`CDP socket not open for ${method}`));
+      return;
+    }
+    const timer = setTimeout(() => {
+      pending.delete(id);
+      reject(new Error(`CDP ${method} timed out after ${CDP_TIMEOUT_MS / 1000}s`));
+    }, CDP_TIMEOUT_MS);
+    pending.set(id, { resolve, reject, timer });
     ws.send(JSON.stringify({ id, method, params }));
   });
 }
@@ -207,7 +303,14 @@ async function evalJs(expression) {
     awaitPromise: true,
     returnByValue: true,
   });
-  return r.result.value;
+  // A throwing expression still resolves (value undefined), as it always has,
+  // but the exception is printed so a check failing on `undefined` can be told
+  // apart from one failing on a real product answer.
+  if (r.exceptionDetails) {
+    const description = r.exceptionDetails.exception?.description ?? r.exceptionDetails.text ?? "exception";
+    console.log(`[harness] evalJs threw: ${String(description).split("\n")[0]} | ${expression.replace(/\s+/g, " ").slice(0, 140)}`);
+  }
+  return r.result?.value;
 }
 
 // ─── Console hygiene (Phase 8): a passing check must not hide a broken page.
@@ -721,11 +824,18 @@ const digestsFormReady = await waitForEval(
   })()`,
   (d) => d && d.hasForm,
 );
-await evalJs(`(() => {
-  const sel = [...document.querySelectorAll('select')].find(s => [...s.options].some(o => o.value === 'MONTHLY'));
-  if (sel) { sel.value = 'MONTHLY'; sel.dispatchEvent(new Event('change', { bubbles: true })); }
-  return true;
-})()`);
+// A change event dispatched before the select hydrates is dropped by React, so
+// the switch is retried until the monthly-only note renders (or 10 tries).
+await waitForHydration();
+for (let i = 0; i < 10; i++) {
+  await evalJs(`(() => {
+    const sel = [...document.querySelectorAll('select')].find(s => [...s.options].some(o => o.value === 'MONTHLY'));
+    if (sel) { sel.value = 'MONTHLY'; sel.dispatchEvent(new Event('change', { bubbles: true })); }
+    return true;
+  })()`);
+  await new Promise((res) => setTimeout(res, 600));
+  if (await evalJs(`document.body.textContent.includes('Capped at the 28th on purpose')`)) break;
+}
 const digestsAudit = await waitForEval(
   `(() => {
     const t = document.body.textContent;
@@ -1288,13 +1398,25 @@ function writeCustomDomainState(organizationId, patch) {
  * of those is acceptable to report as a pass.
  */
 function runTestPattern(script) {
-  const result = spawnSync("node", ["-e", script], {
-    // The harness runs with cwd = apps/web (see README), so the API
-    // workspace that owns the Prisma client sits beside it.
-    cwd: join(process.cwd(), "..", "api"),
-    env: { ...process.env },
-    stdio: ["ignore", "ignore", "pipe"],
-  });
+  let result;
+  // Retried only when Prisma could not open a connection at all (P1001, "Can't
+  // reach database server"): on this machine Postgres runs in Docker and has
+  // refused the odd connection while the container stayed healthy. Nothing
+  // was written in that case, so a retry cannot double a write. Every other
+  // failure still throws on the first attempt.
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    result = spawnSync("node", ["-e", script], {
+      // The harness runs with cwd = apps/web (see README), so the API
+      // workspace that owns the Prisma client sits beside it.
+      cwd: join(process.cwd(), "..", "api"),
+      env: { ...process.env },
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    const unreachable = result.status !== 0 && /Can't reach database server|P1001/.test(String(result.stderr));
+    if (!unreachable || attempt === 4) break;
+    console.log(`[harness] database unreachable for a fixture write, retry ${attempt}/3`);
+    spawnSync(process.execPath, ["-e", "setTimeout(() => {}, 2000)"]);
+  }
   if (result.status !== 0) {
     // Fail LOUDLY: a fixture write that did not happen must never look like
     // one that did. This throw is the fix for the swallowed ReferenceError
@@ -1386,7 +1508,7 @@ async function prepareOverQuotaSubscription(organizationId) {
     const orgId = ${JSON.stringify(organizationId)};
     const clients = await (await fetch('/api/workspaces/' + orgId + '/clients', { credentials: 'include' })).json();
     const want = 7;
-    for (let i = ${'$'}{clients.length}; i < want; i++) {
+    for (let i = clients.length; i < want; i++) {
       await fetch('/api/workspaces/' + orgId + '/clients', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -2222,14 +2344,16 @@ check(
 //     that does claim it renders.
 // The custom-host pages carry no session cookie, so the workspace id must be
 // resolved HERE, signed in on the app host — never from the custom host.
-const customHostOrgId = (await evalJs(`(await (await fetch('/api/workspaces', { credentials: 'include' })).json())[0].id`)) ?? refusalOrg;
+// Wrapped in an async function: Runtime.evaluate has no top-level await, and
+// the bare form was a SyntaxError that silently fell back to refusalOrg.
+const customHostOrgId = (await evalJs(`(async () => (await (await fetch('/api/workspaces', { credentials: 'include' })).json())[0].id)()`)) ?? refusalOrg;
 
 await writeCustomDomainState(customHostOrgId, {
   customDomain: CUSTOM_HOST,
   verified: true,
   primaryColor: "#2266dd",
 });
-await navigate(`http://${CUSTOM_HOST}:3100/`);
+await navigate(`${CUSTOM_ORIGIN}/`);
 await waitForEval(`location.host.startsWith(${JSON.stringify(CUSTOM_HOST)})`, (v) => v === true);
 const hostAudit = await waitForEval(
   `(() => {
@@ -2263,7 +2387,7 @@ await writeCustomDomainState(customHostOrgId, {
 // The proxy caches the verified brand briefly (dev TTL ~30s); wait it
 // out so the second read tests the state change, not the cache.
 await new Promise((res) => setTimeout(res, 35000));
-await navigate(`http://${CUSTOM_HOST}:3100/`);
+await navigate(`${CUSTOM_ORIGIN}/`);
 const unverifiedAudit = await waitForEval(
   `(() => {
     const t = document.body.innerText.toLowerCase();
@@ -2755,7 +2879,13 @@ const shotWorkspace = await shot("34-stranger-workspace.png");
 // /sign-in is sent on to the app, and the form would never render.
 await cdp("Network.clearBrowserCookies");
 await navigate(WEB + "/sign-in");
-await waitForEval(`!!document.querySelector('[data-testid="auth-submit"]')`, (v) => v === true);
+// Present is not enough: streamed markup first lands in React's hidden
+// container, where the button exists at 0×0, and the idle width read there
+// failed a production run. Wait until it is laid out.
+await waitForEval(
+  `(() => { const b = document.querySelector('[data-testid="auth-submit"]'); return !!b && b.getBoundingClientRect().width > 0; })()`,
+  (v) => v === true,
+);
 const btnBefore = await evalJs(`(() => {
   const b = document.querySelector('[data-testid="auth-submit"]');
   const r = b.getBoundingClientRect();
@@ -2868,12 +2998,15 @@ check(
 // requirement of the payment processor, not copy to reword or shorten.
 await navigate(`${WEB}/terms`);
 const paddleVerbatim = await waitForEval(
-  `(() => document.body.textContent.includes('Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders. Paddle provides all customer service inquiries and handles returns.'))()`,
+  // The current wording (lib/legal-docs.ts PADDLE_ORDER_PROCESS_PARAGRAPH),
+  // scoped on 4 Oct to the orders Paddle actually processes: INR payments go
+  // through Razorpay, a gateway, so "all our orders" was untrue.
+  `(() => document.body.textContent.includes('Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for the orders it processes. Paddle provides all customer service inquiries and handles returns for those orders.'))()`,
   (v) => v === true,
   45000,
 );
 check(
-  "Terms carry Paddle's mandated paragraph verbatim",
+  "Terms carry Paddle's order-process paragraph verbatim (scoped to Paddle orders)",
   Boolean(paddleVerbatim),
   "mandated paragraph present",
 );
@@ -2936,11 +3069,14 @@ check(
 //      state's third secondary line overflowed its minimum and pushed three
 //      buttons down), so a single measurement proves nothing about the state
 //      the copy changed into.
+// Measured once every running animation has finished: the cards and the
+// swapped figures rise into place with a per-card stagger, and a reading taken
+// mid-stagger saw the first card settled and the rest 3px short of it.
 const ctaYs = () =>
-  `[...document.querySelectorAll('[data-plan] a[data-testid^="plan-cta-"]')].map((el) => Math.round(el.getBoundingClientRect().top))`;
+  `(await Promise.race([Promise.all(document.getAnimations().map((a) => a.finished.catch(() => null))), new Promise((r) => setTimeout(r, 3000))]), [...document.querySelectorAll('[data-plan] a[data-testid^="plan-cta-"]')].map((el) => Math.round(el.getBoundingClientRect().top)))`;
 await navigate(WEB + "/pricing");
 await waitForEval(`!!document.querySelector('[data-plan]')`, (v) => v === true, 15000);
-const alignment = await evalJs(`(() => {
+const alignment = await evalJs(`(async () => {
   const ys = ${ctaYs()};
   return { count: ys.length, ys, aligned: ys.length === 4 && ys.every((y) => Math.abs(y - ys[0]) < 2) };
 })()`);
@@ -2965,7 +3101,7 @@ const afterFigures = await waitForEval(
   (f) => Array.isArray(f) && f.length === 4 && JSON.stringify(f) !== beforeKey,
   20000,
 );
-const alignmentAnnual = await evalJs(`(() => {
+const alignmentAnnual = await evalJs(`(async () => {
   const ys = ${ctaYs()};
   return { count: ys.length, ys, aligned: ys.length === 4 && ys.every((y) => Math.abs(y - ys[0]) < 2) };
 })()`);
@@ -3131,10 +3267,28 @@ check(
   JSON.stringify({ pageVersion, record: recordVersionAudit }),
 );
 
+// The acknowledgement is the Refund Policy one, in the checkout form a paid
+// plan opens; the Terms acceptance moved to workspace creation. The checkout
+// form only exists for a workspace with no provider subscription, so the
+// fixture clears it first (earlier phases leave one behind).
+const ackOrg = recordVersionAudit?.orgId ?? (await evalJs(`(async () => (await (await fetch('/api/workspaces', { credentials: 'include' })).json())[0]?.id ?? null)()`));
+await writeSubscriptionState(ackOrg, { plan: "HARBOR", provider: "NONE", clearProviderIds: true });
+// The verify API has no payment provider configured, so /api/capabilities
+// lists no currency and the page rightly says "Checkout is not open yet"
+// instead of drawing the form. The fail-proxy reports INR as chargeable for
+// this check only, the same override the pricing currency checks use.
+await fetch(`${FP}/__caps/on?currencies=INR`, { method: "POST" }).catch(() => null);
 await navigate(WEB + "/billing");
+await waitForEval(`!!document.querySelector('article[data-plan="ADMIRALTY"] button')`, (v) => v === true, 45000);
+await waitForHydration();
+for (let i = 0; i < 10; i++) {
+  await evalJs(`(() => { const b = [...document.querySelectorAll('article[data-plan="ADMIRALTY"] button')].find(x => /choose|move/i.test(x.textContent)); if (b && !b.disabled) b.click(); return true; })()`);
+  await new Promise((res) => setTimeout(res, 600));
+  if (await evalJs(`!!document.querySelector('[data-testid="checkout-refund-ack"]')`)) break;
+}
 const ackAudit = await waitForEval(
   `(() => {
-    const box = document.querySelector('[data-testid="checkout-terms-ack"]');
+    const box = document.querySelector('[data-testid="checkout-refund-ack"]');
     return {
       present: !!box,
       unticked: box ? !box.checked : false,
@@ -3145,8 +3299,9 @@ const ackAudit = await waitForEval(
   (a) => a && a.present,
   45000,
 );
+await fetch(`${FP}/__caps/off`, { method: "POST" }).catch(() => null);
 check(
-  "checkout ack: present, unticked, links Terms AND Refunds",
+  "checkout refund ack: present, unticked, links Terms AND Refunds",
   Boolean(ackAudit && ackAudit.present && ackAudit.unticked && ackAudit.linksTerms && ackAudit.linksRefunds),
   JSON.stringify(ackAudit),
 );
@@ -3182,6 +3337,7 @@ check(
 );
 
 console.log(`\n${results.filter((r) => r.ok).length}/${results.length} checks passed`);
+// process.exit runs teardown (Chrome tree, profile) through the exit hook.
+ws.removeAllListeners("close");
 ws.close();
-chrome.kill();
 process.exit(results.every((r) => r.ok) ? 0 : 1);

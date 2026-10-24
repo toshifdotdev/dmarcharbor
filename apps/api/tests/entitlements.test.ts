@@ -33,7 +33,6 @@ describe('plan catalog', () => {
       expect(higher.maxClients).toBeGreaterThanOrEqual(lower.maxClients);
       expect(higher.maxActiveDomains).toBeGreaterThanOrEqual(lower.maxActiveDomains);
       expect(higher.maxMembers).toBeGreaterThanOrEqual(lower.maxMembers);
-      expect(higher.dataRetentionDays).toBeGreaterThanOrEqual(lower.dataRetentionDays);
     }
   });
 

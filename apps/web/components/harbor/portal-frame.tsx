@@ -22,12 +22,15 @@ export function PortalFrame({
   brand,
   email,
   back,
+  home = "/portal",
   children,
 }: {
   brand: PortalBranding | null;
   /** The signed-in contact, shown so a shared computer is obvious. */
   email: string | null;
   back?: { href: string; label: string };
+  /** The overview, carrying the provider for a contact with several. */
+  home?: string;
   children: ReactNode;
 }) {
   const agency = brand?.workspaceName ?? "Your provider";
@@ -36,7 +39,7 @@ export function PortalFrame({
     <div data-harbor data-surface="portal" style={vars as CSSProperties} className="flex min-h-screen flex-col bg-paper">
       <header className="border-b border-rule print:border-fg">
         <div className="mx-auto flex min-h-14 w-full max-w-[1040px] flex-wrap items-center gap-x-4 gap-y-2 px-5 py-2 sm:px-8">
-          <Link href="/portal" className="flex items-center gap-2.5 text-act">
+          <Link href={home} className="flex items-center gap-2.5 text-act">
             {brand?.branded && brand.logoUrl ? (
               <img src={brand.logoUrl} alt="" height={26} className="h-[26px] w-auto" />
             ) : brand?.branded ? null : (
@@ -100,5 +103,22 @@ export function PortalNotice({
         <div className="text-body text-fg-2">{children}</div>
       </div>
     </PortalFrame>
+  );
+}
+
+/**
+ * The provider's plan no longer includes the client portal (API: PORTAL_PAUSED).
+ * The contact is the provider's client, so the page names the provider and
+ * never a plan or a price, and says plainly that nothing was taken away.
+ */
+export function PortalPaused({ email, provider }: { email: string | null; provider: string | null }) {
+  const who = provider ?? "Your provider";
+  return (
+    <PortalNotice brand={null} email={email} title="This report is paused">
+      <p data-testid="portal-paused">
+        {who} has paused the reports shared through this page. Your access is kept: when they turn reports back on, this
+        page shows them again with nothing to set up. If you need a report before then, ask {provider ?? "them"} directly.
+      </p>
+    </PortalNotice>
   );
 }

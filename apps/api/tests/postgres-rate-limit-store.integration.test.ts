@@ -165,20 +165,34 @@ describe('shared rate limit store', () => {
      * The proof that the shared store is in the request path is that the request
      * leaves a row behind. A header the library chose to emit, or chose not to, is a
      * detail that changes between versions.
+     *
+     * A session read is counted in its own bucket, not the sign-in one: the web app
+     * reads the session on every render, and sharing the 20-a-minute sign-in budget
+     * meant page views locked people out of signing in.
      */
+    const sessionReadStore = new PostgresRateLimitStore('auth-session-read');
     await authStore.resetAll();
+    await sessionReadStore.resetAll();
 
     const response = await request(app).get('/api/auth/get-session');
 
     expect([200, 401]).toContain(response.status);
 
-    const rows = await prisma.$queryRawUnsafe<{ hits: number }[]>(
-      'SELECT "hits" FROM "rate_limit_bucket" WHERE "limiter" = $1',
-      'auth',
-    );
+    const hitsFor = (limiter: string) =>
+      prisma.$queryRawUnsafe<{ hits: number }[]>('SELECT "hits" FROM "rate_limit_bucket" WHERE "limiter" = $1', limiter);
 
-    expect(rows.length).toBeGreaterThan(0);
-    expect(rows[0]!.hits).toBeGreaterThanOrEqual(1);
+    const sessionRows = await hitsFor('auth-session-read');
+    expect(sessionRows.length).toBeGreaterThan(0);
+    expect(sessionRows[0]!.hits).toBeGreaterThanOrEqual(1);
+    expect(await hitsFor('auth')).toHaveLength(0);
+
+    // A credential attempt still lands in the strict sign-in bucket.
+    await request(app).post('/api/auth/sign-in/email').send({ email: 'nobody@example.test', password: 'wrong-password-1' });
+    const authRows = await hitsFor('auth');
+    expect(authRows.length).toBeGreaterThan(0);
+    expect(authRows[0]!.hits).toBeGreaterThanOrEqual(1);
+    await authStore.resetAll();
+    await sessionReadStore.resetAll();
   });
 
   it('keeps serving requests when the counter store is unreachable', async () => {

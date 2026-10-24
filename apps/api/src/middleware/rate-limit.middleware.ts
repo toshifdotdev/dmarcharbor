@@ -132,6 +132,48 @@ export function createSecureSessionRouterRateLimiter(
 
 
 /**
+ * Better Auth paths that only read the caller's own session state: who is
+ * signed in, their sessions, their organizations and invitations. GET only,
+ * matched against the path relative to the `/api/auth` mount.
+ *
+ * These used to share the sign-in budget (20 a minute per address), and the
+ * web app asks `get-session` on every server render. A person clicking through
+ * a dozen pages, or an office of staff behind one address, spent the budget on
+ * page views, and their next real sign-in was refused with a 429. They guess
+ * nothing, so they need a brake, not the credential-stuffing limit.
+ *
+ * `verify-email` is deliberately absent: it is a GET, but it takes a token, so
+ * it is a guess and stays under the strict limit.
+ */
+const SESSION_READ_PATH =
+  /^\/(get-session|list-sessions|organization\/(list|list-members|list-invitations|list-user-invitations|get-full-organization|get-active-member))$/;
+
+export function isSessionRead(request: { method: string; path: string }): boolean {
+  return request.method === 'GET' && SESSION_READ_PATH.test(request.path);
+}
+
+/**
+ * The brake for session reads, at the same per-address budget as the
+ * authenticated workspace routes. Applies to nothing else.
+ */
+export function createSessionReadRateLimiter(limit = env.WORKSPACE_RATE_LIMIT_PER_MINUTE): RateLimitRequestHandler {
+  return rateLimit({
+    ...SHARED_LIMITER_OPTIONS,
+    windowMs: 60_000,
+    limit,
+    store: rateLimitStoreFor('auth-session-read'),
+    keyGenerator: clientKey,
+    skip: (request) => !isSessionRead(request),
+    message: {
+      error: {
+        code: 'RATE_LIMITED',
+        message: 'Too many requests from this network. Wait a minute and try again.',
+      },
+    },
+  });
+}
+
+/**
  * Sign-in, sign-up, password reset and email verification.
  *
  * Better Auth ships its own limiter but it is per-instance in-memory and resets
@@ -150,6 +192,8 @@ export function createAuthRateLimiter(limit = env.AUTH_RATE_LIMIT_PER_MINUTE): R
     limit,
     store: rateLimitStoreFor('auth'),
     keyGenerator: clientKey,
+    // Session reads have their own budget (createSessionReadRateLimiter).
+    skip: isSessionRead,
     message: {
       error: {
         code: 'RATE_LIMITED',

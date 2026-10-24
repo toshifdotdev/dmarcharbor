@@ -12,7 +12,6 @@ import {
   type PlannedAction,
 } from '../inventory/deletion-planner.js';
 import { buildInventory, type InventoryScope } from '../inventory/inventory.service.js';
-import { planCatalog } from '../entitlements/plan-catalog.js';
 
 export const erasureGraceDays = 7;
 export const erasureCertificateRetentionDays = 1095;
@@ -100,9 +99,11 @@ export async function previewErasure(
     graceDays: erasureGraceDays,
     executeAfter: executeAfter.toISOString(),
     statement:
-      'Personal data for this scope is deleted in full, including any named recipient records. ' +
-      'Identifying fields on retained security records are cleared while the record itself is kept. ' +
-      'DMARC authentication evidence is retained because it contains no recipient data. ' +
+      // Matches what the executor does: the domains in scope are deleted and their
+      // reports and forensic samples go with them. This used to say DMARC evidence
+      // was retained, beside a preview that listed it as deleted.
+      'Everything held for this scope is deleted, including its DMARC reports, forensic samples and any named recipient records. ' +
+      'Audit and billing records are kept with their identifying fields cleared, because they are the record of what was done. ' +
       'The request is held for ' +
       `${erasureGraceDays} days before it runs, so a mistake can be cancelled.`,
   };
@@ -157,7 +158,7 @@ export async function requestErasure(input: {
     organizationId: input.organizationId,
     scopeLabel: preview.scopeLabel,
     executesAt: request.purgeAfter,
-    cancelUrl: `${env.BETTER_AUTH_URL.replace(/\/$/, '')}/app/erasures/${request.id}`,
+    cancelUrl: `${env.APP_URL.replace(/\/$/, '')}/settings/erasure`,
   });
 
   return { id: request.id, purgeAfter: request.purgeAfter, preview };
@@ -365,7 +366,10 @@ export async function executeErasure(
   const organization = await prisma.organization.findUnique({ where: { id: organizationId }, select: { plan: true } });
   const certificate = buildErasureCertificate(inventory, actions, {
     plan: organization?.plan ?? 'MOORING',
-    retentionDays: planCatalog[organization?.plan ?? 'MOORING'].dataRetentionDays,
+    // The report retention this deployment actually enforces. It used to quote
+    // the plan's figure, which governed no deletion, on a document a regulator
+    // may read.
+    retentionDays: env.REPORT_RETENTION_DAYS,
   });
 
   // Written first, so the proof is never lost to a partial failure below.

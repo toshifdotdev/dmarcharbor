@@ -14,6 +14,7 @@ import { resolveProviderForCheckout } from './registry.js';
 import { planSyncReport, requireStoredPlan } from './plans.js';
 import { resolveBillingInterval } from './interval.js';
 import { writePlan } from './subscription-state.js';
+import { dunningGraceDays, graceEndFor } from './dunning.js';
 import { sendPlanChangedEmail, sendSubscriptionCancelledEmail } from '../email/mailer.js';
 
 /**
@@ -243,10 +244,12 @@ async function planOverageFor(
 }
 
 /**
- * Moves a workspace to a different plan, effective at the end of the period
- * already paid for. Deliberately not immediate, and deliberately without
- * proration, because a mid cycle charge nobody asked for is the fastest way to
- * earn a chargeback.
+ * Moves a workspace to a different plan. When that happens depends on the
+ * provider (`appliesPlanChangeImmediately`): Razorpay schedules the change for
+ * the end of the period already paid for, with no proration; Paddle cannot
+ * schedule a price change, so it applies at once and prorates (see
+ * PaddleProvider.changePlan). The result says which, so neither the screen nor
+ * the email promises the wrong one.
  *
  * A downgrade is refused when the workspace is already larger than the plan it is
  * moving to. Twelve clients on Harbor moving to Fairway, which allows five,
@@ -260,7 +263,7 @@ export async function changePlan(input: {
   actorUserId?: string | null;
   plan: PlanTier;
   interval: BillingInterval;
-}): Promise<void> {
+}): Promise<{ effectiveAt: 'immediate' | 'cycle_end'; effectiveDate: Date | null }> {
   const subscription = await prisma.subscription.findUnique({
     where: { organizationId: input.organizationId },
     select: { provider: true, providerSubscriptionId: true, plan: true, status: true, currentPeriodEnd: true },
@@ -285,10 +288,6 @@ export async function changePlan(input: {
     const overage = await planOverageFor(input.organizationId, input.plan);
 
     if (overage.length > 0) {
-      const detail = overage
-        .map((entry) => `${entry.label}: ${entry.used} of ${entry.limit} (${entry.by} over)`)
-        .join('; ');
-
       // Recorded before anything is refused, because "why did my downgrade fail"
       // is a question about an event that otherwise leaves no trace at all.
       await recordAuditEvent({
@@ -301,9 +300,13 @@ export async function changePlan(input: {
       });
 
       throw new CheckoutError(
+        // One sentence a person reads: what the plan allows against what is used.
+        // The rows travel separately in `overage` for a screen to set as a table.
         `${planCatalog[input.plan].label} allows ${overage
           .map((entry) => `${entry.limit} ${entry.label}`)
-          .join(' and ')}, and this workspace has ${detail}. Remove the excess, or keep the current plan.`,
+          .join(' and ')}; this workspace has ${overage
+          .map((entry) => `${entry.used}`)
+          .join(' and ')}. Remove the excess, or keep the current plan.`,
         'PLAN_CHANGE_OVER_QUOTA',
         409,
         { overage, from: subscription.plan, to: input.plan },
@@ -371,6 +374,7 @@ export async function changePlan(input: {
       fromPlan: subscription.plan,
       toPlan: input.plan,
       effectiveAt: provider.appliesPlanChangeImmediately ? new Date() : subscription.currentPeriodEnd,
+      timing: provider.appliesPlanChangeImmediately ? 'immediate' : 'cycle_end',
     });
   }
 
@@ -390,6 +394,12 @@ export async function changePlan(input: {
       effectiveAt: provider.appliesPlanChangeImmediately ? 'immediate' : 'cycle_end',
     },
   });
+
+  // Said back to the caller as it is, so a screen never promises "at period
+  // end" for a change Paddle has already applied.
+  return provider.appliesPlanChangeImmediately
+    ? { effectiveAt: 'immediate', effectiveDate: new Date() }
+    : { effectiveAt: 'cycle_end', effectiveDate: subscription.currentPeriodEnd ?? null };
 }
 
 export async function cancelSubscription(input: { organizationId: string; actorUserId?: string | null }): Promise<void> {
@@ -496,6 +506,8 @@ export async function billingStatus(organizationId: string): Promise<{
   dunningStage: 'NONE' | 'WARNED' | 'WITHDRAWN';
   /** When a failed payment stops being forgiven. Null when nothing is failing. */
   graceEnds: string | null;
+  /** How long the failed-payment grace runs after the paid period ends. */
+  graceDays: number;
   /** The interval actually being billed, so the price below matches it. */
   interval: StoredBillingInterval;
 }> {
@@ -576,7 +588,20 @@ export async function billingStatus(organizationId: string): Promise<{
         }
       : null,
     dunningStage: organization.subscription?.dunningStage ?? 'NONE',
-    graceEnds: organization.subscription?.graceEndsAt?.toISOString() ?? null,
+    /**
+     * The stored date once the dunning run has written it; before that, while a
+     * payment is failing and the paid period has ended, the same arithmetic the
+     * run will use. Either way it is one date, the one the plan is withdrawn on.
+     */
+    graceEnds:
+      organization.subscription?.graceEndsAt?.toISOString() ??
+      (organization.subscription?.status === 'PAST_DUE' &&
+      organization.subscription.dunningStage !== 'WITHDRAWN' &&
+      periodEnd &&
+      periodEnd.getTime() <= Date.now()
+        ? graceEndFor(periodEnd).toISOString()
+        : null),
+    graceDays: dunningGraceDays,
   };
 }
 

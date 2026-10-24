@@ -58,7 +58,7 @@ export async function createTrustCenterController(request: Request, response: Re
     const client = await assertClientInWorkspace(clientId, organizationId);
 
     const slug = await ensureTrustSlug(client.id, response.locals.session?.user?.id);
-    response.status(200).json({ url: `${env.BETTER_AUTH_URL.replace(/\/$/, '')}/trust/${slug}`, slug });
+    response.status(200).json({ url: `${env.APP_URL.replace(/\/$/, '')}/trust/${slug}`, slug });
   } catch (error) {
     sendError(response, error);
   }

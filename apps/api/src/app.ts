@@ -34,7 +34,7 @@ import { sessionRouter } from './routes/session.routes.js';
 import { sessionManagementRouter } from './routes/session-management.routes.js';
 import { systemRouter } from './routes/system.routes.js';
 import { requestContext } from './middleware/request-context.middleware.js';
-import { createAuthRateLimiter, createWorkspaceRateLimiter } from './middleware/rate-limit.middleware.js';
+import { createAuthRateLimiter, createSessionReadRateLimiter, createWorkspaceRateLimiter } from './middleware/rate-limit.middleware.js';
 import { requireCurrentDpa } from './middleware/dpa-consent.middleware.js';
 import { sendError } from './utils/api-error.js';
 import { withReadableAuthErrors } from './middleware/auth-error-rewrite.middleware.js';
@@ -110,6 +110,9 @@ export function createApp(): express.Express {
   // ones this codebase registers. There is no MFA, so this is the only brake
   // on credential stuffing.
   app.use('/api/auth', createAuthRateLimiter());
+  // Reading one's own session is not a credential attempt and is asked on every
+  // page render, so it has its own, larger budget (see isSessionRead).
+  app.use('/api/auth', createSessionReadRateLimiter());
 
   app.all('/api/auth/*splat', withReadableAuthErrors(toNodeHandler(auth)));
   app.use('/api', systemRouter);

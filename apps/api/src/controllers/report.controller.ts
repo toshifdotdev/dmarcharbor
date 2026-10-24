@@ -82,7 +82,8 @@ export async function listReportsController(request: Request, response: Response
     return;
   }
 
-  const { rows, limit } = await listDomainReports(response.locals.organizationId, domainId, {
+  // The resolved id: the path may carry the slug, and reports key on id.
+  const { rows, limit } = await listDomainReports(response.locals.organizationId, domain.id, {
     limit: page.limit,
     cursor: page.cursor,
   });

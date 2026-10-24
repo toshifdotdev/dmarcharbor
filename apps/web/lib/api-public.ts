@@ -76,10 +76,11 @@ export interface ServiceMeta {
  * actually does.
  *
  * Read by the billing page to replace the plan figures it used to print.
- * `plan.dataRetentionDays` and `plan.auditRetentionDays` look like retention
- * statements and govern nothing: the first is read in exactly one place, a quota rule
- * about dormant domains counting against the active-domain limit, and the second is
- * read nowhere at all, because nothing deletes an audit log. A signed compliance pack
+ * The plan used to carry `dataRetentionDays` and `auditRetentionDays`, which looked
+ * like retention statements and governed nothing: the first was a quota rule about
+ * dormant domains counting against the active-domain limit (now named
+ * `activeDomainWindowDays`), and the second was read nowhere, because nothing deletes
+ * an audit log. Both are gone from the catalog. A signed compliance pack
  * was corrected for exactly this in the backend, and the price page was still quoting
  * the same two numbers to anyone deciding whether to buy.
  *

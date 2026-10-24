@@ -88,13 +88,18 @@ export function planErasure(inventory: Inventory): PlannedAction[] {
         };
       }
 
+      const action = definition?.erasure ?? ('delete' as const);
+      // A retention reason only describes a row that is kept or anonymised. A
+      // deleted row quoted one ("Retained as security evidence") beside
+      // "Deleted", and the executor does delete it: the domains go, and their
+      // reports and forensic samples cascade with them.
       return {
         key,
         label: definition?.label ?? key,
         count,
-        action: definition?.erasure ?? ('delete' as const),
-        reason: definition?.retentionReason ?? 'The data is the subject of the request.',
-        basis: definition?.retentionBasis ?? '',
+        action,
+        reason: action === 'delete' ? 'The data is the subject of the request.' : (definition?.retentionReason ?? 'Kept.'),
+        basis: action === 'delete' ? '' : (definition?.retentionBasis ?? ''),
         containsPersonalData: definition?.containsPersonalData ?? false,
       };
     })
@@ -153,8 +158,8 @@ export function buildErasureCertificate(
       recordsAnonymised: totals.recordsAnonymised,
     },
     statement:
-      'Personal data held for this scope was deleted, and identifying fields on retained security records were cleared. ' +
-      'Non personal DMARC authentication evidence was retained because it contains no recipient data. ' +
+      'Everything held for this scope was deleted, including its DMARC reports and forensic samples. ' +
+      'Audit and billing records were kept with their identifying fields cleared, because they are the record of what was done. ' +
       'Anything marked as retained below was outside the scope of this request and has not been altered. ' +
       'This certificate contains no personal data and is the record that the request was carried out.',
   };

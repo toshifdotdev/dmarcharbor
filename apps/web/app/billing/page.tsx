@@ -102,11 +102,23 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
   const myRole = memberRows?.find((m) => (m.userId ?? m.user?.id) === me?.id)?.role ?? null;
   const canChange = myRole === "owner";
 
+  // The API's own counts (GET /entitlements `usage`), the numbers the quota
+  // check enforces. Only if that read is missing does the page fall back to
+  // what it can count itself, worded as a bound rather than a fact.
+  const counted = entitlements?.usage ?? null;
   const domainTotal = clients ? clients.reduce((n, c) => n + c.domains.length, 0) : null;
   const usage: Usage = {
-    clients: clients ? { used: clients.length, exact: (allowance?.used ?? 1) <= 1 } : null,
-    domains: domainTotal === null ? null : { used: domainTotal, exact: false },
-    members: memberRows ? { used: memberRows.length, exact: true } : null,
+    clients: counted
+      ? { used: counted.client.used, exact: true }
+      : clients
+        ? { used: clients.length, exact: (allowance?.used ?? 1) <= 1 }
+        : null,
+    domains: counted
+      ? { used: counted.activeDomain.used, exact: true }
+      : domainTotal === null
+        ? null
+        : { used: domainTotal, exact: false },
+    members: counted ? { used: counted.member.used, exact: true } : memberRows ? { used: memberRows.length, exact: true } : null,
     workspaces: allowance ? { used: allowance.used, exact: true } : null,
   };
 
@@ -135,8 +147,8 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
         pendingLabel={s.pendingPlan ? (plans.find((p) => p.tier === s.pendingPlan?.plan)?.label ?? s.pendingPlan.plan) : null}
         periodEnd={periodEnd}
         pendingAt={dateLabel(s.pendingPlan?.effectiveAt)}
-        // Only the API's own date. The grace length is a backend constant the
-        // API does not expose, so it is never recomputed here.
+        // Only the API's own date (stored by the dunning run, or computed by the
+        // API from the period end while a payment is failing). Never recomputed here.
         graceUntil={dateLabel(s.graceEnds)}
         canChange={canChange}
       />

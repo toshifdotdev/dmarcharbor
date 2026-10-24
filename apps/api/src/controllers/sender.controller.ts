@@ -23,7 +23,8 @@ export async function senderBreakdownController(request: Request, response: Resp
     return;
   }
 
-  const senders = await buildSenderBreakdown(organizationId, domainId.data);
+  // The resolved id: the path may carry the slug, and child rows key on id.
+  const senders = await buildSenderBreakdown(organizationId, domain.id);
 
   response.json({
     senders,

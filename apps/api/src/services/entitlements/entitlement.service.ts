@@ -4,9 +4,11 @@ import { emitEvent } from '../webhook.service.js';
 import { countCountedDomainsIn } from '../inventory/inventory.service.js';
 import {
   alwaysAllowedEntitlements,
+  entitlementLabels,
   nextTier,
   planCatalog,
   quotaLabel,
+  quotaLimitFor,
   type EntitlementKey,
   type QuotaKey,
 } from './plan-catalog.js';
@@ -20,8 +22,8 @@ export interface ResolvedEntitlements {
   maxClients: number;
   maxActiveDomains: number;
   maxMembers: number;
-  dataRetentionDays: number;
-  auditRetentionDays: number;
+  /** Quota rule, not retention: see PlanDefinition.activeDomainWindowDays. */
+  activeDomainWindowDays: number;
   features: Record<EntitlementKey, boolean>;
   overrides: LiveOverride[];
 }
@@ -162,8 +164,7 @@ export async function resolveEntitlements(
     maxClients: definition.maxClients,
     maxActiveDomains: definition.maxActiveDomains,
     maxMembers: definition.maxMembers,
-    dataRetentionDays: definition.dataRetentionDays,
-    auditRetentionDays: definition.auditRetentionDays,
+    activeDomainWindowDays: definition.activeDomainWindowDays,
     features,
     overrides,
   };
@@ -269,7 +270,7 @@ export async function quotaUsage(
   const scope = await accountOrganizationIds(organizationId);
 
   if (quota === 'activeDomain') {
-    const used = await countCountedDomainsIn(scope, definition.dataRetentionDays, now, client);
+    const used = await countCountedDomainsIn(scope, definition.activeDomainWindowDays, now, client);
     return { used, limit: definition.maxActiveDomains };
   }
 
@@ -294,7 +295,8 @@ export async function assertFeature(organizationId: string, feature: Entitlement
 
   throw new EntitlementError(
     'FEATURE_NOT_IN_PLAN',
-    `${feature} is not included in ${entitlements.label}. Upgrade to ${requiredBy ? planCatalog[requiredBy as PlanTier].label : 'a higher plan'} to use it.`,
+    // The feature by name; the key still travels in `feature` for routing.
+    `${entitlementLabels[feature] ?? feature} is not included in ${entitlements.label}. Upgrade to ${requiredBy ? planCatalog[requiredBy as PlanTier].label : 'a higher plan'} to use it.`,
     {
       feature,
       plan: entitlements.plan,
@@ -353,8 +355,10 @@ async function quotaExceeded(
   return new EntitlementError(
     'PLAN_LIMIT_REACHED',
     `${entitlements.label} includes ${usage.limit} ${label} and you have ${usage.used}. ` +
+      // The upgrade names the limit that was hit; it used to quote active
+      // domains whichever quota (clients, members) had been reached.
       (upgradeName
-        ? `Upgrade to ${upgradeName} for ${planCatalog[upgradeTo!].maxActiveDomains} active domains, or remove one.`
+        ? `Upgrade to ${upgradeName} for ${quotaLimitFor(upgradeTo!, quota)} ${label}, or remove one.`
         : 'Contact us to add more.'),
     {
       quota,

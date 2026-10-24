@@ -61,7 +61,8 @@ export async function listDomainScansController(request: Request, response: Resp
     return;
   }
 
-  const scans = await listDomainScans(response.locals.organizationId, domainId);
+  // The resolved id: the path may carry the slug, and scans key on id.
+  const scans = await listDomainScans(response.locals.organizationId, domain.id);
   response.json(scans);
 }
 
