@@ -1,18 +1,48 @@
 import { domainSlug } from './domain-slug.js';
 import { prisma } from '../database/prisma.js';
+import { env } from '../config/env.js';
 import { emitEvent } from './webhook.service.js';
 import { sendDomainVerificationEmail } from '../email/mailer.js';
 import { normalizeDomain } from '../scanner/domain.js';
 import { withQuota } from './entitlements/entitlement.service.js';
 import { systemDnsReader } from '../scanner/dns.js';
+import { isDmarcPolicyRecord } from '../scanner/dmarc-policy.js';
+import { readDmarcRecord } from '../scanner/dmarc-tags.js';
+import { classifyReportAddress, clientAggregateAddress } from './report-address.service.js';
 import type { CreateClientRequest, CreateDomainRequest } from '../models/client.model.js';
 
 export async function listClients(organizationId: string) {
-  return prisma.client.findMany({
+  const rows = await prisma.client.findMany({
     where: { organizationId },
     include: { domains: true },
     orderBy: { createdAt: 'asc' },
   });
+
+  // reportToken is deliberately absent from the response. It is published in
+  // DNS, but it is not a field any screen needs, and returning it would make it
+  // easy to treat as a credential it is not.
+  return rows.map(({ reportToken, ...client }) => ({
+    ...client,
+    reportAddress: clientAggregateAddress(reportToken),
+  }));
+}
+
+export async function getClientReportAddress(organizationId: string, clientId: string) {
+  const client = await prisma.client.findFirst({
+    where: { id: clientId, organizationId },
+    select: { reportToken: true },
+  });
+
+  if (!client) {
+    return null;
+  }
+
+  return {
+    aggregateAddress: clientAggregateAddress(client.reportToken),
+    forensicAddress: env.REPORT_FORENSIC_ADDRESS,
+    sharedAggregateAddress: env.REPORT_AGGREGATE_ADDRESS,
+    personal: env.REPORT_ADDRESS_SUBADDRESSING === 'plus',
+  };
 }
 
 export async function createClient(organizationId: string, input: CreateClientRequest) {
@@ -153,6 +183,10 @@ export interface OwnershipCheckResult {
   host: string;
   type: 'TXT';
   value: string;
+  /** Which proof held, or null when neither did. */
+  method: 'txt' | 'report_address' | null;
+  /** Outcome of the _dmarc lookup, or null when it was not attempted. */
+  reportAddressLookupStatus: string | null;
 }
 
 /**
@@ -162,15 +196,52 @@ export interface OwnershipCheckResult {
  * the interface, from an integration calling the API, and from the background
  * re-verification pass. One implementation means all three can never disagree
  * about whether a domain is owned.
+ *
+ * With per-client report addresses, the published DMARC record is a second
+ * proof: a record whose rua names this client's address can only have been
+ * published by someone who received that address from this workspace. It is
+ * checked in parallel, and the TXT fields are unchanged so the setup screen and
+ * its copy do not move.
  */
 export async function checkDomainOwnership(domain: {
   name: string;
   verificationToken: string;
+  reportToken?: string | null;
 }): Promise<OwnershipCheckResult> {
   const host = `_dmarc-harbor-verification.${domain.name}`;
   const expectedValue = `dmarc-harbor-verification=${domain.verificationToken}`;
-  const lookup = await systemDnsReader.resolveTxt(host);
-  const verified = lookup.status === 'found' && lookup.value?.some((chunks) => chunks.join('') === expectedValue) === true;
+  const checkReportAddress = Boolean(domain.reportToken) && env.REPORT_ADDRESS_SUBADDRESSING === 'plus';
+
+  const [lookup, dmarcLookup] = await Promise.all([
+    systemDnsReader.resolveTxt(host),
+    checkReportAddress
+      ? systemDnsReader.resolveTxt(`_dmarc.${domain.name}`)
+      : Promise.resolve(null),
+  ]);
+
+  const txtVerified =
+    lookup.status === 'found' && lookup.value?.some((chunks) => chunks.join('') === expectedValue) === true;
+
+  let reportAddressVerified = false;
+  if (dmarcLookup && dmarcLookup.status === 'found' && domain.reportToken) {
+    const strings = (dmarcLookup.value ?? [])
+      .map((chunks) => chunks.join('').trim())
+      .filter(Boolean);
+    const policyRecords = strings.filter((record) => isDmarcPolicyRecord(record));
+
+    // Exactly one, because a name with two DMARC records is ignored by
+    // receivers entirely. A record we can read but they cannot is not proof
+    // that mail is being reported anywhere.
+    if (policyRecords.length === 1) {
+      const record = policyRecords[0]!;
+      reportAddressVerified = readDmarcRecord(record).aggregateMailtoTargets.some((target) => {
+        const classification = classifyReportAddress(target);
+        return classification.kind === 'client' && classification.token === domain.reportToken;
+      });
+    }
+  }
+
+  const verified = txtVerified || reportAddressVerified;
 
   return {
     verified,
@@ -179,6 +250,8 @@ export async function checkDomainOwnership(domain: {
     host,
     type: 'TXT',
     value: expectedValue,
+    method: txtVerified ? 'txt' : reportAddressVerified ? 'report_address' : null,
+    reportAddressLookupStatus: dmarcLookup ? dmarcLookup.status : null,
   };
 }
 
@@ -203,6 +276,7 @@ export async function applyOwnershipResult(
         clientId: domain.clientId,
         verifiedAt: now.toISOString(),
         source: 'background',
+        method: check.method,
       });
     }
     await prisma.domain.update({ where: { id: domain.id }, data: { status: 'VERIFIED', verifiedAt: now } });
@@ -215,7 +289,23 @@ export async function applyOwnershipResult(
     return 'VERIFIED';
   }
 
-  if (check.lookupStatus === 'missing' && alreadyVerified) {
+  /**
+   * A verified domain is only demoted when the report-address proof is also
+   * definitively absent.
+   *
+   * The TXT record was the only proof before, so its absence was enough. Now a
+   * customer may have removed the TXT record precisely because the DMARC record
+   * proves ownership instead. A lookup that *errored* is not evidence of
+   * absence and must never demote a verified domain: an unreachable resolver
+   * would otherwise take every domain offline for the duration of an outage.
+   */
+  const reportAddressProofAbsent =
+    check.reportAddressLookupStatus === null ||
+    check.reportAddressLookupStatus === 'found' ||
+    check.reportAddressLookupStatus === 'missing' ||
+    check.reportAddressLookupStatus === 'nxdomain';
+
+  if (check.lookupStatus === 'missing' && reportAddressProofAbsent && alreadyVerified) {
     await prisma.domain.update({ where: { id: domain.id }, data: { status: 'FAILED', verifiedAt: null } });
 
     // A lapsed proof is urgent, because reports for this domain are now being
@@ -225,7 +315,9 @@ export async function applyOwnershipResult(
   }
 
   if (check.lookupStatus === 'missing' || check.lookupStatus === 'nxdomain') {
-    return 'PENDING';
+    // A verified domain whose proof simply is not visible right now keeps its
+    // status; only the definitively-absent case above demotes it.
+    return alreadyVerified ? 'VERIFIED' : 'PENDING';
   }
 
   return domain.status === 'VERIFIED' ? 'VERIFIED' : 'PENDING';
@@ -238,7 +330,7 @@ export async function verifyDomain(organizationId: string, domainId: string) {
     return null;
   }
 
-  const verification = await checkDomainOwnership(domain);
+  const verification = await checkDomainOwnership({ ...domain, reportToken: domain.client.reportToken });
   const status = await applyOwnershipResult(organizationId, domain, verification);
 
   const updated = await prisma.domain.findUniqueOrThrow({

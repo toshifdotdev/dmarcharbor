@@ -11,6 +11,7 @@ import {
   getOnboardingState,
 } from '../services/onboarding.service.js';
 import { domainRef } from '../services/domain-ref.js';
+import { clientAggregateAddress } from '../services/report-address.service.js';
 import {
   createReportShare,
   deleteAllRevokedReportShares,
@@ -70,9 +71,10 @@ export async function dmarcRecordController(request: Request, response: Response
   }
 
   response.json(
-    buildDmarcRecord(domain, query.data.policy, query.data.forensics, {
+    buildDmarcRecord(domain.name, query.data.policy, query.data.forensics, {
       testing: query.data.testing,
       nonExistentSubdomains: query.data.np ?? null,
+      aggregateAddress: clientAggregateAddress(domain.reportToken),
     }),
   );
 }
@@ -243,11 +245,14 @@ export async function publicReportController(request: Request, response: Respons
   response.json(report);
 }
 
-async function prismaDomainName(organizationId: string, domainId: string): Promise<string | null> {
+async function prismaDomainName(
+  organizationId: string,
+  domainId: string,
+): Promise<{ name: string; reportToken: string } | null> {
   const domain = await prisma.domain.findFirst({
     where: { client: { organizationId }, ...domainRef(domainId) },
-    select: { name: true },
+    select: { name: true, client: { select: { reportToken: true } } },
   });
 
-  return domain?.name ?? null;
+  return domain ? { name: domain.name, reportToken: domain.client.reportToken } : null;
 }

@@ -29,6 +29,7 @@ model User {
   portalAccessGrants      ClientPortalAccess[]
   alertDeliveries         AlertDelivery[]
   acknowledgedAlertEvents AlertEvent[]            @relation("AcknowledgedAlertEvents")
+  createdDomainSwitches   DomainSwitch[]          @relation("CreatedDomainSwitches")
     notificationPreference  NotificationPreference?
     /// The account's subscription. Keyed here as well as on the workspace it was
     /// started from, so entitlement status can be read where the plan lives.
@@ -184,6 +185,7 @@ model Organization {
   slackDestination      SlackDestination?
   ssoConnections        SsoConnection[]
   webhookEndpoints      WebhookEndpoint[]
+  domainSwitches        DomainSwitch[]
 
   @@unique([slug])
   /// Reads the document version rather than the column being null, so the sweep
@@ -251,6 +253,18 @@ model Client {
   domains        Domain[]
   reportShares   ReportShare[]
   portalAccess   ClientPortalAccess[]
+  /**
+   * Identifies this client in its report address: `local+<token>@domain`.
+   *
+   * Not a secret. It is published in DNS in the client's DMARC record, which is
+   * exactly what lets that record prove the domain belongs to this client. What
+   * matters is uniqueness, so a record carrying another client's token never
+   * verifies this one.
+   *
+   * The database default is volatile, so existing rows get distinct values in
+   * one statement rather than the same one.
+   */
+  reportToken    String        @unique @default(dbgenerated("substr(md5(((random())::text || (clock_timestamp())::text)), 1, 12)"))
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -325,6 +339,7 @@ model Domain {
   reportShares           ReportShare[]
   auditEvents            AuditLog[]
   reportDigests          ReportDigest[]
+  switch                 DomainSwitch?
 
   /// The per client constraint is gone. Global uniqueness on `name` above
   /// subsumes it: two rows in one client with the same name would violate the
@@ -385,6 +400,7 @@ model DmarcReport {
   records               DmarcReportRecord[]
 
   @@index([domainId, receivedAt])
+  @@index([domainId, dateRangeBegin])
   @@index([reportType, receivedAt])
   @@index([retentionExpiresAt])
   @@map("dmarc_report")
@@ -468,6 +484,46 @@ model DmarcForensicReport {
   @@index([reportedDomain])
   @@index([sourceIp])
   @@map("dmarc_forensic_report")
+}
+
+model DomainSwitch {
+  id                        String              @id @default(cuid())
+  domainId                  String              @unique
+  domain                    Domain              @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  organizationId            String
+  organization              Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  status                    DomainSwitchStatus  @default(PLANNED)
+  /// A vendor id from the switch-kit list, or `self` / `other`.
+  incumbentVendor           String
+  incumbentLabel            String
+  /// The raw rua URIs classified as the incumbent's.
+  incumbentAggregateTargets Json
+  /// The raw ruf URIs that point at the same incumbent hosts.
+  incumbentForensicTargets  Json
+  /// The record as read at planning time.
+  originalRecord            String
+  /// The dual record generated at planning time.
+  plannedRecord             String
+  lastSeenRecord            String?
+  externalAuthorization     String?
+  /// Issue codes from §6.4, as string[].
+  issues                    Json                @default("[]")
+  startedAt                 DateTime?
+  cutOverAt                 DateTime?
+  lastCheckedAt             DateTime?
+  createdById               String?
+  createdBy                 User?               @relation("CreatedDomainSwitches", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt                 DateTime            @default(now())
+  updatedAt                 DateTime            @updatedAt
+
+  @@index([organizationId, status])
+  @@map("domain_switch")
+}
+
+enum DomainSwitchStatus {
+  PLANNED
+  DUAL_REPORTING
+  CUT_OVER
 }
 
 enum DomainStatus {
@@ -1524,6 +1580,10 @@ enum AuditAction {
   CLIENT_DELETED
   /// A whole workspace and every row in it was deleted.
   WORKSPACE_DELETED
+  SWITCH_KIT_IMPORTED
+  DOMAIN_SWITCH_STARTED
+  DOMAIN_SWITCH_CUT_OVER
+  DOMAIN_SWITCH_CANCELLED
 }
 
 enum AuditOutcome {

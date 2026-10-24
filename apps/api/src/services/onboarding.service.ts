@@ -1,6 +1,7 @@
 import { prisma } from '../database/prisma.js';
 import { env } from '../config/env.js';
-import { canCollectAggregateReports, hasAggregateReporting, readDmarcRecord } from '../scanner/dmarc-tags.js';
+import { hasAggregateReporting, readDmarcRecord } from '../scanner/dmarc-tags.js';
+import { clientAggregateAddress, isOurAddress } from './report-address.service.js';
 import { getDomainInsights, type DomainInsights } from './report-intelligence.service.js';
 import { newSenderBlockers, senderBlockers } from './sender-breakdown.service.js';
 import { domainRef } from './domain-ref.js';
@@ -177,15 +178,21 @@ export function buildDmarcRecord(
   domain: string,
   policy: DmarcPolicyChoice,
   includeForensics: boolean,
-  options: { testing?: boolean; nonExistentSubdomains?: DmarcPolicyChoice | null } = {},
+  options: {
+    testing?: boolean;
+    nonExistentSubdomains?: DmarcPolicyChoice | null;
+    /** The client's report address. Defaults to the shared address. */
+    aggregateAddress?: string;
+  } = {},
 ): DmarcRecordDraft {
   const testing = policy !== 'none' && options.testing === true;
   const nonExistentSubdomains = options.nonExistentSubdomains ?? null;
+  const aggregateAddress = options.aggregateAddress ?? env.REPORT_AGGREGATE_ADDRESS;
 
   const parts = [
     'v=DMARC1',
     `p=${policy}`,
-    `rua=mailto:${env.REPORT_AGGREGATE_ADDRESS}`,
+    `rua=mailto:${aggregateAddress}`,
   ];
 
   if (nonExistentSubdomains) {
@@ -215,7 +222,7 @@ export function buildDmarcRecord(
     policy,
     testing,
     nonExistentSubdomains,
-    aggregateAddress: env.REPORT_AGGREGATE_ADDRESS,
+    aggregateAddress,
     forensicAddress: includeForensics ? env.REPORT_FORENSIC_ADDRESS : null,
     notes,
   };
@@ -404,6 +411,7 @@ export async function getOnboardingState(organizationId: string, domainId: strin
       dmarcRecord: true,
       collectForensicReports: true,
       retainForensicPii: true,
+      client: { select: { reportToken: true } },
     },
   });
 
@@ -417,14 +425,34 @@ export async function getOnboardingState(organizationId: string, domainId: strin
   const verified = domain.status === 'VERIFIED';
   const dmarcPublished = tags.tags.v?.toLowerCase() === 'dmarc1';
   const aggregateConfigured = hasAggregateReporting(tags);
-  // Reporting is configured and reporting reaches us are different facts. A
-  // rua=https: record configures reporting we cannot read, and telling the
-  // customer on this screen that "reports will be delivered" would be the same
-  // false claim the scanner used to make.
-  const aggregateCollectable = canCollectAggregateReports(tags);
-  const aggregateWebOnly = aggregateConfigured && !aggregateCollectable;
-  const forensicConfigured = tags.forensicTargets.length > 0;
+  /**
+   * A mailto target is not proof that reports reach us.
+   *
+   * The old check was `rua` has any mailto, which called an incumbent's address
+   * ours: the customer was told reports would be delivered while every report
+   * went to a competitor. Ours is now recognised by address, and two pieces of
+   * contrary evidence still count: a configured report inbox means the address
+   * is reachable, and reports already received prove it is working.
+   */
+  const clientAddress = clientAggregateAddress(domain.client.reportToken);
+  const aggregateCollectableByAddress = tags.aggregateMailtoTargets.some((target) => isOurAddress(target));
   const reportsReceived = (insights?.aggregate.reportCount ?? 0) > 0;
+  const inboxEnabled =
+    tags.aggregateMailtoTargets.length > 0 && !aggregateCollectableByAddress && !reportsReceived
+      ? Boolean(await prisma.reportInbox.findFirst({ where: { organizationId, enabled: true }, select: { id: true } }))
+      : false;
+  const aggregateCollectable = aggregateCollectableByAddress || inboxEnabled || reportsReceived;
+  const aggregateWebOnly =
+    tags.aggregateMailtoTargets.length === 0 && tags.aggregateWebTargets.length > 0 && !aggregateCollectable;
+  const foreignMailtoHosts = [
+    ...new Set(
+      tags.aggregateMailtoTargets
+        .map((target) => target.split('@').pop())
+        .filter((host): host is string => Boolean(host)),
+    ),
+  ];
+  const foreignMailtoDetail = `The record sends reports to ${foreignMailtoHosts.join(', ')} but not to DMARC Harbor. Add ${clientAddress} to rua, or start a switch from the domain page.`;
+  const forensicConfigured = tags.forensicTargets.length > 0;
   const openAlerts = readiness.openAlerts + readiness.staleAlerts;
   const historicTags = historicDmarcTags.filter((tag) => tags.tags[tag] !== undefined);
   const rollout = recommendPolicyStage({
@@ -462,10 +490,16 @@ export async function getOnboardingState(organizationId: string, domainId: strin
             ? 'done'
             : 'pending',
       detail: aggregateCollectable
-        ? 'The record includes a rua=mailto: address, so reports will be delivered to DMARC Harbor.'
+        ? reportsReceived
+          ? 'Aggregate reports have already been received for this domain.'
+          : aggregateCollectableByAddress
+            ? 'The record includes our rua=mailto: address, so reports will be delivered to DMARC Harbor.'
+            : `The record sends reports to ${foreignMailtoHosts.join(', ')}, and this workspace collects reports from its own mailbox.`
         : aggregateWebOnly
           ? 'This domain publishes reports to a web endpoint rather than a mailbox. DMARC Harbor does not read reports from there yet, so nothing will arrive for this domain until that is arranged.'
-          : 'The record has no rua= tag, so no reports will arrive.',
+          : tags.aggregateMailtoTargets.length > 0
+            ? foreignMailtoDetail
+            : 'The record has no rua= tag, so no reports will arrive.',
     },
     {
       id: 'reports_flowing',
@@ -477,7 +511,7 @@ export async function getOnboardingState(organizationId: string, domainId: strin
           : 'pending',
       detail: reportsReceived
         ? `${insights?.aggregate.reportCount} aggregate report(s) received.`
-        : aggregateWebOnly
+        : aggregateWebOnly || (tags.aggregateMailtoTargets.length > 0 && !aggregateCollectable)
           ? 'Waiting cannot help until reports are published somewhere DMARC Harbor can read them.'
           : 'Reports usually arrive within 24 to 48 hours of publishing the record.',
     },
@@ -540,6 +574,8 @@ export async function getOnboardingState(organizationId: string, domainId: strin
     recommendedPolicy: readiness.level,
     readiness,
     rollout: rollout,
-    suggestedRecord: buildDmarcRecord(domain.name, 'none', !forensicConfigured),
+    suggestedRecord: buildDmarcRecord(domain.name, 'none', !forensicConfigured, {
+      aggregateAddress: clientAddress,
+    }),
   };
 }

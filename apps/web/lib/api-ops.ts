@@ -29,6 +29,7 @@ import type {
   CheckoutSummary,
   CreatedShare,
   DomainRow,
+  DomainSwitchView,
   ErasureCreated,
   ErasurePreview,
   ErasureRequestRow,
@@ -352,6 +353,23 @@ export function listDomainScans(
 ): Promise<ScanRow[]> {
   return opsFetch<ScanRow[]>(
     `/api/workspaces/${organizationId}/domains/${domainId}/scans`,
+  );
+}
+
+/**
+ * GET /domains/:domainId/switch — the provider switch for one domain.
+ *
+ * No DNS is read here: the response is the stored state plus the overlap
+ * computed from reports already held. A switch that has never been planned
+ * answers `{ switch: null, eligible }`, where eligible says whether the stored
+ * DMARC record still sends reports somewhere other than us.
+ */
+export function getDomainSwitch(
+  organizationId: string,
+  domainId: string,
+): Promise<DomainSwitchView> {
+  return opsFetch<DomainSwitchView>(
+    `/api/workspaces/${organizationId}/domains/${domainId}/switch`,
   );
 }
 

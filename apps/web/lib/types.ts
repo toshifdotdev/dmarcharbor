@@ -39,6 +39,8 @@ export interface ClientRow {
   name: string;
   slug: string;
   trustSlug?: string | null;
+  /** This client's rua address, shared or personal to the client. */
+  reportAddress: string;
   createdAt: string;
   domains: DomainRow[];
 }
@@ -245,7 +247,134 @@ export interface VerifyDomainResult {
     type: "TXT";
     value: string;
     status: "VERIFIED" | "FAILED" | "PENDING";
+    method?: "txt" | "report_address" | null;
   };
+}
+
+// ─── switch kit ──────────────────────────────────────────────────────────────
+
+export type DomainSwitchStatus = "PLANNED" | "DUAL_REPORTING" | "CUT_OVER";
+export type SwitchLookupOutcome = "found" | "no_record" | "multiple_records" | "invalid" | "lookup_failed";
+
+export interface SwitchWarning {
+  code: string;
+  message: string;
+}
+
+export interface SwitchIssue {
+  code: string;
+  message: string;
+}
+
+export interface SwitchPlanIncumbent {
+  vendor: string;
+  label: string;
+  host: string;
+  uri: string;
+}
+
+export interface SwitchPlan {
+  domain: string;
+  host: string;
+  lookup: SwitchLookupOutcome;
+  record: { host: string; type: "TXT"; value: string } | null;
+  currentRecord: string | null;
+  cname: string | null;
+  alreadyReportingToUs: boolean;
+  incumbents: SwitchPlanIncumbent[];
+  incumbentAggregateTargets: string[];
+  incumbentForensicTargets: string[];
+  primaryIncumbent: { vendor: string; label: string } | null;
+  externalAuthorization: "authorized" | "missing" | "error";
+  warnings: SwitchWarning[];
+  message: string | null;
+}
+
+export interface SwitchKitResultRow {
+  index: number;
+  name: string;
+  domainId: string;
+  slug: string;
+  created: boolean;
+  verification: { host: string; value: string } | null;
+  plan: SwitchPlan;
+  switchStatus: DomainSwitchStatus | null;
+}
+
+export interface SwitchKitImportResult {
+  results: SwitchKitResultRow[];
+  failed: Array<{ index: number; name: string; reason: string }>;
+  planBlocked: Array<{ index: number; name: string; reason: string }>;
+  limits: { maxDomains: number; dnsConcurrency: number; deadlineMs: number };
+  ownershipNote: string | null;
+}
+
+export interface SwitchOverlapReceiver {
+  key: string;
+  label: string;
+  firstReportDay: string;
+  lastReportDay: string;
+  reportDays: number;
+  expectedDays: number;
+  coveragePercent: number;
+  messages: number;
+  sharePercent: number;
+  silentDays: number;
+}
+
+export interface SwitchOverlap {
+  receivers: SwitchOverlapReceiver[];
+  totals: { messages: number; receivers: number; dualDays: number; recentReportDays: number };
+  note: string;
+}
+
+export interface CutoverReadiness {
+  ready: boolean;
+  blockers: string[];
+}
+
+export interface DomainSwitchRecord {
+  host: string;
+  type: "TXT";
+  value: string;
+}
+
+export interface DomainSwitchDetail {
+  status: DomainSwitchStatus;
+  incumbent: {
+    vendor: string;
+    label: string;
+    aggregateTargets: string[];
+    forensicTargets: string[];
+  };
+  startedAt: string | null;
+  cutOverAt: string | null;
+  lastCheckedAt: string | null;
+  externalAuthorization: "authorized" | "missing" | "error" | null;
+  issues: SwitchIssue[];
+}
+
+export interface DomainSwitchView {
+  switch: DomainSwitchDetail | null;
+  eligible?: boolean;
+  records?: {
+    dual: DomainSwitchRecord;
+    cutover: DomainSwitchRecord & { warnings: SwitchWarning[] };
+  };
+  overlap?: SwitchOverlap;
+  readiness?: CutoverReadiness;
+  note?: string;
+  verification?: VerifyDomainResult["verification"] | null;
+  throttled?: boolean;
+}
+
+export interface SwitchCheckRow {
+  domainId: string;
+  name: string;
+  status: DomainSwitchStatus;
+  transitioned: "started" | "cut_over" | null;
+  issues: SwitchIssue[];
+  throttled: boolean;
 }
 
 // ─── report shares (Phase 5) ─────────────────────────────────────────────────
@@ -818,7 +947,11 @@ export type AuditAction =
   | "TERMS_ACCEPTED"
   | "DOMAIN_DELETED"
   | "CLIENT_DELETED"
-  | "WORKSPACE_DELETED";
+  | "WORKSPACE_DELETED"
+  | "SWITCH_KIT_IMPORTED"
+  | "DOMAIN_SWITCH_STARTED"
+  | "DOMAIN_SWITCH_CUT_OVER"
+  | "DOMAIN_SWITCH_CANCELLED";
 
 /**
  * AuditOutcome is SUCCESS or DENIED. There is no FAILED value: the trail records

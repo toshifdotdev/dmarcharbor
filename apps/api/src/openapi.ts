@@ -1780,6 +1780,104 @@ export const openApiDocument = {
         },
       },
     },
+    '/workspaces/{organizationId}/clients/{clientId}/report-address': {
+      get: {
+        tags: ['Clients and domains'],
+        summary: 'Read a client report address',
+        description: [
+          'The address this client publishes in rua. With per-client subaddressing it is personal to the client; otherwise it is the shared address.',
+          'Personal addresses carry the client token in the local part. The token is published in DNS and is not a secret: its job is to identify the client and let a DMARC record prove ownership.',
+        ].join(' '),
+        parameters: [orgParam, idParam('clientId', 'Client identifier.')],
+        responses: {
+          200: { description: 'Aggregate and forensic addresses, the shared aggregate address, and whether the aggregate address is personal.' },
+          ...standardErrors,
+        },
+      },
+    },
+    '/workspaces/{organizationId}/clients/{clientId}/switch-kit': {
+      post: {
+        tags: ['Clients and domains'],
+        summary: 'Import domains for a provider switch',
+        description: [
+          'Creates new domains, reads each live DMARC record, identifies the incumbent provider and generates a dual reporting record.',
+          'Names already in this client are included as existing. Rows the bulk domain import refuses or the plan blocks are returned unchanged and are not planned.',
+          'DNS is checked with a concurrency limit and one 25 second deadline; a domain not reached by then is reported as not checked yet.',
+          'A switch row is only created or refreshed while it is PLANNED. Domains already dual reporting or cut over keep their state.',
+        ].join(' '),
+        parameters: [orgParam, idParam('clientId', 'Client identifier.')],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['domains'],
+                properties: {
+                  domains: { type: 'array', minItems: 1, maxItems: 100, items: { type: 'string' } },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          201: { description: 'Per-domain plans, verification records, refusals and plan-blocked rows.' },
+          ...standardErrors,
+        },
+      },
+    },
+    '/workspaces/{organizationId}/clients/{clientId}/switch-kit/check': {
+      post: {
+        tags: ['Clients and domains'],
+        summary: 'Check every switch for a client',
+        description:
+          'Re-reads DNS for up to 100 switch rows using the same concurrency limit, deadline and 30 second per-domain throttle as the single check.',
+        parameters: [orgParam, idParam('clientId', 'Client identifier.')],
+        responses: { 200: { description: 'Per-domain status, transition, issues and throttle state.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/domains/{domainId}/switch': {
+      post: {
+        tags: ['Clients and domains'],
+        summary: 'Start a provider switch',
+        description: [
+          'Plans one existing domain against its live DMARC record and creates the switch at PLANNED.',
+          'Refused with NO_INCUMBENT when the record sends no reports anywhere but to us, and with SWITCH_IN_PROGRESS once the switch has moved past PLANNED.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: { 201: { description: 'The switch and the plan that created it.' }, ...standardErrors },
+      },
+      get: {
+        tags: ['Clients and domains'],
+        summary: 'Read a domain switch',
+        description: [
+          'Does no DNS lookups. Without a switch row it returns the eligibility of the stored DMARC record.',
+          'With a row it returns the dual and cutover records, the per-receiver overlap since dual reporting began, and cutover readiness with plain-language blockers.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: { 200: { description: 'Switch state, records, overlap and readiness.' }, ...standardErrors },
+      },
+      delete: {
+        tags: ['Clients and domains'],
+        summary: 'Stop a provider switch',
+        description: 'Deletes the switch row and records the cancellation. The domain and its reports are untouched.',
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: { 204: { description: 'Switch removed.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/domains/{domainId}/switch/check': {
+      post: {
+        tags: ['Clients and domains'],
+        summary: 'Check a domain switch',
+        description: [
+          'Re-reads the live DMARC record and external report authorisation, then moves the switch according to what DNS shows and audits a transition.',
+          'A domain that is not yet verified is verified by the same check, including proof through the client report address.',
+          'Returns the stored state without a DNS lookup when the last check was under 30 seconds ago.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: { 200: { description: 'Switch state, records, overlap, readiness and verification.' }, ...standardErrors },
+      },
+    },
     '/workspaces/{organizationId}/domains/{domainId}/verify': {
       post: {
         tags: ['Clients and domains'],

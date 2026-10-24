@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   bulkCreateDomainsController,
+  clientReportAddressController,
   createClientController,
   createDomainController,
   listClientsController,
@@ -25,6 +26,12 @@ clientRouter.post(
   requireOrganizationPermission('client', 'create'),
   requireQuota('client'),
   createClientController,
+);
+clientRouter.get(
+  '/workspaces/:organizationId/clients/:clientId/report-address',
+  requireSession,
+  requireOrganizationPermission('client', 'read'),
+  clientReportAddressController,
 );
 clientRouter.get(
   '/workspaces/:organizationId/clients/:clientId/domains',

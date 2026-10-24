@@ -8,6 +8,7 @@ import {
   createClient,
   createDomain,
   DomainNameTakenError,
+  getClientReportAddress,
   listClients,
   listDomains,
   verifyDomain,
@@ -20,6 +21,24 @@ function isUniqueConstraint(error: unknown): boolean {
 export async function listClientsController(_request: Request, response: Response): Promise<void> {
   const clients = await listClients(response.locals.organizationId);
   response.json(clients);
+}
+
+export async function clientReportAddressController(request: Request, response: Response): Promise<void> {
+  const clientId = resourceIdSchema.safeParse(request.params.clientId);
+
+  if (!clientId.success) {
+    response.status(400).json({ error: { message: 'A valid client identifier is required.' } });
+    return;
+  }
+
+  const address = await getClientReportAddress(response.locals.organizationId, clientId.data);
+
+  if (!address) {
+    response.status(404).json({ error: { message: 'Client not found in this workspace.' } });
+    return;
+  }
+
+  response.json(address);
 }
 
 /**

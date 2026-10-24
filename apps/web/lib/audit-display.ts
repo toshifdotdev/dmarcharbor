@@ -93,6 +93,10 @@ const ACTION_SENTENCES: Record<AuditAction, string> = {
   DOMAIN_DELETED: "Domain deleted",
   CLIENT_DELETED: "Client deleted",
   WORKSPACE_DELETED: "Workspace deleted",
+  SWITCH_KIT_IMPORTED: "Provider switch imported",
+  DOMAIN_SWITCH_STARTED: "Dual reporting started",
+  DOMAIN_SWITCH_CUT_OVER: "Provider switch cut over",
+  DOMAIN_SWITCH_CANCELLED: "Provider switch stopped",
 };
 
 /**

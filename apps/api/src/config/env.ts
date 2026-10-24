@@ -157,6 +157,20 @@ const envSchema = z.object({
     .email()
     .default('dmarc-reports@reports.dmarcharbor.com'),
   REPORT_FORENSIC_ADDRESS: z.string().trim().email().default('dmarc-forensics@reports.dmarcharbor.com'),
+  /**
+   * Whether each client gets its own report address.
+   *
+   * `off` keeps the single shared mailbox address, and report-address ownership
+   * is disabled. `plus` builds `local+token@domain` addresses from
+   * REPORT_AGGREGATE_ADDRESS. The token is part of the address and does not
+   * change routing, which stays keyed on the report's policy domain.
+   *
+   * Turning this on is only half the change: the inbound MTA must also deliver
+   * `local+anything@domain` to the same mailbox or relay, or reports bounce.
+   * The boot guard below refuses a base local part that already contains `+`,
+   * because appending a second one would make the address ambiguous.
+   */
+  REPORT_ADDRESS_SUBADDRESSING: z.enum(['off', 'plus']).default('off'),
   ALERT_SCHEDULER_DISABLED: z
     .enum(['true', 'false'])
     .default('false')
@@ -207,6 +221,15 @@ function assertPairedCredentials(name: string, clientId?: string, clientSecret?:
 
 assertPairedCredentials('GOOGLE', parsed.data.GOOGLE_CLIENT_ID, parsed.data.GOOGLE_CLIENT_SECRET);
 assertPairedCredentials('MICROSOFT', parsed.data.MICROSOFT_CLIENT_ID, parsed.data.MICROSOFT_CLIENT_SECRET);
+
+if (
+  parsed.data.REPORT_ADDRESS_SUBADDRESSING === 'plus' &&
+  parsed.data.REPORT_AGGREGATE_ADDRESS.split('@')[0]?.includes('+')
+) {
+  throw new Error(
+    'REPORT_AGGREGATE_ADDRESS local part must not contain "+" when REPORT_ADDRESS_SUBADDRESSING is plus: the client token is appended with one.',
+  );
+}
 
 // A half configured provider is worse than an unconfigured one, because it
 // fails at the point of taking a payment rather than at boot.

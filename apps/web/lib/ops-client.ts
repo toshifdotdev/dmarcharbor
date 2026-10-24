@@ -15,6 +15,8 @@
 import type {
   ApiErrorBody,
   BillingCurrencyPreference,
+  DomainSwitchDetail,
+  DomainSwitchView,
   ErasureCreated,
   ErasurePreview,
   ExportJob,
@@ -22,6 +24,9 @@ import type {
   PlanOverageRow,
   PortalGrant,
   SlackDestination,
+  SwitchCheckRow,
+  SwitchKitImportResult,
+  SwitchPlan,
   VerifyDomainResult,
 } from "./types";
 import { errorFromResponse, extractErrorCode, genericForStatus, networkUiError } from "./ui-errors";
@@ -578,6 +583,44 @@ export const verifyDomain = (orgId: string, domainId: string) =>
   call<VerifyDomainResult>(wsPath(orgId, `/domains/${domainId}/verify`), {
     method: "POST",
   });
+
+// ─── provider switch ─────────────────────────────────────────────────────────
+
+/** POST /clients/:id/switch-kit — create domains and plan each switch. */
+export const importSwitchKit = (
+  orgId: string,
+  clientId: string,
+  domains: string[],
+) =>
+  call<SwitchKitImportResult>(
+    wsPath(orgId, `/clients/${clientId}/switch-kit`),
+    { method: "POST", body: JSON.stringify({ domains }) },
+  );
+
+/** POST /domains/:id/switch — plan one existing domain. NO_INCUMBENT and
+ *  SWITCH_IN_PROGRESS are the two refusals the screen explains as states. */
+export const startDomainSwitch = (orgId: string, domainId: string) =>
+  call<{ switch: DomainSwitchDetail; plan: SwitchPlan }>(
+    wsPath(orgId, `/domains/${domainId}/switch`),
+    { method: "POST" },
+  );
+
+/** POST /domains/:id/switch/check — read DNS and move the state. */
+export const checkDomainSwitch = (orgId: string, domainId: string) =>
+  call<DomainSwitchView>(wsPath(orgId, `/domains/${domainId}/switch/check`), {
+    method: "POST",
+  });
+
+/** POST /clients/:id/switch-kit/check — every switch in the client. */
+export const checkClientSwitches = (orgId: string, clientId: string) =>
+  call<{ results: SwitchCheckRow[] }>(
+    wsPath(orgId, `/clients/${clientId}/switch-kit/check`),
+    { method: "POST" },
+  );
+
+/** DELETE /domains/:id/switch — stop the switch. Never touches the domain. */
+export const stopDomainSwitch = (orgId: string, domainId: string) =>
+  call<void>(wsPath(orgId, `/domains/${domainId}/switch`), { method: "DELETE" });
 
 // ─── report shares (Phase 5) ─────────────────────────────────────────────────
 

@@ -8,13 +8,14 @@ import {
   listClients,
   listDomainReports,
 } from "@/lib/api";
-import { listDomainScans } from "@/lib/api-ops";
+import { getDomainSwitch, listDomainScans } from "@/lib/api-ops";
 import { instantLabel } from "@/lib/instant";
 import { daysSinceReport, fmtVolume, policyLabel, POSTURE_META, resolvePosture } from "@/lib/posture";
 import { onboardingHref } from "@/lib/route-hrefs";
 import { resolveActiveWorkspace } from "@/lib/session";
-import type { DomainInsights, OnboardingState, ReportRow, ScanRow, SenderRow, SourceAttribution } from "@/lib/types";
+import type { DomainInsights, DomainSwitchView, OnboardingState, ReportRow, ScanRow, SenderRow, SourceAttribution } from "@/lib/types";
 import { AppShell } from "@/components/harbor/app-shell";
+import { DomainSwitchPanel } from "@/components/harbor/domain-switch";
 import { PageHeader, SectionHead } from "@/components/harbor/page-header";
 import { RefreshButton } from "@/components/harbor/refresh-button";
 import { ScanHistory, type ScanHistoryRow } from "@/components/harbor/scan-history";
@@ -114,10 +115,16 @@ export default async function DomainPage({ params }: { params: Promise<{ domainI
 
   // A scan history is a different claim from the report evidence, so it fails
   // on its own and renders as a failure, never as an empty history.
-  const scanHistory = await listDomainScans(active.id, id).then(
-    (rows: ScanRow[]) => ({ rows, failed: false }),
-    () => ({ rows: [] as ScanRow[], failed: true }),
-  );
+  const [scanHistory, switchState] = await Promise.all([
+    listDomainScans(active.id, id).then(
+      (rows: ScanRow[]) => ({ rows, failed: false }),
+      () => ({ rows: [] as ScanRow[], failed: true }),
+    ),
+    getDomainSwitch(active.id, id).then(
+      (data: DomainSwitchView) => ({ data, failed: false }),
+      () => ({ data: null as DomainSwitchView | null, failed: true }),
+    ),
+  ]);
 
   const today = new Date(now).toISOString().slice(0, 10);
 
@@ -211,6 +218,13 @@ export default async function DomainPage({ params }: { params: Promise<{ domainI
           </section>
           <PolicyPanel onboarding={onboarding} observedPolicy={observedPolicy} />
         </div>
+
+        <DomainSwitchPanel
+          organizationId={active.id}
+          domainId={id}
+          domainName={insights.domain.name}
+          state={switchState}
+        />
 
         <div>
           <section aria-label="Evidence tables" className="min-w-0">

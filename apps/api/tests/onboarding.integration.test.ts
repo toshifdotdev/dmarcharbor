@@ -575,10 +575,10 @@ describe('web-published aggregate reporting', () => {
     expect(tighten.status).toBe('blocked');
   });
 
-  it('still promises delivery for a rua=mailto record', async () => {
+  it('still promises delivery for a rua=mailto record that names us', async () => {
     const { agent, organizationId, domainId } = await createWorkspace({
       verify: true,
-      dmarcRecord: 'v=DMARC1; p=reject; rua=mailto:agg@reports.dmarcharbor.com',
+      dmarcRecord: 'v=DMARC1; p=reject; rua=mailto:dmarc-reports@reports.dmarcharbor.com',
     });
 
     const response = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/onboarding`);

@@ -8,6 +8,7 @@ import { alertRouter } from './routes/alert.routes.js';
 import { onboardingRouter, publicReportRouter } from './routes/onboarding.routes.js';
 import { scanRouter } from './routes/scan.routes.js';
 import { clientRouter } from './routes/client.routes.js';
+import { switchRouter } from './routes/switch.routes.js';
 import { entitlementRouter } from './routes/entitlement.routes.js';
 import { exportRouter } from './routes/export.routes.js';
 import { erasureRouter } from './routes/erasure.routes.js';
@@ -139,6 +140,10 @@ export function createApp(): express.Express {
    * the app posts a list.
    */
   app.use('/api/workspaces/:organizationId/clients/:clientId/domains/bulk', express.json({ limit: '256kb' }));
+  // Same reason for the switch import: 100 domain names plus JSON syntax is
+  // under 40KB, but the parser has to be in place before the global one to
+  // matter, and the route's own 400 should be the answer to an oversized list.
+  app.use('/api/workspaces/:organizationId/clients/:clientId/switch-kit', express.json({ limit: '256kb' }));
 
   // The raw body is retained alongside the parsed one because both payment
   // providers sign the exact bytes they sent. Re-serialising the parsed object
@@ -196,6 +201,7 @@ export function createApp(): express.Express {
   app.use('/api', requireCurrentDpa());
 
   app.use('/api', clientRouter);
+  app.use('/api', switchRouter);
   app.use('/api', entitlementRouter);
   app.use('/api', exportRouter);
   app.use('/api', erasureRouter);

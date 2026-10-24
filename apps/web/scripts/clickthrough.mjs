@@ -407,7 +407,9 @@ const fillInput = async (selector, value) => {
     await evalJs(`(() => {
       const el = document.querySelector(${JSON.stringify(selector)});
       if (!el) return 'missing';
-      const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      // A textarea has its own value setter; the input one throws on it.
+      const proto = el instanceof HTMLTextAreaElement ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+      const set = Object.getOwnPropertyDescriptor(proto, 'value').set;
       set.call(el, ${JSON.stringify(value)});
       el.dispatchEvent(new Event('input', { bubbles: true }));
       return 'filled';
@@ -1305,6 +1307,85 @@ if (funnelHref) {
   check("share links point at the rendered report page, not raw JSON", false, "no domain created");
   check("share links can be revoked", false, "no domain created");
   console.log("phase 5 shots:", shotClients);
+}
+
+// 5c. The switch kit, through the real client component: the link from the
+//     client book carries the client, the textarea counts what was pasted, and
+//     a submit returns a plan row with the record the API generated. The
+//     domain is under .example, which never resolves, so the plan is the
+//     no-record case: a fresh p=none record with our address, and no switch row.
+await navigate(WEB + "/clients");
+await waitForEval(`!!document.querySelector('[data-testid^="switch-domains-"]')`, (v) => v === true);
+const switchHref = await evalJs(
+  `(() => {
+    const row = [...document.querySelectorAll('tr')].find((tr) => tr.textContent.includes(${JSON.stringify(clientName)}));
+    return row?.querySelector('a[href^="/clients/switch"]')?.getAttribute('href') ?? '';
+  })()`,
+);
+check(
+  "switch kit: each client links to its own switch page",
+  switchHref.startsWith("/clients/switch?client="),
+  switchHref || "no switch link on the funnel client's row",
+);
+
+if (switchHref) {
+  const switchDomain = `switch-${stamp}.example`;
+  await navigate(WEB + switchHref);
+  await waitForEval(`!!document.querySelector('[data-testid="switch-domain-input"]')`, (v) => v === true);
+  await waitForHydration();
+  const pickedClient = await evalJs(
+    `document.querySelector('[data-testid="switch-client-picker"]')?.selectedOptions?.[0]?.textContent ?? ''`,
+  );
+  await fillInput('[data-testid="switch-domain-input"]', `${switchDomain}\n${switchDomain}`);
+  const counted = await waitForEval(
+    `document.querySelector('[data-testid="switch-submit"]')?.textContent ?? ''`,
+    (t) => typeof t === "string" && t.includes("Check 1 domain"),
+    10000,
+  );
+  check(
+    "switch kit: the picker arrives on the linked client and duplicates are counted once",
+    pickedClient === clientName && typeof counted === "string" && counted.includes("Check 1 domain"),
+    JSON.stringify({ pickedClient, counted }),
+  );
+
+  // ONE click, then poll: every click is a real import.
+  await evalJs(`(() => { const b = document.querySelector('[data-testid="switch-submit"]'); if (b && !b.disabled) b.click(); return true; })()`);
+  const switchAudit = await waitForEval(
+    `(() => {
+      const row = document.querySelector('[data-testid^="switch-result-row-"]');
+      if (!row) return null;
+      const records = row.querySelector('[data-testid^="switch-records-"]');
+      const text = row.textContent;
+      return {
+        row: true,
+        name: text.includes(${JSON.stringify(switchDomain)}),
+        created: text.includes('Created'),
+        noRecord: text.includes('No record'),
+        dmarcRecord: Boolean(records && records.textContent.includes('v=DMARC1; p=none; rua=mailto:')),
+        ownershipRecord: Boolean(records && records.textContent.includes('dmarc-harbor-verification=')),
+        zoneCopy: !!document.querySelector('[data-testid="switch-copy-zone"]'),
+      };
+    })()`,
+    (a) => a && a.row,
+    60000,
+  );
+  check(
+    "switch kit: a submit returns the plan row with the API's records",
+    Boolean(
+      switchAudit &&
+        switchAudit.name &&
+        switchAudit.created &&
+        switchAudit.noRecord &&
+        switchAudit.dmarcRecord &&
+        switchAudit.ownershipRecord &&
+        switchAudit.zoneCopy,
+    ),
+    JSON.stringify(switchAudit),
+  );
+  await shot("16b-switch-kit.png");
+} else {
+  check("switch kit: the picker arrives on the linked client and duplicates are counted once", false, "no switch link");
+  check("switch kit: a submit returns the plan row with the API's records", false, "no switch link");
 }
 
 // ─── 6. Phase 6: the settings sections, each saved and reloaded ──────────────

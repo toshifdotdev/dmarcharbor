@@ -85,7 +85,7 @@ export async function reverifyUnverifiedDomains(now = new Date()): Promise<Rever
       verificationToken: true,
       verifiedAt: true,
       recheckedAt: true,
-      client: { select: { organizationId: true } },
+      client: { select: { organizationId: true, reportToken: true } },
     },
     orderBy: { createdAt: 'asc' },
     take: reverifyBatchSize,
@@ -137,7 +137,7 @@ export async function reverifyUnverifiedDomains(now = new Date()): Promise<Rever
         continue;
       }
 
-      const check = await checkDomainOwnership(domain);
+      const check = await checkDomainOwnership({ ...domain, reportToken: domain.client.reportToken });
       const status = await applyOwnershipResult(domain.client.organizationId, domain, check, now);
 
       outcome.checked += 1;

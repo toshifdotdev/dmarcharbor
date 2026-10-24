@@ -46,6 +46,17 @@ export const systemDnsReader: DnsReader = {
     }
   },
 
+  async resolveCname(name: string): Promise<LookupResult<string[]>> {
+    try {
+      return { status: 'found', value: await resolver.resolveCname(name) };
+    } catch (error) {
+      return {
+        status: isMissingError(error) ? 'missing' : 'error',
+        error: errorMessage(error),
+      };
+    }
+  },
+
   /**
    * A and AAAA together: "missing" only when the name has neither, which is
    * what makes an SPF "a" term a void lookup (RFC 7208 section 4.6.4).

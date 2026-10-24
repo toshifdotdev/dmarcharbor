@@ -158,6 +158,12 @@ export interface DnsReader {
    * doubles) simply skips the void-lookup check for "a" terms.
    */
   resolveAddress?(name: string): Promise<LookupResult<string[]>>;
+  /**
+   * CNAME targets. Optional for the same reason as resolveAddress: a reader
+   * that cannot answer leaves the switch planner without CNAME information
+   * rather than failing the plan.
+   */
+  resolveCname?(name: string): Promise<LookupResult<string[]>>;
 }
 
 export const scanRequestSchema = z.object({

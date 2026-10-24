@@ -29,6 +29,7 @@ import { domainHref, onboardingHref } from "@/lib/route-hrefs";
 import type { DomainStatus } from "@/lib/types";
 import { Badge, type Tone } from "@/components/ui/badge";
 import { Button, ButtonLink } from "@/components/ui/button";
+import { CopyButton } from "@/components/ui/copy";
 import { Dialog } from "@/components/ui/dialog";
 import { Input, SearchInput, Segmented } from "@/components/ui/field";
 import { External, Plus } from "@/components/ui/icons";
@@ -51,6 +52,8 @@ export interface ClientView {
   name: string;
   slug: string;
   trustSlug: string | null;
+  /** The address this client publishes in rua. */
+  reportAddress: string;
   domains: DomainView[];
 }
 
@@ -236,8 +239,28 @@ export function ClientBook({
                               </a>
                             ) : null}
                           </span>
+                          <span data-copy-scope className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-meta font-normal text-fg-3">
+                            <span className="legend">rua</span>
+                            <code data-copy-value className="data break-all text-fg">
+                              {c.reportAddress}
+                            </code>
+                            <CopyButton
+                              value={c.reportAddress}
+                              label={`Copy the report address for ${c.name}`}
+                              testId={`copy-report-address-${c.id}`}
+                            />
+                            <span>Put this address in rua for this client&rsquo;s domains.</span>
+                          </span>
                         </th>
                         <td className="whitespace-nowrap px-2.5 py-2 text-right">
+                          <ButtonLink
+                            href={`/clients/switch?client=${encodeURIComponent(c.id)}`}
+                            size="sm"
+                            variant="ghost"
+                            data-testid={`switch-domains-${c.id}`}
+                          >
+                            Switch domains from another provider
+                          </ButtonLink>
                           <Button size="sm" variant="ghost" onClick={() => addDomainsTo(c.id)} aria-label={`Add domains to ${c.name}`}>
                             <Plus size={13} /> Add domains
                           </Button>

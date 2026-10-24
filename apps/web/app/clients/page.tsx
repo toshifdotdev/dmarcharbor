@@ -47,6 +47,7 @@ export default async function ClientsPage() {
     name: c.name,
     slug: c.slug,
     trustSlug: c.trustSlug ?? null,
+    reportAddress: c.reportAddress,
     domains: c.domains.map((d) => ({
       id: d.id,
       slug: d.slug,

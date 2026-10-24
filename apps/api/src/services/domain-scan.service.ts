@@ -1,6 +1,8 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
 import { domainRef } from './domain-ref.js';
+import { applySwitchRecord } from './switch-kit/switch.service.js';
+import { switchObservationFromScan } from './switch-kit/state.js';
 import { scanDomain } from '../scanner/scanner.js';
 
 const scanInclude = {
@@ -153,6 +155,10 @@ export async function runDomainScan(input: RunDomainScanInput): Promise<RunDomai
     if (!persistedScan) {
       throw new Error('The completed scan could not be reloaded.');
     }
+
+    // The scan already read DNS, so the switch row can move without another
+    // lookup. Best effort: applySwitchRecord swallows its own failures.
+    await applySwitchRecord(domain.id, switchObservationFromScan(result.dmarc));
 
     return { status: 'completed', scan: persistedScan };
   } catch (error) {
