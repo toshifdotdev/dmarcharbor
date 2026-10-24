@@ -69,7 +69,9 @@ export function DomainRecords({
         </span>
       ) : dmarc.policy === "none"
           ? "p=none only watches: no mail is blocked or quarantined. If a DMARC record already exists at this host, replace it: a domain can have only one."
-          : `Receivers are asked to ${dmarc.policy === "reject" ? "reject" : "quarantine"} mail that fails${dmarc.pct < 100 ? ` (pct=${dmarc.pct}: that share of it)` : ""}. Replace the record already at this host: a domain can have only one.`,
+          : dmarc.testing
+            ? `Testing mode: receivers are asked to treat mail that fails one step softer than p=${dmarc.policy} while you watch the reports. Replace the record already at this host: a domain can have only one.`
+            : `Receivers are asked to ${dmarc.policy === "reject" ? "reject" : "quarantine"} mail that fails. Replace the record already at this host: a domain can have only one.`,
       testId: "suggested-record",
     });
   }

@@ -4,6 +4,7 @@ import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
+import { buildZip } from './helpers/zip.js';
 
 let fixtureId = 0;
 const password = 'correct-horse-battery-staple';
@@ -57,9 +58,18 @@ function aggregateReport(domain: string, reportId: string): string {
 </feedback>`;
 }
 
-function reportEmail(xml: string, compressed = false): string {
+function reportEmail(xml: string, compressed: boolean | 'zip' = false): string {
   const boundary = 'dmarc-report-boundary';
-  const attachment = compressed
+  const attachment = compressed === 'zip'
+    ? {
+        // How Google labels its ZIP reports is not something to rely on, so the
+        // least helpful label is used: the bytes have to identify themselves.
+        contentType: 'application/octet-stream',
+        filename: 'google.com!zip.test!1712188800!1712275199.zip',
+        encoding: 'base64',
+        content: buildZip([{ name: 'google.com!zip.test!1712188800!1712275199.xml', content: xml }]).toString('base64'),
+      }
+    : compressed
     ? {
         contentType: 'application/gzip',
         filename: 'report.xml.gz',
@@ -214,6 +224,59 @@ describe('DMARC report ingestion', () => {
       .set('X-DMARC-Signature', 'sha256=invalid')
       .send(rawEmail);
     expect(invalidSignature.status).toBe(401);
+  });
+
+  it('accepts a ZIP report attachment, which used to be skipped without a trace', async () => {
+    const { agent, organizationId, domainId } = await createVerifiedDomain('zip.test');
+    const rawEmail = reportEmail(aggregateReport('zip.test', `zip-${Date.now()}`), 'zip');
+
+    const signed = sign(rawEmail);
+    const response = await request(app)
+      .post('/api/internal/reports/inbound')
+      .set('Content-Type', 'message/rfc822')
+      .set('X-DMARC-Timestamp', signed.timestamp)
+      .set('X-DMARC-Signature', signed.signature)
+      .send(rawEmail);
+
+    expect(response.status).toBe(200);
+    expect(response.body.candidateCount).toBe(1);
+    expect(response.body.results[0].status).toBe('created');
+    expect(response.body.results[0].reportDomain).toBe('zip.test');
+
+    const history = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/reports`);
+    expect(history.body.items).toHaveLength(1);
+  });
+
+  it('says which attachment could not be read, rather than failing silently', async () => {
+    const boundary = 'broken-boundary';
+    const rawEmail = [
+      'From: noreply-dmarc-support@google.com',
+      'To: dmarc-reports@dmarcharbor.com',
+      'Subject: DMARC aggregate report',
+      `Content-Type: multipart/mixed; boundary="${boundary}"`,
+      '',
+      '--' + boundary,
+      'Content-Type: application/zip; name="broken.zip"',
+      'Content-Disposition: attachment; filename="broken.zip"',
+      'Content-Transfer-Encoding: base64',
+      '',
+      buildZip([{ name: 'r.xml', content: aggregateReport('zip.test', 'broken'), crcOverride: 1 }]).toString('base64'),
+      '--' + boundary + '--',
+      '',
+    ].join('\r\n');
+
+    const signed = sign(rawEmail);
+    const response = await request(app)
+      .post('/api/internal/reports/inbound')
+      .set('Content-Type', 'message/rfc822')
+      .set('X-DMARC-Timestamp', signed.timestamp)
+      .set('X-DMARC-Signature', signed.signature)
+      .send(rawEmail);
+
+    expect(response.status).toBe(200);
+    expect(response.body.results[0].status).toBe('failed');
+    expect(response.body.results[0].message).toContain('broken.zip');
+    expect(response.body.results[0].message).toContain('integrity check');
   });
 
   it('rejects a report for a different domain', async () => {

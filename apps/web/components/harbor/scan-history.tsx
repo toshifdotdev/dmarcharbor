@@ -267,7 +267,10 @@ function ScanDetail({ scan }: { scan: ScanRow }) {
     [
       "SPF",
       r.spf.status === "found"
-        ? `${r.spf.valid ? "valid" : "found but invalid"}, ${r.spf.lookupCount} of 10 lookups`
+        ? `${r.spf.valid ? "valid" : "found but invalid"}, ${r.spf.lookupCount} of 10 lookups${
+            // Scans stored before includes were followed counted the top level only.
+            r.spf.lookupTree === undefined ? " (top level only: this scan predates counting through includes; scan again for the full count)" : r.spf.lookupsComplete === false ? " (at least: some includes could not be read)" : ""
+          }`
         : r.spf.status === "error"
           ? "lookup failed"
           : "no record found",

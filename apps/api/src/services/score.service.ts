@@ -25,7 +25,9 @@ export function calculateScore(
   if (dmarc.status === 'error') {
     addFactor(factors, 'dmarc_invalid', 'DMARC invalid', -30, 'The DMARC record is duplicated or contains invalid values.');
   }
-  if (dmarc.status === 'found' && dmarc.policy === 'none') {
+  // The policy failing mail actually gets: p=quarantine with t=y is handled as
+  // p=none by receivers that follow RFC 9989, so it scores as monitoring.
+  if (dmarc.status === 'found' && (dmarc.effectivePolicy ?? dmarc.policy) === 'none') {
     addFactor(factors, 'dmarc_monitor_only', 'DMARC monitoring only', -15, 'The policy observes failures but does not request quarantine or rejection.');
   }
   if (dmarc.status === 'found' && !dmarc.hasAggregateReports) {
@@ -37,8 +39,16 @@ export function calculateScore(
   if (spf.status === 'error') {
     addFactor(factors, 'spf_invalid', 'SPF invalid', -20, 'Multiple or conflicting SPF records were found.');
   }
-  if (spf.status === 'found' && spf.lookupCount > 10) {
-    addFactor(factors, 'spf_lookup_limit', 'SPF lookup limit', -10, 'The SPF record may exceed the 10 DNS lookup limit.');
+  // Counted through every include now, so an exceeded limit is not "may
+  // exceed": receivers return permerror and SPF fails, which is as bad as a
+  // broken record and scored the same.
+  if (spf.status === 'found' && (spf.lookupLimitExceeded ?? spf.lookupCount > 10)) {
+    addFactor(factors, 'spf_lookup_limit', 'SPF lookup limit', -20, 'Evaluating the SPF record takes more than 10 DNS lookups, so receivers fail SPF for every message.');
+  } else if (
+    spf.status === 'found' &&
+    (spf.voidLookupLimitExceeded || (spf.problems ?? []).some((problem) => !problem.includes('"ptr"')))
+  ) {
+    addFactor(factors, 'spf_permerror', 'SPF permanent error', -20, 'An include is broken or too many names return nothing, so receivers can fail SPF for every message.');
   }
   if (dkim.status === 'missing') {
     addFactor(factors, 'dkim_missing', 'DKIM not found', -15, 'No public DKIM key was found for the common selectors checked.');

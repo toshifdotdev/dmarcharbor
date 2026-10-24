@@ -24,6 +24,7 @@ function aggregateReport(
   reportId: string,
   rows: SenderFixture[],
   range: { begin: number; end: number } = { begin: 1712188800, end: 1712275199 },
+  policy = 'none',
 ): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <feedback>
@@ -34,7 +35,7 @@ function aggregateReport(
     <date_range><begin>${range.begin}</begin><end>${range.end}</end></date_range>
   </report_metadata>
   <policy_published>
-    <domain>${domain}</domain><adkim>r</adkim><aspf>r</aspf><p>none</p><fraction>100</fraction>
+    <domain>${domain}</domain><adkim>r</adkim><aspf>r</aspf><p>${policy}</p><fraction>100</fraction>
   </policy_published>
 ${rows
   .map(
@@ -68,6 +69,7 @@ async function postDailyReports(
   domainName: string,
   rows: SenderFixture[],
   days: number,
+  policy = 'none',
 ): Promise<void> {
   const { ingestDmarcReport } = await import('../src/services/report.service.js');
   const offsets = [0, Math.max(1, days - 1)];
@@ -77,7 +79,7 @@ async function postDailyReports(
     const outcome = await ingestDmarcReport({
       organizationId,
       domainId,
-      xml: aggregateReport(domainName, `daily-${index}-${offset}`, rows, { begin, end: begin + daySeconds - 1 }),
+      xml: aggregateReport(domainName, `daily-${index}-${offset}`, rows, { begin, end: begin + daySeconds - 1 }, policy),
     });
     expect(outcome.status).toBe('created');
   }
@@ -289,7 +291,7 @@ describe('per sending service breakdown', () => {
       domainId,
       domainName,
       [{ ip: '192.0.2.1', count: 300, dkim: 'pass', spf: 'pass', spfDomain: domainName, headerFrom: domainName }, { ip: '192.0.2.2', count: 200, dkim: 'pass', spf: 'pass', spfDomain: domainName, headerFrom: domainName },],
-      8,
+      31,
     );
 
     const rows = await buildSenderBreakdown(organizationId, domainId);
@@ -306,7 +308,7 @@ describe('per sending service breakdown', () => {
       domainId,
       domainName,
       [{ ip: '192.0.2.1', count: 20_000, dkim: 'pass', spf: 'pass', spfDomain: domainName, headerFrom: domainName }, { ip: '203.0.113.9', count: 3, dkim: 'fail', spf: 'fail', spfDomain: 'spammer.test', headerFrom: domainName },],
-      8,
+      31,
     );
 
     const rows = await buildSenderBreakdown(organizationId, domainId);
@@ -344,7 +346,7 @@ describe('readiness gates for the blind spots', () => {
       domainId,
       domainName,
       [{ ip: '192.0.2.1', count: 50_000, dkim: 'pass', spf: 'pass', spfDomain: domainName, headerFrom: domainName }, { ip: '198.51.100.77', count: 400, dkim: 'fail', spf: 'fail', spfDomain: 'portal.other.test', headerFrom: domainName },],
-      8,
+      31,
     );
 
     const readiness = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/policy-readiness`);
@@ -366,7 +368,7 @@ describe('readiness gates for the blind spots', () => {
       domainId,
       domainName,
       [{ ip: '192.0.2.1', count: 60_000, dkim: 'pass', spf: 'pass', spfDomain: domainName, headerFrom: domainName },],
-      8,
+      31,
     );
 
     const readiness = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/policy-readiness`);
@@ -377,7 +379,7 @@ describe('readiness gates for the blind spots', () => {
     expect(readiness.body.blockers).toEqual([]);
   });
 
-  it('allows reject only after the domain is already on quarantine', async () => {
+  it('allows reject only after a month at quarantine, as RFC 9989 section 7.4 asks', async () => {
     const { agent, organizationId, domainId, domainName } = await setup('quarantine');
 
     await postDailyReports(
@@ -385,14 +387,63 @@ describe('readiness gates for the blind spots', () => {
       domainId,
       domainName,
       [{ ip: '192.0.2.1', count: 60_000, dkim: 'pass', spf: 'pass', spfDomain: domainName, headerFrom: domainName },],
-      8,
+      31,
+      'quarantine',
     );
 
     const readiness = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/policy-readiness`);
 
     expect(readiness.body.currentPolicy).toBe('quarantine');
+    expect(readiness.body.daysAtCurrentPolicy).toBeGreaterThanOrEqual(30);
     expect(readiness.body.level).toBe('reject');
     expect(readiness.body.ready).toBe(true);
+  });
+
+  it('holds reject back while quarantine has been in force for under a month', async () => {
+    const { agent, organizationId, domainId, domainName } = await setup('quarantine');
+    const rows = [{ ip: '192.0.2.1', count: 60_000, dkim: 'pass', spf: 'pass', spfDomain: domainName, headerFrom: domainName }];
+
+    // A month of reports in all, but only the last ten days at quarantine.
+    const { ingestDmarcReport } = await import('../src/services/report.service.js');
+    for (const [index, { offset, policy }] of [
+      { offset: 0, policy: 'none' },
+      { offset: 20, policy: 'none' },
+      { offset: 21, policy: 'quarantine' },
+      { offset: 31, policy: 'quarantine' },
+    ].entries()) {
+      const begin = 1712188800 + offset * daySeconds;
+      await ingestDmarcReport({
+        organizationId,
+        domainId,
+        xml: aggregateReport(domainName, `stage-${index}`, rows, { begin, end: begin + daySeconds - 1 }, policy),
+      });
+    }
+
+    const readiness = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/policy-readiness`);
+
+    expect(readiness.body.daysObserved).toBeGreaterThanOrEqual(30);
+    expect(readiness.body.daysAtCurrentPolicy).toBe(10);
+    expect(readiness.body.level).toBe('none');
+    expect(readiness.body.blockers.join(' ')).toContain('in force for 10 days');
+  });
+
+  it('holds reject back when mail relies on SPF without DKIM', async () => {
+    const { agent, organizationId, domainId, domainName } = await setup('quarantine');
+
+    await postDailyReports(
+      organizationId,
+      domainId,
+      domainName,
+      [{ ip: '192.0.2.1', count: 60_000, dkim: 'fail', spf: 'pass', spfDomain: domainName, headerFrom: domainName }],
+      31,
+      'quarantine',
+    );
+
+    const readiness = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/policy-readiness`);
+
+    expect(readiness.body.dkimPassRatePercent).toBe(0);
+    expect(readiness.body.level).not.toBe('reject');
+    expect(readiness.body.blockers.join(' ')).toContain('must sign with DKIM');
   });
 
   it('stops recommending anything once the domain is already enforcing reject', async () => {
@@ -403,7 +454,7 @@ describe('readiness gates for the blind spots', () => {
       domainId,
       domainName,
       [{ ip: '192.0.2.1', count: 60_000, dkim: 'pass', spf: 'pass', spfDomain: domainName, headerFrom: domainName },],
-      8,
+      31,
     );
 
     const readiness = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/policy-readiness`);
@@ -422,7 +473,7 @@ describe('readiness gates for the blind spots', () => {
       domainId,
       domainName,
       [{ ip: '192.0.2.1', count: 3_000, dkim: 'pass', spf: 'pass', spfDomain: domainName, headerFrom: domainName }, { ip: '198.51.100.77', count: 60, dkim: 'fail', spf: 'fail', spfDomain: 'portal.other.test', headerFrom: domainName }],
-      8,
+      31,
     );
 
     const onboarding = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/onboarding`);
@@ -445,7 +496,7 @@ describe('readiness gates for the blind spots', () => {
       domainId,
       domainName,
       [{ ip: '192.0.2.1', count: 60_000, dkim: 'pass', spf: 'pass', spfDomain: domainName, headerFrom: domainName },],
-      8,
+      31,
     );
 
     const rawEmail = forensicEmail(domainName);

@@ -174,7 +174,7 @@ export const openApiDocument = {
       get: {
         tags: ['API'],
         summary: 'List API keys',
-        description: 'Metadata only. The key itself is never retrievable after creation. Owner only.',
+        description: 'Metadata only. The key itself is never retrievable after creation. Owner or admin. The public API is included from Harbor (api.access).',
         parameters: [orgParam],
         responses: { 200: { description: 'Keys with prefix, scopes, last used and expiry.' }, ...standardErrors },
       },
@@ -185,6 +185,7 @@ export const openApiDocument = {
           'Returns the full key exactly once. Only a hash is stored, so a database read cannot recover a usable key.',
           'Scopes are read, write, or both. A read scoped key cannot create or modify anything, which is the right choice for a dashboard or reporting integration.',
           'Owner only, because a key acts on the whole workspace with the authority of its scopes.',
+          'Requires the api.access entitlement, which starts at Harbor; below it the answer is 402. A key issued before a downgrade stops authenticating until the plan carries the API again.',
         ].join(' '),
         parameters: [orgParam],
         responses: { 201: { description: 'The key, shown once.' }, ...standardErrors },
@@ -1291,7 +1292,8 @@ export const openApiDocument = {
         description: [
           'The four plans with their limits, features and prices. Public, so a pricing page can render before anyone signs up.',
           'Prices are returned in both USD cents and INR paise. The currency actually charged is whichever is selected at checkout.',
-          'Mooring is free and covers two active domains. Fairway is 19, Harbor is 79 and Admiralty is 249 per month.',
+          'Mooring is free and covers two active domains. The paid prices are in the response, in USD and INR; this text does not repeat them so it cannot fall out of date.',
+          'The public API (api.access) is included from Harbor; white label and SSO from Admiralty.',
           'Data export and erasure are included on every plan, because the right to access and delete personal data cannot be paywalled.',
         ].join(' '),
         responses: { 200: { description: 'Plan catalog.' } },
@@ -2059,9 +2061,10 @@ export const openApiDocument = {
         tags: ['Onboarding and sharing'],
         summary: 'Generate the DMARC TXT record',
         description: [
-          'Returns the exact record value for the requested policy.',
-          'Use pct to apply the policy to only part of your mail, so a misconfigured sending service cannot block everything at once.',
-          'The usual ladder is 5, 10, 25, 50, then 100. pct is left out when it is 100, and has no effect while p=none.',
+          'Returns the exact record value for the requested policy, written to RFC 9989 (May 2026), with setup notes.',
+          'pct is never generated and a pct parameter is refused with 400: RFC 9989 retired the tag, so receivers that follow it apply the whole policy whatever pct says, while older receivers apply a share.',
+          'testing=true adds t=y (RFC 9989 testing mode: the policy is applied one level softer) and pct=0, which means the same to receivers still on RFC 7489. It has no effect with policy=none and is left out there.',
+          'np sets the policy for subdomains that do not exist. The notes carry the stage guidance of RFC 9989 section 7.4: at least a month at none, as long again at quarantine, and DKIM on all mail before reject.',
         ].join(' '),
         parameters: [
           orgParam,
@@ -2073,11 +2076,18 @@ export const openApiDocument = {
             schema: { type: 'string', enum: ['none', 'quarantine', 'reject'], default: 'none' },
           },
           {
-            name: 'pct',
+            name: 'testing',
             in: 'query',
             required: false,
-            description: 'Share of mail the policy applies to, as a whole number from 0 to 100.',
-            schema: { type: 'integer', minimum: 0, maximum: 100, default: 100 },
+            description: 'Testing mode: adds t=y and pct=0 to a quarantine or reject record.',
+            schema: { type: 'boolean', default: false },
+          },
+          {
+            name: 'np',
+            in: 'query',
+            required: false,
+            description: 'Policy for non-existent subdomains (RFC 9989 np tag).',
+            schema: { type: 'string', enum: ['none', 'quarantine', 'reject'] },
           },
           {
             name: 'forensics',
@@ -2086,7 +2096,7 @@ export const openApiDocument = {
             schema: { type: 'boolean', default: false },
           },
         ],
-        responses: { 200: { description: 'Record host, value, pct and setup notes.' }, ...standardErrors },
+        responses: { 200: { description: 'Record host, value, testing and np choices, and setup notes.' }, ...standardErrors },
       },
     },
     '/workspaces/{organizationId}/domains/{domainId}/senders': {

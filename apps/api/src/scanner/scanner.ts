@@ -1,11 +1,12 @@
 import { systemDnsReader } from './dns.js';
 import { hasAggregateReporting, readDmarcRecord } from './dmarc-tags.js';
+import { isDmarcPolicyRecord, looksLikeMisversionedDmarc, readDmarcPolicy } from './dmarc-policy.js';
 import { normalizeDomain } from './domain.js';
 import { budgetDkimCandidates, dkimCandidates } from './dkim-discovery.js';
+import { evaluateSpfLookups, spfLookupLimit, spfVoidLookupLimit } from './spf-evaluate.js';
 import { calculateScore } from '../services/score.service.js';
 import type {
   DkimResult,
-  DmarcPolicy,
   DmarcResult,
   DnsReader,
   MxResult,
@@ -23,49 +24,80 @@ function parseTags(record: string): Record<string, string> {
   return readDmarcRecord(record).tags;
 }
 
-function policyFromTags(tags: Record<string, string>): DmarcPolicy {
-  const policy = tags.p?.toLowerCase();
-  return policy === 'none' || policy === 'quarantine' || policy === 'reject' ? policy : 'unknown';
-}
-
+/**
+ * Which TXT record at _dmarc is the policy, read as RFC 9989 section 4.10 does:
+ * records that do not begin with v=DMARC1 are discarded (other TXT records can
+ * share the name), and if more than one remains, all of them are.
+ */
 export function parseDmarcRecords(records: string[][]): DmarcResult {
   const rawRecords = joinRecords(records);
+  const candidates = rawRecords.filter(isDmarcPolicyRecord);
+  const empty = {
+    hasAggregateReports: false,
+    hasForensicReports: false,
+    aggregateMailtoTargets: [],
+    aggregateWebTargets: [],
+  };
 
-  if (rawRecords.length === 0) {
-    return {
-      status: 'missing',
-      policy: 'unknown',
-      tags: {},
-      hasAggregateReports: false,
-      hasForensicReports: false,
-      aggregateMailtoTargets: [],
-      aggregateWebTargets: [],
-    };
-  }
-
-  const record = rawRecords[0];
-  const tags = parseTags(record);
-  const policy = policyFromTags(tags);
-
-  if (rawRecords.length > 1 || tags.v?.toLowerCase() !== 'dmarc1' || policy === 'unknown') {
+  if (candidates.length === 0) {
+    const misversioned = rawRecords.find(looksLikeMisversionedDmarc);
+    if (!misversioned) {
+      return { status: 'missing', policy: 'unknown', tags: {}, ...empty };
+    }
     return {
       status: 'error',
-      record,
-      policy,
-      tags,
-      hasAggregateReports: false,
-      hasForensicReports: false,
-      aggregateMailtoTargets: [],
-      aggregateWebTargets: [],
+      record: misversioned,
+      policy: 'unknown',
+      tags: parseTags(misversioned),
+      ...empty,
+      notices: [
+        {
+          severity: 'error',
+          code: 'dmarc_version_invalid',
+          title: 'The record does not begin with v=DMARC1',
+          message:
+            'A DMARC record must begin with v=DMARC1, written exactly so: the version is case sensitive and must be the first tag. Receivers discard this record, so the domain has no DMARC policy at all.',
+          recommendation: 'Rewrite the record so it starts with v=DMARC1; followed by the other tags.',
+        },
+      ],
     };
   }
 
+  if (candidates.length > 1) {
+    return {
+      status: 'error',
+      record: candidates.join(' | '),
+      policy: 'unknown',
+      tags: parseTags(candidates[0]!),
+      ...empty,
+      notices: [
+        {
+          severity: 'error',
+          code: 'dmarc_multiple_records',
+          title: `${candidates.length} DMARC records are published`,
+          message: 'When more than one v=DMARC1 record is published, receivers discard all of them, so the domain has no DMARC policy at all.',
+          recommendation: 'Keep exactly one DMARC record at this name and delete the others.',
+        },
+      ],
+    };
+  }
+
+  const record = candidates[0]!;
+  const tags = parseTags(record);
   const dmarcTags = readDmarcRecord(record);
+  const reading = readDmarcPolicy(tags, hasAggregateReporting(dmarcTags));
+
+  if (!reading.applies) {
+    return { status: 'error', record, policy: 'unknown', tags, ...empty, notices: reading.notices };
+  }
 
   return {
     status: 'found',
     record,
-    policy,
+    policy: reading.policy,
+    testing: reading.testing,
+    effectivePolicy: reading.effectivePolicy,
+    notices: reading.notices,
     tags,
     // Either transport counts. Reports published to a web endpoint are reports
     // the domain is receiving, and reporting them as absent is what previously
@@ -122,7 +154,10 @@ async function scanDkim(domain: string, spf: SpfResult, reader: DnsReader): Prom
 
   const lookups = await Promise.all(
     selected.map(async ({ selector }) => {
-      const result = await reader.resolveTxt(`_domainkey.${selector}.${domain}`);
+      // RFC 6376 section 3.6.2.1: the key lives at <selector>._domainkey.<domain>.
+      // This used to query _domainkey.<selector>.<domain>, a name nobody
+      // publishes, so every real domain was reported as having no DKIM key.
+      const result = await reader.resolveTxt(dkimKeyName(selector, domain));
       return { selector, result };
     }),
   );
@@ -130,11 +165,18 @@ async function scanDkim(domain: string, spf: SpfResult, reader: DnsReader): Prom
   const records: Record<string, string> = {};
   let hadError = false;
 
+  const revokedSelectors: string[] = [];
   for (const { selector, result } of lookups) {
     if (result.status === 'found' && result.value) {
-      const value = joinRecords(result.value)[0];
+      const value = joinRecords(result.value).find(isDkimKeyRecord);
       if (value) {
-        records[selector] = value;
+        // An empty p= is a revoked key (RFC 6376 section 3.6.1): published on
+        // purpose so verifiers fail old signatures. It is not a working key.
+        if (dkimPublicKey(value) === '') {
+          revokedSelectors.push(selector);
+        } else {
+          records[selector] = value;
+        }
       }
     }
     if (result.status === 'error') {
@@ -153,6 +195,7 @@ async function scanDkim(domain: string, spf: SpfResult, reader: DnsReader): Prom
       records,
       discoveredVia,
       ...(skippedSelectors.length > 0 ? { skippedSelectors } : {}),
+      ...(revokedSelectors.length > 0 ? { revokedSelectors } : {}),
     };
   }
 
@@ -166,12 +209,114 @@ async function scanDkim(domain: string, spf: SpfResult, reader: DnsReader): Prom
     records,
     discoveredVia,
     ...(skippedSelectors.length > 0 ? { skippedSelectors } : {}),
+    ...(revokedSelectors.length > 0 ? { revokedSelectors } : {}),
     error: hadError ? 'One or more DKIM lookups failed.' : undefined,
   };
 }
 
+async function withSpfLookups(domain: string, spf: SpfResult, reader: DnsReader): Promise<SpfResult> {
+  if (spf.status !== 'found' || !spf.record) {
+    return spf;
+  }
+  const evaluation = await evaluateSpfLookups(domain, spf.record, reader);
+  return {
+    ...spf,
+    lookupCount: evaluation.lookupCount,
+    voidLookupCount: evaluation.voidLookupCount,
+    lookupLimitExceeded: evaluation.lookupLimitExceeded,
+    voidLookupLimitExceeded: evaluation.voidLookupLimitExceeded,
+    lookupTree: evaluation.tree,
+    problems: evaluation.problems,
+    lookupsComplete: evaluation.complete,
+  };
+}
+
+/** Where a DKIM public key is published (RFC 6376 section 3.6.2.1). */
+export function dkimKeyName(selector: string, domain: string): string {
+  return `${selector}._domainkey.${domain}`;
+}
+
+function dkimTags(record: string): Record<string, string> {
+  const tags: Record<string, string> = {};
+  for (const part of record.split(';')) {
+    const separator = part.indexOf('=');
+    if (separator > 0) {
+      tags[part.slice(0, separator).trim().toLowerCase()] = part.slice(separator + 1).replace(/\s+/g, '');
+    }
+  }
+  return tags;
+}
+
+/**
+ * A TXT record at a selector name is a DKIM key only if it carries the "p"
+ * tag (RFC 6376 section 3.6.1, the one required tag). A name can hold other
+ * TXT records, and those are not keys.
+ */
+function isDkimKeyRecord(record: string): boolean {
+  return 'p' in dkimTags(record);
+}
+
+function dkimPublicKey(record: string): string {
+  return dkimTags(record).p ?? '';
+}
+
 function addIssue(issues: ScanIssue[], issue: ScanIssue): void {
   issues.push(issue);
+}
+
+/** Findings from following the SPF record's includes (RFC 7208 section 4.6.4). */
+function addSpfLookupIssues(issues: ScanIssue[], spf: SpfResult): void {
+  if (spf.lookupLimitExceeded ?? spf.lookupCount > spfLookupLimit) {
+    addIssue(issues, {
+      severity: 'error',
+      code: 'spf_lookup_limit',
+      title: 'SPF exceeds the 10-lookup limit',
+      message: `Evaluating this record takes ${spf.lookupCount} DNS lookups, counting everything its includes pull in. Receivers stop at ${spfLookupLimit} with a permanent error, so SPF fails for every message.`,
+      recommendation:
+        'Remove includes for services that no longer send for this domain, or replace an include with the IP ranges it resolves to (flattening), until the total is 10 or fewer.',
+    });
+  } else if (spf.lookupCount >= spfLookupLimit - 1) {
+    addIssue(issues, {
+      severity: 'warning',
+      code: 'spf_lookup_near_limit',
+      title: 'SPF is at the edge of the 10-lookup limit',
+      message: `Evaluating this record takes ${spf.lookupCount} of the ${spfLookupLimit} DNS lookups receivers allow. Adding one more sending service, or a provider adding an include on their side, will break SPF for every message.`,
+      recommendation: 'Remove includes for unused services now, before the next sending service is added.',
+    });
+  }
+
+  if (spf.voidLookupLimitExceeded) {
+    addIssue(issues, {
+      severity: 'error',
+      code: 'spf_void_lookup_limit',
+      title: 'SPF names domains that do not exist',
+      message: `${spf.voidLookupCount} terms in this record look up names that return nothing. Receivers allow ${spfVoidLookupLimit} and may fail SPF after that.`,
+      recommendation: 'Remove includes and a/mx terms that point at names which no longer exist.',
+    });
+  }
+
+  for (const problem of spf.problems ?? []) {
+    const deprecated = problem.includes('"ptr"');
+    addIssue(issues, {
+      severity: deprecated ? 'warning' : 'error',
+      code: deprecated ? 'spf_ptr' : 'spf_include_broken',
+      title: deprecated ? 'SPF uses the deprecated ptr mechanism' : 'SPF has a broken include',
+      message: problem,
+      recommendation: deprecated
+        ? 'Replace ptr with ip4/ip6 ranges or an include from the sending service.'
+        : 'Fix or remove the include: receivers treat it as a permanent error, which fails SPF for every message.',
+    });
+  }
+
+  if (spf.lookupsComplete === false) {
+    addIssue(issues, {
+      severity: 'info',
+      code: 'spf_lookups_incomplete',
+      title: 'SPF lookups could not all be followed',
+      message: `This scan stopped following includes early (DNS errors, or a very long chain), so ${spf.lookupCount} is a minimum: the real count may be higher.`,
+      recommendation: 'Scan again later. If it repeats, check the includes listed in the record by hand.',
+    });
+  }
 }
 
 function buildIssues(dmarc: DmarcResult, spf: SpfResult, dkim: DkimResult, mx: MxResult): ScanIssue[] {
@@ -193,15 +338,29 @@ function buildIssues(dmarc: DmarcResult, spf: SpfResult, dkim: DkimResult, mx: M
       message: 'The record is missing, duplicated, or contains an invalid version or policy.',
       recommendation: 'Keep one valid DMARC TXT record at _dmarc.yourdomain.com.',
     });
+    // The specific reason, when there is one, follows the general finding.
+    for (const notice of dmarc.notices ?? []) {
+      addIssue(issues, notice);
+    }
   } else {
-    if (dmarc.policy === 'none') {
+    const effective = dmarc.effectivePolicy ?? dmarc.policy;
+    if (effective === 'none') {
       addIssue(issues, {
         severity: 'warning',
         code: 'dmarc_monitor_only',
-        title: 'DMARC is monitoring only',
-        message: 'The policy observes failures but does not ask receivers to quarantine or reject them.',
-        recommendation: 'Review all legitimate senders before moving to quarantine or reject.',
+        title: dmarc.testing && dmarc.policy !== 'none' ? 'DMARC is in testing mode' : 'DMARC is monitoring only',
+        message:
+          dmarc.testing && dmarc.policy !== 'none'
+            ? `The record publishes p=${dmarc.policy} with t=y, which asks receivers to hold back and treat failing mail as p=none while the policy is tested (RFC 9989 section 4.7).`
+            : 'The policy observes failures but does not ask receivers to quarantine or reject them.',
+        recommendation:
+          dmarc.testing && dmarc.policy !== 'none'
+            ? 'Once the reports show every legitimate sender passing, remove t=y to apply the policy.'
+            : 'Review all legitimate senders before moving to quarantine or reject.',
       });
+    }
+    for (const notice of dmarc.notices ?? []) {
+      addIssue(issues, notice);
     }
     if (!dmarc.hasAggregateReports) {
       addIssue(issues, {
@@ -243,14 +402,8 @@ function buildIssues(dmarc: DmarcResult, spf: SpfResult, dkim: DkimResult, mx: M
       message: 'More than one SPF record was found or the record could not be read cleanly.',
       recommendation: 'Keep one SPF record and remove duplicate or conflicting entries.',
     });
-  } else if (spf.lookupCount > 10) {
-    addIssue(issues, {
-      severity: 'warning',
-      code: 'spf_lookup_limit',
-      title: 'SPF uses many DNS lookups',
-      message: `The record appears to use ${spf.lookupCount} mechanisms that can trigger the 10-lookup limit.`,
-      recommendation: 'Flatten unused includes carefully or remove unused sending services.',
-    });
+  } else {
+    addSpfLookupIssues(issues, spf);
   }
 
   if (dkim.status === 'missing') {
@@ -354,8 +507,10 @@ export async function scanDomain(input: string, reader: DnsReader = systemDnsRea
     ]);
 
     const dmarc = parseDmarcRecords(dmarcLookup.value ?? []);
-    const spf = parseSpfRecords(spfLookup.value ?? []);
-    const dkim = await scanDkim(domain, spf, reader);
+    const parsedSpf = parseSpfRecords(spfLookup.value ?? []);
+    // Counted through every include, the way receivers count, with the DKIM
+    // probes in parallel: the two are independent.
+    const [spf, dkim] = await Promise.all([withSpfLookups(domain, parsedSpf, reader), scanDkim(domain, parsedSpf, reader)]);
     const mx: MxResult = mxLookup.status === 'found'
       ? { status: 'found', records: mxLookup.value ?? [] }
       : { status: mxLookup.status, records: [], error: mxLookup.error };

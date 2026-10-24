@@ -221,41 +221,40 @@ describe('new sending service detection', () => {
     expect(response.body.possibleSpoofingSources[0].senderDomain).toBe('api-spoof.test');
   });
 
-  it('reports the published pct and the next canary step in the onboarding state', async () => {
+  it('reports a published pct as a retired tag and recommends the RFC 9989 stage, not a pct step', async () => {
+    // The fixture publishes p=quarantine; pct=5.
     const { agent, organizationId, domainId } = await setup();
 
     const response = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/onboarding`);
     expect(response.status).toBe(200);
 
-    expect(response.body.reporting.publishedPct).toBe(5);
-    expect(response.body.rollout.recommendedPct).toBe(10);
-    expect(response.body.rollout.advancing).toBe(true);
+    expect(response.body.reporting.historicTags).toEqual(['pct']);
+    expect(response.body.reporting.publishedTesting).toBe(false);
+    expect(response.body.rollout.publishedPolicy).toBe('quarantine');
+    expect(response.body.rollout.next).toEqual({ policy: 'reject', testing: false });
+    expect(response.body.rollout.cautions.join(' ')).toContain('Remove pct');
+    expect(JSON.stringify(response.body.rollout)).not.toMatch(/pct=\d/);
 
-    const step = response.body.steps.find((entry: { id: string }) => entry.id === 'canary_rollout');
-    expect(step).toBeTruthy();
-    expect(step.status).toBe('pending');
-    expect(step.detail).toContain('pct=10');
+    // The pct canary step is gone with the tag it was built on.
+    expect(response.body.steps.find((entry: { id: string }) => entry.id === 'canary_rollout')).toBeUndefined();
   });
 
-  it('generates a canary record with pct and rejects a bad pct', async () => {
+  it('refuses a pct request and generates testing mode instead', async () => {
     const { agent, organizationId, domainId } = await setup();
 
-    const canary = await agent.get(
-      `/api/workspaces/${organizationId}/domains/${domainId}/dmarc-record?policy=quarantine&pct=5`,
-    );
-    expect(canary.status).toBe(200);
-    expect(canary.body.value).toContain('pct=5');
-    expect(canary.body.pct).toBe(5);
+    for (const pct of ['5', '250', 'abc']) {
+      const refused = await agent.get(
+        `/api/workspaces/${organizationId}/domains/${domainId}/dmarc-record?policy=quarantine&pct=${pct}`,
+      );
+      expect(refused.status, pct).toBe(400);
+      expect(refused.body.error.code).toBe('INVALID_REQUEST');
+    }
 
-    const tooHigh = await agent.get(
-      `/api/workspaces/${organizationId}/domains/${domainId}/dmarc-record?policy=quarantine&pct=250`,
+    const testing = await agent.get(
+      `/api/workspaces/${organizationId}/domains/${domainId}/dmarc-record?policy=quarantine&testing=true`,
     );
-    expect(tooHigh.status).toBe(400);
-    expect(tooHigh.body.error.code).toBe('INVALID_REQUEST');
-
-    const notANumber = await agent.get(
-      `/api/workspaces/${organizationId}/domains/${domainId}/dmarc-record?policy=quarantine&pct=abc`,
-    );
-    expect(notANumber.status).toBe(400);
+    expect(testing.status).toBe(200);
+    expect(testing.body.value).toContain('t=y; pct=0');
+    expect(testing.body.testing).toBe(true);
   });
 });

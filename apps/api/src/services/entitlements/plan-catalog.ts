@@ -128,9 +128,6 @@ const allFeatures = (overrides: Partial<Record<EntitlementKey, boolean>> = {}): 
   'data.export': true,
   'data.erase': true,
   'trust.center': true,
-  // Priced but not built, so granted to nobody. Turning one on is the last
-  // step of its phase, which keeps the catalog from promising something the
-  // code cannot deliver.
   'reports.compliancePack': true,
   'reports.inbox': true,
   'branding.logoUpload': true,
@@ -153,10 +150,10 @@ export const alwaysAllowedEntitlements: readonly EntitlementKey[] = ['data.expor
  * than left out of the catalog so the door stays open, and so the audit test
  * can tell an intentional omission apart from an oversight.
  *
- * `auth.sso` and `rollout.canary` are commercial promises, not working
- * features. Neither may appear in checkout, a public plan comparison or any
+ * `rollout.canary` is the only one: a commercial promise, not a working
+ * feature. It may not appear in checkout, a public plan comparison or any
  * other marketing surface until the code that delivers it exists, because
- * selling them early is a chargeback waiting to happen.
+ * selling it early is a chargeback waiting to happen.
  */
 export const plannedEntitlements: readonly EntitlementKey[] = ['rollout.canary'];
 
@@ -175,6 +172,16 @@ const noNamedForensic = { 'reports.forensicNamed': false } as const;
 const noAlerts = { 'alerts.email': false } as const;
 const noSharing = { 'sharing.links': false, digests: false } as const;
 const noPortal = { 'portal.client': false } as const;
+/**
+ * The public API (keys, /api/v1) starts at Harbor.
+ *
+ * Harbor is the plan an agency runs a real client book on (20 clients, 80
+ * domains), and that is where bulk onboarding and scripted verification stop
+ * being a convenience: dmarcian keeps its API for Enterprise, so an API at the
+ * middle tier is a reason to move. It costs little to serve (seven endpoints,
+ * rate limited per key). Admiralty is sold on white label, SSO and size, not
+ * on the API. Harbor has always granted it, so nothing is taken from anyone.
+ */
 const noApi = { 'api.access': false } as const;
 const noSso = { 'auth.sso': false } as const;
 // Logo upload ships with white labelling, so the two travel together.
@@ -242,7 +249,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
   HARBOR: {
     tier: 'HARBOR',
     label: 'Harbor',
-    descriptor: 'Full enforcement with named forensic evidence and client portal.',
+    descriptor: 'Full enforcement with named forensic evidence, client portal and API.',
     prices: { USD: { monthlyMinor: 14900, annualMinor: 149000 }, INR: { monthlyMinor: 1249900, annualMinor: 12499000 } },
     maxClients: 20,
     maxActiveDomains: 80,
@@ -254,7 +261,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
   ADMIRALTY: {
     tier: 'ADMIRALTY',
     label: 'Admiralty',
-    descriptor: 'White label, API and SSO for large portfolios.',
+    descriptor: 'White label and SSO for large portfolios.',
     prices: { USD: { monthlyMinor: 39900, annualMinor: 399000 }, INR: { monthlyMinor: 3399900, annualMinor: 33999000 } },
     maxClients: 75,
     maxActiveDomains: 300,

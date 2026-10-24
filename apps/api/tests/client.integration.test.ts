@@ -141,8 +141,13 @@ describe('clients and domains', () => {
       if (name === 'scan.test') {
         return { status: 'found', value: [['v=spf1 include:_spf.example.com ~all']] };
       }
-      if (name === '_domainkey.default.scan.test') {
+      if (name === 'default._domainkey.scan.test') {
         return { status: 'found', value: [['v=DKIM1; k=rsa; p=key']] };
+      }
+      // The scanner follows includes now, so the one in the SPF record has to
+      // exist: an include of a name with no SPF record is a permanent error.
+      if (name === '_spf.example.com') {
+        return { status: 'found', value: [['v=spf1 ip4:192.0.2.0/24 ~all']] };
       }
       return { status: 'missing' };
     });

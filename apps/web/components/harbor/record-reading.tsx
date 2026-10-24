@@ -9,7 +9,7 @@
  * (`_dmarc.` + whatever you type), the answer is set large in the data face,
  * and every tag that matters is annotated underneath with what it makes a
  * receiving mail server do. Tags that are ABSENT are annotated too, with the
- * default the standard applies (RFC 7489), because the most important finding
+ * default the standard applies (RFC 9989), because the most important finding
  * on most domains is a tag that is not there: no rua, nobody reads the reports.
  *
  * Truth rules:
@@ -146,9 +146,14 @@ function lower(tags: Record<string, string>) {
 
 /**
  * What each tag makes a receiver do, and what it means when the tag is absent
- * (the RFC 7489 default). Order is the order an operator reads a record in.
+ * (the RFC 9989 default). Order is the order an operator reads a record in.
  */
-const TAGS: Array<{ tag: string; label: string; present: (v: string) => [string, Tone]; absent: [string, Tone] }> = [
+const TAGS: Array<{
+  tag: string;
+  label: string;
+  present: (v: string) => [string, Tone];
+  absent: [string, Tone] | ((tags: Record<string, string>) => [string, Tone]);
+}> = [
   {
     tag: "p",
     label: "Policy",
@@ -175,10 +180,23 @@ const TAGS: Array<{ tag: string; label: string; present: (v: string) => [string,
     absent: ["Not set: subdomains inherit p.", "plain"],
   },
   {
-    tag: "pct",
-    label: "Coverage",
-    present: (v) => [v === "100" ? "Applies to all failing mail." : `Applies to ${v}% of failing mail; the rest is treated one step softer.`, v === "100" ? "plain" : "warn"],
-    absent: ["Not set: applies to 100% of failing mail.", "plain"],
+    // RFC 9989 replaced pct with t. pct is retired: newer receivers ignore it
+    // and apply p in full, so a pct below 100 is called out where t would be.
+    tag: "t",
+    label: "Testing",
+    present: (v) =>
+      v.toLowerCase() === "y"
+        ? ["Testing: failing mail is treated one step softer than p.", "warn"]
+        : v.toLowerCase() === "n"
+          ? ["Not testing: p applies as written.", "plain"]
+          : [`Unrecognised value: receivers apply p as written.`, "warn"],
+    absent: (tags) => {
+      const pct = tags.pct;
+      if (pct !== undefined && pct !== "" && pct !== "100") {
+        return [`pct=${pct} is retired (RFC 9989): newer receivers ignore it and apply p to all failing mail.`, "warn"];
+      }
+      return ["Not set: p applies as written.", "plain"];
+    },
   },
   {
     tag: "adkim",
@@ -352,7 +370,13 @@ export function RecordReading() {
           {TAGS.map(({ tag, label, present, absent }) => {
             const value = shown.tags[tag];
             const has = value !== undefined && value !== "";
-            const [meaning, tone] = !shown.record ? (["No record, so nothing applies.", "void"] as [string, Tone]) : has ? present(value) : absent;
+            const [meaning, tone] = !shown.record
+              ? (["No record, so nothing applies.", "void"] as [string, Tone])
+              : has
+                ? present(value)
+                : typeof absent === "function"
+                  ? absent(shown.tags)
+                  : absent;
             return (
               <li key={tag} className="h-[104px] border-b border-r border-rule px-3 py-2.5 even:border-r-0 sm:even:border-r sm:[&:nth-child(4n)]:border-r-0">
                 <p className="flex items-baseline justify-between gap-2">

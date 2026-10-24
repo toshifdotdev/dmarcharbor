@@ -164,7 +164,7 @@ async function createWorkspace(
 describe('DMARC record generation', () => {
   beforeAll(resetDatabase);
 
-  it('builds a monitoring-only record for p=none without pct', () => {
+  it('builds a monitoring-only record for p=none', () => {
     const record = buildDmarcRecord('example.com', 'none', false);
 
     expect(record.host).toBe('_dmarc.example.com');
@@ -174,11 +174,11 @@ describe('DMARC record generation', () => {
     expect(record.notes.join(' ')).toContain('p=none');
   });
 
-  it('adds ruf= for enforcing policies and leaves out pct at the 100 default', () => {
+  it('adds ruf= for enforcing policies and never writes pct', () => {
     const quarantine = buildDmarcRecord('example.com', 'quarantine', true);
     expect(quarantine.value).toContain('p=quarantine');
     expect(quarantine.value).not.toContain('pct');
-    expect(quarantine.pct).toBe(100);
+    expect(quarantine.testing).toBe(false);
     expect(quarantine.value).toContain('ruf=mailto:dmarc-forensics@reports.dmarcharbor.com');
     expect(quarantine.notes.join(' ')).toContain('personal data');
 
@@ -186,10 +186,10 @@ describe('DMARC record generation', () => {
     expect(reject.value).toBe('v=DMARC1; p=reject; rua=mailto:dmarc-reports@reports.dmarcharbor.com');
   });
 
-  it('adds pct only when the canary is below 100', () => {
-    const canary = buildDmarcRecord('example.com', 'quarantine', false, 5);
-    expect(canary.value).toBe(
-      'v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@reports.dmarcharbor.com; pct=5',
+  it('writes testing mode as t=y with pct=0, never a pct share', () => {
+    const testing = buildDmarcRecord('example.com', 'quarantine', false, { testing: true });
+    expect(testing.value).toBe(
+      'v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@reports.dmarcharbor.com; t=y; pct=0',
     );
   });
 
@@ -208,6 +208,19 @@ describe('DMARC record generation', () => {
       `/api/workspaces/${organizationId}/domains/${domainId}/dmarc-record?policy=delete-everything`,
     );
     expect(badPolicy.status).toBe(400);
+
+    const testing = await agent.get(
+      `/api/workspaces/${organizationId}/domains/${domainId}/dmarc-record?policy=reject&testing=true&np=reject`,
+    );
+    expect(testing.status).toBe(200);
+    expect(testing.body.value).toContain('np=reject');
+    expect(testing.body.value).toContain('t=y');
+
+    // A caller still asking for a pct share is told why, not quietly given a
+    // record that means two different things.
+    const retired = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/dmarc-record?policy=quarantine&pct=5`);
+    expect(retired.status).toBe(400);
+    expect(retired.body.error.message).toContain('RFC 9989');
   });
 });
 

@@ -114,6 +114,11 @@ describe('statutory entitlements are never paywalled', () => {
     expect(planCatalog.MOORING.features['api.access']).toBe(false);
     expect(planCatalog.FAIRWAY.features['api.access']).toBe(false);
     expect(planCatalog.HARBOR.features['api.access']).toBe(true);
+    expect(planCatalog.ADMIRALTY.features['api.access']).toBe(true);
+    // The words a buyer reads match the grant: the API is sold at Harbor, so
+    // the Admiralty line must not claim it as its own.
+    expect(planCatalog.HARBOR.descriptor).toContain('API');
+    expect(planCatalog.ADMIRALTY.descriptor).not.toContain('API');
 
     expect(planCatalog.HARBOR.features['branding.whitelabel']).toBe(false);
     expect(planCatalog.ADMIRALTY.features['branding.whitelabel']).toBe(true);

@@ -37,7 +37,8 @@ import { ErrorState } from "@/components/ui/states";
  * for its child queries (a known backend defect, logged, not fixed here).
  */
 
-/** Rolling out a policy in stages is not offered, so it is not listed. */
+/** The retired pct canary step. The API no longer sends it (RFC 9989 retired
+ *  pct); kept hidden here in case an older API answers this page. */
 const HIDDEN_STEPS = new Set(["canary_rollout"]);
 
 const STATE_BADGE: Record<OnboardingState["state"], { label: string; tone: Tone }> = {

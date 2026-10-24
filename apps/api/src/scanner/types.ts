@@ -13,6 +13,7 @@ export type {
   ScanStatus,
   ScoreBreakdown,
   ScoreFactor,
+  SpfLookupNode,
   SpfResult,
 } from '../models/scan.model.js';
 

@@ -49,8 +49,8 @@ describe('DKIM discovery through the scanner', () => {
       {
         '_dmarc.mail.test': [['v=DMARC1; p=none']],
         'mail.test': [['v=spf1 include:_spf.salesforce.com ~all']],
-        '_domainkey.sfs1.mail.test': [[KEY]],
-        '_domainkey.sfs2.mail.test': [[KEY]],
+        'sfs1._domainkey.mail.test': [[KEY]],
+        'sfs2._domainkey.mail.test': [[KEY]],
       },
       [{ exchange: 'mx1.mail.test', priority: 10 }],
     );
@@ -68,7 +68,7 @@ describe('DKIM discovery through the scanner', () => {
       {
         '_dmarc.mail.test': [['v=DMARC1; p=none']],
         'mail.test': [['v=spf1 ip4:1.2.3.4 ~all']],
-        '_domainkey.google.mail.test': [[KEY]],
+        'google._domainkey.mail.test': [[KEY]],
       },
       [{ exchange: 'mx1.mail.test', priority: 10 }],
     );
@@ -87,7 +87,7 @@ describe('DKIM discovery through the scanner', () => {
       {
         '_dmarc.mail.test': [['v=DMARC1; p=none']],
         'mail.test': [['v=spf1 ip4:1.2.3.4 ~all']],
-        '_domainkey.mail2026.mail.test': [[KEY]],
+        'mail2026._domainkey.mail.test': [[KEY]],
       },
       [{ exchange: 'mx1.mail.test', priority: 10 }],
     );
@@ -119,13 +119,59 @@ describe('DKIM discovery through the scanner', () => {
   });
 });
 
+describe('DKIM lookup name (RFC 6376 3.6.2.1)', () => {
+  const KEY = 'v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQ==';
+  const base = {
+    '_dmarc.mail.test': [['v=DMARC1; p=none']],
+    'mail.test': [['v=spf1 ip4:1.2.3.4 ~all']],
+  };
+
+  it('queries <selector>._domainkey.<domain>', async () => {
+    const queried: string[] = [];
+    const reader = createReader({ ...base, 'google._domainkey.mail.test': [[KEY]] }, []);
+    const spy: DnsReader = {
+      ...reader,
+      async resolveTxt(name) {
+        queried.push(name);
+        return reader.resolveTxt(name);
+      },
+    };
+
+    const result = await scanDomain('mail.test', spy);
+
+    expect(result.dkim.selectors).toContain('google');
+    expect(queried).toContain('google._domainkey.mail.test');
+    expect(queried.some((name) => name.startsWith('_domainkey.'))).toBe(false);
+  });
+
+  it('does not find a key published only at the reversed name the scanner used to query', async () => {
+    const result = await scanDomain('mail.test', createReader({ ...base, '_domainkey.google.mail.test': [[KEY]] }, []));
+    expect(result.dkim.status).toBe('missing');
+  });
+
+  it('does not count a revoked key (empty p=) as DKIM', async () => {
+    const result = await scanDomain('mail.test', createReader({ ...base, 'google._domainkey.mail.test': [['v=DKIM1; p=']] }, []));
+    expect(result.dkim.status).toBe('missing');
+    expect(result.dkim.revokedSelectors).toEqual(['google']);
+  });
+
+  it('ignores a TXT record at a selector name that is not a key', async () => {
+    const result = await scanDomain(
+      'mail.test',
+      createReader({ ...base, 'google._domainkey.mail.test': [['some-verification=abc']] }, []),
+    );
+    expect(result.dkim.status).toBe('missing');
+  });
+});
+
 describe('scanDomain', () => {
   it('returns a useful preview without making a live DNS call', async () => {
     const reader = createReader(
       {
         '_dmarc.example.com': [['v=DMARC1; p=none; rua=mailto:reports@example.com']],
         'example.com': [['v=spf1 include:_spf.resend.com ~all']],
-        '_domainkey.resend.example.com': [['v=DKIM1; k=rsa; p=public-key']],
+        'resend._domainkey.example.com': [['v=DKIM1; k=rsa; p=public-key']],
+        '_spf.resend.com': [['v=spf1 ip4:192.0.2.0/24 ~all']],
       },
       [{ exchange: 'mx1.example.com', priority: 10 }],
     );
@@ -148,7 +194,8 @@ describe('scanDomain', () => {
       {
         '_dmarc.example.com': [['v=DMARC1; p=reject; rua=mailto:reports@example.com']],
         'example.com': [['v=spf1 include:_spf.resend.com ~all']],
-        '_domainkey.resend.example.com': [['v=DKIM1; k=rsa; p=public-key']],
+        'resend._domainkey.example.com': [['v=DKIM1; k=rsa; p=public-key']],
+        '_spf.resend.com': [['v=spf1 ip4:192.0.2.0/24 ~all']],
       },
       [{ exchange: 'mx1.example.com', priority: 10 }],
     );

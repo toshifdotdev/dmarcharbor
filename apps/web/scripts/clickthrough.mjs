@@ -2403,7 +2403,10 @@ const unverifiedAudit = await waitForEval(
   })()`,
   // Wait for the rendered page, not the loading fallback: "Loading" alone is
   // also "not branded", which would pass this check without testing anything.
-  (u) => u && u.hostState !== "" && (u.banner || u.notBranded),
+  // The banner element exists before it is shown (streamed markup sits in a
+  // hidden container first, and innerText skips hidden text), so the wait is
+  // on its words being visible, not on the element.
+  (u) => u && u.hostState !== "" && (u.saysPlainly || (!u.banner && u.notBranded)),
   45000,
 );
 check(

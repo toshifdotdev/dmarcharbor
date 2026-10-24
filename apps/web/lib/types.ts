@@ -184,7 +184,10 @@ export interface OnboardingState {
   };
   reporting: {
     publishedPolicy: string | null;
-    publishedPct: number;
+    /** t=y is published (RFC 9989 testing mode). */
+    publishedTesting: boolean;
+    /** Retired tags still in the record (pct, rf, ri). */
+    historicTags: string[];
     /**
      * Configured is NOT collectable. A rua=https record configures reporting
      * we cannot read; the aggregate_reporting step's status/detail carries that
@@ -197,20 +200,23 @@ export interface OnboardingState {
     collectionEnabled: boolean;
     identityRetentionEnabled: boolean;
   };
-  rollout: PctRecommendation;
+  /** The next policy stage (RFC 9989 section 7.4). Replaces the retired pct ladder. */
+  rollout: PolicyStageRecommendation;
   /** The API's own generated record — rendered verbatim, never assembled
-   *  client-side, so pct, ruf and notes stay consistent with what the backend
+   *  client-side, so tags, ruf and notes stay consistent with what the backend
    *  verifies. */
   suggestedRecord: DmarcRecordDraft;
   recommendedPolicy: "none" | "quarantine" | "reject";
 }
 
-export interface PctRecommendation {
-  currentPct: number;
-  recommendedPct: number;
+export interface PolicyStageRecommendation {
+  publishedPolicy: "none" | "quarantine" | "reject" | "unknown";
+  testing: boolean;
+  historicTags: string[];
+  next: { policy: "none" | "quarantine" | "reject"; testing: boolean } | null;
   advancing: boolean;
   reason: string;
-  skippedSteps: number;
+  cautions: string[];
 }
 
 export interface DmarcRecordDraft {
@@ -218,7 +224,9 @@ export interface DmarcRecordDraft {
   type: "TXT";
   value: string;
   policy: "none" | "quarantine" | "reject";
-  pct: number;
+  /** t=y (with pct=0 for RFC 7489 receivers) is in the value. */
+  testing: boolean;
+  nonExistentSubdomains: "none" | "quarantine" | "reject" | null;
   aggregateAddress: string;
   forensicAddress: string | null;
   notes: string[];
@@ -1152,14 +1160,34 @@ export interface ScanDmarcDetail {
   aggregateMailtoTargets: string[];
   /** Report addresses we cannot receive, because they are web endpoints. */
   aggregateWebTargets: string[];
+  /** t=y is published (RFC 9989 testing mode). Absent on scans stored before it was read. */
+  testing?: boolean;
+  /** The policy failing mail actually gets, one level softer while t=y is published. */
+  effectivePolicy?: "none" | "quarantine" | "reject" | "unknown";
   error?: string;
+}
+
+export interface ScanSpfLookupNode {
+  term: string;
+  lookups: number;
+  children?: ScanSpfLookupNode[];
+  note?: string;
 }
 
 export interface ScanSpfDetail {
   status: ScanLookupStatus;
   record?: string;
   valid: boolean;
+  /**
+   * DNS lookups receivers count, through every include. Scans stored before
+   * this was recursive counted only the top-level record: `lookupTree` is
+   * absent on those, and the count is a minimum.
+   */
   lookupCount: number;
+  voidLookupCount?: number;
+  lookupLimitExceeded?: boolean;
+  lookupTree?: ScanSpfLookupNode[];
+  lookupsComplete?: boolean;
   error?: string;
 }
 
@@ -1172,6 +1200,8 @@ export interface ScanDkimDetail {
   /** Candidates the lookup budget excluded. Reported so "we checked 25 and gave
    *  up" is never read as "we checked everything". */
   skippedSelectors?: string[];
+  /** Selectors publishing an empty p=: a revoked key, not a working one. */
+  revokedSelectors?: string[];
   error?: string;
 }
 

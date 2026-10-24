@@ -59,14 +59,22 @@ export async function dmarcRecordController(request: Request, response: Response
     response.status(400).json({
       error: {
         code: 'INVALID_REQUEST',
-        message:
-          'policy must be one of none, quarantine or reject. pct must be a whole number between 0 and 100, and forensics must be true or false.',
+        // The retired-pct refusal carries its own sentence; anything else gets
+        // the full list of what the endpoint takes.
+        message: query.error.issues.some((issue) => issue.path[0] === 'pct')
+          ? 'pct was retired by RFC 9989 and is no longer generated. Use testing=true for testing mode (t=y).'
+          : 'policy and np must each be none, quarantine or reject, and testing and forensics must be true or false.',
       },
     });
     return;
   }
 
-  response.json(buildDmarcRecord(domain, query.data.policy, query.data.forensics, query.data.pct));
+  response.json(
+    buildDmarcRecord(domain, query.data.policy, query.data.forensics, {
+      testing: query.data.testing,
+      nonExistentSubdomains: query.data.np ?? null,
+    }),
+  );
 }
 
 export async function policyReadinessController(request: Request, response: Response): Promise<void> {
