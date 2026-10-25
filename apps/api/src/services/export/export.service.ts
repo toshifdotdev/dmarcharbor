@@ -174,7 +174,16 @@ export async function buildExportPayload(input: {
    * rather than bulk data, and rounding it down would quietly lose the record a
    * dispute turns on.
    */
-  const [organization, clients, domains, users, members, sessions, reports, forensics, alertRules, alertEvents, shares, digests, auditLog] =
+  const monthlyReportWhere: Prisma.CompliancePackWhereInput =
+    input.scope === 'DOMAIN'
+      ? { id: '__none__' }
+      : {
+          organizationId: org,
+          scope: 'MONTHLY_REPORT',
+          ...(input.scope === 'CLIENT' && input.targetId ? { clientId: input.targetId } : {}),
+        };
+
+  const [organization, clients, domains, users, members, sessions, reports, forensics, alertRules, alertEvents, shares, digests, monthlyReports, auditLog] =
     await Promise.all([
       prisma.organization.findUnique({
         where: { id: org },
@@ -361,6 +370,19 @@ export async function buildExportPayload(input: {
         },
         take: exportTableLimit,
       }),
+      prisma.compliancePack.findMany({
+        where: monthlyReportWhere,
+        select: {
+          id: true,
+          reference: true,
+          periodStart: true,
+          pdfHash: true,
+          createdAt: true,
+          supersededAt: true,
+        },
+        orderBy: { createdAt: 'asc' },
+        take: exportTableLimit,
+      }),
       prisma.auditLog.findMany({
         where: input.scope === 'DOMAIN' && input.targetId ? { domainId: input.targetId } : { organizationId: org },
         select: { id: true, action: true, targetType: true, targetId: true, createdAt: true },
@@ -453,6 +475,14 @@ export async function buildExportPayload(input: {
       alertEvents,
       reportShares: shares,
       reportDigests: digests,
+      monthlyReports: monthlyReports.map((row) => ({
+        id: row.id,
+        reference: row.reference,
+        period: row.periodStart ? row.periodStart.toISOString().slice(0, 7) : null,
+        sha256: row.pdfHash,
+        issuedAt: row.createdAt,
+        superseded: row.supersededAt !== null,
+      })),
       auditLog,
     },
   };

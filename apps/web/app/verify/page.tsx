@@ -16,9 +16,9 @@ import { CopyButton, CopyValue } from "@/components/ui/copy";
 export async function generateMetadata(): Promise<Metadata> {
   const origin = await requestOrigin();
   return publicMetadata({
-    title: "Compliance pack fingerprint verifier",
+    title: "Document fingerprint verifier",
     description:
-      "Check that a compliance pack you hold is the one that was issued. A SHA-256 digest of the exact bytes is published against the pack's reference, and a copy is genuine when its digest matches. No account needed.",
+      "Check that a compliance pack or monthly report you hold is the one that was issued. A SHA-256 digest of the exact bytes is published against the document reference, and a copy is genuine when its digest matches. No account needed.",
     path: "/verify",
     origin,
   });
@@ -31,6 +31,28 @@ function dateLabel(value: string): string {
     : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
+function periodLabel(value: string | null): string {
+  if (!value) return "Not applicable";
+  const match = /^(\d{4})-(\d{2})$/.exec(value);
+  if (!match) return value;
+  const [year, month] = [match[1]!, Number(match[2])];
+  const names = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  ];
+  return month >= 1 && month <= 12 ? `${names[month - 1]} ${year}` : value;
+}
+
 function bytesLabel(n: number): string {
   if (n < 1024) return `${n} bytes`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB (${n.toLocaleString("en-GB")} bytes)`;
@@ -38,9 +60,9 @@ function bytesLabel(n: number): string {
 }
 
 /**
- * The compliance pack verifier. PUBLIC, no auth: an auditor checks a document
- * they hold against the published fingerprint with no account. The answer is
- * only ever about a digest: never the document, never a client name.
+ * The document verifier. PUBLIC, no auth: an auditor checks a document they
+ * hold against the published fingerprint with no account. The answer is only
+ * ever about a digest: never the document itself, never a client name.
  *
  * This is not email verification. Email links land on the API's own
  * verify-email endpoint and then on /sign-in.
@@ -72,16 +94,16 @@ export default async function VerifyPage({ searchParams }: { searchParams: Promi
   const ordered = (packs ?? []).slice().sort((a, b) => Number(a.superseded) - Number(b.superseded));
 
   return (
-    <ArtefactFrame kind="Compliance pack verifier" meta={<>Public. No account needed. Answers only about a fingerprint.</>}>
+    <ArtefactFrame kind="Document verifier" meta={<>Public. No account needed. Answers only about a fingerprint.</>}>
       <div className="grid gap-x-14 gap-y-12 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="flex min-w-0 flex-col gap-8">
           <header className="max-w-[62ch]">
             <h1 className="display text-[34px] leading-[1.02] text-fg sm:text-[40px]">
-              Is this the compliance pack that was issued?
+              Is this the document that was issued?
             </h1>
             <p className="mt-3 text-body text-fg-2">
-              Every compliance pack is published as a SHA-256 digest of its exact bytes, under the reference printed on
-              its cover. A copy is genuine when its digest matches the one recorded here.
+              Every compliance pack and monthly report is published as a SHA-256 digest of its exact bytes, under the
+              reference printed on its cover. A copy is genuine when its digest matches the one recorded here.
             </p>
           </header>
 
@@ -89,12 +111,12 @@ export default async function VerifyPage({ searchParams }: { searchParams: Promi
 
           {outcome === "missing" ? (
             <section role="status" data-verify-result="missing" className="border-t border-rule pt-5 [animation:hb-rise_220ms_ease-out]">
-              <p className="legend text-fail!">No pack under this reference</p>
+              <p className="legend text-fail!">No document under this reference</p>
               <p className="data mt-2 break-all text-meta text-fg-3">{trimmed}</p>
               <p className="mt-2 max-w-[64ch] text-ui text-fg-2">
-                No issued pack carries this reference. Check it against the cover page, character by character. A pack
-                whose link was withdrawn answers the same way, by design, so this page cannot confirm that a pack ever
-                existed.
+                No issued document carries this reference. Check it against the cover page, character by character. A
+                document whose link was withdrawn answers the same way, by design, so this page cannot confirm that it
+                ever existed.
               </p>
             </section>
           ) : null}
@@ -125,9 +147,11 @@ export default async function VerifyPage({ searchParams }: { searchParams: Promi
                 {ordered.map((p, i) => (
                   <li key={`${p.sha256}-${i}`} style={{ "--i": i } as React.CSSProperties} className={p.superseded ? "opacity-75" : undefined}>
                     <div className="flex flex-wrap items-baseline justify-between gap-2 pb-2">
-                      <span className="text-ui font-semibold text-fg">Document version {p.documentVersion}</span>
+                      <span className="text-ui font-semibold text-fg">
+                        {p.kind === "monthly_report" ? "Monthly report" : "Compliance pack"} · version {p.documentVersion}
+                      </span>
                       <span className={p.superseded ? "text-meta font-semibold text-fg-3" : "text-meta font-semibold text-ok"}>
-                        {p.superseded ? "Superseded by a newer pack" : "Current"}
+                        {p.superseded ? "Superseded by a newer document" : "Current"}
                       </span>
                     </div>
                     <div data-copy-scope className="flex items-start gap-2 rounded-ctl border border-rule-2 bg-paper-2 px-3 py-2.5">
@@ -141,6 +165,8 @@ export default async function VerifyPage({ searchParams }: { searchParams: Promi
                       className="mt-3"
                       labelWidth={120}
                       rows={[
+                        ["Kind", p.kind === "monthly_report" ? "Monthly report" : "Compliance pack"],
+                        ["Period", periodLabel(p.period)],
                         ["Issued", dateLabel(p.issuedAt)],
                         ["Data as of", dateLabel(p.dataAsOf)],
                         ["Pages", <span key="p" className="tnum">{p.pageCount}</span>],
@@ -163,7 +189,7 @@ export default async function VerifyPage({ searchParams }: { searchParams: Promi
             <p className="legend pb-2">How the check works</p>
             <ol className="flex flex-col gap-3 text-ui">
               {[
-                ["Look up the reference", "From the pack's cover page. The record answers with the digest it was issued with."],
+                ["Look up the reference", "From the document's cover page. The record answers with the digest it was issued with."],
                 ["Hash the file you hold", "Here, in the browser, or by hand with the command below."],
                 ["Compare", "Identical digests mean identical bytes: the file has not changed since it was issued."],
               ].map(([k, v], i) => (
@@ -179,7 +205,7 @@ export default async function VerifyPage({ searchParams }: { searchParams: Promi
           </div>
           <div>
             <p className="legend pb-2">By hand</p>
-            <CopyValue value="sha256sum dmarc-compliance-pack.pdf" label="Copy the command" />
+            <CopyValue value="sha256sum your-report.pdf" label="Copy the command" />
             <p className="mt-1.5 text-meta text-fg-3">
               On Windows: <code className="data text-fg-2">certutil -hashfile file.pdf SHA256</code>. On macOS:{" "}
               <code className="data text-fg-2">shasum -a 256 file.pdf</code>.

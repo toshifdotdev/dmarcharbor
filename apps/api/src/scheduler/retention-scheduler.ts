@@ -23,6 +23,8 @@ const empty: RetentionSweep = {
   billingPayloads: 0,
   rateLimitBuckets: 0,
   scheduledScans: 0,
+  monthlyReportFiles: 0,
+  monthlyReportLinks: 0,
 };
 
 export async function runRetentionOnce(): Promise<RetentionSweep> {
@@ -47,11 +49,13 @@ export async function runRetentionOnce(): Promise<RetentionSweep> {
         swept.ssoAuthRequests +
         swept.billingPayloads +
         swept.rateLimitBuckets +
-        swept.scheduledScans;
+        swept.scheduledScans +
+        swept.monthlyReportFiles +
+        swept.monthlyReportLinks;
 
       if (total > 0) {
         console.info(
-          `[retention] removed ${swept.exportJobs} export job(s), ${swept.idempotencyRecords} idempotency record(s), ${swept.ssoAuthRequests} SSO request(s), emptied ${swept.billingPayloads} billing payload(s), dropped ${swept.rateLimitBuckets} expired rate limit bucket(s) and ${swept.scheduledScans} old scheduled scan(s)`,
+          `[retention] removed ${swept.exportJobs} export job(s), ${swept.idempotencyRecords} idempotency record(s), ${swept.ssoAuthRequests} SSO request(s), emptied ${swept.billingPayloads} billing payload(s), dropped ${swept.rateLimitBuckets} expired rate limit bucket(s), ${swept.scheduledScans} old scheduled scan(s), ${swept.monthlyReportFiles} monthly report file(s) and ${swept.monthlyReportLinks} monthly report link(s)`,
         );
       }
 

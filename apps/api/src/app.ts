@@ -24,6 +24,7 @@ import { ssoRouter } from './routes/sso.routes.js';
 import { billingRouter } from './routes/billing.routes.js';
 import { refundRouter } from './routes/refund.routes.js';
 import { trustRouter } from './routes/trust.routes.js';
+import { monthlyReportRouter } from './routes/monthly-report.routes.js';
 import { portalErrorHandler } from './middleware/portal.middleware.js';
 import { globalErrorHandler } from './middleware/global-error.middleware.js';
 import { domainScanRouter } from './routes/domain-scan.routes.js';
@@ -212,6 +213,7 @@ export function createApp(): express.Express {
   app.use('/api', billingRouter);
   app.use('/api', refundRouter);
   app.use('/api', trustRouter);
+  app.use('/api', monthlyReportRouter);
   // Delete routes for what the app creates. Mounted here, behind the same DPA
   // gate every other authenticated route sits behind.
   app.use('/api', lifecycleRouter);

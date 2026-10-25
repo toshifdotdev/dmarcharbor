@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getSessionUser } from "@/lib/api";
-import { getPortalDomain, getPortalOverview, PortalError } from "@/lib/api-portal";
+import { getPortalDomain, getPortalMonthlyReports, getPortalOverview, PortalError } from "@/lib/api-portal";
 import { dayLabel, verdictFor, type Verdict } from "@/lib/portal-verdict";
 import { portalDomainHref, portalHref } from "@/lib/route-hrefs";
 import { signInRedirect } from "@/lib/session";
@@ -101,9 +101,17 @@ export default async function PortalPage({ searchParams }: { searchParams: Promi
   const now = Date.now();
 
   const domains = overview.clients.flatMap((c) => c.domains.map((d) => ({ ...d, clientName: c.name })));
-  const details = await Promise.all(
-    domains.map((d) => getPortalDomain(d.id, org).catch(() => null as PortalDomainDetail | null)),
-  );
+  const [details, monthlyByClient] = await Promise.all([
+    Promise.all(domains.map((d) => getPortalDomain(d.id, org).catch(() => null as PortalDomainDetail | null))),
+    Promise.all(
+      overview.clients.map(async (client) => ({
+        client,
+        reports: await getPortalMonthlyReports(client.id, org)
+          .then((result) => result.reports)
+          .catch(() => null),
+      })),
+    ),
+  ]);
   const rows = domains
     .map((d, i) => ({ d, detail: details[i], verdict: verdictFor(details[i], agency, now) }))
     .sort((a, b) => a.verdict.rank - b.verdict.rank || a.d.name.localeCompare(b.d.name));
@@ -149,6 +157,61 @@ export default async function PortalPage({ searchParams }: { searchParams: Promi
           </ol>
         ) : null}
 
+        <section
+          aria-labelledby="monthly-head"
+          className="flex flex-col gap-3 border-t border-rule pt-6"
+          data-testid="portal-monthly-reports"
+        >
+          <div>
+            <h2 id="monthly-head" className="text-h2 font-bold tracking-[-0.02em] text-fg">
+              Monthly reports
+            </h2>
+            <p className="mt-1 max-w-[70ch] text-ui text-fg-2">
+              A report for each complete month, covering every domain. Download a copy or check its fingerprint with the
+              reference printed on it.
+            </p>
+          </div>
+          {monthlyByClient.length === 0 ? null : monthlyByClient.every((entry) => entry.reports === null) ? (
+            <p className="text-ui text-fg-3">The monthly reports could not be read just now. This is not the same as there being none.</p>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {monthlyByClient.map(({ client, reports }) => (
+                <div key={client.id} className="flex flex-col gap-2">
+                  {monthlyByClient.length > 1 ? (
+                    <p className="text-ui font-semibold text-fg">{client.name}</p>
+                  ) : null}
+                  {reports === null ? (
+                    <p className="text-meta text-fg-3">This client&rsquo;s monthly reports could not be read.</p>
+                  ) : reports.length === 0 ? (
+                    <p className="text-meta text-fg-3">No monthly report has been issued yet.</p>
+                  ) : (
+                    <ul className="flex flex-col border-y border-rule">
+                      {reports.map((report) => (
+                        <li key={report.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-rule py-2.5 last:border-b-0">
+                          <span>
+                            <span className="block text-ui font-semibold text-fg">{portalMonthLabel(report.period)}</span>
+                            <span className="data block break-all text-meta text-fg-3">{report.reference}</span>
+                          </span>
+                          {report.downloadable ? (
+                            <a
+                              href={`/api/portal/clients/${client.id}/monthly-reports/${report.id}/download`}
+                              className="link text-ui font-semibold"
+                            >
+                              Download
+                            </a>
+                          ) : (
+                            <span className="text-meta text-fg-3">No longer held</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
         <section aria-labelledby="how-head" className="grid gap-x-10 gap-y-4 border-t border-rule pt-6 md:grid-cols-3">
           <h2 id="how-head" className="sr-only">
             How to read this
@@ -167,6 +230,29 @@ export default async function PortalPage({ searchParams }: { searchParams: Promi
       </div>
     </PortalFrame>
   );
+}
+
+const PORTAL_MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+function portalMonthLabel(period: string | null): string {
+  if (!period) return "Month not recorded";
+  const match = /^(\d{4})-(\d{2})$/.exec(period);
+  if (!match) return period;
+  const month = Number(match[2]);
+  return month >= 1 && month <= 12 ? `${PORTAL_MONTHS[month - 1]} ${match[1]}` : period;
 }
 
 const TONE_BAR: Record<Verdict["tone"], string> = {

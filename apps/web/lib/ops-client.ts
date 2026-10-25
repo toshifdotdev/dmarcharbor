@@ -23,6 +23,7 @@ import type {
   ErasurePreview,
   ExportJob,
   IssuedApiKey,
+  MonthlyReportSchedule,
   PlanOverageRow,
   PortalGrant,
   SlackDestination,
@@ -777,6 +778,71 @@ export const revokeOtherSessions = () =>
 /** The deliberate nuke — INCLUDING this device. Confirm in the UI first. */
 export const revokeAllSessions = () =>
   call<void>(`/api/me/sessions/revoke-all`, { method: "POST" });
+
+// ─── monthly evidence reports ────────────────────────────────────────────────
+
+/**
+ * POST /clients/:clientId/monthly-reports — the response is the PDF.
+ *
+ * Mirrors the compliance pack's issue call: the bytes, the reference and the
+ * fingerprint all arrive in one response, so the screen can hand the file to
+ * the browser and show what was issued without a second request.
+ */
+export async function issueMonthlyReport(
+  orgId: string,
+  clientId: string,
+  period: string,
+): Promise<
+  | { ok: true; data: { bytes: Blob; reference: string; sha256: string; filename: string } }
+  | { ok: false; status: number; error: ApiErrorBody["error"] }
+> {
+  try {
+    const res = await fetch(wsPath(orgId, `/clients/${clientId}/monthly-reports`), {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ period }),
+    });
+    if (!res.ok) {
+      const raw = await res.text().catch(() => '');
+      const ui = errorFromResponse(res.status, raw);
+      const code = extractErrorCode(raw) ?? String(res.status);
+      return { ok: false, status: ui.status, error: { code, message: ui.message } };
+    }
+    const disposition = res.headers.get('content-disposition') ?? '';
+    const filenameMatch = disposition.match(/filename="([^"]+)"/);
+    return {
+      ok: true,
+      data: {
+        bytes: await res.blob(),
+        reference: res.headers.get('x-dmarc-pack-reference') ?? '',
+        sha256: res.headers.get('x-dmarc-pack-sha256') ?? '',
+        filename: filenameMatch?.[1] ?? `dmarc-report-${period}.pdf`,
+      },
+    };
+  } catch {
+    const network = networkUiError();
+    return { ok: false, status: network.status, error: { code: 'NETWORK', message: network.message } };
+  }
+}
+
+export const saveMonthlyReportSchedule = (
+  orgId: string,
+  clientId: string,
+  body: {
+    enabled: boolean;
+    dayOfMonth: number;
+    sendHourUtc: number;
+    recipientEmails: string[];
+  },
+) =>
+  call<{ schedule: MonthlyReportSchedule }>(
+    wsPath(orgId, `/clients/${clientId}/monthly-report-schedule`),
+    { method: 'PUT', body: JSON.stringify(body) },
+  );
+
+export const deleteMonthlyReportSchedule = (orgId: string, clientId: string) =>
+  call<void>(wsPath(orgId, `/clients/${clientId}/monthly-report-schedule`), { method: 'DELETE' });
 
 // ─── compliance packs (Phase 7) ─────────────────────────────────────────────
 

@@ -1,0 +1,6 @@
+-- New audit actions in their own migration: Postgres cannot use a value in the
+-- transaction that adds it.
+ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'MONTHLY_REPORT_ISSUED';
+ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'MONTHLY_REPORT_SCHEDULE_UPDATED';
+ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'MONTHLY_REPORT_SCHEDULE_DELETED';
+ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'MONTHLY_REPORT_DOWNLOADED';

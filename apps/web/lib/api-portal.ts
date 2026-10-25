@@ -1,6 +1,6 @@
 import { API_BASE, apiFetch } from "./api-fetch";
 import { cookies } from "next/headers";
-import type { PortalBranding, PortalOverview, PortalDomainDetail } from "./types";
+import type { PortalBranding, PortalOverview, PortalDomainDetail, PortalMonthlyReports } from "./types";
 
 /**
  * api-portal.ts — the client contact's reads. A contact sees their own
@@ -90,4 +90,14 @@ export function getPortalDomain(domainId: string, org?: string | null): Promise<
 
 export function getPortalBranding(org?: string | null): Promise<PortalBranding> {
   return portalFetch<PortalBranding>(withOrg("/api/portal/branding", org));
+}
+
+/** The non-superseded monthly reports for one client the contact can reach. */
+export function getPortalMonthlyReports(
+  clientId: string,
+  org?: string | null,
+): Promise<PortalMonthlyReports> {
+  return portalFetch<PortalMonthlyReports>(
+    withOrg(`/api/portal/clients/${clientId}/monthly-reports`, org),
+  );
 }

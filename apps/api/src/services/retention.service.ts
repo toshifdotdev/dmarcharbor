@@ -40,6 +40,8 @@ export interface RetentionSweep {
   billingPayloads: number;
   rateLimitBuckets: number;
   scheduledScans: number;
+  monthlyReportFiles: number;
+  monthlyReportLinks: number;
 }
 
 function hoursAgo(hours: number, now: Date): Date {
@@ -131,6 +133,37 @@ export async function purgeExpiredData(now: Date = new Date()): Promise<Retentio
     ? await prisma.scan.deleteMany({ where: { id: { in: staleScheduled.map((row) => row.id) } } })
     : { count: 0 };
 
+  /**
+   * Monthly report bytes have the aggregate retention window, measured from
+   * the end of the month they cover. The row and its fingerprint stay: an
+   * auditor who already holds a copy can still verify it, and the history
+   * still says it existed. Only the downloadable file goes.
+   *
+   * Emailed links are useless once expired, and carrying a recipient address
+   * after that serves no purpose, so they are removed a week later.
+   */
+  const expiredFiles = await prisma.complianceDocumentFile.findMany({
+    where: { expiresAt: { lte: now } },
+    select: { id: true },
+    take: 500,
+  });
+  const monthlyReportFiles = expiredFiles.length
+    ? await prisma.complianceDocumentFile.deleteMany({
+        where: { id: { in: expiredFiles.map((row) => row.id) } },
+      })
+    : { count: 0 };
+
+  const staleLinks = await prisma.monthlyReportLink.findMany({
+    where: { expiresAt: { lt: daysAgo(7, now) } },
+    select: { id: true },
+    take: 500,
+  });
+  const monthlyReportLinks = staleLinks.length
+    ? await prisma.monthlyReportLink.deleteMany({
+        where: { id: { in: staleLinks.map((row) => row.id) } },
+      })
+    : { count: 0 };
+
   return {
     exportJobs: exportJobs.count,
     idempotencyRecords: idempotencyRecords.count,
@@ -138,5 +171,7 @@ export async function purgeExpiredData(now: Date = new Date()): Promise<Retentio
     billingPayloads: billingPayloads.count,
     rateLimitBuckets: await rateLimitStoreFor('retention-sweep').sweep(now),
     scheduledScans: scheduledScans.count,
+    monthlyReportFiles: monthlyReportFiles.count,
+    monthlyReportLinks: monthlyReportLinks.count,
   };
 }

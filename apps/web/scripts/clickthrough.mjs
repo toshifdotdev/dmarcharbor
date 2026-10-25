@@ -1190,6 +1190,64 @@ check(
 );
 const shotClients = await shot("14-clients.png");
 
+// 5a-2. Monthly reports. The client id is read from the API rather than typed
+//       from the page, and the page is opened once; the assertions poll for
+//       the server-rendered form and history table. The funnel client was
+//       created today, so there is no complete month to offer yet — the page
+//       must still render the form and the table.
+const monthlyIds = await waitForEval(
+  `(async () => {
+    const ws = await (await fetch('/api/workspaces', { credentials: 'include' })).json();
+    const orgId = ws[0]?.id ?? '';
+    const clients = orgId
+      ? await (await fetch('/api/workspaces/' + orgId + '/clients', { credentials: 'include' })).json()
+      : [];
+    const client = clients.find((c) => c.name === ${JSON.stringify(clientName)});
+    return { orgId, clientId: client?.id ?? '' };
+  })()`,
+  (v) => v && v.clientId,
+  45000,
+);
+if (monthlyIds?.clientId) {
+  await navigate(WEB + "/clients/reports?client=" + encodeURIComponent(monthlyIds.clientId));
+  const monthlyAudit = await waitForEval(
+    `(() => ({
+      hasIssue: !!document.querySelector('[data-testid="monthly-issue-form"]'),
+      hasHistory: !!document.querySelector('[data-testid="monthly-history"]'),
+      hasSchedule: !!document.querySelector('[data-testid="monthly-schedule"]'),
+      headings: [...document.querySelectorAll('h1,h2')].map((h) => h.textContent.trim()).slice(0, 8),
+    }))()`,
+    (v) => v && v.hasIssue && v.hasHistory,
+    45000,
+  );
+  check(
+    "monthly reports page renders the issue form and history table",
+    Boolean(monthlyAudit && monthlyAudit.hasIssue && monthlyAudit.hasHistory && monthlyAudit.hasSchedule),
+    JSON.stringify(monthlyAudit),
+  );
+} else {
+  check(
+    "monthly reports page renders the issue form and history table",
+    false,
+    "funnel client id was not returned by the clients API",
+  );
+}
+
+await navigate(WEB + "/verify");
+const verifierAudit = await waitForEval(
+  `(() => ({
+    heading: document.querySelector('h1')?.textContent.trim() ?? '',
+    form: !!document.querySelector('input#pack-reference'),
+  }))()`,
+  (v) => v && v.heading !== '',
+  45000,
+);
+check(
+  "public document verifier still renders",
+  Boolean(verifierAudit && /document/i.test(verifierAudit.heading) && verifierAudit.form),
+  JSON.stringify(verifierAudit),
+);
+
 // 5b. Onboarding: the ownership record comes from the verify response, and a
 //     domain whose DNS is not published yet shows PENDING — waiting, never
 //     failed. DNS propagation time is a normal state by contract.

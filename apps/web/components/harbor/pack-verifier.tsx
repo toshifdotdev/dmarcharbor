@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * pack-verifier.tsx — the two inputs of the public compliance pack check.
+ * pack-verifier.tsx — the two inputs of the public document check.
  *
  *   ReferenceForm  the document reference printed on the pack's cover. It
  *                  navigates (?reference=…), so a result is a URL an auditor
@@ -56,11 +56,11 @@ export function ReferenceForm({ initialReference, example }: { initialReference:
         </Button>
       </div>
       <p className="text-meta text-fg-3">
-        Printed on the cover page and in the email that said the pack was ready. Paste all of it, hyphens included.
+        Printed on the document&rsquo;s cover page and in the email that said it was ready. Paste all of it, hyphens included.
         {example ? (
           <>
             {" "}
-            It looks like <code className="data break-all text-fg-2">{example}</code> (an example that matches no pack).
+            It looks like <code className="data break-all text-fg-2">{example}</code> (an example that matches no document).
           </>
         ) : null}
       </p>
@@ -178,14 +178,14 @@ export function FileCheck({ published }: { published: Published[] }) {
                 {outcome.match ? (
                   <>
                     <span className="font-bold text-ok">Match.</span> {outcome.name} is byte for byte the{" "}
-                    {outcome.match.superseded ? "superseded" : "current"} pack issued under this reference (
+                    {outcome.match.superseded ? "superseded" : "current"} document issued under this reference (
                     {outcome.match.documentVersion}).
-                    {outcome.match.superseded ? " A newer pack exists; ask the sender for it if you need the latest." : ""}
+                    {outcome.match.superseded ? " A newer document exists; ask the sender for it if you need the latest." : ""}
                   </>
                 ) : (
                   <>
-                    <span className="font-bold text-fail">No match.</span> {outcome.name} differs from every pack issued
-                    under this reference. It may be a different pack, or it was changed after it was issued.
+                    <span className="font-bold text-fail">No match.</span> {outcome.name} differs from every document
+                    issued under this reference. It may be a different document, or it was changed after it was issued.
                   </>
                 )}
               </span>

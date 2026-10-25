@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import rateLimit, { type Options, type RateLimitRequestHandler } from 'express-rate-limit';
 import { env } from '../config/env.js';
 import { rateLimitStoreFor } from './postgres-rate-limit-store.js';
@@ -340,6 +341,56 @@ export const compliancePackVerifyRateLimiter = rateLimit({
  * surface, or simply hammer it, and nothing notices. The compliance verifier next
  * door has had one since it was built.
  */
+/**
+ * Issuing a monthly report is a twenty-a-hour workspace operation.
+ *
+ * The limiter is keyed on the workspace, not the caller's address: an agency
+ * with several staff shares the budget for the thing that costs the workspace
+ * money, while a shared office address cannot spend another tenant's. It runs
+ * after the role check, so `organizationId` is the path's resolved value.
+ */
+export const monthlyReportIssueRateLimiter = rateLimit({
+  ...SHARED_LIMITER_OPTIONS,
+  windowMs: 60 * 60 * 1000,
+  limit: 20,
+  store: rateLimitStoreFor('monthly-report-issue'),
+  keyGenerator: (request) => `org:${String(request.params.organizationId ?? clientKey(request))}`,
+  message: {
+    error: {
+      code: 'RATE_LIMITED',
+      message: 'That workspace has issued 20 reports this hour. Wait before issuing another.',
+    },
+  },
+});
+
+/**
+ * The emailed report link is public, so it gets its own budget, per link.
+ *
+ * Keyed on the token rather than the address. Recipients open the link through
+ * the web app's /reports/download route, which calls this API from the web
+ * server, so every recipient arrives from the same address: a per-address
+ * limit of 20 a minute was a limit of 20 downloads a minute for every client
+ * of every agency, on the morning the scheduled reports go out. Guessing a
+ * 256-bit token is not a threat a rate limit can add anything to, so the limit
+ * only has to stop one link being hammered.
+ */
+export const publicMonthlyReportDownloadRateLimiter = rateLimit({
+  ...SHARED_LIMITER_OPTIONS,
+  windowMs: 60_000,
+  limit: 20,
+  store: rateLimitStoreFor('monthly-report-download'),
+  keyGenerator: (request) => {
+    const token = typeof request.query?.token === 'string' ? request.query.token.slice(0, 256) : '';
+    return token ? `token:${createHash('sha256').update(token).digest('hex')}` : `ip:${clientKey(request)}`;
+  },
+  message: {
+    error: {
+      code: 'RATE_LIMITED',
+      message: 'Too many download attempts. Wait a minute and try again.',
+    },
+  },
+});
+
 export const publicTrustCenterRateLimiter = rateLimit({
   ...SHARED_LIMITER_OPTIONS,
   windowMs: 60_000,

@@ -978,7 +978,11 @@ export type AuditAction =
   | "DOMAIN_SWITCH_STARTED"
   | "DOMAIN_SWITCH_CUT_OVER"
   | "DOMAIN_SWITCH_CANCELLED"
-  | "DNS_CHANGE_ACKNOWLEDGED";
+  | "DNS_CHANGE_ACKNOWLEDGED"
+  | "MONTHLY_REPORT_ISSUED"
+  | "MONTHLY_REPORT_SCHEDULE_UPDATED"
+  | "MONTHLY_REPORT_SCHEDULE_DELETED"
+  | "MONTHLY_REPORT_DOWNLOADED";
 
 /**
  * AuditOutcome is SUCCESS or DENIED. There is no FAILED value: the trail records
@@ -1147,6 +1151,10 @@ export interface TrustCenterPayload {
  *  only: never the document, never a client name. */
 export interface CompliancePackRecord {
   reference: string;
+  /** Which document the reference belongs to. Both share one verifier. */
+  kind: "compliance_pack" | "monthly_report";
+  /** YYYY-MM for a monthly report, null for a compliance pack. */
+  period: string | null;
   sha256: string;
   byteSize: number;
   pageCount: number;
@@ -1232,6 +1240,11 @@ export interface PortalOverview {
 }
 
 /** GET /api/portal/domains/{domainId} */
+/** GET /api/portal/clients/{clientId}/monthly-reports */
+export interface PortalMonthlyReports {
+  reports: MonthlyReportRow[];
+}
+
 export interface PortalDomainDetail {
   domain: {
     id: string;
@@ -1474,6 +1487,37 @@ export interface DnsChangeRow {
 export interface DnsChangePage {
   rows: DnsChangeRow[];
   nextCursor: string | null;
+}
+
+// ─── monthly evidence reports ────────────────────────────────────────────────
+
+export interface MonthlyReportRow {
+  id: string;
+  reference: string;
+  /** YYYY-MM. */
+  period: string | null;
+  sha256: string;
+  byteSize: number;
+  pageCount: number;
+  issuedAt: string;
+  superseded: boolean;
+  downloadable: boolean;
+}
+
+export interface MonthlyReportSchedule {
+  id: string;
+  enabled: boolean;
+  dayOfMonth: number;
+  sendHourUtc: number;
+  recipientEmails: string[];
+  lastIssuedPeriod: string | null;
+  nextIssueAt: string | null;
+}
+
+export interface MonthlyReportIssueMeta {
+  reference: string;
+  sha256: string;
+  filename: string;
 }
 
 // ─── forensics ────────────────────────────────────────────────────────────────

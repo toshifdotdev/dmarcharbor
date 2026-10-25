@@ -239,6 +239,51 @@ export function dnsChangesEmail(input: {
   });
 }
 
+/**
+ * The email that delivers a monthly report.
+ *
+ * It carries a link, not an attachment. The report is stored and fingerprinted;
+ * an attachment would be a second copy with no fingerprint attached to it, and
+ * a client forwarding it would have no reference to check.
+ */
+export function monthlyReportEmail(input: {
+  brand: BrandLook;
+  branded: boolean;
+  agencyName: string;
+  clientName: string;
+  periodLabel: string;
+  messages: number;
+  passRate: string;
+  domainsAtReject: number;
+  downloadUrl: string;
+  reference: string;
+  verifyUrl: string;
+}): RenderedEmail {
+  const subject = `${input.clientName} email authentication report, ${input.periodLabel}`;
+  const totals =
+    input.messages > 0
+      ? `${input.clientName}'s domains received ${input.messages.toLocaleString('en-GB')} messages in ${input.periodLabel}. ${input.passRate} passed DMARC, and ${input.domainsAtReject} domain${input.domainsAtReject === 1 ? '' : 's'} were at reject at the end of the month.`
+      : `No aggregate reports were received for ${input.clientName}'s domains in ${input.periodLabel}.`;
+
+  return layout({
+    title: subject,
+    preheader: `The ${input.periodLabel} email authentication report for ${input.clientName} is ready.`,
+    heading: subject,
+    paragraphs: [
+      totals,
+      `Download the report: ${input.downloadUrl}`,
+      `Document reference: ${input.reference}`,
+      `Verify the file at ${input.verifyUrl}`,
+    ],
+    action: { label: 'Download the report', url: input.downloadUrl },
+    footer: input.branded
+      ? `You are receiving this because ${input.agencyName} prepared a monthly report for ${input.clientName}.`
+      : `You are receiving this because a monthly report was prepared for ${input.clientName} using DMARC Harbor.`,
+    brand: input.brand,
+    whiteLabel: input.branded,
+  });
+}
+
 export function domainVerificationNotice(input: {
   workspaceName: string;
   domainName: string;

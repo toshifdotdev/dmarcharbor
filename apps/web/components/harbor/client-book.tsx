@@ -261,6 +261,14 @@ export function ClientBook({
                           >
                             Switch domains from another provider
                           </ButtonLink>
+                          <ButtonLink
+                            href={`/clients/reports?client=${encodeURIComponent(c.id)}`}
+                            size="sm"
+                            variant="ghost"
+                            data-testid={`monthly-reports-${c.id}`}
+                          >
+                            Monthly reports
+                          </ButtonLink>
                           <Button size="sm" variant="ghost" onClick={() => addDomainsTo(c.id)} aria-label={`Add domains to ${c.name}`}>
                             <Plus size={13} /> Add domains
                           </Button>

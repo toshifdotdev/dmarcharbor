@@ -38,6 +38,8 @@ import type {
   ForensicListResponse,
   ForensicReportRow,
   IssuedApiKey,
+  MonthlyReportRow,
+  MonthlyReportSchedule,
   PlanDefinition,
   PortalGrant,
   ReportDigestRow,
@@ -359,6 +361,26 @@ export function listDomainScans(
   if (options.cursor) query.set("cursor", options.cursor);
   return opsFetch<ScanPage>(
     `/api/workspaces/${organizationId}/domains/${domainId}/scans?${query.toString()}`,
+  );
+}
+
+/** GET /clients/:clientId/monthly-reports — at most 24, newest first. */
+export function listMonthlyReports(
+  organizationId: string,
+  clientId: string,
+): Promise<{ reports: MonthlyReportRow[] }> {
+  return opsFetch<{ reports: MonthlyReportRow[] }>(
+    `/api/workspaces/${organizationId}/clients/${clientId}/monthly-reports`,
+  );
+}
+
+/** GET /clients/:clientId/monthly-report-schedule — null until one is saved. */
+export function getMonthlyReportSchedule(
+  organizationId: string,
+  clientId: string,
+): Promise<{ schedule: MonthlyReportSchedule | null }> {
+  return opsFetch<{ schedule: MonthlyReportSchedule | null }>(
+    `/api/workspaces/${organizationId}/clients/${clientId}/monthly-report-schedule`,
   );
 }
 

@@ -188,6 +188,7 @@ model Organization {
   webhookEndpoints      WebhookEndpoint[]
   domainSwitches        DomainSwitch[]
   dnsChanges            DnsChange[]
+  monthlyReportSchedules MonthlyReportSchedule[]
 
   @@unique([slug])
   /// Reads the document version rather than the column being null, so the sweep
@@ -280,6 +281,7 @@ model Client {
   /// without changing the underlying record.
   trustSlug              String?       @unique
   compliancePacks       CompliancePack[]
+  monthlyReportSchedule MonthlyReportSchedule?
 }
 
 model Domain {
@@ -1317,6 +1319,10 @@ model CompliancePack {
   client         Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
   scope          String
   documentVersion String
+  /// The calendar month a monthly report covers, as a UTC [start, end) window.
+  /// Null for compliance packs, which describe the state at `asOf`.
+  periodStart    DateTime?
+  periodEnd      DateTime?
   /// The state of the world the document describes, and the PDF creation date.
   /// Fixed rather than taken from the clock, so the same inputs give the same
   /// bytes and therefore the same hash.
@@ -1338,11 +1344,79 @@ model CompliancePack {
   supersededAt   DateTime?
   generatedById  String?
   createdAt      DateTime  @default(now())
+  file           ComplianceDocumentFile?
+  monthlyLinks   MonthlyReportLink[]
 
   @@index([clientId])
   @@index([organizationId])
   @@index([createdAt])
+  /// The monthly history is always read for one client, one scope and one month.
+  @@index([clientId, scope, periodStart])
   @@map("compliance_pack")
+}
+
+/// The stored bytes of a monthly report.
+///
+/// Compliance packs keep their "not stored" design: only the hash is kept and
+/// the PDF is streamed once. A monthly report is different because the client
+/// downloads it later from the portal, and an emailed link has to keep working
+/// after the agency closed the tab.
+model ComplianceDocumentFile {
+  id          String         @id @default(cuid())
+  packId      String         @unique
+  pack        CompliancePack @relation(fields: [packId], references: [id], onDelete: Cascade)
+  bytes       Bytes
+  contentType String
+  /// The aggregate retention window, measured from the end of the reported month.
+  /// Never printed or shown; the UI says the report is available while the data
+  /// it summarises is held.
+  expiresAt   DateTime
+  createdAt   DateTime       @default(now())
+
+  @@index([expiresAt])
+  @@map("compliance_document_file")
+}
+
+/// One monthly-issue schedule per client.
+model MonthlyReportSchedule {
+  id                String       @id @default(cuid())
+  organizationId    String
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId          String       @unique
+  client            Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  enabled           Boolean      @default(true)
+  dayOfMonth        Int          @default(2)
+  sendHourUtc       Int          @default(9)
+  recipientEmails   String[]
+  /// YYYY-MM of the last period this schedule issued. The claim that makes two
+  /// instances issue once is a conditional update keyed on the value read.
+  lastIssuedPeriod  String?
+  createdById       String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@index([enabled])
+  @@map("monthly_report_schedule")
+}
+
+/// A bearer link emailed to one recipient for one monthly report.
+///
+/// Only the SHA-256 of the token is stored. The raw token exists in the email
+/// and nowhere else, so a database read cannot produce a working link.
+model MonthlyReportLink {
+  id             String         @id @default(cuid())
+  packId         String
+  pack           CompliancePack @relation(fields: [packId], references: [id], onDelete: Cascade)
+  tokenHash      String         @unique
+  recipientEmail String
+  expiresAt      DateTime
+  lastUsedAt     DateTime?
+  useCount       Int            @default(0)
+  createdAt      DateTime       @default(now())
+
+  @@index([packId])
+  @@index([expiresAt])
+  @@map("monthly_report_link")
 }
 
 /// A billing webhook that has been received, with the provider's own id
@@ -1669,6 +1743,10 @@ enum AuditAction {
   DOMAIN_SWITCH_CUT_OVER
   DOMAIN_SWITCH_CANCELLED
   DNS_CHANGE_ACKNOWLEDGED
+  MONTHLY_REPORT_ISSUED
+  MONTHLY_REPORT_SCHEDULE_UPDATED
+  MONTHLY_REPORT_SCHEDULE_DELETED
+  MONTHLY_REPORT_DOWNLOADED
 }
 
 enum AuditOutcome {

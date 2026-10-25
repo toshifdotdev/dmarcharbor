@@ -99,6 +99,10 @@ const ACTION_SENTENCES: Record<AuditAction, string> = {
   DOMAIN_SWITCH_CUT_OVER: "Provider switch cut over",
   DOMAIN_SWITCH_CANCELLED: "Provider switch stopped",
   DNS_CHANGE_ACKNOWLEDGED: "DNS change acknowledged",
+  MONTHLY_REPORT_ISSUED: "Monthly report issued",
+  MONTHLY_REPORT_SCHEDULE_UPDATED: "Monthly report schedule saved",
+  MONTHLY_REPORT_SCHEDULE_DELETED: "Monthly report schedule removed",
+  MONTHLY_REPORT_DOWNLOADED: "Monthly report downloaded",
 };
 
 /**
@@ -154,6 +158,9 @@ const TARGET_SENTENCES: Record<string, string> = {
   erasure_request: "Erasure request",
   forensic_report: "Forensic report",
   compliance_pack: "Compliance pack",
+  monthly_report: "Monthly report",
+  monthly_report_schedule: "Monthly report schedule",
+  monthly_report_link: "Monthly report download link",
 };
 
 export function auditTargetLabel(targetType: string): string {

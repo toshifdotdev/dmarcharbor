@@ -11,6 +11,10 @@ import {
 import { requireSession } from '../middleware/auth.middleware.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
 import { requirePortalScope } from '../middleware/portal.middleware.js';
+import {
+  portalDownloadMonthlyReportController,
+  portalListMonthlyReportsController,
+} from '../controllers/monthly-report.controller.js';
 
 export const portalRouter = Router();
 
@@ -58,3 +62,15 @@ portalRouter.delete(
 /** What a client contact sees. Scoped on every route, never by a path parameter alone. */
 portalRouter.get('/portal', requireSession, requirePortalScope, portalOverviewController);
 portalRouter.get('/portal/domains/:domainId', requireSession, requirePortalScope, portalDomainController);
+portalRouter.get(
+  '/portal/clients/:clientId/monthly-reports',
+  requireSession,
+  requirePortalScope,
+  portalListMonthlyReportsController,
+);
+portalRouter.get(
+  '/portal/clients/:clientId/monthly-reports/:reportId/download',
+  requireSession,
+  requirePortalScope,
+  portalDownloadMonthlyReportController,
+);

@@ -368,6 +368,44 @@ export function publicLogoUrl(objectKey: string): string {
 }
 
 /**
+ * Reads a stored logo back for embedding in a PDF.
+ *
+ * The report fetches the same asset the portal serves, rather than trusting a
+ * URL the agency supplied. The size cap is applied here as well as by the
+ * caller: an object written by an older build, or one whose metadata changed,
+ * must not be able to pull an unbounded buffer into the PDF renderer.
+ */
+export async function readStoredLogoBytes(
+  objectKey: string | null | undefined,
+  maxBytes = 512 * 1024,
+): Promise<Buffer | null> {
+  if (!objectKey || !logoStorageConfigured()) {
+    return null;
+  }
+
+  try {
+    const response = await s3().send(
+      new GetObjectCommand({ Bucket: env.LOGO_BUCKET!, Key: objectKey }),
+    );
+    if (!response.Body) {
+      return null;
+    }
+    if (typeof response.ContentLength === 'number' && response.ContentLength > maxBytes) {
+      return null;
+    }
+
+    const body = response.Body as { transformToByteArray?: () => Promise<Uint8Array> };
+    if (typeof body.transformToByteArray !== 'function') {
+      return null;
+    }
+    const bytes = Buffer.from(await body.transformToByteArray());
+    return bytes.length > 0 && bytes.length <= maxBytes ? bytes : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Removes a stored logo.
  *
  * Called when a logo is replaced, when a workspace drops below the tier that

@@ -570,10 +570,10 @@ export const openApiDocument = {
       get: {
         tags: ['Trust Center'],
         security: [],
-        summary: 'Verify a compliance pack against its published digest',
+        summary: 'Verify a compliance pack or monthly report against its published digest',
         description: [
-          'Public and unauthenticated, because the person verifying a pack is an auditor at the client organisation holding the file and with no account here.',
-          'Returns the digest and dates for a document reference, and nothing else. No client name, no domain, no personal data, so it cannot be used as a public directory of clients.',
+          'Public and unauthenticated, because the person verifying a document is an auditor at the client organisation holding the file and with no account here.',
+          'Returns the digest, dates and kind for a document reference, and nothing else. Monthly reports also return their period. No client name, no domain, no personal data, so it cannot be used as a public directory of clients.',
           'Deliberately not routed under /trust/{slug}, because a literal path there would be captured by that parameter and answer a confusing 404.',
         ].join(' '),
         parameters: [{ name: 'reference', in: 'query', required: true, schema: { type: 'string' } }],
@@ -617,6 +617,153 @@ export const openApiDocument = {
           },
           402: { description: 'The reports.compliancePack entitlement is not on this plan.' },
         },
+      },
+    },
+    '/workspaces/{organizationId}/clients/{clientId}/monthly-reports': {
+      get: {
+        tags: ['Reports'],
+        summary: 'Monthly evidence reports issued for this client',
+        description: 'Newest first, at most 24, including superseded documents because an auditor may still hold the earlier copy.',
+        parameters: [
+          { name: 'organizationId', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'clientId', in: 'path', required: true, schema: { type: 'string' } },
+        ],
+        responses: { 200: { description: 'The report history with references, digests and download availability.' }, ...standardErrors },
+      },
+      post: {
+        tags: ['Reports'],
+        summary: 'Issue one monthly evidence report',
+        description: [
+          'The month must be complete, no older than 12 months, and no earlier than the client creation month.',
+          'Streams the PDF with the same X-DMARC-Pack-Sha256 and X-DMARC-Pack-Reference headers as the compliance pack. Re-issuing a month supersedes the previous report for that client and month; both remain verifiable.',
+          'Rate limited to 20 issues per workspace per hour.',
+        ].join(' '),
+        parameters: [
+          { name: 'organizationId', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'clientId', in: 'path', required: true, schema: { type: 'string' } },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['period'],
+                properties: { period: { type: 'string', pattern: '^\\d{4}-(0[1-9]|1[0-2])$', example: '2026-10' } },
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: 'The PDF, with its digest and reference in headers.' },
+          ...standardErrors,
+          402: { description: 'The reports.compliancePack entitlement is not on this plan.' },
+          413: { description: 'The rendered report exceeds the 4 MB storage cap.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/clients/{clientId}/monthly-reports/{reportId}/download': {
+      get: {
+        tags: ['Reports'],
+        summary: 'Download a stored monthly report',
+        description: 'Returns the exact stored bytes after recomputing the digest. A file past its retention window answers 410; its fingerprint still verifies.',
+        parameters: [
+          { name: 'organizationId', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'clientId', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'reportId', in: 'path', required: true, schema: { type: 'string' } },
+        ],
+        responses: {
+          200: { description: 'The stored PDF.' },
+          ...standardErrors,
+          410: { description: 'The report file is no longer held.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/clients/{clientId}/monthly-report-schedule': {
+      get: {
+        tags: ['Reports'],
+        summary: 'The monthly report schedule for one client',
+        description: 'Read is available to client readers. A client with no schedule answers `{ schedule: null }`.',
+        parameters: [
+          { name: 'organizationId', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'clientId', in: 'path', required: true, schema: { type: 'string' } },
+        ],
+        responses: { 200: { description: 'The schedule, or null.' }, ...standardErrors },
+      },
+      put: {
+        tags: ['Reports'],
+        summary: 'Create or replace a monthly report schedule',
+        description: 'The day is limited to 1-28 so every month has one. Recipients are trimmed, lowercased, de-duplicated and limited to 20.',
+        parameters: [
+          { name: 'organizationId', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'clientId', in: 'path', required: true, schema: { type: 'string' } },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['dayOfMonth', 'sendHourUtc', 'recipientEmails'],
+                properties: {
+                  enabled: { type: 'boolean' },
+                  dayOfMonth: { type: 'integer', minimum: 1, maximum: 28 },
+                  sendHourUtc: { type: 'integer', minimum: 0, maximum: 23 },
+                  recipientEmails: { type: 'array', maxItems: 20, items: { type: 'string', format: 'email' } },
+                },
+              },
+            },
+          },
+        },
+        responses: { 200: { description: 'The saved schedule.' }, ...standardErrors },
+      },
+      delete: {
+        tags: ['Reports'],
+        summary: 'Remove a monthly report schedule',
+        description: 'Removes the schedule, not the reports it already issued.',
+        parameters: [
+          { name: 'organizationId', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'clientId', in: 'path', required: true, schema: { type: 'string' } },
+        ],
+        responses: { 204: { description: 'Removed.' }, ...standardErrors },
+      },
+    },
+    '/monthly-reports/download': {
+      get: {
+        tags: ['Reports'],
+        security: [],
+        summary: 'Download a monthly report from an emailed link',
+        description: [
+          'Public and unauthenticated: the recipient is the agency client, not a signed in member.',
+          'Only the SHA-256 of the token is stored, so a database read cannot reconstruct the link. Unknown, expired and malformed tokens answer the same 404. Rate limited to 20 attempts per address per minute.',
+        ].join(' '),
+        parameters: [{ name: 'token', in: 'query', required: true, schema: { type: 'string' } }],
+        responses: {
+          200: { description: 'The stored PDF.' },
+          404: { description: 'The link is not available.' },
+          429: { description: 'Too many attempts.' },
+        },
+      },
+    },
+    '/portal/clients/{clientId}/monthly-reports': {
+      get: {
+        tags: ['Client portal'],
+        summary: 'Monthly reports a client contact can download',
+        description: 'Scoped by the portal grant, not by the path. Only non-superseded reports are returned.',
+        parameters: [{ name: 'clientId', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 200: { description: 'The reports available to this contact.' }, ...standardErrors },
+      },
+    },
+    '/portal/clients/{clientId}/monthly-reports/{reportId}/download': {
+      get: {
+        tags: ['Client portal'],
+        summary: 'Download a monthly report as a client contact',
+        description: 'A contact of another client gets the same 404 as an unknown report. Superseded reports are not downloadable from the portal.',
+        parameters: [
+          { name: 'clientId', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'reportId', in: 'path', required: true, schema: { type: 'string' } },
+        ],
+        responses: { 200: { description: 'The stored PDF.' }, ...standardErrors },
       },
     },
     '/workspaces/{organizationId}/billing': {

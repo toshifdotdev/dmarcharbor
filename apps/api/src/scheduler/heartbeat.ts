@@ -60,6 +60,8 @@ const staleness: Record<string, number> = {
   // The tick is ten minutes; two hours allows several missed ticks before a
   // monitor that has stopped working reads as stale.
   'dns-monitor': 2 * 60 * 60 * 1000,
+  // Due daily but leased hourly, so three hours still allows several chances.
+  'monthly-reports': 3 * 60 * 60 * 1000,
 };
 
 function entry(name: string): JobHeartbeat {

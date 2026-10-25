@@ -252,6 +252,8 @@ describe('data retention sweep', () => {
       billingPayloads: 0,
       rateLimitBuckets: 0,
       scheduledScans: 0,
+      monthlyReportFiles: 0,
+      monthlyReportLinks: 0,
     });
   });
 

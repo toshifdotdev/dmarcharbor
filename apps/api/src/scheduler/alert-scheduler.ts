@@ -1,6 +1,7 @@
 ﻿import { env } from '../config/env.js';
 import { evaluateAlertRules, runAlertRollups } from '../services/alert.service.js';
 import { runReportDigests } from '../services/report-digest.service.js';
+import { runMonthlyReportSchedules } from '../services/reports/monthly-report-schedule.service.js';
 import { executeDueErasures } from '../services/erasure/erasure.service.js';
 import { reverifyUnverifiedDomains } from '../services/domain-reverify.service.js';
 import { purgeExpiredIdempotencyRecords } from '../services/api-key.service.js';
@@ -167,6 +168,28 @@ async function runAlertEvaluationPass(): Promise<{ completed: true }> {
     const digestSent = digests.filter((result) => result.sent).length;
     if (digestSent > 0) {
       console.info(`[digests] sent ${digestSent} client digest(s)`);
+    }
+
+    /**
+     * Monthly reports have their own hourly lease and their own try/catch.
+     * Issuing a PDF is the slow, memory-heavy part of this pass; a failure in
+     * one agency's schedule must not stop billing, alerts or another agency's
+     * report.
+     */
+    try {
+      await withDueLease('monthly-reports', 60 * 60 * 1000, async () => {
+        const monthly = await runMonthlyReportSchedules();
+        recordJobSuccess('monthly-reports');
+        if (monthly.claimed > 0 || monthly.failed > 0) {
+          console.info(
+            `[monthly-reports] examined ${monthly.examined}, claimed ${monthly.claimed}, issued ${monthly.issued}, emailed ${monthly.emailed}, failed ${monthly.failed}, skipped ${monthly.skipped}`,
+          );
+        }
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Unknown monthly report error.';
+      console.error(`[monthly-reports] run failed: ${detail}`);
+      recordJobFailure('monthly-reports');
     }
 
     return { completed: true };

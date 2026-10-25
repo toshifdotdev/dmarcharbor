@@ -88,6 +88,8 @@ export async function verifyCompliancePackController(request: Request, response:
         supersededAt: true,
         documentVersion: true,
         organizationId: true,
+        scope: true,
+        periodStart: true,
       },
       take: 5,
     });
@@ -98,6 +100,10 @@ export async function verifyCompliancePackController(request: Request, response:
       found: rows.length > 0,
       packs: rows.map((row) => ({
         reference: reference,
+        kind: row.scope === 'MONTHLY_REPORT' ? 'monthly_report' : 'compliance_pack',
+        period: row.scope === 'MONTHLY_REPORT' && row.periodStart
+          ? row.periodStart.toISOString().slice(0, 7)
+          : null,
         sha256: row.pdfHash,
         byteSize: row.byteSize,
         pageCount: row.pageCount,
