@@ -11,9 +11,15 @@ import {
   revokeReportShareController,
 } from '../controllers/onboarding.controller.js';
 import { requireSession } from '../middleware/auth.middleware.js';
+import { requireFeature } from '../middleware/entitlement.middleware.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
 import { createPublicReportRateLimiter } from '../middleware/rate-limit.middleware.js';
-import { senderBreakdownController } from '../controllers/sender.controller.js';
+import {
+  bulkReviewSendersController,
+  reviewSenderController,
+  senderBreakdownController,
+  setSenderOwnerController,
+} from '../controllers/sender.controller.js';
 
 const onboardingJsonParser = express.json({ limit: '16kb' });
 
@@ -36,6 +42,28 @@ onboardingRouter.get(
   requireSession,
   requireOrganizationPermission('domain', 'read'),
   senderBreakdownController,
+);
+onboardingRouter.put(
+  '/workspaces/:organizationId/domains/:domainId/senders/review',
+  requireSession,
+  requireOrganizationPermission('domain', 'update'),
+  onboardingJsonParser,
+  reviewSenderController,
+);
+onboardingRouter.put(
+  '/workspaces/:organizationId/domains/:domainId/senders/owner',
+  requireSession,
+  requireOrganizationPermission('domain', 'update'),
+  requireFeature('senders.owners'),
+  onboardingJsonParser,
+  setSenderOwnerController,
+);
+onboardingRouter.put(
+  '/workspaces/:organizationId/clients/:clientId/senders/review',
+  requireSession,
+  requireOrganizationPermission('domain', 'update'),
+  onboardingJsonParser,
+  bulkReviewSendersController,
 );
 onboardingRouter.get(
   '/workspaces/:organizationId/domains/:domainId/policy-readiness',

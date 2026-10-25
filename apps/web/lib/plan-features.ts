@@ -22,6 +22,8 @@ const FEATURES: Array<[key: string, label: string]> = [
   ["data.erase", "Data erasure"],
   ["alerts.email", "Email alerts"],
   ["alerts.spoofing", "Spoofing alerts"],
+  ["senders.owners", "Sender owners"],
+  ["integrations.webhooks", "Webhooks"],
   ["reports.forensic", "Forensic reports, recipients unnamed"],
   ["sharing.links", "Report share links"],
   ["reports.forensicNamed", "Named forensic evidence"],

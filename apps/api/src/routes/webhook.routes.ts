@@ -9,6 +9,7 @@ import {
   updateWebhookController,
 } from '../controllers/webhook.controller.js';
 import { requireSession } from '../middleware/auth.middleware.js';
+import { requireFeature } from '../middleware/entitlement.middleware.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
 
 export const webhookRouter = Router();
@@ -23,6 +24,7 @@ webhookRouter.post(
   '/workspaces/:organizationId/webhooks',
   requireSession,
   requireOrganizationPermission('organization', 'update'),
+  requireFeature('integrations.webhooks'),
   createWebhookController,
 );
 webhookRouter.patch(
@@ -41,6 +43,7 @@ webhookRouter.post(
   '/workspaces/:organizationId/webhooks/test',
   requireSession,
   requireOrganizationPermission('organization', 'update'),
+  requireFeature('integrations.webhooks'),
   testWebhookController,
 );
 webhookRouter.get(
@@ -53,5 +56,6 @@ webhookRouter.post(
   '/workspaces/:organizationId/webhook-deliveries/:deliveryId/replay',
   requireSession,
   requireOrganizationPermission('organization', 'update'),
+  requireFeature('integrations.webhooks'),
   replayWebhookDeliveryController,
 );

@@ -268,6 +268,7 @@ export const openApiDocument = {
         description: [
           'Endpoints this workspace delivers events to. Subscribing events and delivery health, never the signing secret, which is shown once at creation.',
           'A large agency receives hundreds of report notifications a day, so domain.verified and alert.triggered are subscribed by default and report.received, dns.changed, policy.changed and forensic.received are opt in. Ignoring events trains people to ignore the endpoint.',
+          'Webhooks are included from Fairway. A workspace that downgrades keeps its endpoints and can still list, pause and delete them; delivery resumes on upgrade.',
         ].join(' '),
         parameters: [orgParam],
         responses: { 200: { description: 'Endpoints with their events and delivery health.' }, ...standardErrors },
@@ -278,23 +279,35 @@ export const openApiDocument = {
         description: [
           'Returns a signing secret once. We sign every payload with HMAC SHA-256 over the timestamp and the body, and the receiver recomputes it to confirm the event really came from DMARC Harbor.',
           'The URL must be public https. A local or private address is refused, because a customer cannot receive a delivery from inside our network.',
+          'Included from Fairway. A plan without it answers 402 with feature integrations.webhooks.',
         ].join(' '),
         parameters: [orgParam],
-        responses: { 201: { description: 'Endpoint created, with the signing secret shown once.' }, ...standardErrors },
+        responses: {
+          201: { description: 'Endpoint created, with the signing secret shown once.' },
+          402: { description: 'Webhooks are not included in this workspace plan.' },
+          ...standardErrors,
+        },
       },
     },
     '/workspaces/{organizationId}/webhooks/{webhookId}': {
       patch: {
         tags: ['Webhooks'],
         summary: 'Update an endpoint',
-        description: 'Change the url, subscribed events, or pause and resume delivery.',
+        description: [
+          'Change the url, subscribed events, or pause and resume delivery.',
+          'Setting only active:false is always allowed, so a downgraded workspace can stop delivery. Any other change needs the Fairway webhook entitlement and answers 402 without it.',
+        ].join(' '),
         parameters: [orgParam, idParam('webhookId', 'Endpoint identifier.')],
-        responses: { 200: { description: 'Updated.' }, ...standardErrors },
+        responses: {
+          200: { description: 'Updated.' },
+          402: { description: 'The requested change needs webhooks, which this plan does not include.' },
+          ...standardErrors,
+        },
       },
       delete: {
         tags: ['Webhooks'],
         summary: 'Delete an endpoint',
-        description: 'Stops delivery immediately and removes the delivery history with it. Cannot be undone.',
+        description: 'Stops delivery immediately and removes the delivery history with it. Never plan-gated, so a downgraded workspace can always remove what it configured.',
         parameters: [orgParam, idParam('webhookId', 'Endpoint identifier.')],
         responses: { 204: { description: 'Deleted along with its delivery history.' }, ...standardErrors },
       },
@@ -303,9 +316,13 @@ export const openApiDocument = {
       post: {
         tags: ['Webhooks'],
         summary: 'Queue a test delivery',
-        description: 'Queues one event so the receiver can confirm its endpoint and signature handling. Safe to call at any time.',
+        description: 'Queues one event so the receiver can confirm its endpoint and signature handling. Safe to call at any time. Included from Fairway.',
         parameters: [orgParam],
-        responses: { 202: { description: 'Queued, or reported as having no subscriber.' }, ...standardErrors },
+        responses: {
+          202: { description: 'Queued, or reported as having no subscriber.' },
+          402: { description: 'Webhooks are not included in this workspace plan.' },
+          ...standardErrors,
+        },
       },
     },
     '/workspaces/{organizationId}/webhook-deliveries': {
@@ -315,6 +332,7 @@ export const openApiDocument = {
         description: [
           'Every attempt, with the response code and the last error, so a failing integration can be diagnosed without waiting for the customer to report it.',
           'A payload is a pointer, not the data. When a report arrives the event carries identifiers and a timestamp, and the integration fetches detail from the read API if it wants it. Embedding report contents would make a high volume feed slow and would duplicate the API.',
+          'Readable on every plan, including after a downgrade, so the history remains diagnosable.',
         ].join(' '),
         parameters: [orgParam, { name: 'endpointId', in: 'query', required: false, schema: { type: 'string' } }],
         responses: { 200: { description: 'Recent deliveries.' }, ...standardErrors },
@@ -324,9 +342,13 @@ export const openApiDocument = {
       post: {
         tags: ['Webhooks'],
         summary: 'Replay a delivery',
-        description: 'Requeues a failed delivery with the same payload and a fresh signature. Useful after the receiver has been fixed.',
+        description: 'Requeues a failed delivery with the same payload and a fresh signature. Useful after the receiver has been fixed. Included from Fairway.',
         parameters: [orgParam, idParam('deliveryId', 'Delivery identifier.')],
-        responses: { 202: { description: 'Requeued.' }, ...standardErrors },
+        responses: {
+          202: { description: 'Requeued.' },
+          402: { description: 'Webhooks are not included in this workspace plan.' },
+          ...standardErrors,
+        },
       },
     },
     '/workspaces/{organizationId}/clients/{clientId}/portal-access': {
@@ -2391,14 +2413,49 @@ export const openApiDocument = {
     'Splits traffic by sending service, which is the source IP combined with the authenticated domain.',
     'Alignment follows RFC 7489 and honours the policy domain\'s own adkim and aspf tags, so a domain published with aspf=s gets strict SPF matching rather than relaxed.',
   ].join(' '),
-          'A blended pass rate hides a rare but broken sender inside a large healthy one, so each sender is graded on its own failure share.',
+          'A blended pass rate hides a rare but broken sender inside a large healthy one, so each sender is graded on its own DMARC failure share.',
+          'DMARC passes when either aligned check passed, so a sender that passes DKIM but not SPF is clean here rather than failing; failedMessages and failureSharePercent retain the stricter did-not-pass-both figure.',
           'Grades are clean, degraded, failing, or insufficient-data when there are too few messages to judge.',
           'Senders first seen within the last seven days are flagged as new, which is how a spoofed source or an unexpected new service shows up.',
-          'A new sender is graded authenticated when it passes both SPF and DKIM, partially-authenticated when it passes only one, and unauthenticated when it passes neither.',
-          'possibleSpoofingSources lists new senders that pass neither, because a legitimate service normally passes at least one.',
+          'Each row carries a service name and confidence when public DNS or the report’s own auth results support one, plus the evidence behind it. A network-only ASN never produces a service name.',
+          'Each row also carries the review status and owner. Review and owner decisions feed the readiness blockers and spoofing warnings.',
         ].join(' '),
         parameters: [orgParam, idParam('domainId', 'Domain identifier.')],
         responses: { 200: { description: 'Sender rows, new sender findings, and the thresholds used to grade them.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/domains/{domainId}/senders/review': {
+      put: {
+        tags: ['Reports'],
+        summary: 'Review one sender',
+        description: 'APPROVED, NOT_OURS or UNREVIEWED. UNREVIEWED clears the status but keeps an owner if one is assigned. The sender must appear in this domain reports. Never plan-gated.',
+        parameters: [orgParam, idParam('domainId', 'Domain identifier.')],
+        responses: {
+          200: { description: 'The review and owner.' },
+          ...standardErrors,
+        },
+      },
+    },
+    '/workspaces/{organizationId}/domains/{domainId}/senders/owner': {
+      put: {
+        tags: ['Reports'],
+        summary: 'Assign a sender owner',
+        description: 'The owner must be a member of this workspace. Included from Fairway.',
+        parameters: [orgParam, idParam('domainId', 'Domain identifier.')],
+        responses: {
+          200: { description: 'The review and owner.' },
+          402: { description: 'Sender owners are not included in this workspace plan.' },
+          ...standardErrors,
+        },
+      },
+    },
+    '/workspaces/{organizationId}/clients/{clientId}/senders/review': {
+      put: {
+        tags: ['Reports'],
+        summary: 'Review every sender attributed to a service for a client',
+        description: 'Applies to senders whose service name is confirmed or likely, at most 500 rows in one transaction, with one audit row carrying the count.',
+        parameters: [orgParam, idParam('clientId', 'Client identifier.')],
+        responses: { 200: { description: 'The service, status and number of senders updated.' }, ...standardErrors },
       },
     },
     '/workspaces/{organizationId}/domains/{domainId}/policy-readiness': {

@@ -25,6 +25,7 @@ const empty: RetentionSweep = {
   scheduledScans: 0,
   monthlyReportFiles: 0,
   monthlyReportLinks: 0,
+  sourceIpIntel: 0,
 };
 
 export async function runRetentionOnce(): Promise<RetentionSweep> {
@@ -51,11 +52,12 @@ export async function runRetentionOnce(): Promise<RetentionSweep> {
         swept.rateLimitBuckets +
         swept.scheduledScans +
         swept.monthlyReportFiles +
-        swept.monthlyReportLinks;
+        swept.monthlyReportLinks +
+        swept.sourceIpIntel;
 
       if (total > 0) {
         console.info(
-          `[retention] removed ${swept.exportJobs} export job(s), ${swept.idempotencyRecords} idempotency record(s), ${swept.ssoAuthRequests} SSO request(s), emptied ${swept.billingPayloads} billing payload(s), dropped ${swept.rateLimitBuckets} expired rate limit bucket(s), ${swept.scheduledScans} old scheduled scan(s), ${swept.monthlyReportFiles} monthly report file(s) and ${swept.monthlyReportLinks} monthly report link(s)`,
+          `[retention] removed ${swept.exportJobs} export job(s), ${swept.idempotencyRecords} idempotency record(s), ${swept.ssoAuthRequests} SSO request(s), emptied ${swept.billingPayloads} billing payload(s), dropped ${swept.rateLimitBuckets} expired rate limit bucket(s), ${swept.scheduledScans} old scheduled scan(s), ${swept.monthlyReportFiles} monthly report file(s), ${swept.monthlyReportLinks} monthly report link(s) and ${swept.sourceIpIntel} stale IP intelligence row(s)`,
         );
       }
 

@@ -154,7 +154,7 @@ describe('monthly report PDF', () => {
         policyMoved: 1,
         domainsWithoutReports: 1,
         sources: [
-          { sourceIp: '198.51.100.7', senderDomain: 'sender.example', failedMessages: 20, totalMessages: 30 },
+          { sourceIp: '198.51.100.7', senderDomain: 'sender.example', failedMessages: 20, totalMessages: 30, service: 'SendGrid' },
         ],
       }),
       unbranded,
@@ -162,6 +162,7 @@ describe('monthly report PDF', () => {
     const text = normalise(extractPdfText(rendered.buffer));
 
     expect(text).toContain('198.51.100.7');
+    expect(text).toContain('sendgrid');
     expect(text).toContain('sender.example');
     expect(text).not.toContain('alice@example.com');
     expect(text).toContain('83.3%');

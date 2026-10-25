@@ -35,6 +35,7 @@ export interface MonthlySourceFacts {
   senderDomain: string | null;
   failedMessages: number;
   totalMessages: number;
+  service: string | null;
 }
 
 export interface MonthlyFacts {
@@ -285,15 +286,17 @@ export async function renderMonthlyReportPdf(
           {
             kind: 'table',
             columns: [
-              { label: 'Source IP', width: 120 },
-              { label: 'Sender domain', width: 155 },
-              { label: 'Failed messages', width: 104 },
-              { label: 'Total messages', width: 104 },
+              { label: 'Source IP', width: 100 },
+              { label: 'Service', width: 105 },
+              { label: 'Sender domain', width: 120 },
+              { label: 'Failed messages', width: 78 },
+              { label: 'Total messages', width: 80 },
             ],
             rows: [
-              ['Source IP', 'Sender domain', 'Failed messages', 'Total messages'],
+              ['Source IP', 'Service', 'Sender domain', 'Failed messages', 'Total messages'],
               ...facts.sources.map((source) => [
                 source.sourceIp,
+                source.service ?? 'not identified',
                 source.senderDomain ?? 'not known',
                 n(source.failedMessages),
                 n(source.totalMessages),

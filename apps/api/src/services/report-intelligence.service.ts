@@ -2,6 +2,8 @@ import { prisma } from '../database/prisma.js';
 import { hasAggregateReporting, readDmarcRecord } from '../scanner/dmarc-tags.js';
 import { domainRef } from './domain-ref.js';
 import { buildSenderBreakdown, type SenderBreakdownRow } from './sender-breakdown.service.js';
+import { attributeSourceIp, type AuthSignal, type CachedIntel, type SenderConfidence, type SenderService } from './senders/attribution.js';
+import { normaliseIpAddress } from './senders/ip-intel.service.js';
 
 const maxScannedRecords = 5_000;
 const defaultTrendDays = 30;
@@ -17,6 +19,8 @@ export interface SourceAttribution {
   lastSeenAt: string | null;
   topSendingDomain: string | null;
   risk: 'high' | 'medium' | 'low';
+  service: SenderService | null;
+  confidence: SenderConfidence;
 }
 
 export interface TrendPoint {
@@ -71,7 +75,7 @@ interface AggregateRecord {
   spfResult: string | null;
   receivedAt: Date;
   headerFrom: string | null;
-  authResults: { type: string; domain: string | null }[];
+  authResults: { type: string; domain: string | null; result: string }[];
 }
 
 function isPass(value: string | null): boolean {
@@ -127,6 +131,8 @@ function touchSource(
     lastSeenAt: null,
     topSendingDomain: null,
     risk: 'low' as const,
+    service: null,
+    confidence: 'unknown' as const,
   };
 
   apply(existing);
@@ -193,7 +199,7 @@ export async function getDomainInsights(
             dkimResult: true,
             spfResult: true,
             headerFrom: true,
-            authResults: { select: { type: true, domain: true } },
+            authResults: { select: { type: true, domain: true, result: true } },
           },
           take: maxScannedRecords,
         },
@@ -217,6 +223,7 @@ export async function getDomainInsights(
   ]);
 
   const sources = emptyMap();
+  const ipSignals = new Map<string, Map<string, AuthSignal>>();
   const buckets = new Map<string, TrendPoint>();
   let recordCount = 0;
   let messageCount = 0;
@@ -261,8 +268,23 @@ export async function getDomainInsights(
 
       const sendingDomain =
         record.authResults.find((result) => result.domain)?.domain ?? record.headerFrom ?? null;
+      const sourceIp = normaliseIpAddress(record.sourceIp) ?? record.sourceIp;
 
-      touchSource(sources, record.sourceIp, (entry) => {
+      const signals = ipSignals.get(sourceIp) ?? new Map<string, AuthSignal>();
+      for (const auth of record.authResults) {
+        const key = `${auth.type}|${auth.domain ?? ''}|${auth.result}`;
+        const signal = signals.get(key) ?? {
+          type: auth.type,
+          domain: auth.domain,
+          result: auth.result,
+          messageCount: 0,
+        };
+        signal.messageCount += record.messageCount;
+        signals.set(key, signal);
+      }
+      ipSignals.set(sourceIp, signals);
+
+      touchSource(sources, sourceIp, (entry) => {
         entry.totalMessages += record.messageCount;
         entry.reportCount += 1;
         entry.lastSeenAt = latestIso(entry.lastSeenAt, report.receivedAt);
@@ -297,10 +319,37 @@ export async function getDomainInsights(
       }
     }
 
-    touchSource(sources, forensic.sourceIp, (entry) => {
+    const forensicIp = normaliseIpAddress(forensic.sourceIp) ?? forensic.sourceIp;
+    touchSource(sources, forensicIp, (entry) => {
       entry.forensicMessages += 1;
       entry.lastSeenAt = latestIso(entry.lastSeenAt, forensic.arrivedAt ?? forensic.receivedAt);
     });
+  }
+
+  const sourceIps = [...sources.keys()];
+  const intelRows = sourceIps.length
+    ? await prisma.sourceIpIntel.findMany({
+        where: { ip: { in: sourceIps } },
+        select: { ip: true, ptr: true, ptrConfirmed: true, asn: true, asnName: true },
+      })
+    : [];
+  const intel = new Map<string, CachedIntel>(
+    intelRows.map((row) => [
+      row.ip,
+      { ip: row.ip, ptr: row.ptr, ptrConfirmed: row.ptrConfirmed, asn: row.asn, asnName: row.asnName },
+    ]),
+  );
+
+  for (const source of sources.values()) {
+    const attributed = attributeSourceIp({
+      reportedDomain: domain.name,
+      ip: source.sourceIp,
+      messages: source.totalMessages,
+      signals: [...(ipSignals.get(source.sourceIp)?.values() ?? [])],
+      intel: intel.get(source.sourceIp) ?? null,
+    });
+    source.service = attributed.service;
+    source.confidence = attributed.confidence;
   }
 
   const days = Math.min(Math.max(trendDays, 1), maximumTrendDays);

@@ -204,7 +204,15 @@ export interface PublicReportView {
   health: { score: number | null; passRatePercent: number | null; messagesObserved: number; daysObserved: number };
   reporting: { reportsReceived: number; lastReportAt: string | null; daysSinceLastReport: number | null };
   activity: { dailyReports: { date: string; reports: number; messages: number }[]; spikes: unknown[] };
-  sources: { sourceIp: string; failedMessages: number; totalMessages: number; risk: string; topSendingDomain: string | null }[];
+  sources: {
+    sourceIp: string;
+    failedMessages: number;
+    totalMessages: number;
+    risk: string;
+    topSendingDomain: string | null;
+    service: { id: string; name: string; category: string } | null;
+    confidence: string;
+  }[];
   forensic: { included: boolean; reportCount: number; rejectedMessages: number; affectedRecipients: number } | null;
 }
 
@@ -293,6 +301,8 @@ export async function getPublicReport(token: string, now = new Date()): Promise<
           totalMessages: source.totalMessages,
           risk: source.risk,
           topSendingDomain: source.topSendingDomain,
+          service: source.service,
+          confidence: source.confidence,
         }))
       : [],
     forensic: share.includeForensics

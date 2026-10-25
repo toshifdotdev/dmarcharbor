@@ -9,9 +9,9 @@
  *
  * Only what the portal API returns is used: the domain's published policy (from
  * the DNS check), the aggregate counts, the report window, and the possible
- * impersonation sources. Nothing is inferred beyond them. In particular the
- * portal does not receive the attribution figures the operator's posture uses,
- * so this never claims more than "every message we saw passed".
+ * impersonation sources. Sender attribution is shown beside the verdict, never
+ * folded into it: the verdict is about whether messages passed, not about
+ * which service sent them.
  *
  * Order of precedence, first match wins:
  *   waiting     no measurement yet
@@ -153,7 +153,19 @@ export function verdictFor(detail: PortalDomainDetail | null, agency: string, no
 }
 
 /** A sender's name as a person would recognise it. */
-export function senderName(s: { senderDomain: string | null; senderKey: string }): { name: string; known: boolean } {
+export function senderName(s: {
+  senderDomain: string | null;
+  senderKey: string;
+  service?: { name: string } | null;
+  serviceName?: string | null;
+  confidence?: string;
+}): { name: string; known: boolean } {
+  if (s.service && (s.confidence === "confirmed" || s.confidence === "likely")) {
+    return { name: s.service.name, known: true };
+  }
+  if (s.serviceName) {
+    return { name: s.serviceName, known: true };
+  }
   if (s.senderDomain) return { name: s.senderDomain, known: true };
   const ip = s.senderKey.split("|")[0];
   return { name: `An unidentified server (${ip})`, known: false };
@@ -163,11 +175,11 @@ export function senderPlain(s: PortalDomainDetail["senders"][number]): { line: s
   const n = (v: number) => v.toLocaleString("en-GB");
   switch (s.status) {
     case "clean":
-      return { line: `All ${n(s.totalMessages)} messages passed.`, tone: "ok" };
+      return { line: `All ${n(s.totalMessages)} messages passed DMARC.`, tone: "ok" };
     case "degraded":
-      return { line: `${n(s.failedMessages)} of ${n(s.totalMessages)} messages failed; the rest passed.`, tone: "warn" };
+      return { line: `${n(s.dmarcFailedMessages)} of ${n(s.totalMessages)} messages failed DMARC; the rest passed.`, tone: "warn" };
     case "failing":
-      return { line: `${n(s.failedMessages)} of ${n(s.totalMessages)} messages failed.`, tone: "fail" };
+      return { line: `${n(s.dmarcFailedMessages)} of ${n(s.totalMessages)} messages failed DMARC.`, tone: "fail" };
     default:
       return { line: `${n(s.totalMessages)} message${s.totalMessages === 1 ? "" : "s"}: too few to judge yet.`, tone: "neutral" };
   }
@@ -202,10 +214,10 @@ export function summaryText(detail: PortalDomainDetail, verdict: Verdict, agency
     );
   }
   lines.push(`Domain setting: ${policyPlain(detail.domain.dmarcPolicy).name}`);
-  const failing = detail.senders.filter((s) => s.failedMessages > 0).slice(0, 5);
+  const failing = detail.senders.filter((s) => s.dmarcFailedMessages > 0).slice(0, 5);
   if (failing.length) {
     lines.push("", "Sending sources with failures:");
-    for (const s of failing) lines.push(`- ${senderName(s).name}: ${s.failedMessages} of ${s.totalMessages} failed`);
+    for (const s of failing) lines.push(`- ${senderName(s).name}: ${s.dmarcFailedMessages} of ${s.totalMessages} failed DMARC`);
   }
   return lines.join("\n");
 }

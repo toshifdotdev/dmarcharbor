@@ -696,6 +696,71 @@ check(
 );
 const shotDetail = await shot("03-domain-detail.png");
 
+// 4b-2. The Senders tab names a service only where a signal supports it. The
+//       seed's sources are documentation addresses, so the honest label is
+//       "Not identified"; what is asserted is the column, the confidence, the
+//       evidence control and the review control an operator uses.
+await navigate(WEB + "/");
+await waitForEval("document.querySelectorAll('tbody tr').length", (n) => n > 0);
+const senderDomainId = await evalJs(
+  `([...document.querySelectorAll('tbody tr')].find(tr => tr.textContent.includes('example.com'))?.dataset.domainId ?? '')`,
+);
+if (senderDomainId) await navigate(WEB + "/domains/" + senderDomainId);
+const senderAudit = await waitForEval(
+  `(() => {
+    const table = document.querySelector('[data-testid="senders-table"]');
+    const text = table ? table.textContent : '';
+    return {
+      table: !!table,
+      service: !!table?.querySelector('[data-testid^="sender-service-"]'),
+      confidence: /Confirmed|Likely|Network only|Your own mail server|Not identified/.test(text),
+      review: !!table?.querySelector('[data-testid^="sender-review-"]'),
+      evidence: !!table?.querySelector('[data-testid^="sender-evidence-"]'),
+    };
+  })()`,
+  (a) => a && a.table,
+  45000,
+);
+check(
+  "Senders tab renders the service name, confidence, evidence and a review control",
+  Boolean(
+    senderAudit?.table &&
+      senderAudit.service &&
+      senderAudit.confidence &&
+      senderAudit.review &&
+      senderAudit.evidence,
+  ),
+  JSON.stringify(senderAudit),
+);
+
+// The Sources tab carries the same attribution per IP address. One click, then
+// poll: a click before hydration is a silent no-op.
+await waitForHydration();
+await evalJs(
+  `(() => {
+    const tab = [...document.querySelectorAll('[role="tab"]')].find((t) => t.textContent.trim().startsWith('Sources'));
+    if (tab) tab.click();
+    return !!tab;
+  })()`,
+);
+const sourcesAudit = await waitForEval(
+  `(() => {
+    const panel = [...document.querySelectorAll('[role="tabpanel"]')].find((p) => !p.hidden);
+    return {
+      panel: !!panel,
+      headers: panel ? [...panel.querySelectorAll('thead th')].map((th) => th.textContent.trim()) : [],
+    };
+  })()`,
+  (a) => a && a.headers && a.headers.includes("Service") && a.headers.includes("Confidence"),
+  45000,
+);
+check(
+  "Sources tab shows the service and confidence attributed to each address",
+  Boolean(sourcesAudit?.panel && sourcesAudit.headers.includes("Service") && sourcesAudit.headers.includes("Confidence")),
+  JSON.stringify(sourcesAudit),
+);
+
+
 // 4c. the stale-feed domain: blackout band + hatched chart gap, no pass.
 // Read the row id from the PORTFOLIO (the detail page's tables have no such
 // row), then navigate directly: the posture truth is the same whether the user
@@ -3540,6 +3605,18 @@ check(
   Boolean(webhookEventsAudit?.present && webhookEventsAudit?.words),
   JSON.stringify(webhookEventsAudit),
 );
+
+const webhookPlanAudit = await evalJs(`(() => {
+  const upgrade = document.querySelector('section[data-feature="integrations.webhooks"]');
+  const event = document.querySelector('[data-testid="webhook-event-dns.changed"]');
+  return { upgradeNotice: !!upgrade, addFormEnabled: !!event && event.disabled === false };
+})()`);
+check(
+  "webhook settings: a HARBOR workspace is not refused",
+  Boolean(webhookPlanAudit && !webhookPlanAudit.upgradeNotice && webhookPlanAudit.addFormEnabled),
+  JSON.stringify(webhookPlanAudit),
+);
+
 
 // 10f. Interaction layer: a pointer cursor on what is clickable (never on
 //      disabled), and a focus ring visible on the pricing toggles. Audited on

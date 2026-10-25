@@ -25,6 +25,7 @@ import type {
   IssuedApiKey,
   MonthlyReportSchedule,
   PlanOverageRow,
+  SenderReviewResult,
   PortalGrant,
   SlackDestination,
   SwitchCheckRow,
@@ -778,6 +779,32 @@ export const revokeOtherSessions = () =>
 /** The deliberate nuke — INCLUDING this device. Confirm in the UI first. */
 export const revokeAllSessions = () =>
   call<void>(`/api/me/sessions/revoke-all`, { method: "POST" });
+
+// ─── sender intelligence ─────────────────────────────────────────────────────
+
+export const reviewSender = (
+  orgId: string,
+  domainId: string,
+  body: {
+    senderKey: string;
+    status: "APPROVED" | "NOT_OURS" | "UNREVIEWED";
+    note?: string | null;
+  },
+) =>
+  call<SenderReviewResult>(wsPath(orgId, `/domains/${domainId}/senders/review`), {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+
+export const setSenderOwner = (
+  orgId: string,
+  domainId: string,
+  body: { senderKey: string; ownerUserId: string | null },
+) =>
+  call<SenderReviewResult>(wsPath(orgId, `/domains/${domainId}/senders/owner`), {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
 
 // ─── monthly evidence reports ────────────────────────────────────────────────
 

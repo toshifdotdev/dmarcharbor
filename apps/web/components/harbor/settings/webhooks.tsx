@@ -24,7 +24,9 @@ import {
   replayWebhookDelivery,
 } from "@/lib/webhooks-client";
 import type { RegisteredWebhook, WebhookDeliveryStatus, WebhookEventName } from "@/lib/types";
+import type { FeatureStatus } from "@/lib/entitlements";
 import { ActionRefusal, type ActionError } from "@/components/harbor/plan-refusal";
+import { UpgradeNotice } from "@/components/ui/states";
 import { Badge, type Tone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/choice";
@@ -83,6 +85,8 @@ export function WebhooksBoard({
   events,
   defaultEvents,
   canManage,
+  webhookFeature,
+  webhooksPlanLabel,
 }: {
   organizationId: string;
   endpoints: EndpointView[];
@@ -90,6 +94,8 @@ export function WebhooksBoard({
   events: WebhookEventName[];
   defaultEvents: WebhookEventName[];
   canManage: boolean;
+  webhookFeature: FeatureStatus;
+  webhooksPlanLabel: string;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -105,9 +111,11 @@ export function WebhooksBoard({
   const [removing, setRemoving] = useState<EndpointView | null>(null);
   const [testNotice, setTestNotice] = useState<string | null>(null);
 
+  const webhooksUnavailable = webhookFeature === false;
+
   async function add(e: FormEvent) {
     e.preventDefault();
-    if (busy || chosen.length === 0) return;
+    if (busy || chosen.length === 0 || webhooksUnavailable) return;
     setBusy(true);
     setError(null);
     const res = await createWebhookEndpoint(organizationId, { name: name.trim(), url: url.trim(), events: chosen });
@@ -178,6 +186,13 @@ export function WebhooksBoard({
 
   return (
     <div className="flex flex-col gap-10">
+      {webhooksUnavailable ? (
+        <UpgradeNotice
+          message={`Webhooks are not included in this workspace's plan. They are included from ${webhooksPlanLabel}.`}
+          feature="integrations.webhooks"
+          context="Endpoints already configured are kept. Delivery resumes when the plan grants webhooks again."
+        />
+      ) : null}
       {created ? (
         <OnceSecret
           testId="webhook-secret"
@@ -196,7 +211,7 @@ export function WebhooksBoard({
         title="Endpoints"
         why="Each receives the events it subscribes to as a signed POST. A paused or suspended endpoint receives nothing until it is resumed."
         aside={
-          canManage && endpoints.length > 0 ? (
+          canManage && endpoints.length > 0 && !webhooksUnavailable ? (
             <Button size="sm" onClick={test} busy={rowBusy === "test"} busyLabel="Queuing a test event">
               Send a test event
             </Button>
@@ -211,7 +226,9 @@ export function WebhooksBoard({
               <li key={ep.id} className="flex flex-col gap-1.5 border-b border-rule py-3">
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                   <span className="text-body font-semibold text-fg">{ep.name}</span>
-                  {ep.suspendedUntilLabel ? (
+                  {webhooksUnavailable ? (
+                    <Badge tone="void">Paused</Badge>
+                  ) : ep.suspendedUntilLabel ? (
                     <Badge tone="warn">Suspended after repeated failures</Badge>
                   ) : ep.active ? (
                     <Badge tone="ok">Receiving</Badge>
@@ -221,7 +238,7 @@ export function WebhooksBoard({
                   <span className="flex-1" />
                   {canManage ? (
                     <span className="flex items-center gap-1">
-                      {ep.active ? (
+                      {webhooksUnavailable ? null : ep.active ? (
                         <Button size="sm" variant="ghost" onClick={() => setActive(ep, false)} busy={rowBusy === ep.id} busyLabel="Pausing">
                           Pause
                         </Button>
@@ -240,6 +257,11 @@ export function WebhooksBoard({
                 <p className="text-meta text-fg-3">
                   {ep.events.map((e) => EVENT_WORDS[e] ?? e).join(" · ")}
                 </p>
+                {webhooksUnavailable ? (
+                  <p className="text-meta font-semibold text-fg-2">
+                    Paused: webhooks are included from {webhooksPlanLabel}.
+                  </p>
+                ) : null}
                 <p className="text-meta text-fg-3">
                   {ep.lastDeliveryLabel ? `Last delivered ${ep.lastDeliveryLabel}` : "Nothing delivered yet"}
                   {ep.failureCount > 0 ? <span className="text-fail"> · {ep.failureCount} recent failure{ep.failureCount === 1 ? "" : "s"}</span> : null}
@@ -301,7 +323,7 @@ export function WebhooksBoard({
                         {d.responseCode === null && !d.lastError ? <span className="text-fg-4">—</span> : null}
                       </Td>
                       <Td align="right">
-                        {canManage && d.replayable ? (
+                        {canManage && !webhooksUnavailable && d.replayable ? (
                           <Button size="sm" variant="ghost" onClick={() => replay(d)} busy={rowBusy === d.id} busyLabel="Queuing">
                             Send again
                           </Button>
@@ -319,12 +341,17 @@ export function WebhooksBoard({
 
       {canManage ? (
         <Panel id="wh-add" title="Add an endpoint" why="A public https address on your side. Private and local addresses are refused, and redirects are not followed.">
+          {webhooksUnavailable ? (
+            <p className="text-meta text-fg-3">
+              Adding an endpoint is unavailable on this plan. It is included from {webhooksPlanLabel}.
+            </p>
+          ) : null}
           <form onSubmit={add} className="grid max-w-[680px] gap-4">
             <Field label="Name" hint="The system it feeds: PSA, ticketing, SIEM.">
-              <Input value={name} onChange={(e) => setName(e.target.value)} minLength={2} maxLength={80} required autoComplete="off" />
+              <Input value={name} onChange={(e) => setName(e.target.value)} minLength={2} maxLength={80} required autoComplete="off" disabled={webhooksUnavailable} />
             </Field>
             <Field label="URL">
-              <Input type="url" mono value={url} onChange={(e) => setUrl(e.target.value)} maxLength={500} required placeholder="https://hooks.youragency.example/dmarc" />
+              <Input type="url" mono value={url} onChange={(e) => setUrl(e.target.value)} maxLength={500} required placeholder="https://hooks.youragency.example/dmarc" disabled={webhooksUnavailable} />
             </Field>
             <fieldset className="flex flex-col gap-2">
               <legend className="mb-1 text-meta font-semibold text-fg-2">Send it when</legend>
@@ -335,6 +362,7 @@ export function WebhooksBoard({
                   onChange={(e) => setChosen((c) => (e.target.checked ? [...c, ev] : c.filter((x) => x !== ev)))}
                   label={EVENT_WORDS[ev] ?? ev}
                   hint={<code className="data">{ev}</code>}
+                  disabled={webhooksUnavailable}
                   data-testid={`webhook-event-${ev}`}
                 />
               ))}
@@ -342,7 +370,7 @@ export function WebhooksBoard({
             </fieldset>
             <ActionRefusal error={error} />
             <div>
-              <Button type="submit" variant="primary" busy={busy} busyLabel="Adding the endpoint" disabled={chosen.length === 0}>
+              <Button type="submit" variant="primary" busy={busy} busyLabel="Adding the endpoint" disabled={chosen.length === 0 || webhooksUnavailable}>
                 Add endpoint
               </Button>
             </div>

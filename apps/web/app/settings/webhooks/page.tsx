@@ -1,5 +1,12 @@
 import type { Metadata } from "next";
-import { listWebhookDeliveries, listWebhookEndpoints, OpsError } from "@/lib/api-ops";
+import {
+  getPlanCatalog,
+  getWorkspaceEntitlements,
+  listWebhookDeliveries,
+  listWebhookEndpoints,
+  OpsError,
+} from "@/lib/api-ops";
+import { featureOf } from "@/lib/entitlements";
 import { instantLabel } from "@/lib/instant";
 import { settingsContext } from "@/lib/settings-context";
 import { mayChange } from "@/lib/settings-map";
@@ -10,13 +17,25 @@ import { ErrorState, PermissionState } from "@/components/ui/states";
 
 export const metadata: Metadata = { title: "Webhooks" };
 
-/** /settings/webhooks — no plan gate; reading needs owner or admin. */
+/**
+ * /settings/webhooks — webhooks are included from Fairway, but reading and
+ * removing endpoints is available on every plan so a downgrade never strands
+ * configuration the customer can no longer manage.
+ */
 export default async function WebhooksPage() {
   const ctx = await settingsContext();
-  const [listed, log] = await Promise.all([
+  const [listed, log, entitlements, catalog] = await Promise.all([
     listWebhookEndpoints(ctx.active.id).catch((e: unknown) => (e instanceof OpsError && e.status === 403 ? ("forbidden" as const) : null)),
     listWebhookDeliveries(ctx.active.id).catch(() => null),
+    getWorkspaceEntitlements(ctx.active.id).catch(() => null),
+    getPlanCatalog().catch(() => null),
   ]);
+
+  const webhookFeature = featureOf(entitlements, "integrations.webhooks");
+  const webhooksPlanLabel =
+    catalog?.order
+      .map((tier) => catalog.plans.find((plan) => plan.tier === tier))
+      .find((plan) => plan?.features["integrations.webhooks"])?.label ?? "a paid plan";
 
   const now = Date.now();
   const endpoints: EndpointView[] =
@@ -65,6 +84,8 @@ export default async function WebhooksPage() {
           events={listed.events}
           defaultEvents={listed.defaultEvents}
           canManage={ctx.role === null ? true : mayChange(ctx.role, "admin")}
+          webhookFeature={webhookFeature}
+          webhooksPlanLabel={webhooksPlanLabel}
         />
       )}
     </SettingsFrame>

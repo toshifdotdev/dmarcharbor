@@ -13,8 +13,9 @@ import { requireOrganizationPermission } from '../middleware/organization-permis
  *
  * Not behind an entitlement gate. This is the same notification an email alert
  * already produces, delivered somewhere the team already watches; putting a chat
- * channel behind a higher plan would be charging twice for one message. Webhook
- * delivery has the same reasoning.
+ * channel behind a higher plan would be charging twice for one message. Webhooks
+ * are different: they are an integration surface, not a second copy of an alert,
+ * so they start at Fairway.
  *
  * `requireSession` is applied per route, not as `router.use(...)`. This router is
  * mounted at /api, so it sees every /api request, and middleware registered with

@@ -81,7 +81,7 @@ export default async function PortalDomainPage({
   const n = (v: number) => v.toLocaleString("en-GB");
 
   const senders = [...detail.senders].sort(
-    (a, b) => b.failedMessages - a.failedMessages || b.totalMessages - a.totalMessages,
+    (a, b) => b.dmarcFailedMessages - a.dmarcFailedMessages || b.totalMessages - a.totalMessages,
   );
   const spoofKeys = new Set(detail.possibleSpoofingSources.map((s) => s.senderKey));
 
@@ -125,7 +125,7 @@ export default async function PortalDomainPage({
                   <span className="font-semibold text-fg">{senderName(s).name}</span>
                   <span className="text-fg-2">
                     {" "}
-                    sent {n(s.totalMessages)} message{s.totalMessages === 1 ? "" : "s"}, {n(s.failedMessages)} of them failed.
+                    sent {n(s.totalMessages)} message{s.totalMessages === 1 ? "" : "s"}, {n(s.failedMessages)} of them failed DMARC.
                   </span>
                 </li>
               ))}

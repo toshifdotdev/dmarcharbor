@@ -356,6 +356,24 @@ export async function emitEvent(
     return 0;
   }
 
+  /**
+   * No outbound integration on a plan that does not include webhooks.
+   *
+   * The check is after the subscribed lookup and only when something is
+   * subscribed: a free workspace with no endpoint pays for no entitlement read.
+   * Deliveries already queued before a downgrade are left alone; they were
+   * accepted while the feature was licensed and stopping them mid-flight would
+   * lose an event the receiver may already be retrying.
+   *
+   * Dynamic import because entitlement.service imports emitEvent. A static
+   * import here would close the cycle at module load.
+   */
+  const { resolveEntitlements } = await import('./entitlements/entitlement.service.js');
+  const entitlements = await resolveEntitlements(organizationId, now);
+  if (!entitlements.features['integrations.webhooks']) {
+    return 0;
+  }
+
   const body = {
     id: `evt_${randomBytes(9).toString('base64url')}`,
     type: event,

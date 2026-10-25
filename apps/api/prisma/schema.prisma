@@ -31,6 +31,8 @@ model User {
   acknowledgedAlertEvents AlertEvent[]            @relation("AcknowledgedAlertEvents")
   createdDomainSwitches   DomainSwitch[]          @relation("CreatedDomainSwitches")
   acknowledgedDnsChanges  DnsChange[]             @relation("AcknowledgedDnsChanges")
+  ownedSenderReviews      SenderReview[]          @relation("SenderReviewOwner")
+  reviewedSenderReviews   SenderReview[]          @relation("SenderReviewer")
     notificationPreference  NotificationPreference?
     /// The account's subscription. Keyed here as well as on the workspace it was
     /// started from, so entitlement status can be read where the plan lives.
@@ -189,6 +191,7 @@ model Organization {
   domainSwitches        DomainSwitch[]
   dnsChanges            DnsChange[]
   monthlyReportSchedules MonthlyReportSchedule[]
+  senderReviews         SenderReview[]
 
   @@unique([slug])
   /// Reads the document version rather than the column being null, so the sweep
@@ -351,6 +354,7 @@ model Domain {
   reportDigests          ReportDigest[]
   switch                 DomainSwitch?
   dnsChanges             DnsChange[]
+  senderReviews          SenderReview[]
 
   /// The per client constraint is gone. Global uniqueness on `name` above
   /// subsumes it: two rows in one client with the same name would violate the
@@ -1743,6 +1747,8 @@ enum AuditAction {
   DOMAIN_SWITCH_CUT_OVER
   DOMAIN_SWITCH_CANCELLED
   DNS_CHANGE_ACKNOWLEDGED
+  SENDER_REVIEWED
+  SENDER_OWNER_SET
   MONTHLY_REPORT_ISSUED
   MONTHLY_REPORT_SCHEDULE_UPDATED
   MONTHLY_REPORT_SCHEDULE_DELETED
@@ -1769,6 +1775,61 @@ enum EmailDeliveryState {
   /// vanished is the failure mode this table exists to remove, and a dead letter row
   /// is at least something an operator can see and resend.
   DEAD
+}
+
+/// Public network facts for a sending IP. Not tenant data: the same address
+/// describes the same infrastructure for every workspace.
+enum IpIntelStatus {
+  OK
+  PARTIAL
+  FAILED
+  PRIVATE
+}
+
+model SourceIpIntel {
+  ip           String        @id
+  ptr          String?
+  ptrConfirmed Boolean       @default(false)
+  asn          Int?
+  asnName      String?       @db.VarChar(120)
+  status       IpIntelStatus
+  lookedUpAt   DateTime
+  expiresAt    DateTime
+  lastSeenAt   DateTime
+
+  @@index([expiresAt])
+  @@index([lastSeenAt])
+  @@map("source_ip_intel")
+}
+
+enum SenderReviewStatus {
+  APPROVED
+  NOT_OURS
+}
+
+/// A person's decision about one sender in one domain. No row means unreviewed.
+model SenderReview {
+  id             String              @id @default(cuid())
+  organizationId String
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  domainId       String
+  domain         Domain              @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  senderKey      String
+  /// Null while the row carries only an owner. The pair is unique, so the
+  /// owner can be kept when the review is cleared back to unreviewed.
+  status         SenderReviewStatus?
+  ownerUserId    String?
+  ownerUser      User?               @relation("SenderReviewOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  note           String?             @db.VarChar(280)
+  reviewedById   String?
+  reviewedBy     User?               @relation("SenderReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt     DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@unique([domainId, senderKey])
+  @@index([organizationId])
+  @@map("sender_review")
 }
 
 model EmailDelivery {

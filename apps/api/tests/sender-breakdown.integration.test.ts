@@ -242,6 +242,29 @@ describe('sender grading', () => {
 describe('per sending service breakdown', () => {
   beforeAll(resetDatabase);
 
+  it('does not mark a DKIM-passing, SPF-failing bulk sender as failing DMARC', async () => {
+    const { agent, organizationId, domainId, domainName } = await setup();
+
+    const ingested = await agent.post(`/api/workspaces/${organizationId}/domains/${domainId}/reports`).send({
+      xml: aggregateReport(domainName, `dkim-only-${Date.now()}`, [
+        { ip: '198.51.100.44', count: 500, dkim: 'pass', spf: 'fail', spfDomain: 'mailer.other.test', headerFrom: 'mailer.other.test' },
+      ]),
+    });
+    expect(ingested.status).toBe(201);
+
+    const senders = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/senders`);
+    expect(senders.status).toBe(200);
+    const row = senders.body.senders.find((sender: { sourceIps: string[] }) => sender.sourceIps.includes('198.51.100.44'));
+
+    expect(row.status).toBe('clean');
+    expect(row.dmarcFailedMessages).toBe(0);
+    expect(row.dmarcFailureSharePercent).toBe(0);
+    expect(row.failedMessages).toBe(500);
+    expect(row.failureSharePercent).toBe(100);
+    expect(senders.body.newSenderBlockers).toHaveLength(1);
+    expect(senders.body.newSenderBlockers[0]).toContain('authenticated only one of SPF or DKIM');
+  });
+
   it('exposes a rare broken sender that the blended rate hides', async () => {
     const { agent, organizationId, domainId, domainName } = await setup();
 

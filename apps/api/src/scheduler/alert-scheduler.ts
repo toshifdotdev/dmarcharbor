@@ -2,6 +2,7 @@
 import { evaluateAlertRules, runAlertRollups } from '../services/alert.service.js';
 import { runReportDigests } from '../services/report-digest.service.js';
 import { runMonthlyReportSchedules } from '../services/reports/monthly-report-schedule.service.js';
+import { runSenderIntelPass } from '../services/senders/ip-intel.service.js';
 import { executeDueErasures } from '../services/erasure/erasure.service.js';
 import { reverifyUnverifiedDomains } from '../services/domain-reverify.service.js';
 import { purgeExpiredIdempotencyRecords } from '../services/api-key.service.js';
@@ -190,6 +191,27 @@ async function runAlertEvaluationPass(): Promise<{ completed: true }> {
       const detail = error instanceof Error ? error.message : 'Unknown monthly report error.';
       console.error(`[monthly-reports] run failed: ${detail}`);
       recordJobFailure('monthly-reports');
+    }
+
+    /**
+     * Sender intelligence is DNS-only background work. It is leased and
+     * wrapped on its own so a resolver outage or one hostile PTR cannot stop
+     * the alert pass or any other scheduler.
+     */
+    try {
+      await withDueLease('sender-intel', 15 * 60 * 1000, async () => {
+        const intel = await runSenderIntelPass();
+        recordJobSuccess('sender-intel');
+        if (intel.lookedUp > 0 || intel.failed > 0) {
+          console.info(
+            `[sender-intel] examined ${intel.examined}, looked up ${intel.lookedUp}, ok ${intel.ok}, partial ${intel.partial}, failed ${intel.failed}, private ${intel.private}, skipped ${intel.skipped}`,
+          );
+        }
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Unknown sender intelligence error.';
+      console.error(`[sender-intel] run failed: ${detail}`);
+      recordJobFailure('sender-intel');
     }
 
     return { completed: true };

@@ -6,6 +6,8 @@ import { recordAuditEvent } from '../audit.service.js';
 import { resolveBranding } from '../branding.service.js';
 import { withPdfSlot } from '../pdf-concurrency.js';
 import { reportRetentionDays } from '../privacy.service.js';
+import { attributeSourceIp, type AuthSignal, type CachedIntel } from '../senders/attribution.js';
+import { normaliseIpAddress } from '../senders/ip-intel.service.js';
 import { loadMonthlyReportLogo, type ReportLogo } from './monthly-report-logo.js';
 import {
   monthlyReportFilename,
@@ -377,12 +379,76 @@ export async function collectMonthlyFacts(input: FactsInput): Promise<MonthlyFac
     summary: row.summary,
     detectedAt: row.detectedAt,
   }));
-  const sourceFacts: MonthlySourceFacts[] = sources.map((row) => ({
-    sourceIp: row.sourceIp,
-    senderDomain: row.senderDomain,
-    failedMessages: toNumber(row.failed),
-    totalMessages: toNumber(row.total),
-  }));
+
+  const sourceIps = sources.map((row) => normaliseIpAddress(row.sourceIp) ?? row.sourceIp);
+  const [sourceRecords, sourceIntelRows] = await Promise.all([
+    sourceIps.length
+      ? prisma.dmarcReportRecord.findMany({
+          where: {
+            sourceIp: { in: sourceIps },
+            report: {
+              domain: { clientId: client.id, client: { organizationId: client.organizationId } },
+              dateRangeBegin: { gte: start, lt: end },
+            },
+          },
+          select: {
+            sourceIp: true,
+            messageCount: true,
+            authResults: { select: { type: true, domain: true, result: true } },
+          },
+          take: 5_000,
+        })
+      : [],
+    sourceIps.length
+      ? prisma.sourceIpIntel.findMany({
+          where: { ip: { in: sourceIps } },
+          select: { ip: true, ptr: true, ptrConfirmed: true, asn: true, asnName: true },
+        })
+      : [],
+  ]);
+  const signalsByIp = new Map<string, Map<string, AuthSignal>>();
+  for (const record of sourceRecords) {
+    const ip = normaliseIpAddress(record.sourceIp) ?? record.sourceIp;
+    const signals = signalsByIp.get(ip) ?? new Map<string, AuthSignal>();
+    for (const auth of record.authResults) {
+      const key = `${auth.type}|${auth.domain ?? ''}|${auth.result}`;
+      const signal = signals.get(key) ?? {
+        type: auth.type,
+        domain: auth.domain,
+        result: auth.result,
+        messageCount: 0,
+      };
+      signal.messageCount += record.messageCount;
+      signals.set(key, signal);
+    }
+    signalsByIp.set(ip, signals);
+  }
+  const intel = new Map<string, CachedIntel>(
+    sourceIntelRows.map((row) => [
+      row.ip,
+      { ip: row.ip, ptr: row.ptr, ptrConfirmed: row.ptrConfirmed, asn: row.asn, asnName: row.asnName },
+    ]),
+  );
+  const sourceFacts: MonthlySourceFacts[] = sources.map((row, index) => {
+    const ip = sourceIps[index]!;
+    const attributed = attributeSourceIp({
+      reportedDomain: '',
+      ip,
+      messages: toNumber(row.total),
+      signals: [...(signalsByIp.get(ip)?.values() ?? [])],
+      intel: intel.get(ip) ?? null,
+    });
+    return {
+      sourceIp: row.sourceIp,
+      senderDomain: row.senderDomain,
+      failedMessages: toNumber(row.failed),
+      totalMessages: toNumber(row.total),
+      service:
+        attributed.service && (attributed.confidence === 'confirmed' || attributed.confidence === 'likely')
+          ? attributed.service.name
+          : null,
+    };
+  });
 
   return {
     clientName: client.name,

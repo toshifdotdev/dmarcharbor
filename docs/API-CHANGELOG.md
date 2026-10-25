@@ -154,6 +154,11 @@ manager. Copy it into your PSA so it can verify our signatures.
 The URL must be **public https**. Local, loopback and private addresses are
 refused.
 
+Webhooks are available from **Fairway** and above. A workspace that downgrades
+keeps its endpoints and can still list them, pause them and delete them; new
+events stop being queued until the plan grants webhooks again. Listing the
+delivery log and setting only `active: false` remain available on every plan.
+
 ### Events
 
 | Event | Fires when | Opt in |

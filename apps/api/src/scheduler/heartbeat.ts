@@ -62,6 +62,8 @@ const staleness: Record<string, number> = {
   'dns-monitor': 2 * 60 * 60 * 1000,
   // Due daily but leased hourly, so three hours still allows several chances.
   'monthly-reports': 3 * 60 * 60 * 1000,
+  // Runs every fifteen minutes; two hours tolerates a few skipped leases.
+  'sender-intel': 2 * 60 * 60 * 1000,
 };
 
 function entry(name: string): JobHeartbeat {

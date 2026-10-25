@@ -73,8 +73,12 @@ export interface SenderRow {
   sourceIps: string[];
   failingSourceIps: string[];
   totalMessages: number;
+  /** Did not pass both aligned checks; kept as the secondary figure. */
   failedMessages: number;
   failureSharePercent: number;
+  /** Failed both aligned checks, which is a DMARC failure. */
+  dmarcFailedMessages: number;
+  dmarcFailureSharePercent: number;
   hasEnoughSignal: boolean;
   status: "clean" | "degraded" | "failing" | "insufficient-data";
   firstSeenAt: string;
@@ -88,6 +92,23 @@ export interface SenderRow {
   newSenderRisk: "authenticated" | "partially-authenticated" | "unauthenticated" | null;
   dkimPassMessages: number;
   spfPassMessages: number;
+  service: { id: string; name: string; category: string } | null;
+  confidence: "confirmed" | "likely" | "network" | "own" | "unknown";
+  network: { asn: number; asnName: string | null } | null;
+  evidence: string[];
+  intelPending: boolean;
+  review: {
+    status: "APPROVED" | "NOT_OURS" | "UNREVIEWED";
+    note: string | null;
+    reviewedAt: string | null;
+    reviewedBy: { id: string; name: string } | null;
+  };
+  owner: { id: string; name: string } | null;
+}
+
+export interface SenderReviewResult {
+  review: SenderRow["review"];
+  owner: SenderRow["owner"];
 }
 
 export interface TrendPoint {
@@ -113,6 +134,8 @@ export interface SourceAttribution {
   lastSeenAt: string | null;
   topSendingDomain: string | null;
   risk: "high" | "medium" | "low";
+  service: { id: string; name: string; category: string } | null;
+  confidence: "confirmed" | "likely" | "network" | "own" | "unknown";
 }
 
 export interface DomainInsights {
@@ -691,6 +714,8 @@ export interface PublicShareReport {
     totalMessages: number;
     risk: string;
     topSendingDomain: string | null;
+    service: { id: string; name: string; category: string } | null;
+    confidence: string;
   }>;
   forensic: { included: boolean; reportCount: number; rejectedMessages: number; affectedRecipients: number } | null;
 }
@@ -741,7 +766,9 @@ export type EntitlementKey =
   | "trust.center"
   | "reports.compliancePack"
   | "reports.inbox"
-  | "branding.logoUpload";
+  | "branding.logoUpload"
+  | "integrations.webhooks"
+  | "senders.owners";
 
 export type QuotaKey = "client" | "activeDomain" | "member";
 
@@ -982,7 +1009,9 @@ export type AuditAction =
   | "MONTHLY_REPORT_ISSUED"
   | "MONTHLY_REPORT_SCHEDULE_UPDATED"
   | "MONTHLY_REPORT_SCHEDULE_DELETED"
-  | "MONTHLY_REPORT_DOWNLOADED";
+  | "MONTHLY_REPORT_DOWNLOADED"
+  | "SENDER_REVIEWED"
+  | "SENDER_OWNER_SET";
 
 /**
  * AuditOutcome is SUCCESS or DENIED. There is no FAILED value: the trail records
@@ -1275,6 +1304,8 @@ export interface PortalDomainDetail {
     totalMessages: number;
     failedMessages: number;
     failureSharePercent: number;
+    dmarcFailedMessages: number;
+    dmarcFailureSharePercent: number;
     hasEnoughSignal: boolean;
     status: "clean" | "degraded" | "failing" | "insufficient-data";
     firstSeenAt: string;
@@ -1282,10 +1313,13 @@ export interface PortalDomainDetail {
     isNew: boolean;
     dkimPassMessages: number;
     spfPassMessages: number;
+    service: { id: string; name: string; category: string } | null;
+    confidence: "confirmed" | "likely" | "network" | "own" | "unknown";
   }>;
   possibleSpoofingSources: Array<{
     senderKey: string;
     senderDomain: string | null;
+    serviceName: string | null;
     totalMessages: number;
     failedMessages: number;
     sourceIps: string[];

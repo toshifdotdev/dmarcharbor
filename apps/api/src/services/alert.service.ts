@@ -302,6 +302,7 @@ export async function listAlertEvents(
 export interface NewSourceDetail {
   senderKey: string;
   senderDomain: string | null;
+  serviceName: string | null;
   totalMessages: number;
   failedMessages: number;
   sourceIps: string[];
@@ -326,6 +327,7 @@ async function newSpoofingSourcesForDomain(domainId: string): Promise<NewSourceD
   return possibleSpoofingSources(rows).map((warning) => ({
     senderKey: warning.senderKey,
     senderDomain: warning.senderDomain,
+    serviceName: warning.serviceName,
     totalMessages: warning.totalMessages,
     failedMessages: warning.failedMessages,
     sourceIps: warning.sourceIps,
@@ -450,7 +452,7 @@ function summarise(
   if (rule.metric === 'NEW_UNAUTHENTICATED_SOURCE') {
     const named = snapshot.newUnauthenticatedSources
       .slice(0, 3)
-      .map((source) => source.senderDomain ?? source.senderKey)
+      .map((source) => source.serviceName ?? source.senderDomain ?? source.senderKey)
       .join(', ');
 
     return (
@@ -954,7 +956,7 @@ async function notifyRecipients(
             .slice(0, 10)
             .map(
               (source) =>
-                `  ${source.senderDomain ?? source.senderKey}: ${source.failedMessages} of ${source.totalMessages} messages failed both SPF and DKIM` +
+                `  ${source.serviceName ?? source.senderDomain ?? source.senderKey}: ${source.failedMessages} of ${source.totalMessages} messages failed both SPF and DKIM` +
                 `${source.sourceIps.length ? `, from ${source.sourceIps.join(', ')}` : ''}, first seen ${source.firstSeenAt.slice(0, 10)}.`,
             ),
           snapshot.newUnauthenticatedSources.length > 10

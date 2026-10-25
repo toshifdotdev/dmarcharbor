@@ -103,6 +103,8 @@ const ACTION_SENTENCES: Record<AuditAction, string> = {
   MONTHLY_REPORT_SCHEDULE_UPDATED: "Monthly report schedule saved",
   MONTHLY_REPORT_SCHEDULE_DELETED: "Monthly report schedule removed",
   MONTHLY_REPORT_DOWNLOADED: "Monthly report downloaded",
+  SENDER_REVIEWED: "Sender reviewed",
+  SENDER_OWNER_SET: "Sender owner changed",
 };
 
 /**
@@ -161,6 +163,8 @@ const TARGET_SENTENCES: Record<string, string> = {
   monthly_report: "Monthly report",
   monthly_report_schedule: "Monthly report schedule",
   monthly_report_link: "Monthly report download link",
+  sender_review: "Sender review",
+  sender_review_bulk: "Bulk sender review",
 };
 
 export function auditTargetLabel(targetType: string): string {

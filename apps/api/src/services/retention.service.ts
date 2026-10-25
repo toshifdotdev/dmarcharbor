@@ -42,6 +42,7 @@ export interface RetentionSweep {
   scheduledScans: number;
   monthlyReportFiles: number;
   monthlyReportLinks: number;
+  sourceIpIntel: number;
 }
 
 function hoursAgo(hours: number, now: Date): Date {
@@ -164,6 +165,15 @@ export async function purgeExpiredData(now: Date = new Date()): Promise<Retentio
       })
     : { count: 0 };
 
+  /**
+   * Public IP facts describe infrastructure and are not tenant data, but they
+   * are not kept for ever either. An address unseen for 180 days is not
+   * evidence about a current sender.
+   */
+  const sourceIpIntel = await prisma.sourceIpIntel.deleteMany({
+    where: { lastSeenAt: { lt: daysAgo(180, now) } },
+  });
+
   return {
     exportJobs: exportJobs.count,
     idempotencyRecords: idempotencyRecords.count,
@@ -173,5 +183,6 @@ export async function purgeExpiredData(now: Date = new Date()): Promise<Retentio
     scheduledScans: scheduledScans.count,
     monthlyReportFiles: monthlyReportFiles.count,
     monthlyReportLinks: monthlyReportLinks.count,
+    sourceIpIntel: sourceIpIntel.count,
   };
 }

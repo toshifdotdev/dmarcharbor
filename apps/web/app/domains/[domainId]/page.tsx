@@ -9,18 +9,27 @@ import {
   listClients,
   listDomainReports,
 } from "@/lib/api";
-import { getDnsChanges, getDomainSwitch, listDomainScans, listWorkspaceMembers } from "@/lib/api-ops";
+import {
+  getDnsChanges,
+  getDomainSwitch,
+  getPlanCatalog,
+  getWorkspaceEntitlements,
+  listDomainScans,
+  listWorkspaceMembers,
+} from "@/lib/api-ops";
 import { getServiceMeta } from "@/lib/api-public";
+import { featureOf } from "@/lib/entitlements";
 import { toDnsChangeView } from "@/lib/dns-change-view";
 import { instantLabel } from "@/lib/instant";
 import { daysSinceReport, fmtVolume, policyLabel, POSTURE_META, resolvePosture } from "@/lib/posture";
 import { onboardingHref } from "@/lib/route-hrefs";
 import { resolveActiveWorkspace } from "@/lib/session";
-import type { DnsChangePage, DomainInsights, DomainSwitchView, OnboardingState, ReportRow, ScanRow, SenderRow, SourceAttribution } from "@/lib/types";
+import type { DnsChangePage, DomainInsights, DomainSwitchView, OnboardingState, ReportRow, ScanRow, SourceAttribution } from "@/lib/types";
 import { AppShell } from "@/components/harbor/app-shell";
 import { DnsChangesPanel } from "@/components/harbor/dns-changes";
 import { DomainSwitchPanel } from "@/components/harbor/domain-switch";
 import { ScanHistory, toScanHistoryRow } from "@/components/harbor/scan-history";
+import { SendersTable } from "@/components/harbor/senders-table";
 import { PageHeader, SectionHead } from "@/components/harbor/page-header";
 import { RefreshButton } from "@/components/harbor/refresh-button";
 import { VolumeChart } from "@/components/harbor/volume-chart";
@@ -41,9 +50,9 @@ import { Tabs } from "@/components/ui/tabs";
  * (scans). Policy readiness sits beside the tables at wide sizes because it is
  * the decision the evidence feeds.
  *
- * Every figure is the API's. "Failed" is the API's own count: messages where
- * SPF or DKIM did not pass. That is stricter than DMARC's pass rule (one aligned
- * pass is enough), and the page says so where the figure appears.
+ * Every figure is the API's. Aggregate readouts keep the product's strict
+ * "did not pass both" count. The Senders table uses DMARC failure (both aligned
+ * checks failed) because a sender that passes one is not rejected by p=reject.
  */
 export default async function DomainPage({ params }: { params: Promise<{ domainId: string }> }) {
   const { domainId } = await params;
@@ -119,7 +128,7 @@ export default async function DomainPage({ params }: { params: Promise<{ domainI
 
   // A scan history is a different claim from the report evidence, so it fails
   // on its own and renders as a failure, never as an empty history.
-  const [scanHistory, switchState, dnsChanges, serviceMeta, members, me] = await Promise.all([
+  const [scanHistory, switchState, dnsChanges, serviceMeta, members, me, entitlements, catalog] = await Promise.all([
     listDomainScans(active.id, id).then(
       (page) => ({ rows: page.rows, nextCursor: page.nextCursor, failed: false }),
       () => ({ rows: [] as ScanRow[], nextCursor: null as string | null, failed: true }),
@@ -135,11 +144,18 @@ export default async function DomainPage({ params }: { params: Promise<{ domainI
     getServiceMeta().catch(() => null),
     listWorkspaceMembers(active.id).catch(() => null),
     getSessionUser().catch(() => null),
+    getWorkspaceEntitlements(active.id).catch(() => null),
+    getPlanCatalog().catch(() => null),
   ]);
 
   const role =
     members?.members.find((member) => (member.userId ?? member.user?.id) === me?.id)?.role ?? null;
   const canAcknowledgeDnsChanges = role === null || ["owner", "admin", "analyst"].includes(role);
+  const ownerFeature = featureOf(entitlements, "senders.owners");
+  const ownersPlanLabel =
+    catalog?.order
+      .map((tier) => catalog.plans.find((plan) => plan.tier === tier))
+      .find((plan) => plan?.features["senders.owners"])?.label ?? "a paid plan";
   const dnsInitial = dnsChanges.page
     ? {
         rows: dnsChanges.page.rows.map((row) => toDnsChangeView(row)),
@@ -266,7 +282,18 @@ export default async function DomainPage({ params }: { params: Promise<{ domainI
                   id: "senders",
                   label: "Senders",
                   count: insights.senders.length,
-                  panel: <SendersTable senders={insights.senders} domainName={insights.domain.name} />,
+                  panel: (
+                    <SendersTable
+                      organizationId={active.id}
+                      domainId={id}
+                      domainName={insights.domain.name}
+                      senders={insights.senders}
+                      canReview={role === null || ["owner", "admin", "analyst"].includes(role)}
+                      ownerFeature={ownerFeature}
+                      ownersPlanLabel={ownersPlanLabel}
+                      members={members?.members ?? []}
+                    />
+                  ),
                 },
                 {
                   id: "sources",
@@ -357,91 +384,6 @@ function SilenceBand({
 
 // ─── evidence tables ──────────────────────────────────────────────────────────
 
-const SENDER_STATUS: Record<SenderRow["status"], { tone: Tone; label: string }> = {
-  clean: { tone: "ok", label: "Clean" },
-  degraded: { tone: "warn", label: "Degraded" },
-  failing: { tone: "fail", label: "Failing" },
-  "insufficient-data": { tone: "void", label: "Too little data" },
-};
-
-function SendersTable({ senders, domainName }: { senders: SenderRow[]; domainName: string }) {
-  if (senders.length === 0) {
-    return <PanelNote>No sender has been observed yet. Senders appear here as receivers report mail claiming this domain.</PanelNote>;
-  }
-  const own = domainName.toLowerCase();
-  const unattributed = senders.filter((s) => (s.senderDomain ?? "").toLowerCase() !== own).length;
-  return (
-    <div className="flex flex-col gap-3 pt-4">
-      <p className="text-ui text-fg-2">
-        <span className="tnum font-semibold text-fg">{senders.length - unattributed}</span> authenticating as {domainName},{" "}
-        <span className={unattributed ? "tnum font-semibold text-warn" : "tnum font-semibold text-fg"}>{unattributed}</span> as some other
-        domain. A sender authenticating as someone else is seen, not attributed: an open question, never a pass.
-      </p>
-      <p className="text-meta text-fg-3">
-        Every percentage in this table is a share of <em className="not-italic font-semibold text-fg-2">that sender&rsquo;s own messages</em>, not of the domain&rsquo;s total.
-      </p>
-      <Table caption={`Senders observed for ${domainName}`} minWidth={900}>
-        <THead>
-          <tr>
-            <Th>Sender</Th>
-            <Th numeric>Sources</Th>
-            <Th numeric>Messages</Th>
-            <Th numeric>Failed</Th>
-            <Th numeric title="Failed messages as a share of this sender's own messages">Failed share</Th>
-            <Th numeric>DKIM pass</Th>
-            <Th numeric>SPF pass</Th>
-            <Th>Status</Th>
-            <Th numeric>Last seen</Th>
-          </tr>
-        </THead>
-        <TBody>
-          {senders.map((s) => {
-            const isOther = (s.senderDomain ?? "").toLowerCase() !== own;
-            return (
-              <Tr key={s.senderKey} tone={s.status === "failing" ? "fail" : undefined}>
-                <Td>
-                  <span className="data block font-semibold text-fg">{s.senderDomain ?? s.sourceIps[0] ?? "unknown"}</span>
-                  <span className="mt-0.5 flex flex-wrap gap-x-2 text-meta">
-                    {s.senderDomain ? null : <span className="text-fg-3">no authenticating domain</span>}
-                    {isOther ? <span className="font-semibold text-warn">unattributed</span> : <span className="text-fg-3">this domain</span>}
-                    {s.isNew ? (
-                      <span className="font-semibold text-fg-2">
-                        new{s.newSenderRisk ? `, ${s.newSenderRisk.replace("-", " ")}` : ""}
-                      </span>
-                    ) : null}
-                  </span>
-                </Td>
-                <Td numeric muted title={s.sourceIps.slice(0, 8).join(", ")}>
-                  {s.sourceIps.length}
-                </Td>
-                <Td numeric>{fmtVolume(s.totalMessages)}</Td>
-                <Td numeric className={s.failedMessages > 0 ? "font-semibold text-fail" : undefined}>
-                  {fmtVolume(s.failedMessages)}
-                </Td>
-                <Td numeric className={s.failedMessages > 0 ? "font-semibold text-fail" : "text-fg-3"}>
-                  {s.failureSharePercent}%
-                </Td>
-                <Td numeric muted>
-                  {share(s.dkimPassMessages, s.totalMessages)}
-                </Td>
-                <Td numeric muted>
-                  {share(s.spfPassMessages, s.totalMessages)}
-                </Td>
-                <Td>
-                  <Badge tone={SENDER_STATUS[s.status].tone}>{SENDER_STATUS[s.status].label}</Badge>
-                </Td>
-                <Td numeric muted title={`first seen ${instantLabel(s.firstSeenAt)}`}>
-                  {shortDate(s.lastSeenAt)}
-                </Td>
-              </Tr>
-            );
-          })}
-        </TBody>
-      </Table>
-    </div>
-  );
-}
-
 const RISK: Record<SourceAttribution["risk"], { tone: Tone; label: string }> = {
   high: { tone: "fail", label: "High" },
   medium: { tone: "warn", label: "Medium" },
@@ -458,10 +400,12 @@ function SourcesTable({ sources }: { sources: SourceAttribution[] }) {
         Source addresses that sent mail claiming this domain, most failures first. Risk is the API&rsquo;s reading of
         failure volume and forensic evidence; the top {sources.length === 25 ? "25 are" : `${sources.length} are`} shown.
       </p>
-      <Table caption="Sending sources" minWidth={860} dense>
+      <Table caption="Sending sources" minWidth={1080} dense>
         <THead>
           <tr>
             <Th>Source IP</Th>
+            <Th>Service</Th>
+            <Th>Confidence</Th>
             <Th>Sending domain</Th>
             <Th numeric>Messages</Th>
             <Th numeric>Failed</Th>
@@ -476,6 +420,28 @@ function SourcesTable({ sources }: { sources: SourceAttribution[] }) {
             <Tr key={s.sourceIp} tone={s.risk === "high" ? "fail" : undefined}>
               <Td mono className="font-semibold">
                 {s.sourceIp}
+              </Td>
+              <Td>
+                <span className="block text-ui font-semibold text-fg">
+                  {s.service && (s.confidence === "confirmed" || s.confidence === "likely")
+                    ? s.service.name
+                    : s.confidence === "network"
+                      ? "Network only"
+                      : s.confidence === "own"
+                        ? "Your own mail server"
+                        : "Not identified"}
+                </span>
+              </Td>
+              <Td muted className="text-meta">
+                {s.confidence === "confirmed"
+                  ? "Confirmed"
+                  : s.confidence === "likely"
+                    ? "Likely"
+                    : s.confidence === "network"
+                      ? "ASN only"
+                      : s.confidence === "own"
+                        ? "Own server"
+                        : "No evidence"}
               </Td>
               <Td mono muted={!s.topSendingDomain}>
                 {s.topSendingDomain ?? <span className="text-meta">none reported</span>}
@@ -716,10 +682,6 @@ function yesNo(v: boolean, yes: string, no: string) {
 /** The API sends pass rates as percentages already (0–100, two decimals). */
 function rate(v: number | null): string {
   return v === null ? "—" : `${v.toFixed(1)}%`;
-}
-
-function share(part: number, total: number): string {
-  return total > 0 ? `${((part / total) * 100).toFixed(0)}%` : "—";
 }
 
 function shortDate(iso: string): string {

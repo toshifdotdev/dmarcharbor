@@ -254,6 +254,7 @@ describe('data retention sweep', () => {
       scheduledScans: 0,
       monthlyReportFiles: 0,
       monthlyReportLinks: 0,
+      sourceIpIntel: 0,
     });
   });
 

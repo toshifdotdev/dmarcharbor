@@ -181,10 +181,11 @@ export function ShareDocument({ report, today }: { report: PublicShareReport; to
             usually someone pretending to be you, or a service of yours that is not set up yet.
           </p>
           <div className="mt-4">
-            <Table caption={`Sending sources for ${sharedFor.domain}`} minWidth={620}>
+            <Table caption={`Sending sources for ${sharedFor.domain}`} minWidth={760}>
               <THead>
                 <tr>
                   <Th>Source address</Th>
+                  <Th>Service</Th>
                   <Th>Sending as</Th>
                   <Th numeric>Messages</Th>
                   <Th numeric>Failed</Th>
@@ -197,6 +198,11 @@ export function ShareDocument({ report, today }: { report: PublicShareReport; to
                   <Tr key={s.sourceIp} tone={s.risk === "high" ? "fail" : undefined}>
                     <Td mono className="font-semibold">
                       {s.sourceIp}
+                    </Td>
+                    <Td muted={!s.service}>
+                      {s.service && (s.confidence === "confirmed" || s.confidence === "likely")
+                        ? s.service.name
+                        : "not identified"}
                     </Td>
                     <Td mono muted={!s.topSendingDomain}>
                       {s.topSendingDomain ?? <span className="text-meta">not reported</span>}

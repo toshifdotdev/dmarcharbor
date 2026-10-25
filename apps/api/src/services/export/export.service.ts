@@ -183,7 +183,7 @@ export async function buildExportPayload(input: {
           ...(input.scope === 'CLIENT' && input.targetId ? { clientId: input.targetId } : {}),
         };
 
-  const [organization, clients, domains, users, members, sessions, reports, forensics, alertRules, alertEvents, shares, digests, monthlyReports, auditLog] =
+  const [organization, clients, domains, users, members, sessions, reports, forensics, alertRules, alertEvents, shares, digests, monthlyReports, senderReviews, auditLog] =
     await Promise.all([
       prisma.organization.findUnique({
         where: { id: org },
@@ -383,6 +383,25 @@ export async function buildExportPayload(input: {
         orderBy: { createdAt: 'asc' },
         take: exportTableLimit,
       }),
+      prisma.senderReview.findMany({
+        where: {
+          organizationId: org,
+          ...(input.scope === 'CLIENT' && input.targetId
+            ? { domain: { clientId: input.targetId } }
+            : {}),
+          ...(input.scope === 'DOMAIN' && input.targetId ? { domainId: input.targetId } : {}),
+        },
+        select: {
+          senderKey: true,
+          status: true,
+          note: true,
+          reviewedAt: true,
+          domain: { select: { name: true } },
+          ownerUser: { select: { email: true } },
+        },
+        orderBy: { createdAt: 'asc' },
+        take: exportTableLimit,
+      }),
       prisma.auditLog.findMany({
         where: input.scope === 'DOMAIN' && input.targetId ? { domainId: input.targetId } : { organizationId: org },
         select: { id: true, action: true, targetType: true, targetId: true, createdAt: true },
@@ -482,6 +501,14 @@ export async function buildExportPayload(input: {
         sha256: row.pdfHash,
         issuedAt: row.createdAt,
         superseded: row.supersededAt !== null,
+      })),
+      senderReviews: senderReviews.map((row) => ({
+        domainName: row.domain.name,
+        senderKey: row.senderKey,
+        status: row.status ?? 'UNREVIEWED',
+        note: row.note,
+        ownerEmail: row.ownerUser?.email ?? null,
+        reviewedAt: row.reviewedAt,
       })),
       auditLog,
     },

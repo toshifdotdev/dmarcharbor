@@ -164,6 +164,11 @@ export interface DnsReader {
    * rather than failing the plan.
    */
   resolveCname?(name: string): Promise<LookupResult<string[]>>;
+  /**
+   * PTR names for an IP. Optional so existing reader doubles keep compiling;
+   * the sender-intelligence job simply records no reverse DNS without it.
+   */
+  resolvePtr?(ip: string): Promise<LookupResult<string[]>>;
 }
 
 export const scanRequestSchema = z.object({

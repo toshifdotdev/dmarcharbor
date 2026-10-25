@@ -239,6 +239,58 @@ describe('client portal access', () => {
     expect(serialised).not.toContain('recipient');
   });
 
+  it('never exposes sender review notes or owners to the portal', async () => {
+    const { agent, organizationId, clients } = await setup();
+    const contactEmail = `review-${Date.now()}@acme.test`;
+    const domainId = clients[0]!.domainId;
+    const member = await prisma.member.findFirstOrThrow({ where: { organizationId } });
+
+    await prisma.dmarcReport.create({
+      data: {
+        domainId,
+        reportType: 'AGGREGATE',
+        fingerprint: `fp-portal-review-${Date.now()}`,
+        recordCount: 1,
+        records: {
+          create: [
+            {
+              sourceIp: '45.83.12.9',
+              messageCount: 300,
+              dkimResult: 'fail',
+              spfResult: 'fail',
+              senderDomain: 'evil.test',
+              senderKey: 'evil.test',
+            },
+          ],
+        },
+      },
+    });
+    await prisma.senderReview.create({
+      data: {
+        organizationId,
+        domainId,
+        senderKey: 'evil.test',
+        status: 'NOT_OURS',
+        note: 'Agency internal note',
+        ownerUserId: member.userId,
+        reviewedAt: new Date(),
+      },
+    });
+
+    await agent
+      .post(`/api/workspaces/${organizationId}/clients/${clients[0]!.id}/portal-access`)
+      .send({ email: contactEmail });
+    const contact = await createUser(contactEmail);
+    const response = await contact.agent.get(`/api/portal/domains/${domainId}`);
+
+    expect(response.status).toBe(200);
+    const sender = response.body.senders.find((row: { senderKey: string }) => row.senderKey === 'evil.test');
+    expect(sender).toBeTruthy();
+    expect(sender).not.toHaveProperty('review');
+    expect(sender).not.toHaveProperty('owner');
+    expect(JSON.stringify(response.body)).not.toContain('Agency internal note');
+  });
+
   it('stops showing a client the moment the grant is revoked', async () => {
     const { agent, organizationId, clients } = await setup();
     const contactEmail = `revoke-${Date.now()}@acme.test`;

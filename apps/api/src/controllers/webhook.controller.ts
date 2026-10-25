@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { resourceIdSchema } from '../models/client.model.js';
+import { assertFeature, EntitlementError } from '../services/entitlements/entitlement.service.js';
 import { zodMessage } from '../utils/zod-messages.js';
 import {
   createEndpoint,
@@ -80,6 +81,25 @@ export async function updateWebhookController(request: Request, response: Respon
   if (!body.success) {
     response.status(400).json({ error: { code: 'INVALID_REQUEST', message: zodMessage(body.error.issues) ?? 'That update is not valid.' } });
     return;
+  }
+
+  /**
+   * Deactivation is always allowed, so a downgraded workspace can still stop
+   * delivery. Everything else — re-enabling, changing events, URL or name — is
+   * the feature itself and needs the plan. Checked here rather than as route
+   * middleware because only the body distinguishes the two cases.
+   */
+  const onlyDeactivation = body.data.active === false && Object.keys(request.body ?? {}).length === 1;
+  if (!onlyDeactivation) {
+    try {
+      await assertFeature(response.locals.organizationId, 'integrations.webhooks');
+    } catch (error) {
+      if (error instanceof EntitlementError) {
+        response.status(error.status).json({ error: { code: error.code, message: error.message, ...error.details } });
+        return;
+      }
+      throw error;
+    }
   }
 
   let url: string | undefined;

@@ -21,7 +21,9 @@ export type EntitlementKey =
   | 'trust.center'
   | 'reports.compliancePack'
   | 'reports.inbox'
-  | 'branding.logoUpload';
+  | 'branding.logoUpload'
+  | 'integrations.webhooks'
+  | 'senders.owners';
 
 export type QuotaKey = 'client' | 'activeDomain' | 'member';
 
@@ -50,6 +52,8 @@ export const entitlementLabels: Record<EntitlementKey, string> = {
   'reports.compliancePack': 'The compliance pack',
   'reports.inbox': 'Report collection from your own mailbox',
   'branding.logoUpload': 'Logo upload',
+  'integrations.webhooks': 'Webhooks',
+  'senders.owners': 'Sender owners',
 };
 
 /**
@@ -140,6 +144,8 @@ const allFeatures = (overrides: Partial<Record<EntitlementKey, boolean>> = {}): 
   'reports.compliancePack': true,
   'reports.inbox': true,
   'branding.logoUpload': true,
+  'integrations.webhooks': true,
+  'senders.owners': true,
   ...overrides,
 });
 
@@ -231,6 +237,19 @@ const noTrustCenter = { 'trust.center': false, 'reports.compliancePack': false }
 const noInbox = { 'reports.inbox': false } as const;
 
 /**
+ * Webhooks and sender owners start at Fairway.
+ *
+ * DNS monitoring runs on every plan, so without a gate a free workspace could
+ * receive the same change and report events by webhook that email and Slack
+ * reserve for paid plans. The endpoint rows are kept on a downgrade, exactly
+ * like digests, so an upgrade resumes delivery without reconfiguration.
+ * Sender owners are a review workflow for a real client book; the service
+ * names, evidence and approved / not-ours decisions remain available to
+ * everyone because they are what makes the Senders table readable at all.
+ */
+const noIntegrations = { 'integrations.webhooks': false, 'senders.owners': false } as const;
+
+/**
  * Harbor's feature set, shared by FLEET rather than copied.
  *
  * FLEET is Harbor's features for a much larger portfolio. A copy would drift
@@ -253,7 +272,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
       maxMembers: 1,
       maxWorkspaces: 1,
     activeDomainWindowDays: 30,
-    features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...off }),
+    features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noIntegrations, ...off }),
   },
   FAIRWAY: {
     tier: 'FAIRWAY',

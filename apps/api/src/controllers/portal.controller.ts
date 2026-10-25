@@ -205,11 +205,19 @@ export async function portalDomainController(request: Request, response: Respons
 
   const insights = await getDomainInsights(organizationId, domain.id);
   const senders = await buildSenderBreakdown(organizationId, domain.id);
+  // A portal contact gets the sender facts, never the internal review note,
+  // review status or owner. Those are agency workflow.
+  const publicSenders = senders.map((row) => {
+    const publicRow: Partial<typeof row> = { ...row };
+    delete publicRow.review;
+    delete publicRow.owner;
+    return publicRow;
+  });
 
   response.json({
     domain,
     aggregate: insights?.aggregate ?? null,
-    senders,
+    senders: publicSenders,
     // Same warnings the operator sees, but `detail` there is an instruction to
     // the operator ("Confirm with the domain owner, then enforce"), and the
     // person reading the portal IS the domain owner. They get a plain account
@@ -217,7 +225,7 @@ export async function portalDomainController(request: Request, response: Respons
     possibleSpoofingSources: possibleSpoofingSources(senders).map((warning) => ({
       ...warning,
       detail:
-        `${warning.senderDomain ?? warning.senderKey} sent mail as this domain and failed both SPF and DKIM on ${warning.failedMessages} of ${warning.totalMessages} messages. ` +
+        `${warning.serviceName ?? warning.senderDomain ?? warning.senderKey} sent mail as this domain and failed both SPF and DKIM on ${warning.failedMessages} of ${warning.totalMessages} messages. ` +
         'Mail like this is either someone pretending to be you or a service of yours that is not set up correctly yet.',
     })),
   });

@@ -188,6 +188,14 @@ const envSchema = z.object({
   DNS_MONITOR_BATCH_SIZE: z.coerce.number().int().min(1).max(200).default(30),
   DNS_MONITOR_CONCURRENCY: z.coerce.number().int().min(1).max(10).default(3),
   /**
+   * How many unseen sending IPs one sender-intelligence pass may look up.
+   *
+   * The lookups are public DNS only, but each pass is background work shared
+   * with alerts and billing; a bound keeps a backlog from becoming a resolver
+   * flood. Five lookups run at a time.
+   */
+  SENDER_INTEL_BATCH: z.coerce.number().int().min(1).max(2000).default(300),
+  /**
    * How many reverse proxies sit in front of this process, so Express can trust
    * the leftmost `X-Forwarded-For` entry and rate limiters can key on the real
    * client address rather than on the proxy's.
