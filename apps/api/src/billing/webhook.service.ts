@@ -44,6 +44,17 @@ export interface WebhookOutcome {
   detail?: string;
 }
 
+/**
+ * A provider's quantity field, read as a quantity or discarded.
+ *
+ * Exported so the parsing rule can be asserted without a signed webhook. Only
+ * a positive whole number is a quantity; anything else leaves the stored value
+ * alone rather than writing a fraction of a domain into a bill.
+ */
+export function parseQuantity(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 ? value : null;
+}
+
 /* ------------------------------------------------------------------ Razorpay */
 
 const razorpayEventMap: Record<string, BillingEventType> = {
@@ -169,6 +180,7 @@ export async function handleRazorpayWebhook(input: {
         : 'past_due',
     currentPeriodEnd: subscriptionEntity?.current_end ? new Date(subscriptionEntity.current_end * 1000) : null,
     cancelAtPeriodEnd: Boolean(subscriptionEntity?.cancel_at_cycle_end),
+    quantity: parseQuantity(subscriptionEntity?.quantity),
     nextAttemptAt: null,
     /**
      * Razorpay's own event time, not ours.
@@ -265,6 +277,7 @@ export async function handlePaddleWebhook(input: {
     status: paddleStatusMap[data.status ?? 'active'] ?? 'active',
     currentPeriodEnd: data.current_billing_period?.ends_at ? new Date(data.current_billing_period.ends_at) : null,
     cancelAtPeriodEnd: data.scheduled_change?.action === 'cancel' || data.status === 'canceled',
+    quantity: parseQuantity(data.items?.[0]?.quantity),
     nextAttemptAt: data.next_billed_at ? new Date(data.next_billed_at) : null,
     occurredAt: payload.event_date ? new Date(payload.event_date) : new Date(),
     raw: payload,
@@ -399,6 +412,7 @@ interface RazorpayPayload {
         status?: string;
         current_end?: number;
         cancel_at_cycle_end?: boolean;
+        quantity?: number;
         notes?: Record<string, string>;
       };
     };
@@ -416,6 +430,7 @@ interface PaddlePayload {
     customer_id?: string;
     subscription_id?: string;
     custom_data?: Record<string, unknown>;
+    items?: Array<{ quantity?: number }>;
     scheduled_change?: { action?: string } | null;
     current_billing_period?: { ends_at?: string } | null;
     next_billed_at?: string | null;

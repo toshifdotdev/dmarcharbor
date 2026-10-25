@@ -79,14 +79,14 @@ describe('plan entitlements', () => {
   it('serves the plan catalog without authentication', async () => {
     const response = await request(app).get('/api/plans');
     expect(response.status).toBe(200);
-    expect(response.body.plans).toHaveLength(4);
-    expect(response.body.order).toEqual(['MOORING', 'FAIRWAY', 'HARBOR', 'ADMIRALTY']);
+    expect(response.body.plans).toHaveLength(5);
+    expect(response.body.order).toEqual(['MOORING', 'FAIRWAY', 'HARBOR', 'ADMIRALTY', 'FLEET']);
   });
 
   it('exposes plans and the statutory floor through meta', async () => {
     const response = await request(app).get('/api/meta');
     expect(response.status).toBe(200);
-    expect(response.body.plans).toHaveLength(4);
+    expect(response.body.plans).toHaveLength(5);
     expect(response.body.entitlements.alwaysAllowed).toEqual(['data.export', 'data.erase']);
   });
 
@@ -383,6 +383,7 @@ describe('plan entitlements', () => {
       status: 'expired',
       currentPeriodEnd: new Date(Date.now() - 1000),
       cancelAtPeriodEnd: false,
+      quantity: null,
       nextAttemptAt: null,
       occurredAt: new Date(),
       raw: { note: 'fixture' },

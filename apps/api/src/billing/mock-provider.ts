@@ -1,5 +1,6 @@
 import type { PlanTier } from '@prisma/client';
 import {
+  assertValidQuantity,
   BillingProviderError,
   type BillingContact,
   type BillingInterval,
@@ -41,7 +42,15 @@ export class MockBillingProvider implements BillingProvider {
   // providerSubscriptionId unique constraint and hide real behaviour.
   private static sequence = 0;
   /** Every checkout the provider was asked for, so tests can assert on it. */
-  readonly checkouts: (CheckoutRequest & { session: CheckoutSession })[] = [];
+  readonly checkouts: (CheckoutRequest & { session: CheckoutSession; priceMinor: number })[] = [];
+
+  /** Every plan change the provider was asked for, so tests can assert quantity. */
+  readonly planChanges: Array<{
+    providerSubscriptionId: string;
+    plan: PlanTier;
+    interval: BillingInterval;
+    quantity: number;
+  }> = [];
 
   async ensureCustomer(input: { organizationId: string; contact: BillingContact }): Promise<{ providerCustomerId: string }> {
     const existing = this.customers.get(input.organizationId);
@@ -55,7 +64,10 @@ export class MockBillingProvider implements BillingProvider {
   }
 
   async createCheckout(input: CheckoutRequest): Promise<CheckoutSession> {
-    const price = planCatalog[input.plan].prices[input.currency][intervalKey(input.interval)];
+    assertValidQuantity(input.quantity);
+
+    const unit = planCatalog[input.plan].prices[input.currency][intervalKey(input.interval)];
+    const price = unit * input.quantity;
 
     if (price <= 0) {
       throw new BillingProviderError(
@@ -82,7 +94,7 @@ export class MockBillingProvider implements BillingProvider {
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
     };
 
-    this.checkouts.push({ ...input, session });
+    this.checkouts.push({ ...input, session, priceMinor: price });
 
     return session;
   }
@@ -107,6 +119,7 @@ export class MockBillingProvider implements BillingProvider {
       status: 'active',
       currentPeriodEnd: addInterval(new Date(), interval),
       cancelAtPeriodEnd: false,
+      quantity: checkout.quantity,
       nextAttemptAt: null,
       organizationId: checkout.organizationId,
     };
@@ -126,16 +139,47 @@ export class MockBillingProvider implements BillingProvider {
     providerSubscriptionId: string;
     plan: PlanTier;
     interval: BillingInterval;
+    quantity: number;
   }): Promise<ProviderSubscription> {
+    assertValidQuantity(input.quantity);
     const subscription = this.require(input.providerSubscriptionId);
     const current = subscription.currentPeriodEnd ?? new Date();
+
+    this.planChanges.push({ ...input });
 
     // The change is scheduled rather than applied, mirroring both providers.
     return {
       ...subscription,
       plan: input.plan,
+      quantity: input.quantity,
       currentPeriodEnd: intervalKey(input.interval) === 'annualMinor' ? addYears(current, 1) : addInterval(current, 'monthly'),
     };
+  }
+
+  /** Quantity-only changes, recorded so tests can assert the exact count. */
+  readonly quantityUpdates: Array<{ providerSubscriptionId: string; quantity: number }> = [];
+
+  /** Test seam: makes the next quantity sync fail at the provider. */
+  failQuantityUpdates = false;
+
+  async updateQuantity(input: {
+    providerSubscriptionId: string;
+    plan: PlanTier;
+    quantity: number;
+  }): Promise<void> {
+    assertValidQuantity(input.quantity);
+    void input.plan;
+
+    if (this.failQuantityUpdates) {
+      throw new BillingProviderError('The mock provider refused the quantity change.', 'MOCK_QUANTITY_FAILED', 502);
+    }
+
+    const subscription = this.require(input.providerSubscriptionId);
+    subscription.quantity = input.quantity;
+    this.quantityUpdates.push({
+      providerSubscriptionId: input.providerSubscriptionId,
+      quantity: input.quantity,
+    });
   }
 
   async cancelAtPeriodEnd(providerSubscriptionId: string): Promise<void> {

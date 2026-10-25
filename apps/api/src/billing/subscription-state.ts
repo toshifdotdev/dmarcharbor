@@ -4,7 +4,9 @@ import { prisma } from '../database/prisma.js';
 import { providerFor } from './registry.js';
 import { recordAuditEvent } from '../services/audit.service.js';
 import { effectivePlan } from '../services/entitlements/plan-catalog.js';
+import { resolveEntitlements } from '../services/entitlements/entitlement.service.js';
 import { removeLogoOnDowngrade } from '../services/branding.service.js';
+import { billableQuantity } from './quantity.js';
 import type { BillingEvent, BillingProvider, ProviderSubscriptionStatus } from './provider.js';
 
 /**
@@ -171,6 +173,7 @@ export async function applyBillingEvent(event: BillingEvent): Promise<ApplyEvent
         status: true,
         currentPeriodEnd: true,
         cancelAtPeriodEnd: true,
+        quantity: true,
         pendingPlan: true,
         pendingPlanInterval: true,
         lastEventAt: true,
@@ -256,6 +259,13 @@ export async function applyBillingEvent(event: BillingEvent): Promise<ApplyEvent
       !arrivingMatchesPending &&
       resolvedPlan !== 'MOORING';
 
+    // Only an integer of at least one is a quantity. Anything else is left out
+    // of the update entirely, so a malformed payload cannot overwrite the row.
+    const eventQuantity =
+      typeof event.quantity === 'number' && Number.isInteger(event.quantity) && event.quantity >= 1
+        ? event.quantity
+        : null;
+
     await tx.subscription.upsert({
       where: { organizationId },
       create: {
@@ -266,6 +276,7 @@ export async function applyBillingEvent(event: BillingEvent): Promise<ApplyEvent
         providerSubscriptionId: event.providerSubscriptionId,
         currentPeriodEnd,
         cancelAtPeriodEnd,
+        quantity: eventQuantity ?? 1,
         lastEventAt: event.occurredAt,
       },
       update: {
@@ -274,6 +285,7 @@ export async function applyBillingEvent(event: BillingEvent): Promise<ApplyEvent
         ...(event.providerSubscriptionId ? { providerSubscriptionId: event.providerSubscriptionId } : {}),
         ...(currentPeriodEnd ? { currentPeriodEnd } : {}),
         cancelAtPeriodEnd,
+        ...(eventQuantity === null ? {} : { quantity: eventQuantity }),
         lastEventAt: event.occurredAt,
         ...(keepPending
           ? {}
@@ -316,7 +328,13 @@ export async function applyBillingEvent(event: BillingEvent): Promise<ApplyEvent
     // reference is cleared, never anything the customer owns. Uses the caller's
     // transaction: called on the global client before, so the logo was deleted
     // even when the plan change rolled back.
-    if (resolvedPlan !== 'ADMIRALTY') {
+    //
+    // The decision comes from the workspace's effective entitlements, not from
+    // the tier id. A live branding.logoUpload override keeps the logo on a plan
+    // that does not normally carry it, which is what the override is for; the
+    // expired override then removes it on the next billing event.
+    const entitlements = await resolveEntitlements(organizationId, new Date(), tx);
+    if (!entitlements.features['branding.logoUpload']) {
       await removeLogoOnDowngrade(organizationId, tx);
     }
 
@@ -417,6 +435,20 @@ export async function setPlanByStaff(input: {
 }
 
 /**
+ * The synthetic event id reconciliation uses for one observation.
+ *
+ * Quantity is part of it, or a quantity change inside one period is discarded
+ * as a duplicate of the earlier observation and the provider's count never
+ * reaches our row.
+ */
+export function reconcileEventId(
+  organizationId: string,
+  remote: { currentPeriodEnd: Date | null; status: ProviderSubscriptionStatus; quantity: number | null },
+): string {
+  return `reconcile:${organizationId}:${remote.currentPeriodEnd?.toISOString() ?? 'none'}:${remote.status}:${remote.quantity ?? 'na'}`;
+}
+
+/**
  * Reconciles our record against the provider.
  *
  * Webhook delivery is not guaranteed, so a scheduled comparison is the only way
@@ -459,7 +491,11 @@ export async function reconcileWithProvider(
   }
 
   const event: BillingEvent = {
-    providerEventId: `reconcile:${organizationId}:${remote.currentPeriodEnd?.toISOString() ?? 'none'}:${remote.status}`,
+    providerEventId: reconcileEventId(organizationId, {
+      currentPeriodEnd: remote.currentPeriodEnd,
+      status: remote.status,
+      quantity: remote.quantity,
+    }),
     type: 'subscription.updated',
     provider: provider.name,
     providerSubscriptionId: remote.providerSubscriptionId,
@@ -469,6 +505,7 @@ export async function reconcileWithProvider(
     status: remote.status,
     currentPeriodEnd: remote.currentPeriodEnd,
     cancelAtPeriodEnd: remote.cancelAtPeriodEnd,
+    quantity: remote.quantity,
     nextAttemptAt: remote.nextAttemptAt ?? null,
     // Dated now rather than at the provider's event time: this is a fresh
     // observation of current state, so it must not be rejected as stale by the
@@ -527,6 +564,7 @@ export async function applyDuePendingPlans(now = new Date()): Promise<{ applied:
     }
 
     const interval = (subscription.pendingPlanInterval ?? 'MONTHLY').toLowerCase() as 'monthly' | 'annual';
+    const billable = await billableQuantity(subscription.organizationId, targetPlan, now);
 
     // The provider is told first. If Paddle refuses, our row must not claim the
     // downgrade happened, because the customer would then be downgraded with
@@ -539,6 +577,7 @@ export async function applyDuePendingPlans(now = new Date()): Promise<{ applied:
           providerSubscriptionId: subscription.providerSubscriptionId,
           plan: targetPlan,
           interval,
+          quantity: billable.quantity,
         });
       } catch {
         providerAccepted = false;
@@ -570,7 +609,12 @@ export async function applyDuePendingPlans(now = new Date()): Promise<{ applied:
     const claimed = await prisma.$transaction(async (tx) => {
       const claim = await tx.subscription.updateMany({
         where: { organizationId: subscription.organizationId, pendingPlan: targetPlan },
-        data: { pendingPlan: null, pendingPlanInterval: null },
+        data: {
+          pendingPlan: null,
+          pendingPlanInterval: null,
+          quantity: billable.quantity,
+          quantitySyncedPeriodEnd: null,
+        },
       });
 
       // Zero means another instance applied it first, or the request was replaced.

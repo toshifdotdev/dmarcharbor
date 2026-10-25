@@ -5,6 +5,7 @@ import { providerFor } from './registry.js';
 import { planCatalog, type BillingCurrency } from '../services/entitlements/plan-catalog.js';
 import { BillingProviderError } from './provider.js';
 import { intervalLabel, resolveBillingInterval } from './interval.js';
+import { billedQuantity } from './quantity.js';
 
 /**
  * Refunds against the published 30 day money back guarantee.
@@ -97,6 +98,8 @@ export async function refundEligibility(
       // an annual plan depends on. Not on the row before, which is why annual
       // refunds quoted a month.
       currentPeriodEnd: true,
+      // What the provider billed for a per-domain plan.
+      quantity: true,
     },
   });
 
@@ -147,10 +150,26 @@ export async function refundEligibility(
    * for every annual workspace on the platform. See billing/interval.ts for how
    * the interval is derived.
    */
-  const { interval } = resolveBillingInterval(subscription.currentPeriodEnd, firstChargeAt, now);
-  const prices = planCatalog[subscription.plan as PlanTier].prices[currency];
-  const amountMinor = interval === 'annual' ? prices.annualMinor : prices.monthlyMinor;
-  const amountLabel = `1 ${intervalLabel(interval)} charge`;
+  const resolvedInterval = resolveBillingInterval(subscription.currentPeriodEnd, firstChargeAt, now);
+  const definition = planCatalog[subscription.plan as PlanTier];
+  const interval = definition.pricing === 'per_domain' ? 'monthly' : resolvedInterval.interval;
+  const prices = definition.prices[currency];
+  /**
+   * A per-domain plan was charged unit × quantity. Refunding the unit alone
+   * would return a fraction of what the customer paid, on the one figure that
+   * decides whether money moves.
+   */
+  const quantity = billedQuantity(subscription.plan as PlanTier, subscription.quantity);
+  const amountMinor =
+    definition.pricing === 'per_domain'
+      ? prices.monthlyMinor * quantity
+      : interval === 'annual'
+        ? prices.annualMinor
+        : prices.monthlyMinor;
+  const amountLabel =
+    definition.pricing === 'per_domain'
+      ? `${quantity} active domain${quantity === 1 ? '' : 's'} for one month`
+      : `1 ${intervalLabel(interval)} charge`;
 
   const base = {
     organizationId,

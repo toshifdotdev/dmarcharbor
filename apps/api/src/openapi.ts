@@ -623,9 +623,11 @@ export const openApiDocument = {
       get: {
         tags: ['Billing'],
         summary: 'What this workspace is paying for right now',
-        description:
+        description: [
           'Reports the effective plan, so a workspace mid cancellation still shows the plan it has paid for until the period ends.',
-        responses: { 200: { description: 'Current plan, status, period end and price.' }, ...standardErrors },
+          'For a per-domain plan it also returns the stored quantity, the unit price, the total, and the quantity measured for the next period. Every workspace gets a Fleet quote computed with Fleet\'s 30 day active-domain window.',
+        ].join(' '),
+        responses: { 200: { description: 'Current plan, status, period end, price and per-domain quantity fields.' }, ...standardErrors },
       },
     },
     '/workspaces/{organizationId}/billing/checkout': {
@@ -636,6 +638,7 @@ export const openApiDocument = {
           'Returns a hosted page on the payment provider. No card data ever reaches this server.',
           'Nothing marks the workspace as paid here. The plan changes only when a signature verified webhook confirms the money moved, because a customer closing the tab is indistinguishable from success if you trust the redirect.',
           'INR checkouts route to Razorpay, which settles into an Indian bank account. Other currencies route to Paddle, which is the merchant of record and handles international sales tax.',
+          'For a per-domain plan the quantity is measured server side from the account\'s active domains, with the plan minimum as the floor. A quantity in the request body is ignored.',
         ].join(' '),
         requestBody: {
           required: true,
@@ -645,7 +648,7 @@ export const openApiDocument = {
                 type: 'object',
                 required: ['plan', 'contact'],
                 properties: {
-                  plan: { type: 'string', enum: ['FAIRWAY', 'HARBOR', 'ADMIRALTY'] },
+                  plan: { type: 'string', enum: ['FAIRWAY', 'HARBOR', 'ADMIRALTY', 'FLEET'] },
                   interval: { type: 'string', enum: ['monthly', 'annual'], default: 'monthly' },
                   currency: { type: 'string', enum: ['USD', 'INR'], default: 'INR' },
                   contact: {
@@ -692,7 +695,7 @@ export const openApiDocument = {
                 type: 'object',
                 required: ['plan'],
                 properties: {
-                  plan: { type: 'string', enum: ['MOORING', 'FAIRWAY', 'HARBOR', 'ADMIRALTY'] },
+                  plan: { type: 'string', enum: ['MOORING', 'FAIRWAY', 'HARBOR', 'ADMIRALTY', 'FLEET'] },
                   interval: { type: 'string', enum: ['monthly', 'annual'], default: 'monthly' },
                 },
               },
@@ -1290,10 +1293,10 @@ export const openApiDocument = {
         tags: ['System'],
         summary: 'Plan catalog',
         description: [
-          'The four plans with their limits, features and prices. Public, so a pricing page can render before anyone signs up.',
+          'The four ladder plans with their limits, features and prices, followed by Fleet, which is billed per active domain. Public, so a pricing page can render before anyone signs up.',
           'Prices are returned in both USD cents and INR paise. The currency actually charged is whichever is selected at checkout.',
           'Mooring is free and covers two active domains. The paid prices are in the response, in USD and INR; this text does not repeat them so it cannot fall out of date.',
-          'The public API (api.access) is included from Harbor; white label and SSO from Admiralty.',
+          'Fleet is monthly only, has a minimum quantity, and grants exactly Harbor features: no white label, logo upload or SSO. The public API (api.access) is included from Harbor; white label and SSO from Admiralty.',
           'Data export and erasure are included on every plan, because the right to access and delete personal data cannot be paywalled.',
         ].join(' '),
         responses: { 200: { description: 'Plan catalog.' } },

@@ -171,6 +171,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
         canChange={canChange}
         contact={me ? { name: me.name ?? "", email: me.email } : null}
         entitlementsKnown={entitlements !== null}
+        fleetQuote={s.perDomainQuote ?? null}
       />
 
       <section aria-labelledby="consequences-head" className="grid gap-x-10 gap-y-6 border-t border-rule pt-6 lg:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]">

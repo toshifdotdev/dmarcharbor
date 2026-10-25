@@ -814,10 +814,19 @@ export const startCheckout = (
     currency: "USD" | "INR";
     contact: { name: string; email: string; taxId?: string | null };
   },
-) => call<{ url?: string; checkoutUrl?: string; priceLabel?: string; currency?: string }>(
-  wsPath(orgId, "/billing/checkout"),
-  { method: "POST", body: JSON.stringify(body) },
-);
+) =>
+  call<{
+    url?: string;
+    checkoutUrl?: string;
+    priceLabel?: string;
+    priceMinor?: number;
+    unitPriceMinor?: number;
+    quantity?: number;
+    currency?: string;
+  }>(wsPath(orgId, "/billing/checkout"), {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 
 /** PATCH /billing/plan. MOORING is a cancellation at period end and answers
  *  `cancelling`; otherwise `applied` when the provider moved the plan at once

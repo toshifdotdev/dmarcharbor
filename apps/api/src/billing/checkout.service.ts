@@ -9,6 +9,7 @@ import {
   type QuotaKey,
 } from '../services/entitlements/plan-catalog.js';
 import { quotaUsage } from '../services/entitlements/entitlement.service.js';
+import { billableQuantity, billedQuantity } from './quantity.js';
 import type { BillingInterval, ProviderName } from './provider.js';
 import { resolveProviderForCheckout } from './registry.js';
 import { planSyncReport, requireStoredPlan } from './plans.js';
@@ -90,13 +91,28 @@ export interface CheckoutSummary {
   plan: PlanTier;
   interval: BillingInterval;
   currency: BillingCurrency;
+  /** The total charged for this checkout: unit price × quantity on a per-domain plan. */
   priceMinor: number;
   priceLabel: string;
+  /** Units billed. One on a flat plan; the measured domain count on FLEET. */
+  quantity: number;
+  /** The plan's price for one unit before quantity. */
+  unitPriceMinor: number;
 }
 
 export async function startCheckout(input: StartCheckoutInput): Promise<CheckoutSummary> {
   if (input.plan === 'MOORING') {
     throw new CheckoutError('The free plan does not need a checkout.', 'FREE_PLAN', 400);
+  }
+
+  const definition = planCatalog[input.plan];
+  if (!definition.intervals.includes(input.interval)) {
+    throw new CheckoutError(
+      `${definition.label} is billed ${definition.intervals.map((entry) => (entry === 'monthly' ? 'monthly' : 'annually')).join(' or ')} only. Choose a plan that offers ${input.interval} billing.`,
+      'INTERVAL_NOT_OFFERED',
+      400,
+      { plan: input.plan, interval: input.interval, intervals: definition.intervals },
+    );
   }
 
   const existing = await prisma.subscription.findUnique({
@@ -138,11 +154,17 @@ export async function startCheckout(input: StartCheckoutInput): Promise<Checkout
     currency,
   });
 
+  // Measured here, never taken from the request. A per-domain plan bills the
+  // active domains across the account, with its published minimum.
+  const billable = await billableQuantity(input.organizationId, input.plan);
+  const totalMinor = definition.pricing === 'per_domain' ? plan.priceMinor * billable.quantity : plan.priceMinor;
+
   const session = await provider.createCheckout({
     organizationId: input.organizationId,
     plan: input.plan,
     interval: input.interval,
     currency,
+    quantity: billable.quantity,
     contact: input.contact,
     // The web app's host, and its real billing route. These pointed at this API's
     // own origin and at a path that does not exist, so a customer who finished
@@ -181,7 +203,9 @@ if (input.currency) {
       plan: input.plan,
       interval: input.interval,
       currency,
-      priceMinor: plan.priceMinor,
+      quantity: billable.quantity,
+      unitPriceMinor: plan.priceMinor,
+      priceMinor: totalMinor,
     },
   });
 
@@ -194,8 +218,10 @@ if (input.currency) {
     // The currency actually charged, which is not necessarily the one requested -
     // the workspace's stored preference wins when the request omits one.
     currency,
-    priceMinor: plan.priceMinor,
-    priceLabel: formatLabel(plan.priceMinor, currency),
+    quantity: billable.quantity,
+    unitPriceMinor: plan.priceMinor,
+    priceMinor: totalMinor,
+    priceLabel: formatLabel(totalMinor, currency),
   };
 }
 
@@ -282,36 +308,52 @@ export async function changePlan(input: {
     );
   }
 
-  // Only a move to a smaller plan can be over quota. Counting usage for an
-  // upgrade would refuse a purchase, which is the opposite of what we want.
-  if (quotaRank(input.plan) < quotaRank(subscription.plan)) {
-    const overage = await planOverageFor(input.organizationId, input.plan);
+  const targetDefinition = planCatalog[input.plan];
+  if (!targetDefinition.intervals.includes(input.interval)) {
+    throw new CheckoutError(
+      `${targetDefinition.label} is billed ${targetDefinition.intervals.map((entry) => (entry === 'monthly' ? 'monthly' : 'annually')).join(' or ')} only.`,
+      'INTERVAL_NOT_OFFERED',
+      400,
+      { plan: input.plan, interval: input.interval, intervals: targetDefinition.intervals },
+    );
+  }
 
-    if (overage.length > 0) {
-      // Recorded before anything is refused, because "why did my downgrade fail"
-      // is a question about an event that otherwise leaves no trace at all.
-      await recordAuditEvent({
-        organizationId: input.organizationId,
-        actorUserId: input.actorUserId ?? undefined,
-        action: 'BILLING_PLAN_CHANGE_REFUSED',
-        targetType: 'subscription',
-        targetId: subscription.providerSubscriptionId,
-        detail: { from: subscription.plan, to: input.plan, overage },
-      });
+  /**
+   * Every move is checked against what the workspace uses, not only a move to
+   * a smaller plan on the ladder.
+   *
+   * The ladder rank stopped being a valid shortcut once FLEET existed: moving
+   * from FLEET to ADMIRALTY can be over Admiralty's 300 domain limit, and moving
+   * to FLEET must still fit its own limits. Running the guard for every target
+   * also means a move whose limits are all satisfied still passes, which is the
+   * normal case.
+   */
+  const overage = await planOverageFor(input.organizationId, input.plan);
 
-      throw new CheckoutError(
-        // One sentence a person reads: what the plan allows against what is used.
-        // The rows travel separately in `overage` for a screen to set as a table.
-        `${planCatalog[input.plan].label} allows ${overage
-          .map((entry) => `${entry.limit} ${entry.label}`)
-          .join(' and ')}; this workspace has ${overage
-          .map((entry) => `${entry.used}`)
-          .join(' and ')}. Remove the excess, or keep the current plan.`,
-        'PLAN_CHANGE_OVER_QUOTA',
-        409,
-        { overage, from: subscription.plan, to: input.plan },
-      );
-    }
+  if (overage.length > 0) {
+    // Recorded before anything is refused, because "why did my downgrade fail"
+    // is a question about an event that otherwise leaves no trace at all.
+    await recordAuditEvent({
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId ?? undefined,
+      action: 'BILLING_PLAN_CHANGE_REFUSED',
+      targetType: 'subscription',
+      targetId: subscription.providerSubscriptionId,
+      detail: { from: subscription.plan, to: input.plan, overage },
+    });
+
+    throw new CheckoutError(
+      // One sentence a person reads: what the plan allows against what is used.
+      // The rows travel separately in `overage` for a screen to set as a table.
+      `${planCatalog[input.plan].label} allows ${overage
+        .map((entry) => `${entry.limit} ${entry.label}`)
+        .join(' and ')}; this workspace has ${overage
+        .map((entry) => `${entry.used}`)
+        .join(' and ')}. Remove the excess, or keep the current plan.`,
+      'PLAN_CHANGE_OVER_QUOTA',
+      409,
+      { overage, from: subscription.plan, to: input.plan },
+    );
   }
 
   // Resolved after the quota guard on purpose. The guard needs no provider and
@@ -323,10 +365,13 @@ export async function changePlan(input: {
     existingProvider: subscription.provider,
   });
 
+  const billable = await billableQuantity(input.organizationId, input.plan);
+
   await provider.changePlan({
     providerSubscriptionId: subscription.providerSubscriptionId,
     plan: input.plan,
     interval: input.interval,
+    quantity: billable.quantity,
   });
 
   /**
@@ -350,7 +395,12 @@ export async function changePlan(input: {
         await writePlan(tx, input.organizationId, input.plan);
         await tx.subscription.update({
           where: { organizationId: input.organizationId },
-          data: { pendingPlan: null, pendingPlanInterval: null },
+          data: {
+            pendingPlan: null,
+            pendingPlanInterval: null,
+            quantity: billable.quantity,
+            quantitySyncedPeriodEnd: null,
+          },
         });
       });
     } else {
@@ -390,6 +440,7 @@ export async function changePlan(input: {
       from: subscription.plan,
       to: input.plan,
       interval: input.interval,
+      quantity: billable.quantity,
       provider: provider.name,
       effectiveAt: provider.appliesPlanChangeImmediately ? 'immediate' : 'cycle_end',
     },
@@ -490,12 +541,33 @@ export async function billingPortalUrl(input: { organizationId: string; returnUr
 /** What the workspace is actually on right now, for the billing screen. */
 export async function billingStatus(organizationId: string): Promise<{
   plan: PlanTier;
+  pricing: 'flat' | 'per_domain';
   status: string;
   provider: string;
   currentPeriodEnd: string | null;
   cancelAtPeriodEnd: boolean;
   priceLabel: string;
   currency: BillingCurrency;
+  /** The stored quantity: 1 on a flat plan, the last synced count on FLEET. */
+  quantity: number;
+  /** The least a per-domain plan bills, or null on a flat plan. */
+  minimumQuantity: number | null;
+  /** The price of one unit, before quantity. */
+  unitPriceLabel: string;
+  /** What the next period is expected to bill, measured now. */
+  nextPeriodQuantity: number;
+  /**
+   * What Fleet would cost this workspace today, measured with Fleet's 30 day
+   * window whatever plan the workspace is on. All integer minor units.
+   */
+  perDomainQuote: {
+    plan: 'FLEET';
+    activeDomains: number;
+    quantity: number;
+    unitMinor: number;
+    totalMinor: number;
+    currency: BillingCurrency;
+  };
   /**
    * The plan that applies when the paid period ends, or null when nothing is
    * scheduled. Distinct from `plan`: a workspace can be on Fairway with
@@ -522,6 +594,7 @@ export async function billingStatus(organizationId: string): Promise<{
           provider: true,
           currentPeriodEnd: true,
           cancelAtPeriodEnd: true,
+          quantity: true,
           pendingPlan: true,
           pendingPlanInterval: true,
           firstChargeAt: true,
@@ -559,27 +632,62 @@ export async function billingStatus(organizationId: string): Promise<{
     organization.subscription?.firstChargeAt ?? null,
     new Date(),
   );
-  const interval = toStoredInterval(resolved.interval);
+  const definition = planCatalog[organization.plan];
+  const interval: StoredBillingInterval =
+    definition.pricing === 'per_domain' ? 'MONTHLY' : toStoredInterval(resolved.interval);
 
-  const prices = planCatalog[organization.plan].prices[currency];
+  const prices = definition.prices[currency];
+  const storedQuantity = organization.subscription?.quantity ?? 1;
+  const quantity = billedQuantity(organization.plan, storedQuantity);
+  const unitMinor = definition.pricing === 'per_domain'
+    ? prices.monthlyMinor
+    : interval === 'ANNUAL'
+      ? prices.annualMinor
+      : prices.monthlyMinor;
+
+  const [nextBillable, fleetBillable] = await Promise.all([
+    billableQuantity(organizationId, organization.plan),
+    definition.pricing === 'per_domain'
+      ? Promise.resolve(null)
+      : billableQuantity(organizationId, 'FLEET'),
+  ]);
+  const fleet = definition.pricing === 'per_domain' ? nextBillable : fleetBillable!;
+  const fleetUnitMinor = planCatalog.FLEET.prices[currency].monthlyMinor;
 
   return {
     plan: organization.plan,
+    pricing: definition.pricing,
     status: organization.subscription?.status ?? 'ACTIVE',
     provider: organization.subscription?.provider ?? 'NONE',
     currentPeriodEnd: periodEnd?.toISOString() ?? null,
     cancelAtPeriodEnd: organization.subscription?.cancelAtPeriodEnd ?? false,
     /**
-     * The price for the interval being billed.
+     * The price for the interval being billed, as a total for the stored
+     * quantity on a per-domain plan.
      *
      * This reported `monthlyMinor` unconditionally, so an annual Harbor customer
      * who paid 1,24,990 was shown "12,499" on their own billing page: the
      * screen understated the charge by ten times, in the one number they use to
      * check whether they have been overcharged.
      */
-    priceLabel: formatLabel(interval === 'ANNUAL' ? prices.annualMinor : prices.monthlyMinor, currency),
+    priceLabel: formatLabel(
+      definition.pricing === 'per_domain' ? unitMinor * quantity : unitMinor,
+      currency,
+    ),
     currency,
     interval,
+    quantity,
+    minimumQuantity: definition.minimumQuantity,
+    unitPriceLabel: formatLabel(unitMinor, currency),
+    nextPeriodQuantity: nextBillable.quantity,
+    perDomainQuote: {
+      plan: 'FLEET',
+      activeDomains: fleet.activeDomains,
+      quantity: fleet.quantity,
+      unitMinor: fleetUnitMinor,
+      totalMinor: fleetUnitMinor * fleet.quantity,
+      currency,
+    },
     pendingPlan: organization.subscription?.pendingPlan
       ? {
           plan: organization.subscription.pendingPlan,

@@ -808,6 +808,14 @@ model Subscription {
   userId                 String?
   user                   User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
   plan                   PlanTier           @default(MOORING)
+  /// What the provider bills now. Always 1 for a flat plan; for a per-domain
+  /// plan it is the domain count measured before the current period started.
+  quantity               Int                @default(1)
+  /// The period end whose quantity has already been pushed to the provider.
+  ///
+  /// Null until the first sync. Comparing it with `currentPeriodEnd` is what
+  /// stops the same change being sent twice inside one 48 hour window.
+  quantitySyncedPeriodEnd DateTime?
   status                 SubscriptionStatus @default(ACTIVE)
   provider               BillingProvider    @default(NONE)
   providerCustomerId     String?
@@ -1438,6 +1446,7 @@ enum PlanTier {
   FAIRWAY
   HARBOR
   ADMIRALTY
+  FLEET
 }
 
 enum BillingInterval {
@@ -1550,6 +1559,7 @@ enum AuditAction {
   BILLING_CHECKOUT_STARTED
   BILLING_PLAN_CHANGE_REQUESTED
   BILLING_PLAN_CHANGE_REFUSED
+  BILLING_QUANTITY_UPDATED
   BILLING_CANCELLED
   BILLING_RESUMED
     /// Recorded so a dispute about whether someone was authorised to accept the

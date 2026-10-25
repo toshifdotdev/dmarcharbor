@@ -2571,6 +2571,7 @@ check(
 //     Cross-checked against the API's own response, never a hardcoded copy.
 const plansRaw = await evalJs(`(async () => (await (await fetch('/api/plans')).json()))()`);
 const planNames = (plansRaw?.plans ?? []).map((p) => String(p.label ?? ""));
+const ladderPlanCount = (plansRaw?.plans ?? []).filter((p) => p.pricing !== "per_domain").length;
 const pricingAudit = await waitForEval(
   `(() => {
     const t = document.body.textContent;
@@ -2594,7 +2595,7 @@ check(
       plansRaw.plans &&
       pricingAudit &&
       pricingAudit.allPlansPresent &&
-      pricingAudit.cardCount === (plansRaw.plans ?? []).length &&
+      pricingAudit.cardCount === ladderPlanCount &&
       pricingAudit.firstScreenFigures &&
       pricingAudit.incremental &&
       pricingAudit.comparison,
@@ -3227,6 +3228,65 @@ check(
   "pricing controls: currency and interval together, left-aligned, one row",
   Boolean(controlsAudit && controlsAudit.present && controlsAudit.sameRow && controlsAudit.leftAligned),
   JSON.stringify(controlsAudit),
+);
+
+// 10c-2. Fleet sits BELOW the ladder, priced per active domain, and its card
+// must not join the four-plan alignment grid: data-plan, plan-cta-* and
+// plan-price-* are counted as exactly four by the checks above. Every figure
+// below is read from /api/plans, not typed in.
+const fleetPlan = (plansRaw?.plans ?? []).find((p) => p.tier === "FLEET");
+const fleetAudit = await evalJs(`(() => {
+  const card = document.querySelector('[data-plan-per-domain="FLEET"]');
+  if (!card) return { present: false };
+  const unit = card.querySelector('[data-testid="fleet-price"]');
+  const cta = card.querySelector('[data-testid="fleet-cta"]');
+  const ladder = [...document.querySelectorAll('article[data-plan]')];
+  const gridBottom = ladder.length ? Math.max(...ladder.map((el) => el.getBoundingClientRect().bottom)) : 0;
+  const top = card.getBoundingClientRect().top;
+  const text = card.textContent || '';
+  return {
+    present: true,
+    underGrid: ladder.length === 4 && top >= gridBottom - 2,
+    unitText: unit ? unit.textContent.trim() : null,
+    ctaText: cta ? cta.textContent.trim() : null,
+    text,
+    billedMonthlyOnly: /billed monthly only/i.test(text),
+    freeInCard: /\\bfree\\b/i.test(text),
+    supportLine: /need white label or sso for more than 300 domains\\?/i.test(text),
+    supportHref: card.querySelector('a[href="/support"]')?.getAttribute('href') ?? null,
+    noLadderHooks:
+      !card.hasAttribute('data-plan') &&
+      !card.querySelector('[data-testid^="plan-cta-"], [data-testid^="plan-price-"]'),
+  };
+})()`);
+const fleetCurrency = await evalJs(
+  `document.querySelector('[data-testid="pricing-currency-INR"]') ? 'INR' : 'USD'`,
+);
+const fleetNumber = (minor) =>
+  (minor / 100).toLocaleString(fleetCurrency === "INR" ? "en-IN" : "en-US", { maximumFractionDigits: 2 });
+const fleetUnitExpected = fleetPlan ? fleetNumber(fleetPlan.prices[fleetCurrency].monthlyMinor) : null;
+const fleetMinimumExpected = fleetPlan
+  ? `${fleetCurrency === "INR" ? "₹" : "$"}${fleetNumber(
+      fleetPlan.prices[fleetCurrency].monthlyMinor * fleetPlan.minimumQuantity,
+    )}`
+  : null;
+check(
+  "pricing: Fleet card below the ladder, per-domain unit and minimum, monthly only",
+  Boolean(
+    fleetPlan &&
+      fleetAudit?.present &&
+      fleetAudit.underGrid &&
+      fleetAudit.unitText === fleetUnitExpected &&
+      fleetAudit.text.includes("per active domain a month") &&
+      fleetAudit.text.includes(fleetMinimumExpected) &&
+      fleetAudit.billedMonthlyOnly &&
+      !fleetAudit.freeInCard &&
+      fleetAudit.noLadderHooks &&
+      fleetAudit.ctaText &&
+      fleetAudit.supportLine &&
+      fleetAudit.supportHref === "/support",
+  ),
+  JSON.stringify({ fleetPlan: Boolean(fleetPlan), fleetAudit, fleetUnitExpected, fleetMinimumExpected }),
 );
 
 // 10d. The DPA gate on workspace creation: two REAL boxes, neither pre-ticked,

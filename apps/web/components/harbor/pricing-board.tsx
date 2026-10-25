@@ -24,6 +24,7 @@ import { useId, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { clsx } from "clsx";
 import { formatMajor, formatMinor } from "@/lib/money";
+import { fleetIsMonthlyOnly, fleetMinimumQuantity, fleetMinimumTotalMinor, fleetUnitMinor } from "@/lib/fleet-pricing";
 import {
   addedFeatures,
   annualSavingMinor,
@@ -82,9 +83,11 @@ export function PricingBoard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const locked = persist?.locked ?? false;
-  const months = catalogMonthsSaved(plans);
+  const ladderPlans = plans.filter((plan) => plan.pricing !== "per_domain");
+  const perDomainPlan = plans.find((plan) => plan.pricing === "per_domain") ?? null;
+  const months = catalogMonthsSaved(ladderPlans);
   const other: PricingCurrency = currency === "USD" ? "INR" : "USD";
-  const free = plans.find((p) => isFree(p.prices.USD) && isFree(p.prices.INR)) ?? null;
+  const free = ladderPlans.find((p) => isFree(p.prices.USD) && isFree(p.prices.INR)) ?? null;
 
   function syncUrl(next: { currency?: PricingCurrency; interval?: PricingInterval }) {
     const params = new URLSearchParams(window.location.search);
@@ -120,15 +123,15 @@ export function PricingBoard({
     router.refresh();
   }
 
-  const features = soldFeatures(plans);
+  const features = soldFeatures(ladderPlans);
 
   // The reason for the recommendation, read from the catalog: what the
   // recommended plan is the first to carry among the things handed to clients.
   // No reason in the data, no sentence.
   const recommendation = (() => {
-    const at = plans.findIndex((p) => p.tier === RECOMMENDED_TIER);
+    const at = ladderPlans.findIndex((p) => p.tier === RECOMMENDED_TIER);
     if (at < 0) return null;
-    const added = new Set(addedFeatures(plans[at], at > 0 ? plans[at - 1] : null));
+    const added = new Set(addedFeatures(ladderPlans[at], at > 0 ? ladderPlans[at - 1] : null));
     // Mid-sentence, so lower-case the label unless it is a product name.
     const reasons = CLIENT_FACING.filter((k) => added.has(k)).map((k) => {
       const label = planFeatureLabel(k);
@@ -136,7 +139,7 @@ export function PricingBoard({
     });
     if (reasons.length === 0) return null;
     const list = reasons.length === 1 ? reasons[0] : `${reasons.slice(0, -1).join(", ")} and ${reasons[reasons.length - 1]}`;
-    return { label: plans[at].label, reasons: list };
+    return { label: ladderPlans[at].label, reasons: list };
   })();
 
   return (
@@ -198,11 +201,11 @@ export function PricingBoard({
       </div>
 
       <div className="hb-stagger grid border-t border-rule sm:grid-cols-2 xl:grid-cols-4">
-        {plans.map((plan, i) => {
+        {ladderPlans.map((plan, i) => {
           const price = plan.prices[currency];
           const otherPrice = plan.prices[other];
           const freePlan = isFree(price);
-          const previous = i > 0 ? plans[i - 1] : null;
+          const previous = i > 0 ? ladderPlans[i - 1] : null;
           const added = addedFeatures(plan, previous);
           const saving = annualSavingMinor(price);
           const current = currentTier === plan.tier;
@@ -345,6 +348,17 @@ export function PricingBoard({
         })}
       </div>
 
+      {perDomainPlan ? (
+        <FleetCard
+          plan={perDomainPlan}
+          currency={currency}
+          interval={interval}
+          signedIn={signedIn}
+          isCurrent={currentTier === perDomainPlan.tier}
+          baseLabel={ladderPlans.find((plan) => plan.tier === "HARBOR")?.label ?? "Harbor"}
+        />
+      ) : null}
+
       {(free && !signedIn) || recommendation ? (
         <div className="-mt-6 flex flex-col gap-1 text-meta text-fg-3">
           {recommendation ? (
@@ -367,7 +381,8 @@ export function PricingBoard({
             Compare everything
           </h2>
           <p className="mt-1 text-ui text-fg-2">
-            Every limit and every feature, on every plan. Prices in {currency}, {interval === "monthly" ? "per month" : "per year"}.
+            Every limit and every feature, on the four plans above. Fleet is priced per active domain and has the same
+            features as Harbor. Prices in {currency}, {interval === "monthly" ? "per month" : "per year"}.
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -377,7 +392,7 @@ export function PricingBoard({
                 <th scope="col" className="sticky left-0 z-[1] w-[34%] bg-paper py-2.5 pr-4">
                   <span className="sr-only">Plan detail</span>
                 </th>
-                {plans.map((p) => (
+                {ladderPlans.map((p) => (
                   <th key={p.tier} scope="col" className="px-3 py-2.5 font-bold text-fg">
                     {p.label}
                     {currentTier === p.tier ? <span className="ml-1.5 text-meta font-semibold text-act">yours</span> : null}
@@ -390,7 +405,7 @@ export function PricingBoard({
                 <th scope="row" className={ROW_HEAD}>
                   Price
                 </th>
-                {plans.map((p) => (
+                {ladderPlans.map((p) => (
                   <td key={p.tier} className="tnum px-3 py-2.5 font-semibold text-fg">
                     <span key={`${currency}-${interval}`} className="hb-figure">
                       {isFree(p.prices[currency]) ? "Free" : formatMinor(shown(p.prices[currency], interval), currency)}
@@ -398,7 +413,7 @@ export function PricingBoard({
                   </td>
                 ))}
               </tr>
-              <GroupRow label="Limits" span={plans.length + 1} />
+              <GroupRow label="Limits" span={ladderPlans.length + 1} />
               {(
                 [
                   ["Clients", (p: PlanDefinition) => p.maxClients],
@@ -411,20 +426,20 @@ export function PricingBoard({
                   <th scope="row" className={ROW_HEAD}>
                     {label}
                   </th>
-                  {plans.map((p) => (
+                  {ladderPlans.map((p) => (
                     <td key={p.tier} className="tnum px-3 py-2.5 text-fg">
                       {read(p)}
                     </td>
                   ))}
                 </tr>
               ))}
-              <GroupRow label="Features" span={plans.length + 1} />
+              <GroupRow label="Features" span={ladderPlans.length + 1} />
               {features.map((k) => (
                 <tr key={k} className="border-b border-rule">
                   <th scope="row" className={ROW_HEAD}>
                     {planFeatureLabel(k)}
                   </th>
-                  {plans.map((p) => {
+                  {ladderPlans.map((p) => {
                     const on = p.features[k as keyof PlanDefinition["features"]] === true;
                     return (
                       <td key={p.tier} className="px-3 py-2.5">
@@ -459,6 +474,94 @@ function GroupRow({ label, span }: { label: string; span: number }) {
         {label}
       </th>
     </tr>
+  );
+}
+
+/**
+ * The per-domain plan, below the ladder rather than a fifth column.
+ *
+ * Its unit price is not comparable with a flat monthly price, and putting it in
+ * the grid would invite exactly that comparison. The minimum is stated with the
+ * total it produces, because "$2" alone reads as the monthly bill.
+ */
+function FleetCard({
+  plan,
+  currency,
+  interval,
+  signedIn,
+  isCurrent,
+  baseLabel,
+}: {
+  plan: PlanDefinition;
+  currency: PricingCurrency;
+  interval: PricingInterval;
+  signedIn: boolean;
+  isCurrent: boolean;
+  baseLabel: string;
+}) {
+  const unit = fleetUnitMinor(plan, currency);
+  const minimum = fleetMinimumQuantity(plan);
+  const minimumTotal = fleetMinimumTotalMinor(plan, currency);
+  const monthlyOnly = fleetIsMonthlyOnly(plan);
+
+  return (
+    <article
+      data-plan-per-domain={plan.tier}
+      aria-labelledby={`plan-${plan.tier}`}
+      className="grid gap-x-10 gap-y-5 border-y border-rule bg-paper-2/50 px-0 py-7 sm:px-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)_minmax(0,0.8fr)] lg:items-start"
+    >
+      <header>
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h2 id={`plan-${plan.tier}`} className="wide text-[24px] font-bold tracking-[-0.02em] text-fg">
+            {plan.label}
+          </h2>
+          {isCurrent ? <span className="text-meta font-semibold text-act">Your plan</span> : null}
+          <span data-testid="fleet-minimum-label" className="text-meta font-semibold text-fg-3">
+            Minimum {minimum} domains
+          </span>
+        </div>
+        <p className="mt-1.5 max-w-[56ch] text-ui text-fg-2">{plan.descriptor}</p>
+        <p className="mt-2 text-meta text-fg-3">Everything in {baseLabel}.</p>
+      </header>
+
+      <div className="flex flex-col gap-1">
+        <p className="flex flex-wrap items-baseline gap-x-1.5 text-fg">
+          <span className="text-[22px] font-semibold text-fg-2">{SYMBOL[currency]}</span>
+          <span data-testid="fleet-price" className="tnum display text-[38px] leading-none">
+            {formatMajor(unit, currency)}
+          </span>
+          <span className="text-meta font-semibold text-fg-2">per active domain a month</span>
+        </p>
+        <p data-testid="fleet-minimum" className="text-meta text-fg-2">
+          At least <span className="tnum">{minimum}</span> domains are billed, so the smallest bill is{" "}
+          <span className="tnum">{formatMinor(minimumTotal, currency)}</span> a month.
+        </p>
+        <p className="text-meta font-semibold text-fg-2">
+          {monthlyOnly ? (interval === "annual" ? "Billed monthly only" : "Billed monthly") : "Billed per interval"}
+        </p>
+        <p className="text-meta text-fg-3">
+          Billed at the active-domain count measured before each period starts. No proration.
+        </p>
+      </div>
+
+      <div className="flex flex-col items-start gap-2">
+        <ButtonLink
+          href={signedIn ? "/billing" : "/sign-up"}
+          variant="secondary"
+          className="w-full justify-center sm:w-auto"
+          data-testid="fleet-cta"
+        >
+          {isCurrent ? "Manage on Billing" : `Choose ${plan.label}`}
+        </ButtonLink>
+        <p className="text-meta text-fg-2">
+          Need white label or SSO for more than 300 domains?{" "}
+          <a href="/support" className="link font-semibold">
+            Contact us
+          </a>
+          .
+        </p>
+      </div>
+    </article>
   );
 }
 

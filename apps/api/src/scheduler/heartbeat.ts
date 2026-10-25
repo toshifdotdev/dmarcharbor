@@ -54,6 +54,9 @@ const staleness: Record<string, number> = {
   'inbox-poll': 12 * 60 * 60 * 1000,
   'retention-sweep': 25 * 60 * 60 * 1000,
   'email-queue': 30 * 60 * 1000,
+  // Runs every six hours and only inside a renewal window, so a day of silence
+  // still means it had several chances.
+  'billing-quantity-sync': 24 * 60 * 60 * 1000,
 };
 
 function entry(name: string): JobHeartbeat {

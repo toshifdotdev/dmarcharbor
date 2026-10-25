@@ -752,6 +752,12 @@ export interface PlanDefinition {
   label: string;
   descriptor: string;
   prices: { USD: PlanPriceMinor; INR: PlanPriceMinor };
+  /** `flat` is one price for the interval; `per_domain` prices one unit. */
+  pricing: "flat" | "per_domain";
+  /** The intervals this plan is sold on. Fleet is monthly only. */
+  intervals: Array<"monthly" | "annual">;
+  /** The least quantity a per-domain plan bills. Null on a flat plan. */
+  minimumQuantity: number | null;
   maxClients: number;
   maxActiveDomains: number;
   maxMembers: number;
@@ -788,12 +794,28 @@ export interface ResolvedEntitlements {
 
 export interface BillingStatus {
   plan: string;
+  pricing?: "flat" | "per_domain";
   status: string;
   provider: string;
   currentPeriodEnd: string | null;
   cancelAtPeriodEnd: boolean;
   priceLabel: string;
   currency: "USD" | "INR";
+  /** Stored billing quantity: 1 on a flat plan, the last synced count on Fleet. */
+  quantity?: number;
+  minimumQuantity?: number | null;
+  unitPriceLabel?: string;
+  /** Measured for the next period; differs from quantity when the count moved. */
+  nextPeriodQuantity?: number;
+  /** What Fleet would cost this workspace today. */
+  perDomainQuote?: {
+    plan: "FLEET";
+    activeDomains: number;
+    quantity: number;
+    unitMinor: number;
+    totalMinor: number;
+    currency: "USD" | "INR";
+  } | null;
   /**
    * The plan that applies when the current period ends — distinct from the
    * current plan, shown side by side. Null means nothing is scheduled. While
@@ -926,6 +948,7 @@ export type AuditAction =
   | "BILLING_CHECKOUT_STARTED"
   | "BILLING_PLAN_CHANGE_REQUESTED"
   | "BILLING_PLAN_CHANGE_REFUSED"
+  | "BILLING_QUANTITY_UPDATED"
   | "BILLING_CANCELLED"
   | "BILLING_RESUMED"
   | "DPA_ACCEPTED"
@@ -1089,6 +1112,9 @@ export interface BillingCurrencyPreference {
 
 export interface CheckoutSummary {
   checkoutUrl?: string;
+  quantity?: number;
+  unitPriceMinor?: number;
+  priceMinor?: number;
   [key: string]: unknown;
 }
 

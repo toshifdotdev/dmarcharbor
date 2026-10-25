@@ -72,6 +72,7 @@ const ACTION_SENTENCES: Record<AuditAction, string> = {
   BILLING_CHECKOUT_STARTED: "Checkout started",
   BILLING_PLAN_CHANGE_REQUESTED: "Plan change requested",
   BILLING_PLAN_CHANGE_REFUSED: "Plan change refused",
+  BILLING_QUANTITY_UPDATED: "Billed domain count updated",
   BILLING_CANCELLED: "Subscription cancelled",
   BILLING_RESUMED: "Subscription resumed",
   DPA_ACCEPTED: "Data Processing Agreement accepted",

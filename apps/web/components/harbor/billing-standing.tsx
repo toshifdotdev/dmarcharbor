@@ -97,6 +97,7 @@ export function BillingStanding({
   const hasSubscription = s.provider !== "NONE";
   const free = s.priceLabel === "Free";
   const interval = s.interval === "ANNUAL" ? "a year" : "a month";
+  const perDomain = s.pricing === "per_domain";
   const failing = s.dunningStage === "WARNED" || s.status === "PAST_DUE";
   const withdrawn = s.dunningStage === "WITHDRAWN";
 
@@ -163,6 +164,20 @@ export function BillingStanding({
               {free ? null : <span className="text-body font-medium text-fg-3"> {interval}</span>}
             </span>
           </h2>
+          {perDomain ? (
+            <p className="text-ui text-fg-2" data-testid="fleet-quantity">
+              {/* Billed, not active: below the minimum the minimum is what is charged. */}
+              <span className="tnum font-semibold text-fg">{s.quantity ?? 1}</span> domains billed ×{" "}
+              <span className="tnum">{s.unitPriceLabel ?? s.priceLabel}</span> ={" "}
+              <span className="tnum font-semibold text-fg">{s.priceLabel}</span> a month.
+              {s.nextPeriodQuantity != null && s.nextPeriodQuantity !== s.quantity ? (
+                <span className="mt-0.5 block text-meta text-fg-3" data-testid="fleet-next-quantity">
+                  From the next renewal: <span className="tnum font-semibold text-fg-2">{s.nextPeriodQuantity}</span> active
+                  domains.
+                </span>
+              ) : null}
+            </p>
+          ) : null}
           <p className="text-ui text-fg-2">{renewal}</p>
           <p className="flex flex-wrap gap-x-4 gap-y-0.5 text-meta text-fg-3">
             {hasSubscription ? <span>Paid through {PROVIDER[s.provider] ?? s.provider}</span> : null}

@@ -75,6 +75,15 @@ export interface PlanDefinition {
   label: string;
   descriptor: string;
   prices: Record<BillingCurrency, PlanPrice>;
+  /**
+   * How the plan is charged: a flat price for the interval, or per active
+   * domain. A per-domain plan's `prices` hold the unit price.
+   */
+  pricing: 'flat' | 'per_domain';
+  /** The intervals this plan can be bought on. FLEET is monthly only. */
+  intervals: ('monthly' | 'annual')[];
+  /** The least quantity a per-domain plan bills. Null for a flat plan. */
+  minimumQuantity: number | null;
   maxClients: number;
   maxActiveDomains: number;
   maxMembers: number;
@@ -221,12 +230,24 @@ const noTrustCenter = { 'trust.center': false, 'reports.compliancePack': false }
  */
 const noInbox = { 'reports.inbox': false } as const;
 
+/**
+ * Harbor's feature set, shared by FLEET rather than copied.
+ *
+ * FLEET is Harbor's features for a much larger portfolio. A copy would drift
+ * the first time either plan changed, and the promise is exactly that the two
+ * grant the same things.
+ */
+const harborFeatures = allFeatures({ ...noSso, ...noBrand, 'trust.center': true });
+
 export const planCatalog: Record<PlanTier, PlanDefinition> = {
   MOORING: {
     tier: 'MOORING',
     label: 'Mooring',
     descriptor: 'Watch a couple of domains while you decide.',
     prices: { USD: { monthlyMinor: 0, annualMinor: 0 }, INR: { monthlyMinor: 0, annualMinor: 0 } },
+    pricing: 'flat',
+    intervals: ['monthly', 'annual'],
+    minimumQuantity: null,
     maxClients: 1,
     maxActiveDomains: 2,
       maxMembers: 1,
@@ -239,6 +260,9 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     label: 'Fairway',
     descriptor: 'Quarantine without rejection. Run a small client book.',
     prices: { USD: { monthlyMinor: 2900, annualMinor: 29000 }, INR: { monthlyMinor: 249900, annualMinor: 2499000 } },
+    pricing: 'flat',
+    intervals: ['monthly', 'annual'],
+    minimumQuantity: null,
     maxClients: 5,
     maxActiveDomains: 20,
       maxMembers: 3,
@@ -251,18 +275,24 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     label: 'Harbor',
     descriptor: 'Full enforcement with named forensic evidence, client portal and API.',
     prices: { USD: { monthlyMinor: 14900, annualMinor: 149000 }, INR: { monthlyMinor: 1249900, annualMinor: 12499000 } },
+    pricing: 'flat',
+    intervals: ['monthly', 'annual'],
+    minimumQuantity: null,
     maxClients: 20,
     maxActiveDomains: 80,
       maxMembers: 10,
       maxWorkspaces: 3,
     activeDomainWindowDays: 1095,
-    features: allFeatures({ ...noSso, ...noBrand, 'trust.center': true }),
+    features: harborFeatures,
   },
   ADMIRALTY: {
     tier: 'ADMIRALTY',
     label: 'Admiralty',
     descriptor: 'White label and SSO for large portfolios.',
     prices: { USD: { monthlyMinor: 39900, annualMinor: 399000 }, INR: { monthlyMinor: 3399900, annualMinor: 33999000 } },
+    pricing: 'flat',
+    intervals: ['monthly', 'annual'],
+    minimumQuantity: null,
     maxClients: 75,
     maxActiveDomains: 300,
       maxMembers: 25,
@@ -270,9 +300,40 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     activeDomainWindowDays: 3650,
     features: allFeatures(),
   },
+  /**
+   * Harbor's features for larger portfolios, billed per active domain.
+   *
+   * Never cheaper than Harbor at the minimum, and never a route to white label
+   * or SSO: those stay Admiralty-only, which is what keeps the two plans from
+   * competing for the same buyer.
+   */
+  FLEET: {
+    tier: 'FLEET',
+    label: 'Fleet',
+    descriptor: "Harbor's features for larger portfolios, billed per active domain.",
+    prices: { USD: { monthlyMinor: 200, annualMinor: 0 }, INR: { monthlyMinor: 16900, annualMinor: 0 } },
+    pricing: 'per_domain',
+    intervals: ['monthly'],
+    minimumQuantity: 75,
+    maxClients: 1000,
+    maxActiveDomains: 5000,
+    maxMembers: 25,
+    maxWorkspaces: 5,
+    activeDomainWindowDays: 30,
+    features: harborFeatures,
+  },
 };
 
 export const planOrder: PlanTier[] = ['MOORING', 'FAIRWAY', 'HARBOR', 'ADMIRALTY'];
+
+/** Plans priced per domain rather than per interval. */
+export const perDomainPlans: PlanTier[] = ['FLEET'];
+
+/**
+ * Every plan in the order a buyer reads them: the ladder first, then the
+ * per-domain plans. A per-domain unit price is not a rung on the ladder.
+ */
+export const catalogOrder: PlanTier[] = [...planOrder, ...perDomainPlans];
 
 /**
  * Smallest currency unit for a currency. INR divides into 100 paise, and USD
@@ -281,9 +342,7 @@ export const planOrder: PlanTier[] = ['MOORING', 'FAIRWAY', 'HARBOR', 'ADMIRALTY
  */
 const minorUnitDigits = 2;
 
-export function formatPrice(plan: PlanTier, currency: BillingCurrency, interval: 'monthly' | 'annual'): string {
-  const amount = planCatalog[plan].prices[currency][interval === 'monthly' ? 'monthlyMinor' : 'annualMinor'];
-
+function formatAmount(amount: number, currency: BillingCurrency): string {
   if (amount === 0) {
     return 'Free';
   }
@@ -295,6 +354,40 @@ export function formatPrice(plan: PlanTier, currency: BillingCurrency, interval:
   }).format(major);
 
   return `${currency === 'INR' ? '\u20b9' : '$'}${formatted}`;
+}
+
+export function formatPrice(plan: PlanTier, currency: BillingCurrency, interval: 'monthly' | 'annual'): string {
+  const definition = planCatalog[plan];
+  // A per-domain plan's price is a unit price. It has one interval, so asking
+  // for an annual figure must not read the zero placeholder and say "Free".
+  const amount =
+    definition.pricing === 'per_domain'
+      ? definition.prices[currency].monthlyMinor
+      : definition.prices[currency][interval === 'monthly' ? 'monthlyMinor' : 'annualMinor'];
+
+  return formatAmount(amount, currency);
+}
+
+/**
+ * The total a given quantity costs on a plan.
+ *
+ * Flat plans ignore the quantity. A per-domain plan multiplies its monthly unit
+ * price, falling back to the billed minimum when the caller has not measured a
+ * quantity. Integer minor units throughout.
+ */
+export function formatPlanPrice(
+  plan: PlanTier,
+  currency: BillingCurrency,
+  interval: 'monthly' | 'annual',
+  quantity?: number,
+): string {
+  const definition = planCatalog[plan];
+  if (definition.pricing !== 'per_domain') {
+    return formatPrice(plan, currency, interval);
+  }
+
+  const qty = Math.max(1, Math.trunc(quantity ?? definition.minimumQuantity ?? 1));
+  return formatAmount(definition.prices[currency].monthlyMinor * qty, currency);
 }
 
 /**
@@ -316,7 +409,11 @@ export function formatPriceWithConversion(
     return { primary, secondary: null };
   }
 
-  const amount = planCatalog[plan].prices.USD[interval === 'monthly' ? 'monthlyMinor' : 'annualMinor'];
+  const definition = planCatalog[plan];
+  const amount =
+    definition.pricing === 'per_domain'
+      ? definition.prices.USD.monthlyMinor
+      : definition.prices.USD[interval === 'monthly' ? 'monthlyMinor' : 'annualMinor'];
   if (amount === 0) {
     return { primary, secondary: null };
   }

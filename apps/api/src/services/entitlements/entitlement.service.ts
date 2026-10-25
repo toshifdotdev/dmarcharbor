@@ -4,9 +4,11 @@ import { emitEvent } from '../webhook.service.js';
 import { countCountedDomainsIn } from '../inventory/inventory.service.js';
 import {
   alwaysAllowedEntitlements,
+  catalogOrder,
   entitlementLabels,
   nextTier,
   planCatalog,
+  planOrder,
   quotaLabel,
   quotaLimitFor,
   type EntitlementKey,
@@ -277,6 +279,19 @@ export async function quotaUsage(
   return { used: await client.client.count({ where: { organizationId: { in: scope } } }), limit: definition.maxClients };
 }
 
+/** The first rung of the ladder that grants a feature, or null when none does. */
+export function requiredPlanFor(feature: EntitlementKey): PlanTier | null {
+  // Ladder order, not price order. A per-domain unit price is not a rung and
+  // must never become the answer to "upgrade to what?".
+  return planOrder.find((tier) => planCatalog[tier].features[feature]) ?? null;
+}
+
+/** The sentence a refused feature shows, in one place so it can be snapshotted. */
+export function entitlementRefusalMessage(feature: EntitlementKey, planLabel: string): string {
+  const requiredBy = requiredPlanFor(feature);
+  return `${entitlementLabels[feature] ?? feature} is not included in ${planLabel}. Upgrade to ${requiredBy ? planCatalog[requiredBy].label : 'a higher plan'} to use it.`;
+}
+
 export async function assertFeature(organizationId: string, feature: EntitlementKey, now = new Date()): Promise<void> {
   const entitlements = await resolveEntitlements(organizationId, now);
 
@@ -285,18 +300,11 @@ export async function assertFeature(organizationId: string, feature: Entitlement
   }
 
   const upgradeTo = nextTier(entitlements.plan);
-  const requiredBy = Object.entries(planCatalog)
-    .filter(([, definition]) => definition.features[feature])
-    .map(([tier]) => tier)
-    .sort(
-      (left, right) =>
-        planCatalog[left as PlanTier].prices.USD.monthlyMinor - planCatalog[right as PlanTier].prices.USD.monthlyMinor,
-    )[0];
+  const requiredBy = requiredPlanFor(feature);
 
   throw new EntitlementError(
     'FEATURE_NOT_IN_PLAN',
-    // The feature by name; the key still travels in `feature` for routing.
-    `${entitlementLabels[feature] ?? feature} is not included in ${entitlements.label}. Upgrade to ${requiredBy ? planCatalog[requiredBy as PlanTier].label : 'a higher plan'} to use it.`,
+    entitlementRefusalMessage(feature, entitlements.label),
     {
       feature,
       plan: entitlements.plan,
@@ -476,8 +484,8 @@ export async function removeOverride(organizationId: string, entitlement: string
 }
 
 export function planCatalogResponse(): Prisma.InputJsonValue {
-  return Object.values(planCatalog).map((plan) => ({
-    ...plan,
-    features: plan.features as unknown as Prisma.InputJsonValue,
+  return catalogOrder.map((tier) => ({
+    ...planCatalog[tier],
+    features: planCatalog[tier].features as unknown as Prisma.InputJsonValue,
   })) as unknown as Prisma.InputJsonValue;
 }

@@ -26,9 +26,12 @@ describe('stored provider plans', () => {
   it('describes every plan the catalog sells, in both currencies', () => {
     for (const currency of ['USD', 'INR'] as const) {
       const entries = expectedPlans(currency);
-      // Three paid tiers, two intervals each. The free tier has no provider
-      // plan because there is nothing to charge.
-      expect(entries).toHaveLength(6);
+      // Four paid flat tiers on two intervals, plus Fleet monthly. The free
+      // tier has no provider plan because there is nothing to charge.
+      expect(entries).toHaveLength(7);
+      expect(entries.filter((entry) => entry.tier === 'FLEET')).toEqual([
+        { tier: 'FLEET', interval: 'monthly', priceMinor: planCatalog.FLEET.prices[currency].monthlyMinor },
+      ]);
       expect(entries.every((entry) => entry.priceMinor > 0)).toBe(true);
     }
   });
@@ -133,8 +136,8 @@ describe('stored provider plans', () => {
 
     const report = await planSyncReport('PADDLE', 'USD');
 
-    expect(report).toHaveLength(6);
-    expect(report.filter((entry) => entry.status === 'missing')).toHaveLength(5);
+    expect(report).toHaveLength(7);
+    expect(report.filter((entry) => entry.status === 'missing')).toHaveLength(6);
     expect(report.find((entry) => entry.tier === 'FAIRWAY' && entry.interval === 'monthly')?.status).toBe('ready');
 
     await prisma.billingPlan.deleteMany();

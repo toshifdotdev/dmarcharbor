@@ -114,9 +114,11 @@ export function monthsSaved(price: PlanPriceMinor): number | null {
   return saving > 0 && saving % price.monthlyMinor === 0 ? saving / price.monthlyMinor : null;
 }
 
-/** One figure for every paid plan in both currencies, or null when they differ. */
+/** One figure for every paid flat plan in both currencies, or null when they differ.
+ *  Per-domain plans are excluded: their unit price is not an annual saving. */
 export function catalogMonthsSaved(plans: PlanDefinition[]): number | null {
   const all = plans
+    .filter((p) => p.pricing === "flat")
     .flatMap((p) => [p.prices.USD, p.prices.INR])
     .filter((price) => !isFree(price))
     .map(monthsSaved);

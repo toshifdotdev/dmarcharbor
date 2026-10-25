@@ -30,9 +30,10 @@ import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 import { clsx } from "clsx";
 import { formatMinor } from "@/lib/money";
+import { fleetIsMonthlyOnly, fleetMinimumQuantity, fleetMinimumTotalMinor, fleetUnitMinor } from "@/lib/fleet-pricing";
 import { addedFeatures, catalogMonthsSaved, isFree, planFeatureLabel, soldFeatures, UNLISTED_FEATURES } from "@/lib/plan-features";
 import { changeBillingPlan, startCheckout } from "@/lib/ops-client";
-import type { PlanDefinition, PlanOverageRow } from "@/lib/types";
+import type { BillingStatus, PlanDefinition, PlanOverageRow } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/choice";
 import { Field, Input, Segmented, Select } from "@/components/ui/field";
@@ -72,7 +73,11 @@ function features(plan: PlanDefinition): Set<string> {
   );
 }
 
-function priceOf(plan: PlanDefinition, currency: Currency, interval: Interval): string {
+function priceOf(plan: PlanDefinition, currency: Currency, interval: Interval, quote?: BillingStatus["perDomainQuote"] | null): string {
+  if (plan.pricing === "per_domain") {
+    const units = quote?.quantity ?? fleetMinimumQuantity(plan);
+    return formatMinor(fleetUnitMinor(plan, currency) * units, currency);
+  }
   const p = plan.prices[currency];
   if (isFree(p)) return "Free";
   return formatMinor(interval === "annual" ? p.annualMinor : p.monthlyMinor, currency);
@@ -95,6 +100,7 @@ export function BillingBoard({
   usage,
   canChange,
   contact,
+  fleetQuote,
 }: {
   organizationId: string;
   plans: PlanDefinition[];
@@ -113,11 +119,15 @@ export function BillingBoard({
   canChange: boolean;
   contact: { name: string; email: string } | null;
   entitlementsKnown: boolean;
+  fleetQuote: BillingStatus["perDomainQuote"] | null;
 }) {
   const [interval, setInterval] = useState<Interval>(currentInterval);
   const [open, setOpen] = useState<string | null>(null);
   const current = plans.find((p) => p.tier === currentTier) ?? null;
-  const months = catalogMonthsSaved(plans);
+  const ladderPlans = plans.filter((plan) => plan.pricing !== "per_domain");
+  const fleetPlan = plans.find((plan) => plan.pricing === "per_domain") ?? null;
+  const harbor = plans.find((plan) => plan.tier === "HARBOR") ?? null;
+  const months = catalogMonthsSaved(ladderPlans);
 
   return (
     <div className="flex flex-col gap-10">
@@ -147,12 +157,12 @@ export function BillingBoard({
         </div>
 
         <div className="grid border-t border-rule sm:grid-cols-2 xl:grid-cols-4">
-          {plans.map((plan, i) => (
+          {ladderPlans.map((plan, i) => (
             <PlanCard
               key={plan.tier}
               index={i}
               plan={plan}
-              previous={i > 0 ? plans[i - 1] : null}
+              previous={i > 0 ? ladderPlans[i - 1] : null}
               current={current}
               isCurrent={plan.tier === currentTier}
               isPending={plan.tier === pendingTier}
@@ -172,12 +182,44 @@ export function BillingBoard({
               usage={usage}
               canChange={canChange}
               contact={contact}
+              fleetQuote={fleetQuote}
             />
           ))}
         </div>
+
+        {fleetPlan ? (
+          <div className="grid border-t border-rule sm:grid-cols-2 xl:grid-cols-4">
+            <PlanCard
+              index={0}
+              plan={fleetPlan}
+              previous={harbor}
+              current={current}
+              isCurrent={fleetPlan.tier === currentTier}
+              isPending={fleetPlan.tier === pendingTier}
+              pendingTier={pendingTier}
+              open={open === fleetPlan.tier}
+              onOpen={() => setOpen(fleetPlan.tier)}
+              onClose={() => setOpen(null)}
+              organizationId={organizationId}
+              provider={provider}
+              hasSubscription={hasSubscription}
+              cancelling={cancelling}
+              periodEnd={periodEnd}
+              currency={currency}
+              // Fleet is monthly only, whatever the ladder toggle says.
+              interval={fleetIsMonthlyOnly(fleetPlan) ? "monthly" : interval}
+              chargeable={chargeable}
+              capabilitiesKnown={capabilitiesKnown}
+              usage={usage}
+              canChange={canChange}
+              contact={contact}
+              fleetQuote={fleetQuote}
+            />
+          </div>
+        ) : null}
       </section>
 
-      <Compare plans={plans} currentTier={currentTier} currency={currency} interval={interval} />
+      <Compare plans={ladderPlans} currentTier={currentTier} currency={currency} interval={interval} fleetQuote={fleetQuote} />
     </div>
   );
 }
@@ -289,10 +331,16 @@ function PlanCard(props: {
   usage: Usage;
   canChange: boolean;
   contact: { name: string; email: string } | null;
+  fleetQuote: BillingStatus["perDomainQuote"] | null;
 }) {
   const { plan, previous, isCurrent, isPending, pendingTier, open, hasSubscription, cancelling, currency, interval, canChange } = props;
   const free = isFree(plan.prices[currency]);
   const added = addedFeatures(plan, previous);
+  const perDomain = plan.pricing === "per_domain";
+  const fleetMinimum = fleetMinimumQuantity(plan);
+  const fleetMinimumTotal = fleetMinimumTotalMinor(plan, currency);
+  const quoteQuantity = props.fleetQuote?.quantity ?? fleetMinimum;
+  const quoteTotal = props.fleetQuote?.totalMinor ?? fleetMinimumTotal;
 
   const action: Action = isCurrent
     ? pendingTier && pendingTier !== plan.tier && hasSubscription
@@ -334,13 +382,39 @@ function PlanCard(props: {
         <p className="mt-1 text-ui text-fg-2">{plan.descriptor}</p>
       </header>
       <p className="tnum">
-        <span key={`${currency}-${interval}`} className="display inline-block text-[30px] leading-none text-fg [animation:hb-rise_220ms_ease-out_both]">
-          {priceOf(plan, currency, interval)}
-        </span>
-        {free ? null : <span className="ml-1 text-meta text-fg-3">{interval === "annual" ? "a year" : "a month"}</span>}
+        {perDomain ? (
+          <>
+            <span className="tnum inline-flex items-baseline [animation:hb-rise_220ms_ease-out_both]">
+              <span className="display text-[30px] leading-none text-fg">{formatMinor(fleetUnitMinor(plan, currency), currency)}</span>
+              <span className="ml-1 text-meta text-fg-3">per active domain a month</span>
+            </span>
+            <span className="mt-1 block text-meta text-fg-2">
+              Minimum {fleetMinimum} domains: <span className="tnum font-semibold text-fg">{formatMinor(fleetMinimumTotal, currency)}</span> a
+              month
+            </span>
+            <span className="mt-0.5 block text-meta text-fg-2">
+              {props.fleetQuote && props.fleetQuote.activeDomains >= fleetMinimum
+                ? `At your current ${props.fleetQuote.activeDomains} active domains: `
+                : `At the minimum of ${fleetMinimum} domains: `}
+              <span className="tnum font-semibold text-fg">{formatMinor(quoteTotal, currency)}</span> a month
+              {quoteQuantity > fleetMinimum ? ` for ${quoteQuantity} active domains` : ""}
+            </span>
+            <span className="mt-0.5 block text-meta text-fg-3">
+              Billed monthly. The count is measured before each period starts; no proration.
+            </span>
+          </>
+        ) : (
+          <>
+            <span key={`${currency}-${interval}`} className="display inline-block text-[30px] leading-none text-fg [animation:hb-rise_220ms_ease-out_both]">
+              {priceOf(plan, currency, interval, props.fleetQuote)}
+            </span>
+            {free ? null : <span className="ml-1 text-meta text-fg-3">{interval === "annual" ? "a year" : "a month"}</span>}
+          </>
+        )}
       </p>
       <p className="text-meta text-fg-2">
         {LIMITS.map((l) => `${plan[l.key]} ${plan[l.key] === 1 ? l.one : l.many}`).join(" · ")}
+        {perDomain ? " · contact us to add more" : ""}
       </p>
 
       {open && action !== "current" ? (
@@ -375,15 +449,23 @@ function PlanCard(props: {
       )}
 
       <div>
-        <p className="text-meta font-semibold text-fg-2">{previous ? `Everything in ${previous.label}, plus` : "Includes"}</p>
+        <p className="text-meta font-semibold text-fg-2">
+          {perDomain ? `Everything in ${previous?.label ?? "Harbor"}` : previous ? `Everything in ${previous.label}, plus` : "Includes"}
+        </p>
         <ul className="mt-2 flex flex-col gap-1.5 text-ui text-fg">
-          {added.map((k) => (
-            <li key={k} className="grid grid-cols-[16px_minmax(0,1fr)] gap-1.5">
-              <Check size={13} className="mt-[3px] text-ok" />
-              <span>{planFeatureLabel(k)}</span>
-            </li>
-          ))}
-          {added.length === 0 && previous ? <li className="text-fg-3">Higher limits; no added features.</li> : null}
+          {perDomain ? (
+            <li className="text-fg-3">Same features as {previous?.label ?? "Harbor"}; the difference is the limits and the per-domain price.</li>
+          ) : (
+            <>
+              {added.map((k) => (
+                <li key={k} className="grid grid-cols-[16px_minmax(0,1fr)] gap-1.5">
+                  <Check size={13} className="mt-[3px] text-ok" />
+                  <span>{planFeatureLabel(k)}</span>
+                </li>
+              ))}
+              {added.length === 0 && previous ? <li className="text-fg-3">Higher limits; no added features.</li> : null}
+            </>
+          )}
         </ul>
       </div>
     </article>
@@ -424,7 +506,7 @@ function Decision(
 
   const timing =
     action === "checkout"
-      ? `You pay ${priceOf(plan, payCurrency, interval)} ${interval === "annual" ? "a year" : "a month"} on ${PROVIDER_FOR[payCurrency]}'s page. The plan changes when ${PROVIDER_FOR[payCurrency]} confirms the payment.`
+      ? `You pay ${priceOf(plan, payCurrency, interval, props.fleetQuote)} ${interval === "annual" ? "a year" : "a month"} on ${PROVIDER_FOR[payCurrency]}'s page. The plan changes when ${PROVIDER_FOR[payCurrency]} confirms the payment.`
       : action === "cancel"
         ? `${currentLabel} stays until ${periodEnd ?? "the paid period ends"} and is not charged again; then the workspace moves to ${plan.label}. Every client, domain and report is kept.`
         : provider === "PADDLE"
@@ -645,7 +727,19 @@ function Decision(
   );
 }
 
-function Compare({ plans, currentTier, currency, interval }: { plans: PlanDefinition[]; currentTier: string; currency: Currency; interval: Interval }) {
+function Compare({
+  plans,
+  currentTier,
+  currency,
+  interval,
+  fleetQuote,
+}: {
+  plans: PlanDefinition[];
+  currentTier: string;
+  currency: Currency;
+  interval: Interval;
+  fleetQuote: BillingStatus["perDomainQuote"] | null;
+}) {
   const keys = soldFeatures(plans);
   return (
     <section aria-labelledby="compare-bill-head" className="flex flex-col gap-3">
@@ -674,7 +768,7 @@ function Compare({ plans, currentTier, currency, interval }: { plans: PlanDefini
               </th>
               {plans.map((p) => (
                 <td key={p.tier} className="tnum px-3 py-2 font-semibold text-fg">
-                  {priceOf(p, currency, interval)}
+                  {priceOf(p, currency, interval, fleetQuote)}
                 </td>
               ))}
             </tr>

@@ -1,6 +1,6 @@
 import type { BillingCurrency as CurrencyEnum, BillingInterval as IntervalEnum, PlanTier } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
-import { planCatalog, type BillingCurrency } from '../services/entitlements/plan-catalog.js';
+import { catalogOrder, planCatalog, type BillingCurrency, type PlanDefinition } from '../services/entitlements/plan-catalog.js';
 import type { BillingInterval } from './provider.js';
 
 type CurrencyCode = BillingCurrency;
@@ -74,13 +74,21 @@ export function catalogPriceMinor(tier: PlanTier, interval: BillingInterval, cur
 /**
  * Every plan combination the catalog defines for a currency, excluding the free
  * tier. A free plan has no provider plan because there is nothing to charge.
+ *
+ * Read from the catalog rather than a hand-written list: FLEET contributes its
+ * monthly unit price and no annual plan, which a second list would forget.
  */
 export function expectedPlans(currency: CurrencyCode): { tier: PlanTier; interval: BillingInterval; priceMinor: number }[] {
-  const tiers: PlanTier[] = ['FAIRWAY', 'HARBOR', 'ADMIRALTY'];
-  const intervals: BillingInterval[] = ['monthly', 'annual'];
+  const plans: PlanDefinition[] = catalogOrder
+    .filter((tier) => tier !== 'MOORING')
+    .map((tier) => planCatalog[tier]);
 
-  return tiers.flatMap((tier) =>
-    intervals.map((interval) => ({ tier, interval, priceMinor: catalogPriceMinor(tier, interval, currency) })),
+  return plans.flatMap((plan) =>
+    plan.intervals.map((interval) => ({
+      tier: plan.tier,
+      interval,
+      priceMinor: catalogPriceMinor(plan.tier, interval, currency),
+    })),
   );
 }
 

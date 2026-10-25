@@ -1,6 +1,7 @@
 import { env } from '../config/env.js';
 import Razorpay from 'razorpay';
 import {
+  assertValidQuantity,
   BillingProviderError,
   SignatureVerificationError,
   type BillingContact,
@@ -90,6 +91,7 @@ interface RazorpaySubscriptionLike {
   current_end?: number | null;
   cancel_at_cycle_end?: boolean | null;
   short_url?: string | null;
+  quantity?: number | null;
 }
 
 export class RazorpayBillingProvider implements BillingProvider {
@@ -133,6 +135,8 @@ export class RazorpayBillingProvider implements BillingProvider {
    * closing the tab mid redirect is entirely normal.
    */
   async createCheckout(input: CheckoutRequest): Promise<CheckoutSession> {
+    assertValidQuantity(input.quantity);
+
     const plan = await requireStoredPlan({
       provider: this.name,
       tier: input.plan,
@@ -153,6 +157,8 @@ export class RazorpayBillingProvider implements BillingProvider {
       // would quietly end the subscription when it ran out, which is a customer
       // who paid and silently lost access.
       end_at: subscriptionEndAt(),
+      // One unit for a flat plan; the measured domain count for FLEET.
+      quantity: input.quantity,
       customer_notify: 1 as const,
       notes: {
         organizationId: input.organizationId,
@@ -186,7 +192,14 @@ export class RazorpayBillingProvider implements BillingProvider {
    * points at, rather than assumed, because a workspace can hold a subscription
    * created in either currency.
    */
-  async changePlan(input: { providerSubscriptionId: string; plan: PlanTier; interval: BillingInterval }): Promise<ProviderSubscription> {
+  async changePlan(input: {
+    providerSubscriptionId: string;
+    plan: PlanTier;
+    interval: BillingInterval;
+    quantity: number;
+  }): Promise<ProviderSubscription> {
+    assertValidQuantity(input.quantity);
+
     const live = await this.fetchSubscription(input.providerSubscriptionId);
     if (!live) {
       throw new BillingProviderError('That subscription no longer exists at Razorpay.', 'SUBSCRIPTION_NOT_FOUND', 404);
@@ -206,6 +219,7 @@ export class RazorpayBillingProvider implements BillingProvider {
     const updated = (await this.call(() =>
       razorpay().subscriptions.update(input.providerSubscriptionId, {
         plan_id: target.providerPlanId,
+        quantity: input.quantity,
         schedule_change_at: 'cycle_end',
       }),
     )) as unknown as RazorpaySubscriptionLike;
@@ -217,8 +231,32 @@ export class RazorpayBillingProvider implements BillingProvider {
       status: statusMap[updated.status ?? 'active'] ?? 'active',
       currentPeriodEnd: updated.current_end ? new Date(updated.current_end * 1000) : null,
       cancelAtPeriodEnd: Boolean(updated.cancel_at_cycle_end),
+      quantity: updated.quantity ?? input.quantity,
       nextAttemptAt: null,
     };
+  }
+
+  /**
+   * Changes the quantity for the next cycle, with no proration.
+   *
+   * Razorpay schedules it at the end of the paid period, which is the same rule
+   * the plan change follows: the current month was bought at the old count and
+   * is not repriced.
+   */
+  async updateQuantity(input: {
+    providerSubscriptionId: string;
+    plan: PlanTier;
+    quantity: number;
+  }): Promise<void> {
+    assertValidQuantity(input.quantity);
+    void input.plan;
+
+    await this.call(() =>
+      razorpay().subscriptions.update(
+        input.providerSubscriptionId,
+        razorpayQuantityUpdateBody(input.quantity) as never,
+      ),
+    );
   }
 
   async cancelAtPeriodEnd(providerSubscriptionId: string): Promise<void> {
@@ -411,16 +449,31 @@ type CreateSubscriptionBody = Omit<
 > & {
   customer_id: string;
   end_at: number;
+  quantity: number;
 };
 
 export function withCustomerId(body: {
   plan_id: string;
   customer_id: string;
   end_at: number;
+  quantity?: number;
   customer_notify: 0 | 1;
   notes: Record<string, string>;
 }): CreateSubscriptionBody {
-  return body as CreateSubscriptionBody;
+  return { quantity: 1, ...body } as CreateSubscriptionBody;
+}
+
+/**
+ * The exact body for a quantity-only update.
+ *
+ * Exported so a unit test can assert the payload without an SDK or a network.
+ * `cycle_end` is what keeps the change off the current month's invoice.
+ */
+export function razorpayQuantityUpdateBody(quantity: number): {
+  quantity: number;
+  schedule_change_at: 'cycle_end';
+} {
+  return { quantity, schedule_change_at: 'cycle_end' };
 }
 
 /**
@@ -459,6 +512,7 @@ function toProviderSubscription(subscription: RazorpaySubscriptionLike, storedTi
     status: statusMap[subscription.status ?? 'active'] ?? 'active',
     currentPeriodEnd: subscription.current_end ? new Date(subscription.current_end * 1000) : null,
     cancelAtPeriodEnd: Boolean(subscription.cancel_at_cycle_end),
+    quantity: typeof subscription.quantity === 'number' ? subscription.quantity : null,
     nextAttemptAt: null,
   };
 }

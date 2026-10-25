@@ -24,7 +24,7 @@ import { zodMessage } from '../utils/zod-messages.js';
 import { paddleWebhookSecret } from '../billing/paddle.provider.js';
 
 const checkoutSchema = z.object({
-  plan: z.enum(['FAIRWAY', 'HARBOR', 'ADMIRALTY']),
+  plan: z.enum(['FAIRWAY', 'HARBOR', 'ADMIRALTY', 'FLEET']),
   interval: z.enum(['monthly', 'annual']).default('monthly'),
   /**
    * Optional on purpose, with no default.
@@ -46,7 +46,7 @@ const checkoutSchema = z.object({
 });
 
 const planChangeSchema = z.object({
-  plan: z.enum(['FAIRWAY', 'HARBOR', 'ADMIRALTY', 'MOORING']),
+  plan: z.enum(['FAIRWAY', 'HARBOR', 'ADMIRALTY', 'FLEET', 'MOORING']),
   interval: z.enum(['monthly', 'annual']).default('monthly'),
 });
 

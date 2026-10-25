@@ -141,7 +141,7 @@ export default async function PricingPage({
 
   const offers = planOffersJsonLd(
     await requestOrigin(),
-    plans.map((p) => ({ name: p.label, monthlyMinor: p.prices.USD.monthlyMinor })),
+    plans.map((p) => ({ name: p.label, monthlyMinor: p.prices.USD.monthlyMinor, pricing: p.pricing })),
   );
 
   return (

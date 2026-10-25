@@ -81,6 +81,8 @@ export interface StructuredOfferInput {
   name: string;
   /** In minor units, as the catalog stores them. */
   monthlyMinor: number;
+  /** Per-domain plans are excluded: their unit is not the plan's monthly price. */
+  pricing?: "flat" | "per_domain";
 }
 
 /**
@@ -91,16 +93,22 @@ export interface StructuredOfferInput {
  * figure a crawler reads has to be one that is genuinely on the page: USD
  * monthly is. The INR price and the annual price are rendered on the pricing
  * page itself, which is where a buyer comparing them needs to be.
+ *
+ * Per-domain plans are excluded. An Offer of "$2.00 a month" for Fleet would
+ * state the unit price as the plan price, which is false by an order of
+ * magnitude at the minimum.
  */
 export function planOffersJsonLd(
   origin: string,
   plans: StructuredOfferInput[],
 ): Record<string, unknown> {
+  const flatPlans = plans.filter((plan) => plan.pricing !== "per_domain");
+
   return {
     "@context": "https://schema.org",
     "@type": "ItemList",
     name: "DMARC Harbor plans",
-    itemListElement: plans.map((plan, index) => ({
+    itemListElement: flatPlans.map((plan, index) => ({
       "@type": "ListItem",
       position: index + 1,
       item: {

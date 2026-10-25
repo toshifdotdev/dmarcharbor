@@ -3,6 +3,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { ApiError, Environment, Paddle as PaddleSdk } from '@paddle/paddle-node-sdk';
 import { planOrder, type BillingCurrency } from '../services/entitlements/plan-catalog.js';
 import {
+  assertValidQuantity,
   BillingProviderError,
   SignatureVerificationError,
   type BillingContact,
@@ -137,6 +138,8 @@ export class PaddleBillingProvider implements BillingProvider {
    * billing a different figure.
    */
   async createCheckout(input: CheckoutRequest): Promise<CheckoutSession> {
+    assertValidQuantity(input.quantity);
+
     // Paddle renders its own confirmation page from the transaction, so the
     // success URL is not sent through the API. The customer is not required to
     // return to our app at all: the webhook is what marks them paid.
@@ -157,7 +160,7 @@ export class PaddleBillingProvider implements BillingProvider {
 
     const transaction = await this.call(() =>
       paddle().transactions.create({
-        items: [{ priceId: plan.providerPlanId, quantity: 1 }],
+        items: [{ priceId: plan.providerPlanId, quantity: input.quantity }],
         customerId: providerCustomerId,
         // Carries our own reference so the resulting webhook can be attributed
         // to a workspace without trusting the payload path.
@@ -189,14 +192,23 @@ export class PaddleBillingProvider implements BillingProvider {
    * and `prorated_immediately`: the change is live at once and Paddle bills or
    * credits the difference for the rest of the period (reasoning below).
    */
-  async changePlan(input: { providerSubscriptionId: string; plan: PlanTier; interval: BillingInterval }): Promise<ProviderSubscription> {
+  async changePlan(input: {
+    providerSubscriptionId: string;
+    plan: PlanTier;
+    interval: BillingInterval;
+    quantity: number;
+  }): Promise<ProviderSubscription> {
+    assertValidQuantity(input.quantity);
+
     const live = await this.fetchSubscription(input.providerSubscriptionId);
     if (!live) {
       throw new BillingProviderError('That subscription no longer exists at Paddle.', 'SUBSCRIPTION_NOT_FOUND', 404);
     }
 
     const remote = await this.call(() => paddle().subscriptions.get(input.providerSubscriptionId));
-    const remotePriceId = remote.items?.[0]?.price?.id ?? null;
+    const remoteItem = remote.items?.[0];
+    const remotePriceId = remoteItem?.price?.id ?? null;
+    const remoteQuantity = remoteItem?.quantity ?? null;
     const price = remotePriceId ? await this.priceRecord(remotePriceId) : null;
     const currency = toBillingCurrency(price?.unitPrice?.currencyCode);
 
@@ -238,8 +250,9 @@ export class PaddleBillingProvider implements BillingProvider {
     const currentRank = live.plan ? planOrder.indexOf(live.plan) : -1;
     const targetRank = planOrder.indexOf(input.plan);
 
-    // Same plan: nothing to send.
-    if (currentRank !== -1 && currentRank === targetRank) {
+    // Same plan and same quantity: nothing to send. A quantity change on the
+    // same plan is still a real change, so it must not take this early exit.
+    if (currentRank !== -1 && currentRank === targetRank && remoteQuantity === input.quantity) {
       return { ...live, cancelAtPeriodEnd: false };
     }
 
@@ -263,12 +276,61 @@ export class PaddleBillingProvider implements BillingProvider {
      */
     await this.call(() =>
       paddle().subscriptions.update(input.providerSubscriptionId, {
-        items: [{ priceId: target.providerPlanId, quantity: 1 }],
+        items: [{ priceId: target.providerPlanId, quantity: input.quantity }],
         prorationBillingMode: 'prorated_immediately',
       }),
     );
 
-    return { ...live, plan: input.plan, cancelAtPeriodEnd: false };
+    return { ...live, plan: input.plan, quantity: input.quantity, cancelAtPeriodEnd: false };
+  }
+
+  /**
+   * Changes the quantity for the next period without proration.
+   *
+   * `do_not_bill` is the provider's name for "the current period was paid at
+   * the old count and is not repriced". The price id is always FLEET's stored
+   * monthly price, in the subscription's own currency, so this cannot silently
+   * move a subscription onto a different product.
+   */
+  async updateQuantity(input: {
+    providerSubscriptionId: string;
+    plan: PlanTier;
+    quantity: number;
+  }): Promise<void> {
+    assertValidQuantity(input.quantity);
+    void input.plan;
+
+    const live = await this.fetchSubscription(input.providerSubscriptionId);
+    if (!live) {
+      throw new BillingProviderError('That subscription no longer exists at Paddle.', 'SUBSCRIPTION_NOT_FOUND', 404);
+    }
+
+    const remote = await this.call(() => paddle().subscriptions.get(input.providerSubscriptionId));
+    const remotePriceId = remote.items?.[0]?.price?.id ?? null;
+    const price = remotePriceId ? await this.priceRecord(remotePriceId) : null;
+    const currency = toBillingCurrency(price?.unitPrice?.currencyCode);
+
+    if (!currency) {
+      throw new BillingProviderError(
+        'That subscription is denominated in a currency we do not sell, so its quantity cannot be changed automatically.',
+        'CURRENCY_UNSUPPORTED',
+        409,
+      );
+    }
+
+    const target = await requireStoredPlan({
+      provider: this.name,
+      tier: 'FLEET',
+      interval: 'monthly',
+      currency,
+    });
+
+    await this.call(() =>
+      paddle().subscriptions.update(
+        input.providerSubscriptionId,
+        paddleQuantityUpdateBody(target.providerPlanId, input.quantity) as never,
+      ),
+    );
   }
 
   /**
@@ -532,7 +594,7 @@ function toProviderError(error: unknown): BillingProviderError {
 }
 
 function toProviderSubscription(
-  subscription: { id: string; status: string; customerId?: string | null; items?: { price?: { id?: string } }[]; currentBillingPeriod?: { endsAt?: string } | null; scheduledChange?: { action?: string } | null; nextBilledAt?: string | null; canceledAt?: string | null },
+  subscription: { id: string; status: string; customerId?: string | null; items?: { price?: { id?: string }; quantity?: number | null }[]; currentBillingPeriod?: { endsAt?: string } | null; scheduledChange?: { action?: string } | null; nextBilledAt?: string | null; canceledAt?: string | null },
   storedTier: PlanTier | null,
   currency: string | null,
 ): ProviderSubscription {
@@ -552,8 +614,22 @@ function toProviderSubscription(
     status: statusMap[subscription.status] ?? 'active',
     currentPeriodEnd: periodEnd ? new Date(periodEnd) : null,
     cancelAtPeriodEnd: subscription.scheduledChange?.action === 'cancel' || subscription.status === 'cancelled',
+    quantity: typeof subscription.items?.[0]?.quantity === 'number' ? subscription.items[0].quantity : null,
     nextAttemptAt: subscription.nextBilledAt ? new Date(subscription.nextBilledAt) : null,
   };
+}
+
+/**
+ * The exact body for a quantity-only change.
+ *
+ * Exported for unit tests. `do_not_bill` is what makes the new count apply from
+ * the next period without repricing the one already bought.
+ */
+export function paddleQuantityUpdateBody(
+  priceId: string,
+  quantity: number,
+): { items: { priceId: string; quantity: number }[]; prorationBillingMode: 'do_not_bill' } {
+  return { items: [{ priceId, quantity }], prorationBillingMode: 'do_not_bill' };
 }
 
 /**

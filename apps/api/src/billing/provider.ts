@@ -35,6 +35,11 @@ export interface CheckoutRequest {
   plan: PlanTier;
   interval: BillingInterval;
   currency: BillingCurrency;
+  /**
+   * Units the provider should bill for the first period. One for a flat plan;
+   * measured server side for a per-domain plan, never supplied by the client.
+   */
+  quantity: number;
   contact: BillingContact;
   /**
    * Where the provider sends the customer once payment succeeds. Paddle hosts
@@ -73,6 +78,8 @@ export interface ProviderSubscription {
   status: ProviderSubscriptionStatus;
   currentPeriodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
+  /** What the provider currently bills. Null when the provider does not say. */
+  quantity: number | null;
   /** Present when the provider has already taken a payment that failed to settle. */
   nextAttemptAt?: Date | null;
 }
@@ -129,7 +136,21 @@ export interface BillingProvider {
     providerSubscriptionId: string;
     plan: PlanTier;
     interval: BillingInterval;
+    quantity: number;
   }): Promise<ProviderSubscription>;
+
+  /**
+   * Changes the billed quantity without changing the plan.
+   *
+   * Used by the per-domain quantity sync for the next period, with no
+   * proration: the customer is not charged or credited for the days already
+   * bought at the old count.
+   */
+  updateQuantity(input: {
+    providerSubscriptionId: string;
+    plan: PlanTier;
+    quantity: number;
+  }): Promise<void>;
 
   /**
    * Cancels at the end of the paid period. The customer keeps what they paid
@@ -198,6 +219,8 @@ export interface BillingEvent {
   status: ProviderSubscriptionStatus | null;
   currentPeriodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
+  /** What the provider says it bills, when the event carries it. */
+  quantity: number | null;
   nextAttemptAt: Date | null;
   occurredAt: Date;
   /** Raw provider payload, retained for support and audit, never trusted. */
@@ -223,5 +246,26 @@ export class SignatureVerificationError extends Error {
   constructor(message = 'The billing webhook signature could not be verified.') {
     super(message);
     this.name = 'SignatureVerificationError';
+  }
+}
+
+/** The largest quantity a provider may be asked to bill for one subscription. */
+export const maximumBillingQuantity = 5000;
+
+/**
+ * Refuses a quantity no provider should ever be asked to bill.
+ *
+ * Every provider entry point runs this rather than trusting the caller: the
+ * quantity is computed from a domain count, and a decimal or zero that reached
+ * a provider would be a real invoice for a real customer.
+ */
+export function assertValidQuantity(quantity: number): void {
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > maximumBillingQuantity) {
+    throw new BillingProviderError(
+      `The billing quantity must be a whole number between 1 and ${maximumBillingQuantity}.`,
+      'BAD_QUANTITY',
+      422,
+      { quantity },
+    );
   }
 }

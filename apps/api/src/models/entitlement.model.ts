@@ -8,7 +8,7 @@ const entitlementKeySchema = z
   .regex(/^[a-z]+(\.[a-zA-Z]+)+$/, 'An entitlement looks like reports.forensic');
 
 export const planChangeSchema = z.object({
-  plan: z.enum(['MOORING', 'FAIRWAY', 'HARBOR', 'ADMIRALTY']),
+  plan: z.enum(['MOORING', 'FAIRWAY', 'HARBOR', 'ADMIRALTY', 'FLEET']),
   status: z.enum(['ACTIVE', 'TRIALING', 'CANCELLED', 'PAST_DUE', 'EXPIRED']).optional(),
   currentPeriodEnd: z.string().datetime().nullable().optional(),
   reason: z.string().trim().max(280).optional(),

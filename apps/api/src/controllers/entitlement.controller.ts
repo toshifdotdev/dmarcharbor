@@ -14,7 +14,7 @@ import {
   setOverride,
 } from '../services/entitlements/entitlement.service.js';
 import { zodMessage } from '../utils/zod-messages.js';
-import { planCatalog, planLabel } from '../services/entitlements/plan-catalog.js';
+import { catalogOrder, planLabel } from '../services/entitlements/plan-catalog.js';
 
 async function canManageBilling(request: Request, organizationId: string): Promise<boolean> {
   try {
@@ -58,7 +58,7 @@ export async function listEntitlementsController(request: Request, response: Res
 }
 
 export async function listPlanCatalogController(_request: Request, response: Response): Promise<void> {
-  response.json({ plans: planCatalogResponse(), order: Object.keys(planCatalog) });
+  response.json({ plans: planCatalogResponse(), order: catalogOrder });
 }
 
 export async function changePlanController(request: Request, response: Response): Promise<void> {

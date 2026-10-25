@@ -5,6 +5,7 @@ import { executeDueErasures } from '../services/erasure/erasure.service.js';
 import { reverifyUnverifiedDomains } from '../services/domain-reverify.service.js';
 import { purgeExpiredIdempotencyRecords } from '../services/api-key.service.js';
 import { runDunning, runReconciliation } from '../billing/dunning.js';
+import { syncPerDomainQuantities } from '../billing/quantity.js';
 import { repairWebhookEndpoints } from '../services/webhook.service.js';
 import { withDueLease, withJobLease } from './job-lease.service.js';
 import { recordJobFailure, recordJobSuccess } from './heartbeat.js';
@@ -126,6 +127,29 @@ async function runAlertEvaluationPass(): Promise<{ completed: true }> {
         }
       },
     );
+
+    /**
+     * Pushes next period's domain count for per-domain plans.
+     *
+     * Its own six hour lease because it makes a provider call per due
+     * subscription, and wrapped so one failure cannot stop the rest of the
+     * alert pass or the other billing jobs.
+     */
+    try {
+      await withDueLease('billing-quantity-sync', 6 * 60 * 60 * 1000, async () => {
+        const synced = await syncPerDomainQuantities();
+        recordJobSuccess('billing-quantity-sync');
+        if (synced.updated > 0 || synced.failed > 0) {
+          console.info(
+            `[billing] quantity sync examined ${synced.checked}, ${synced.updated} updated, ${synced.unchanged} unchanged, ${synced.failed} failed`,
+          );
+        }
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Unknown quantity sync error.';
+      console.error(`[billing] quantity sync failed: ${detail}`);
+      recordJobFailure('billing-quantity-sync');
+    }
 
     // Repairs a webhook integration that has died permanently, which nothing
     // else would ever look at again. On the persisted schedule so it is not
