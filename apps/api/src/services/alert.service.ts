@@ -9,6 +9,7 @@ import { prisma } from '../database/prisma.js';
 import { env } from '../config/env.js';
 import { sendAuthEmail } from '../email/email.service.js';
 import { createAlertNotifications } from './notification.service.js';
+import { passesDmarc } from './alignment.service.js';
 import { buildSenderBreakdown, possibleSpoofingSources } from './sender-breakdown.service.js';
 import { emitEvent } from './webhook.service.js';
 import { deliverSlackAlert, hasEnabledSlackDestination } from './slack.service.js';
@@ -44,8 +45,11 @@ export interface DomainSnapshot {
   aggregateRecords: { sourceIp: string; messageCount: number; failed: boolean; receivedAt: Date }[];
   forensicRows: { sourceIp: string; rejected: boolean; receivedAt: Date; recipientCount: number }[];
   totalMessages: number;
+  /** Messages that failed DMARC: both aligned checks failed. */
   failedMessages: number;
   failureRate: number;
+  /** Messages that passed DMARC but failed one aligned check. */
+  partiallyAlignedMessages: number;
   busiestSourceMessages: number;
   busiestSourceIp: string | null;
   forensicCount: number;
@@ -371,13 +375,17 @@ export async function buildDomainSnapshot(domainId: string, windowMinutes: numbe
   const perSource = new Map<string, number>();
   let totalMessages = 0;
   let failedMessages = 0;
+  let partiallyAlignedMessages = 0;
 
   const aggregateRecords = reports.flatMap((report) =>
     report.records.map((record) => {
-      const failed = !isPass(record.dkimResult) || !isPass(record.spfResult);
+      const failed = !passesDmarc(record);
+      const partiallyAligned = !failed && (!isPass(record.dkimResult) || !isPass(record.spfResult));
       totalMessages += record.messageCount;
       if (failed) {
         failedMessages += record.messageCount;
+      } else if (partiallyAligned) {
+        partiallyAlignedMessages += record.messageCount;
       }
       perSource.set(record.sourceIp, (perSource.get(record.sourceIp) ?? 0) + record.messageCount);
       return { sourceIp: record.sourceIp, messageCount: record.messageCount, failed, receivedAt: report.receivedAt };
@@ -416,6 +424,7 @@ export async function buildDomainSnapshot(domainId: string, windowMinutes: numbe
     totalMessages,
     failedMessages,
     failureRate: totalMessages ? Math.round((failedMessages / totalMessages) * 100) : 0,
+    partiallyAlignedMessages,
     busiestSourceMessages,
     busiestSourceIp,
     forensicCount: forensics.length,
@@ -473,6 +482,14 @@ function summarise(
     return `Source ${snapshot.busiestSourceIp} sent ${observed}${unit} in the last ${rule.windowMinutes} minutes, ${comparison} the ${rule.threshold}${unit} threshold.`;
   }
 
+  if (rule.metric === 'FAILURE_COUNT') {
+    return `Observed ${observed} messages that failed DMARC in the last ${rule.windowMinutes} minutes, ${comparison} the ${rule.threshold} message threshold.`;
+  }
+
+  if (rule.metric === 'FAILURE_RATE') {
+    return `Observed a DMARC failure rate of ${observed}% in the last ${rule.windowMinutes} minutes, ${comparison} the ${rule.threshold}% threshold.`;
+  }
+
   return `Observed ${observed}${unit} in the last ${rule.windowMinutes} minutes, ${comparison} the ${rule.threshold}${unit} threshold.`;
 }
 
@@ -481,6 +498,7 @@ function contextFor(snapshot: DomainSnapshot, metric: AlertMetric): Prisma.Input
     totalMessages: snapshot.totalMessages,
     failedMessages: snapshot.failedMessages,
     failureRate: snapshot.failureRate,
+    partiallyAlignedMessages: snapshot.partiallyAlignedMessages,
     busiestSourceIp: snapshot.busiestSourceIp,
     busiestSourceMessages: snapshot.busiestSourceMessages,
     forensicCount: snapshot.forensicCount,

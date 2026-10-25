@@ -326,6 +326,64 @@ describe('policy readiness', () => {
     expect(response.body.blockers.join(' ')).toContain(String(readinessThresholds.minimumMessages));
   });
 
+  it('does not block quarantine when every message passes DKIM and none passes SPF', async () => {
+    const { agent, organizationId, domainId, domainName } = await createWorkspace();
+
+    await agent.post(`/api/workspaces/${organizationId}/domains/${domainId}/reports`).send({
+      xml: aggregateReport(domainName, 'dmarc-pass-1', [
+        { ip: '198.51.100.44', count: 2_000, dkim: 'pass', spf: 'fail' },
+      ]),
+    });
+
+    const response = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/policy-readiness`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.passRatePercent).toBe(100);
+    expect(response.body.blockers.join(' ')).not.toMatch(/pass rate/i);
+  });
+
+  it('blocks reject when two percent of messages fail both aligned checks', async () => {
+    const { agent, organizationId, domainId, domainName } = await createWorkspace();
+    await prisma.domain.update({ where: { id: domainId }, data: { dmarcPolicy: 'quarantine' } });
+
+    await agent.post(`/api/workspaces/${organizationId}/domains/${domainId}/reports`).send({
+      xml: aggregateReport(domainName, 'dmarc-reject-1', [
+        { ip: '192.0.2.1', count: 980, dkim: 'pass', spf: 'pass' },
+        { ip: '45.83.12.9', count: 20, dkim: 'fail', spf: 'fail' },
+      ]),
+    });
+
+    const response = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/policy-readiness`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.passRatePercent).toBe(98);
+    expect(response.body.blockers.join(' ')).toContain('DMARC pass rate is 98%');
+    expect(response.body.blockers.join(' ')).toContain(
+      `${readinessThresholds.rejectPassRatePercent}% is required for p=reject`,
+    );
+  });
+
+  it('keeps the DKIM gate for reject when DMARC passes on SPF alone', async () => {
+    const { agent, organizationId, domainId, domainName } = await createWorkspace();
+    await prisma.domain.update({ where: { id: domainId }, data: { dmarcPolicy: 'quarantine' } });
+
+    await agent.post(`/api/workspaces/${organizationId}/domains/${domainId}/reports`).send({
+      xml: aggregateReport(domainName, 'dmarc-dkim-gate-1', [
+        { ip: '192.0.2.1', count: 900, dkim: 'pass', spf: 'pass' },
+        { ip: '45.83.12.9', count: 100, dkim: 'fail', spf: 'pass' },
+      ]),
+    });
+
+    const response = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/policy-readiness`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.passRatePercent).toBe(100);
+    expect(response.body.blockers.join(' ')).toContain('Only 90% of mail passed DKIM');
+    expect(response.body.blockers.join(' ')).toContain(
+      `${readinessThresholds.rejectDkimPassRatePercent}% is required`,
+    );
+  });
+
   it('blocks tightening when open alerts exist even with good volume', async () => {
     const { agent, organizationId, domainId, domainName } = await createWorkspace();
 

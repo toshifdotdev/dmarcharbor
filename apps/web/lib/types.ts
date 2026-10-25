@@ -49,6 +49,7 @@ export interface ClientRow {
 export interface DomainSignals {
   reportCount: number;
   messageCount: number;
+  /** DMARC failures: messages where both aligned checks failed. */
   failedMessages: number;
   /** Messages from senders authenticating as a different domain than the one
    *  monitored — seen, but not attributed. Not a pass: an open question. */
@@ -115,6 +116,7 @@ export interface TrendPoint {
   date: string;
   reportsReceived: number;
   messagesObserved: number;
+  /** DMARC failures: both aligned checks failed. */
   failedMessages: number;
 }
 
@@ -128,7 +130,10 @@ export interface TrendSpike {
 export interface SourceAttribution {
   sourceIp: string;
   totalMessages: number;
+  /** DMARC failures: both aligned checks failed. */
   failedMessages: number;
+  /** Passed DMARC but failed one aligned check. */
+  partiallyAlignedMessages: number;
   forensicMessages: number;
   reportCount: number;
   lastSeenAt: string | null;
@@ -152,7 +157,11 @@ export interface DomainInsights {
     reportCount: number;
     recordCount: number;
     messageCount: number;
+    /** DMARC failures: both aligned checks failed. */
     failedMessages: number;
+    dmarcPassRate: number | null;
+    /** Passed DMARC but failed one aligned check. */
+    partiallyAlignedMessages: number;
     spfPassRate: number | null;
     dkimPassRate: number | null;
     lastReportAt: string | null;
@@ -175,6 +184,7 @@ export interface PolicyReadiness {
   currentPolicy: "none" | "quarantine" | "reject" | "unknown";
   daysObserved: number;
   messagesObserved: number;
+  /** DMARC pass rate: either aligned check passed. */
   passRatePercent: number | null;
   openAlerts: number;
   staleAlerts: number;
@@ -699,6 +709,7 @@ export interface PublicShareReport {
   policy: { published: string | null; reportingConfigured: boolean; recommended: string };
   health: {
     score: number | null;
+    /** DMARC pass rate: either aligned check passed. */
     passRatePercent: number | null;
     messagesObserved: number;
     daysObserved: number;
@@ -710,6 +721,7 @@ export interface PublicShareReport {
   };
   sources: Array<{
     sourceIp: string;
+    /** DMARC failures: both aligned checks failed. */
     failedMessages: number;
     totalMessages: number;
     risk: string;

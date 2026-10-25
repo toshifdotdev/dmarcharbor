@@ -255,7 +255,7 @@ export function PortfolioBoard({ rows, clientCount }: { rows: BoardRow[]; client
                 Messages
               </Th>
               <Th numeric sort={{ dir: dir("failed"), onToggle: () => toggle("failed") }}>
-                Failed
+                Failed DMARC
               </Th>
               <Th sort={{ dir: dir("failShare"), onToggle: () => toggle("failShare") }}>Share</Th>
               <Th numeric sort={{ dir: dir("spf"), onToggle: () => toggle("spf") }}>
@@ -365,9 +365,9 @@ export function PortfolioBoard({ rows, clientCount }: { rows: BoardRow[]; client
         </Table>
 
         <p className="text-meta text-fg-3">
-          Figures are each measured over that domain&rsquo;s own report window. Failed counts messages where SPF or
-          DKIM did not pass; SPF and DKIM are pass rates. No report for more than 5 days reads as Stale; a domain with
-          no reported messages reads as Not measured. Neither is ever counted as aligned.
+          Figures are each measured over that domain&rsquo;s own report window. Failed DMARC counts messages where both
+          SPF and DKIM failed alignment; SPF and DKIM are pass rates. No report for more than 5 days reads as Stale; a
+          domain with no reported messages reads as Not measured. Neither is ever counted as aligned.
         </p>
       </section>
     </div>

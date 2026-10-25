@@ -195,6 +195,18 @@ export function alignmentModeFromTag(tag: string | null | undefined): AlignmentM
 }
 
 /**
+ * DMARC passes when either aligned check passed (RFC 9989 section 4.4).
+ *
+ * dkimResult and spfResult are the policy_evaluated verdicts, already aligned.
+ * A bulk sender that passes DKIM and fails SPF is therefore not a DMARC
+ * failure, which is what every domain-level figure must count.
+ */
+export function passesDmarc(record: { dkimResult: string | null; spfResult: string | null }): boolean {
+  const pass = (value: string | null) => (value ?? '').trim().toLowerCase() === 'pass';
+  return pass(record.dkimResult) || pass(record.spfResult);
+}
+
+/**
  * Whether an authenticating domain aligns with the policy domain.
  *
  * Exact match is aligned in both modes. Relaxed additionally accepts a shared

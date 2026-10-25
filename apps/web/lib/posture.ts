@@ -36,7 +36,7 @@ export const POSTURE_META: Record<
     label: "Blocking",
     action: "Investigate",
     meaning:
-      "Observed traffic failed alignment while a rejecting policy is live: mail is being denied.",
+      "Observed traffic failed DMARC while a rejecting policy is live: mail is being denied.",
   },
   unverified: {
     label: "Unverified",
@@ -107,7 +107,7 @@ export function resolvePosture(s: DomainSignals): ResolvedPosture {
   if (s.failedMessages > 0) {
     return {
       posture: "block",
-      reason: `${fmtVolume(s.failedMessages)} messages failed alignment`,
+      reason: `${fmtVolume(s.failedMessages)} messages failed DMARC`,
     };
   }
   const unattributedShare = s.unattributedMessages / s.messageCount;

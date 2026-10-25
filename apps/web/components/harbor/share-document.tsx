@@ -109,9 +109,9 @@ export function ShareDocument({ report, today }: { report: PublicShareReport; to
           note={`on ${reportDays} day${reportDays === 1 ? "" : "s"} with reports`}
         />
         <Readout
-          label="Pass rate"
+          label="DMARC pass rate"
           value={health.passRatePercent === null ? "—" : `${health.passRatePercent.toFixed(1)}%`}
-          note="average of the SPF and DKIM pass rates"
+          note="either SPF or DKIM passed with alignment"
         />
         <Readout label="Reports received" value={fmt(reporting.reportsReceived)} note="from receiving mail servers" />
         <Readout
@@ -188,8 +188,8 @@ export function ShareDocument({ report, today }: { report: PublicShareReport; to
                   <Th>Service</Th>
                   <Th>Sending as</Th>
                   <Th numeric>Messages</Th>
-                  <Th numeric>Failed</Th>
-                  <Th numeric title="Failed messages as a share of this source's own messages">Failed share</Th>
+                  <Th numeric>Failed DMARC</Th>
+                  <Th numeric title="DMARC failures as a share of this source's own messages">DMARC failure share</Th>
                   <Th>Risk</Th>
                 </tr>
               </THead>
@@ -253,7 +253,7 @@ export function ShareDocument({ report, today }: { report: PublicShareReport; to
             ["DMARC", "A published instruction telling receiving mail servers what to do with mail that claims your domain but fails the checks below, and where to send their reports."],
             ["SPF", "A list of the servers allowed to send mail as your domain."],
             ["DKIM", "A cryptographic signature that proves a message was sent by someone holding your domain's key."],
-            ["Pass rate", "The average of two figures: the share of observed messages that passed SPF, and the share that passed DKIM."],
+            ["DMARC pass rate", "The share of observed messages where either SPF or DKIM passed with alignment. A message fails DMARC only when both fail."],
             ["p=none / quarantine / reject", "Watch only, send failing mail to spam, or refuse it. Domains move from left to right as the evidence allows."],
             ["Report", "A daily summary a receiving mail server sends about mail it saw claiming your domain."],
           ].map(([k, v]) => (

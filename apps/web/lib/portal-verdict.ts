@@ -114,8 +114,8 @@ export function verdictFor(detail: PortalDomainDetail | null, agency: string, no
             : "";
     return {
       kind: "attention",
-      title: spoof > 0 ? "Someone may be sending email as you" : "Some email sent as you is failing the checks",
-      meaning: `${agg.failedMessages.toLocaleString("en-GB")} of ${agg.messageCount.toLocaleString("en-GB")} messages sent as ${name} (${pct(agg.failedMessages, agg.messageCount)}%) did not prove they really came from you. ${consequence}`.trim(),
+      title: spoof > 0 ? "Someone may be sending email as you" : "Some email sent as you is failing DMARC",
+      meaning: `${agg.failedMessages.toLocaleString("en-GB")} of ${agg.messageCount.toLocaleString("en-GB")} messages sent as ${name} (${pct(agg.failedMessages, agg.messageCount)}%) failed DMARC: neither SPF nor DKIM passed with alignment. ${consequence}`.trim(),
       next: `Forward this report to ${agency}. If you send email through a service that is not listed under “Who is sending as you”, such as a newsletter tool, invoicing system or CRM, tell them its name: that is a common cause.`,
       tone: "fail",
       rank: 0,
@@ -209,7 +209,7 @@ export function summaryText(detail: PortalDomainDetail, verdict: Verdict, agency
     lines.push(
       "",
       `Messages reported${from && to ? ` between ${from} and ${to}` : ""}: ${agg.messageCount.toLocaleString("en-GB")}`,
-      `Failed the checks: ${agg.failedMessages.toLocaleString("en-GB")}`,
+      `Failed DMARC: ${agg.failedMessages.toLocaleString("en-GB")}`,
       `Last report received: ${dayLabel(agg.lastReportAt) ?? "not recorded"}`,
     );
   }

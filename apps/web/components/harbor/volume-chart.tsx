@@ -7,7 +7,7 @@
  * - The window is calendar days ending today, so trailing silence shows. A day
  *   with no report received is a hatched column, never a zero bar: absence of
  *   measurement, not measurement of nothing.
- * - Failed messages sit at the base of each column in the fail colour, so the
+ * - Failed DMARC messages sit at the base of each column in the fail colour, so the
  *   failing share of a day reads against its own total, not a separate chart.
  * - Annotations come from the data or not at all: the peak is labelled with
  *   its value, the API's own spikes (more than two standard deviations above
@@ -134,7 +134,7 @@ export function VolumeChart({
                 {showFailures ? (
                   <>
                     <Key swatch="bg-fg-2" label="passed" value={fmt(hovered.messagesObserved - hovered.failedMessages)} />
-                    <Key swatch="bg-fail" label="failed" value={fmt(hovered.failedMessages)} strong={hovered.failedMessages > 0} />
+                    <Key swatch="bg-fail" label="failed DMARC" value={fmt(hovered.failedMessages)} strong={hovered.failedMessages > 0} />
                   </>
                 ) : (
                   <Key swatch="bg-fg-2" label="messages" value={fmt(hovered.messagesObserved)} />
@@ -150,7 +150,7 @@ export function VolumeChart({
             {showFailures ? (
               <>
                 <Key swatch="bg-fg-2" label="passed" value={fmt(totals.m - totals.f)} />
-                <Key swatch="bg-fail" label="failed" value={fmt(totals.f)} strong={totals.f > 0} />
+                <Key swatch="bg-fail" label="failed DMARC" value={fmt(totals.f)} strong={totals.f > 0} />
               </>
             ) : (
               <Key swatch="bg-fg-2" label="messages" value={fmt(totals.m)} />
@@ -167,7 +167,7 @@ export function VolumeChart({
           height={H}
           viewBox={`0 0 ${width} ${H}`}
           role="img"
-          aria-label={`Daily message volume for ${domainName} over the last ${days} days: ${observed.length} days with reports, ${days - observed.length} days with no measurement, ${fmt(totals.m)} messages${showFailures ? ` and ${fmt(totals.f)} failed` : ""} in total.`}
+          aria-label={`Daily message volume for ${domainName} over the last ${days} days: ${observed.length} days with reports, ${days - observed.length} days with no measurement, ${fmt(totals.m)} messages${showFailures ? ` and ${fmt(totals.f)} failed DMARC` : ""} in total.`}
           className="block select-none"
         >
           <defs>
@@ -306,7 +306,7 @@ export function VolumeChart({
                 <th className="py-1 pr-3 font-semibold">Day</th>
                 <th className="py-1 pr-3 text-right font-semibold">Reports</th>
                 <th className="py-1 pr-3 text-right font-semibold">Messages</th>
-                {showFailures ? <th className="py-1 text-right font-semibold">Failed</th> : null}
+                {showFailures ? <th className="py-1 text-right font-semibold">Failed DMARC</th> : null}
               </tr>
             </thead>
             <tbody>

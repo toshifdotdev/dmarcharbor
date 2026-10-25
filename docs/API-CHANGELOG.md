@@ -243,6 +243,30 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-10-26 — DMARC failure counting
+
+DMARC passes when **either** aligned check passed (RFC 9989 section 4.4). A
+message that passes aligned DKIM and fails aligned SPF is delivered under
+`p=reject`, so it is not a failure.
+
+On the browser routes:
+
+- `failedMessages` on domain insights, trend buckets and source attribution now
+  counts messages where **both** aligned checks failed. It previously counted
+  messages where either check failed.
+- `dmarcPassRate` is new: the share of messages where either aligned check
+  passed. `partiallyAlignedMessages` is new: messages that passed DMARC but
+  failed one aligned check.
+- `FAILURE_COUNT` and `FAILURE_RATE` alert metrics measure DMARC failures.
+  Existing thresholds were **not** changed. An open event whose condition no
+  longer holds resolves through the existing evaluation path on the next run;
+  under the previous count it was a false positive.
+- Policy readiness uses the DMARC pass rate. The separate 99% DKIM gate for
+  `p=reject` is unchanged, because SPF alone does not survive forwarding.
+
+The `/api/v1` surface exposes none of these fields, so its contract is
+unchanged.
+
 ## Planned, not yet available
 
 | Planned | Notes |

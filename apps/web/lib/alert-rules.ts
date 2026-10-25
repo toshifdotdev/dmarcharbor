@@ -6,9 +6,10 @@
  * product decision: it is the contract, written down once so the form, the
  * rules table and the events list all say the same thing.
  *
- *   FAILURE_COUNT              failed messages in the window
- *   FAILURE_RATE               failed share of messages in the window, a whole
- *                              percent (the API rounds; thresholds are integers)
+ *   FAILURE_COUNT              failed DMARC messages in the window
+ *   FAILURE_RATE               DMARC failures as a share of messages in the
+ *                              window, a whole percent (the API rounds;
+ *                              thresholds are integers)
  *   SOURCE_IP_VOLUME           messages from the single busiest source IP in
  *                              the window
  *   FORENSIC_FAILURES          forensic reports with a reject or quarantine
@@ -40,18 +41,18 @@ export interface MetricMeta {
 
 export const METRICS: Record<AlertMetric, MetricMeta> = {
   FAILURE_COUNT: {
-    label: "Failed messages (count)",
+    label: "Failed DMARC (count)",
     unit: { one: "message", many: "messages" },
-    measures: "Messages that failed DMARC in the window, across every sender.",
+    measures: "Failed DMARC: messages where both SPF and DKIM failed alignment, across every sender.",
     usesWindow: true,
     feature: "alerts.email",
     risk: "high",
     suggested: { operator: "GREATER_THAN", threshold: 10 },
   },
   FAILURE_RATE: {
-    label: "Failed messages (% of volume)",
+    label: "Failed DMARC (% of volume)",
     unit: { one: "%", many: "%", suffix: "%" },
-    measures: "The failed share of all messages in the window, as a whole percent.",
+    measures: "The share of all messages in the window that failed DMARC: both SPF and DKIM failed alignment. A whole percent.",
     usesWindow: true,
     feature: "alerts.email",
     risk: "high",

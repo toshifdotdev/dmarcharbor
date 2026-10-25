@@ -369,7 +369,9 @@ describe('domain insights', () => {
 
     expect(insights.body.aggregate.reportCount).toBe(2);
     expect(insights.body.aggregate.messageCount).toBe(1055);
-    expect(insights.body.aggregate.failedMessages).toBe(50);
+    expect(insights.body.aggregate.failedMessages).toBe(40);
+    expect(insights.body.aggregate.partiallyAlignedMessages).toBe(10);
+    expect(insights.body.aggregate.dmarcPassRate).toBeGreaterThan(96);
     expect(insights.body.aggregate.dkimPassRate).toBeGreaterThan(90);
     expect(insights.body.aggregate.messageWindow.begin).not.toBeNull();
 
@@ -381,7 +383,8 @@ describe('domain insights', () => {
     const attacker = insights.body.sources.find((source: { sourceIp: string }) => source.sourceIp === '45.83.12.9');
     expect(attacker).toBeDefined();
     expect(attacker.totalMessages).toBe(50);
-    expect(attacker.failedMessages).toBe(50);
+    expect(attacker.failedMessages).toBe(40);
+    expect(attacker.partiallyAlignedMessages).toBe(10);
     expect(attacker.forensicMessages).toBe(2);
     expect(attacker.risk).toBe('high');
     expect(attacker.topSendingDomain).toContain('spammer.test');
@@ -390,6 +393,34 @@ describe('domain insights', () => {
     expect(insights.body.trends.points.length).toBeGreaterThan(0);
     expect(insights.body.trends.days).toBe(30);
     expect(insights.body.retention.redactionVersion).toBe(1);
+  });
+
+  it('counts a DKIM-passing SPF-failing sender as DMARC passed', async () => {
+    const { agent, organizationId, domainId } = await createWorkspaceDomain('dmarc-pass.test');
+
+    const ingested = await agent.post(`/api/workspaces/${organizationId}/domains/${domainId}/reports`).send({
+      xml: aggregateReport('dmarc-pass.test', 'dmarc-pass-1', [
+        { ip: '198.51.100.44', count: 1_000, dkim: 'pass', spf: 'fail', sendingDomain: 'mailer.bulk.test' },
+      ]),
+    });
+    expect(ingested.status).toBe(201);
+
+    const insights = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/insights`);
+    expect(insights.status).toBe(200);
+
+    expect(insights.body.aggregate.messageCount).toBe(1_000);
+    expect(insights.body.aggregate.failedMessages).toBe(0);
+    expect(insights.body.aggregate.partiallyAlignedMessages).toBe(1_000);
+    expect(insights.body.aggregate.dmarcPassRate).toBe(100);
+    expect(insights.body.aggregate.spfPassRate).toBe(0);
+    expect(insights.body.aggregate.dkimPassRate).toBe(100);
+
+    const source = insights.body.sources.find((row: { sourceIp: string }) => row.sourceIp === '198.51.100.44');
+    expect(source.failedMessages).toBe(0);
+    expect(source.partiallyAlignedMessages).toBe(1_000);
+
+    const point = insights.body.trends.points.find((row: { messagesObserved: number }) => row.messagesObserved === 1_000);
+    expect(point.failedMessages).toBe(0);
   });
 
   it('requires report read permission', async () => {

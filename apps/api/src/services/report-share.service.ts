@@ -201,11 +201,13 @@ export interface PublicReportView {
   generatedAt: string;
   expiresAt: string;
   policy: { published: string | null; reportingConfigured: boolean; recommended: string };
+  /** passRatePercent is the DMARC pass rate: either aligned check passed. */
   health: { score: number | null; passRatePercent: number | null; messagesObserved: number; daysObserved: number };
   reporting: { reportsReceived: number; lastReportAt: string | null; daysSinceLastReport: number | null };
   activity: { dailyReports: { date: string; reports: number; messages: number }[]; spikes: unknown[] };
   sources: {
     sourceIp: string;
+    /** DMARC failures: both aligned checks failed. */
     failedMessages: number;
     totalMessages: number;
     risk: string;

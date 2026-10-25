@@ -19,6 +19,7 @@ import {
 } from "@/lib/api-ops";
 import { getServiceMeta } from "@/lib/api-public";
 import { featureOf } from "@/lib/entitlements";
+import { dmarcFailedMessages } from "@/lib/dmarc";
 import { toDnsChangeView } from "@/lib/dns-change-view";
 import { instantLabel } from "@/lib/instant";
 import { daysSinceReport, fmtVolume, policyLabel, POSTURE_META, resolvePosture } from "@/lib/posture";
@@ -50,9 +51,9 @@ import { Tabs } from "@/components/ui/tabs";
  * (scans). Policy readiness sits beside the tables at wide sizes because it is
  * the decision the evidence feeds.
  *
- * Every figure is the API's. Aggregate readouts keep the product's strict
- * "did not pass both" count. The Senders table uses DMARC failure (both aligned
- * checks failed) because a sender that passes one is not rejected by p=reject.
+ * Every figure is the API's. Aggregate failures are DMARC failures (both
+ * aligned checks failed), because a message that passes one is delivered under
+ * p=reject. The Reports table uses the same shared rule as the API.
  */
 export default async function DomainPage({ params }: { params: Promise<{ domainId: string }> }) {
   const { domainId } = await params;
@@ -222,11 +223,11 @@ export default async function DomainPage({ params }: { params: Promise<{ domainI
         <ReadoutStrip>
           <Readout label="Messages observed" value={fmtVolume(agg.messageCount)} note={windowLabel(agg.messageWindow)} />
           <Readout
-            label="Failed"
+            label="Failed DMARC"
             value={fmtVolume(agg.failedMessages)}
             unit={failShare !== null && agg.failedMessages > 0 ? `${(failShare * 100).toFixed(1)}% of observed` : undefined}
             tone={agg.failedMessages > 0 ? "fail" : undefined}
-            note="messages where SPF or DKIM did not pass"
+            note="messages where both SPF and DKIM failed alignment"
           />
           <Readout label="Reports received" value={fmtVolume(agg.reportCount)} note={`${fmtVolume(agg.recordCount)} records in them`} />
           <Readout label="SPF pass" value={rate(agg.spfPassRate)} note="of observed messages" />
@@ -237,6 +238,14 @@ export default async function DomainPage({ params }: { params: Promise<{ domainI
             note={insights.reporting.forensicConfigured ? `${fmtVolume(insights.forensic.rejectedMessages)} rejected or quarantined` : "no ruf= address published"}
           />
         </ReadoutStrip>
+
+        {agg.partiallyAlignedMessages > 0 ? (
+          <p className="text-ui text-fg-2" data-testid="partially-aligned">
+            {fmtVolume(agg.partiallyAlignedMessages)} message
+            {agg.partiallyAlignedMessages === 1 ? "" : "s"} passed DMARC on one check only. They are delivered under
+            p=reject, but fixing the other check makes them robust.
+          </p>
+        ) : null}
 
         {/* The chart and the decision it feeds sit side by side; the tables
             below get the full width, because tables are what need it. */}
@@ -408,7 +417,7 @@ function SourcesTable({ sources }: { sources: SourceAttribution[] }) {
             <Th>Confidence</Th>
             <Th>Sending domain</Th>
             <Th numeric>Messages</Th>
-            <Th numeric>Failed</Th>
+            <Th numeric>Failed DMARC</Th>
             <Th numeric>Forensic</Th>
             <Th numeric>Reports</Th>
             <Th>Risk</Th>
@@ -491,17 +500,14 @@ function ReportsTable({ reports }: { reports: ReportRow[] }) {
             <Th numeric>Received</Th>
             <Th numeric>Records</Th>
             <Th numeric>Messages</Th>
-            <Th numeric>Failed</Th>
+            <Th numeric>Failed DMARC</Th>
             <Th>Policy</Th>
           </tr>
         </THead>
         <TBody>
           {reports.map((r) => {
             const messages = r.records.reduce((n, rec) => n + rec.messageCount, 0);
-            // The API's own rule, so this column and the readout agree.
-            const failed = r.records
-              .filter((rec) => (rec.dkimResult ?? "").toLowerCase() !== "pass" || (rec.spfResult ?? "").toLowerCase() !== "pass")
-              .reduce((n, rec) => n + rec.messageCount, 0);
+            const failed = dmarcFailedMessages(r.records);
             return (
               <Tr key={r.id}>
                 <Td className="font-semibold">{r.reportingOrganization ?? <span className="text-fg-3">unknown reporter</span>}</Td>

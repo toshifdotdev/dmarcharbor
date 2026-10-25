@@ -148,8 +148,8 @@ export default async function PortalDomainPage({
                   [n(agg.messageCount), `message${agg.messageCount === 1 ? "" : "s"} sent as ${detail.domain.name}`, "Every message these servers received that claimed to come from your domain."],
                   [
                     passPct === null ? "—" : `${passPct}%`,
-                    "proved they came from you",
-                    agg.failedMessages === 0 ? "None failed." : `${n(agg.failedMessages)} did not. Those are the ones to look at.`,
+                    "passed DMARC",
+                    agg.failedMessages === 0 ? "None failed DMARC." : `${n(agg.failedMessages)} failed DMARC. Those are the ones to look at.`,
                   ],
                   [n(detail.senders.length), `source${detail.senders.length === 1 ? "" : "s"} sending as you`, "Services and servers that sent email in your name. Listed below."],
                 ].map(([figure, label, meaning]) => (

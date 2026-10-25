@@ -3,6 +3,7 @@ import {
   alignmentModeFromTag,
   isAligned,
   organizationalDomain,
+  passesDmarc,
   resolveAlignedSender,
 } from '../src/services/alignment.service.js';
 import { parseDmarcReport } from '../src/services/report-parser.service.js';
@@ -212,5 +213,20 @@ describe('the parser honours it end to end', () => {
     expect(parsed.records[0].senderDomain).toBe('news.acme.com');
     expect(parsed.policyAdkim).toBe('s');
     expect(parsed.policyAspf).toBe('s');
+  });
+});
+
+describe('DMARC pass rule', () => {
+  it('passes when either aligned check passed', () => {
+    expect(passesDmarc({ dkimResult: 'pass', spfResult: 'pass' })).toBe(true);
+    expect(passesDmarc({ dkimResult: 'pass', spfResult: 'fail' })).toBe(true);
+    expect(passesDmarc({ dkimResult: 'fail', spfResult: 'pass' })).toBe(true);
+    expect(passesDmarc({ dkimResult: 'fail', spfResult: 'fail' })).toBe(false);
+  });
+
+  it('treats null as not passed and compares case-insensitively', () => {
+    expect(passesDmarc({ dkimResult: null, spfResult: null })).toBe(false);
+    expect(passesDmarc({ dkimResult: 'PASS', spfResult: null })).toBe(true);
+    expect(passesDmarc({ dkimResult: null, spfResult: ' Pass ' })).toBe(true);
   });
 });

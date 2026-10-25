@@ -148,22 +148,6 @@ export function daysAtPolicy(
   return earliest && latest ? daySpan(earliest, latest) : 0;
 }
 
-function passRateFrom(insights: DomainInsights | null): number | null {
-  if (!insights || insights.aggregate.messageCount === 0) {
-    return null;
-  }
-
-  const spf = insights.aggregate.spfPassRate;
-  const dkim = insights.aggregate.dkimPassRate;
-  if (spf === null && dkim === null) {
-    return null;
-  }
-
-  const values = [spf, dkim].filter((value): value is number => value !== null);
-  const average = values.reduce((total, value) => total + value, 0) / values.length;
-  return Math.round(average * 100) / 100;
-}
-
 /**
  * The DMARC record to publish, written to RFC 9989.
  *
@@ -247,7 +231,7 @@ export async function assessPolicyReadiness(
   ]);
 
   const messagesObserved = resolved.aggregate.messageCount;
-  const passRatePercent = passRateFrom(resolved);
+  const passRatePercent = resolved.aggregate.dmarcPassRate;
   const dkimPassRatePercent = resolved.aggregate.dkimPassRate;
   const daysObserved = daySpan(
     resolved.aggregate.messageWindow.begin ? new Date(resolved.aggregate.messageWindow.begin) : null,
@@ -288,12 +272,12 @@ export async function assessPolicyReadiness(
     }
 
     if (passRatePercent === null) {
-      blockers.push('No SPF or DKIM results have been observed yet.');
+      blockers.push('No DMARC results have been observed yet.');
     } else {
       const failureRate = Math.round((100 - passRatePercent) * 100) / 100;
       if (failureRate > 100 - requiredPassRate) {
         blockers.push(
-          `Pass rate is ${passRatePercent}%. At least ${requiredPassRate}% is required for p=${level}.`,
+          `DMARC pass rate is ${passRatePercent}%. At least ${requiredPassRate}% is required for p=${level}.`,
         );
       }
     }

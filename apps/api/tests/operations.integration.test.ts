@@ -270,10 +270,9 @@ describe('audit trail', () => {
   it('records alert rule lifecycle and acknowledgement', async () => {
     const { agent, organizationId, domainId, userId } = await setup();
 
-    const failingReport = aggregateReport(`ops-${fixtureId}.test`, `audit-alert-${Date.now()}`).replace(
-      '<dkim>pass</dkim>',
-      '<dkim>fail</dkim>',
-    );
+    const failingReport = aggregateReport(`ops-${fixtureId}.test`, `audit-alert-${Date.now()}`)
+      .replace('<dkim>pass</dkim>', '<dkim>fail</dkim>')
+      .replace('<spf>pass</spf>', '<spf>fail</spf>');
 
     await agent.post(`/api/workspaces/${organizationId}/domains/${domainId}/reports`).send({
       xml: failingReport,

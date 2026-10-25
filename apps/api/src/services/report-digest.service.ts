@@ -163,6 +163,7 @@ export async function buildDigestContent(
     '',
     `Messages observed: ${insights.aggregate.messageCount}`,
     `Failed DMARC: ${insights.aggregate.failedMessages}`,
+    `DMARC pass rate: ${insights.aggregate.dmarcPassRate ?? 'unknown'}%`,
     `SPF pass rate: ${insights.aggregate.spfPassRate ?? 'unknown'}%`,
     `DKIM pass rate: ${insights.aggregate.dkimPassRate ?? 'unknown'}%`,
     `Aggregate reports received: ${insights.aggregate.reportCount}`,
@@ -179,7 +180,7 @@ export async function buildDigestContent(
     lines.push('', 'Top sources:');
     for (const source of insights.sources.slice(0, 5)) {
       lines.push(
-        `  ${source.sourceIp}  ${source.failedMessages} failed / ${source.totalMessages} total  (${source.risk} risk)`,
+        `  ${source.sourceIp}  ${source.failedMessages} failed DMARC / ${source.totalMessages} total  (${source.risk} risk)`,
       );
     }
   }

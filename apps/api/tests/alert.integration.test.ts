@@ -1,5 +1,6 @@
 import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { AlertMetric, AlertOperator } from '@prisma/client';
 import {
   evaluateAlertRules,
   evaluateRule,
@@ -226,6 +227,92 @@ describe('alerting', () => {
     expect(delivery.status).toBe('SENT');
     expect(delivery.sentAt).not.toBeNull();
     expect(delivery.attempts).toBe(1);
+  });
+
+  it('does not fire FAILURE_COUNT on DKIM-passing SPF-failing mail', async () => {
+    const { agent, organizationId, domainId, userId } = await createWorkspaceDomain('dmarc-count-pass.test');
+
+    const rule = await agent.post(`/api/workspaces/${organizationId}/alert-rules`).send({
+      domainId,
+      name: 'Any DMARC failure',
+      metric: 'FAILURE_COUNT',
+      operator: 'GREATER_THAN',
+      threshold: 0,
+      windowMinutes: 1440,
+      cooldownMinutes: 1440,
+      maxReminderLevel: 3,
+      recipientUserIds: [userId],
+    });
+    expect(rule.status).toBe(201);
+
+    await agent.post(`/api/workspaces/${organizationId}/domains/${domainId}/reports`).send({
+      xml: aggregateReport('dmarc-count-pass.test', 'partial-1', [
+        { ip: '198.51.100.44', count: 1_000, dkim: 'pass', spf: 'fail' },
+      ]),
+    });
+
+    const quiet = (await evaluateAlertRules()).find((entry) => entry.ruleId === rule.body.id);
+    expect(quiet?.outcome).toBe('unchanged');
+    expect(quiet?.observed).toBe(0);
+    expect(await prisma.alertEvent.count({ where: { ruleId: rule.body.id } })).toBe(0);
+
+    await agent.post(`/api/workspaces/${organizationId}/domains/${domainId}/reports`).send({
+      xml: aggregateReport('dmarc-count-pass.test', 'both-fail-1', [
+        { ip: '45.83.12.9', count: 500, dkim: 'fail', spf: 'fail' },
+      ]),
+    });
+
+    const fired = (await evaluateAlertRules()).find((entry) => entry.ruleId === rule.body.id);
+    expect(fired?.outcome).toBe('triggered');
+    expect(fired?.observed).toBe(500);
+
+    const event = await prisma.alertEvent.findFirstOrThrow({ where: { ruleId: rule.body.id } });
+    expect(event.summary).toContain('failed DMARC');
+    expect(event.context).toMatchObject({ failedMessages: 500, partiallyAlignedMessages: 1_000 });
+  });
+
+  it('resolves an event raised under the old count when only partially aligned mail remains', async () => {
+    const { agent, organizationId, domainId, userId } = await createWorkspaceDomain('dmarc-count-resolve.test');
+
+    const rule = await agent.post(`/api/workspaces/${organizationId}/alert-rules`).send({
+      domainId,
+      name: 'Old false positive',
+      metric: 'FAILURE_COUNT',
+      operator: 'GREATER_THAN',
+      threshold: 0,
+      windowMinutes: 1440,
+      cooldownMinutes: 1440,
+      maxReminderLevel: 3,
+      recipientUserIds: [userId],
+    });
+    expect(rule.status).toBe(201);
+
+    const oldEvent = await prisma.alertEvent.create({
+      data: {
+        ruleId: rule.body.id,
+        organizationId,
+        domainId,
+        metric: AlertMetric.FAILURE_COUNT,
+        operator: AlertOperator.GREATER_THAN,
+        observedValue: 1_000,
+        threshold: 0,
+        windowMinutes: 1440,
+        summary: 'Observed 1000 messages',
+      },
+    });
+
+    await agent.post(`/api/workspaces/${organizationId}/domains/${domainId}/reports`).send({
+      xml: aggregateReport('dmarc-count-resolve.test', 'partial-2', [
+        { ip: '198.51.100.44', count: 1_000, dkim: 'pass', spf: 'fail' },
+      ]),
+    });
+
+    const resolved = (await evaluateAlertRules()).find((entry) => entry.ruleId === rule.body.id);
+    expect(resolved?.outcome).toBe('resolved');
+    expect(resolved?.observed).toBe(0);
+
+    const stored = await prisma.alertEvent.findUniqueOrThrow({ where: { id: oldEvent.id } });
+    expect(stored.resolvedAt).not.toBeNull();
   });
 
   it('keeps one open event and escalates it instead of firing a new alert', async () => {

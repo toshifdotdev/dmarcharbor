@@ -1,5 +1,6 @@
 import { prisma } from '../database/prisma.js';
 import { hasAggregateReporting, readDmarcRecord } from '../scanner/dmarc-tags.js';
+import { passesDmarc } from './alignment.service.js';
 import { domainRef } from './domain-ref.js';
 import { buildSenderBreakdown, type SenderBreakdownRow } from './sender-breakdown.service.js';
 import { attributeSourceIp, type AuthSignal, type CachedIntel, type SenderConfidence, type SenderService } from './senders/attribution.js';
@@ -13,7 +14,10 @@ const spikeStandardDeviations = 2;
 export interface SourceAttribution {
   sourceIp: string;
   totalMessages: number;
+  /** Messages that failed DMARC: both aligned checks failed. */
   failedMessages: number;
+  /** Messages that passed DMARC but failed one aligned check. */
+  partiallyAlignedMessages: number;
   forensicMessages: number;
   reportCount: number;
   lastSeenAt: string | null;
@@ -27,6 +31,7 @@ export interface TrendPoint {
   date: string;
   reportsReceived: number;
   messagesObserved: number;
+  /** DMARC failures: both aligned checks failed. */
   failedMessages: number;
 }
 
@@ -51,7 +56,11 @@ export interface DomainInsights {
     reportCount: number;
     recordCount: number;
     messageCount: number;
+    /** DMARC failures: messages where both aligned checks failed. */
     failedMessages: number;
+    dmarcPassRate: number | null;
+    /** Passed DMARC but failed one aligned check. */
+    partiallyAlignedMessages: number;
     spfPassRate: number | null;
     dkimPassRate: number | null;
     lastReportAt: string | null;
@@ -126,6 +135,7 @@ function touchSource(
     sourceIp,
     totalMessages: 0,
     failedMessages: 0,
+    partiallyAlignedMessages: 0,
     forensicMessages: 0,
     reportCount: 0,
     lastSeenAt: null,
@@ -228,6 +238,7 @@ export async function getDomainInsights(
   let recordCount = 0;
   let messageCount = 0;
   let failedMessages = 0;
+  let partiallyAlignedMessages = 0;
   let spfPass = 0;
   let dkimPass = 0;
   let lastReportAt: string | null = null;
@@ -253,10 +264,13 @@ export async function getDomainInsights(
       messageCount += record.messageCount;
       bucket.messagesObserved += record.messageCount;
 
-      const failed = !isPass(record.dkimResult) || !isPass(record.spfResult);
-      if (failed) {
+      const dmarcFailed = !passesDmarc(record);
+      const partiallyAligned = !dmarcFailed && (!isPass(record.dkimResult) || !isPass(record.spfResult));
+      if (dmarcFailed) {
         failedMessages += record.messageCount;
         bucket.failedMessages += record.messageCount;
+      } else if (partiallyAligned) {
+        partiallyAlignedMessages += record.messageCount;
       }
 
       if (record.spfResult) {
@@ -288,8 +302,10 @@ export async function getDomainInsights(
         entry.totalMessages += record.messageCount;
         entry.reportCount += 1;
         entry.lastSeenAt = latestIso(entry.lastSeenAt, report.receivedAt);
-        if (failed) {
+        if (dmarcFailed) {
           entry.failedMessages += record.messageCount;
+        } else if (partiallyAligned) {
+          entry.partiallyAlignedMessages += record.messageCount;
         }
         if (sendingDomain && !entry.topSendingDomain) {
           entry.topSendingDomain = sendingDomain;
@@ -388,6 +404,8 @@ export async function getDomainInsights(
       recordCount,
       messageCount,
       failedMessages,
+      dmarcPassRate: roundPercent(messageCount ? (messageCount - failedMessages) / messageCount : null),
+      partiallyAlignedMessages,
       spfPassRate: roundPercent(messageCount ? spfPass / messageCount : null),
       dkimPassRate: roundPercent(messageCount ? dkimPass / messageCount : null),
       lastReportAt,

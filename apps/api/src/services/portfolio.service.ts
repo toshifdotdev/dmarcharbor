@@ -1,5 +1,6 @@
 import { prisma } from '../database/prisma.js';
 import { hasAggregateReporting, readDmarcRecord } from '../scanner/dmarc-tags.js';
+import { passesDmarc } from './alignment.service.js';
 import { readinessThresholds, type OnboardingState, type ReadinessLevel } from './onboarding.service.js';
 
 export interface PortfolioDomainRow {
@@ -19,6 +20,7 @@ export interface PortfolioDomainRow {
   openAlerts: number;
   staleAlerts: number;
   messagesObserved: number;
+  /** DMARC pass rate: messages where either aligned check passed. */
   passRatePercent: number | null;
   recommendedPolicy: ReadinessLevel;
   topBlocker: string | null;
@@ -127,16 +129,13 @@ export async function getPortfolioOnboarding(organizationId: string, now = new D
 
   const perDomain = new Map<
     string,
-    { messages: number; spfPassed: number; dkimPassed: number; spfSeen: number; dkimSeen: number; windowBegin: Date | null }
+    { messages: number; dmarcPassed: number; windowBegin: Date | null }
   >();
 
   for (const domain of domains) {
     perDomain.set(domain.id, {
       messages: 0,
-      spfPassed: 0,
-      dkimPassed: 0,
-      spfSeen: 0,
-      dkimSeen: 0,
+      dmarcPassed: 0,
       windowBegin: null,
     });
   }
@@ -155,17 +154,8 @@ export async function getPortfolioOnboarding(organizationId: string, now = new D
     }
 
     entry.messages += record.messageCount;
-    if (record.spfResult) {
-      entry.spfSeen += record.messageCount;
-      if (record.spfResult.trim().toLowerCase() === 'pass') {
-        entry.spfPassed += record.messageCount;
-      }
-    }
-    if (record.dkimResult) {
-      entry.dkimSeen += record.messageCount;
-      if (record.dkimResult.trim().toLowerCase() === 'pass') {
-        entry.dkimPassed += record.messageCount;
-      }
+    if (passesDmarc(record)) {
+      entry.dmarcPassed += record.messageCount;
     }
   }
 
@@ -180,23 +170,12 @@ export async function getPortfolioOnboarding(organizationId: string, now = new D
     const staleAlerts = staleAlertsByDomain.get(domain.id) ?? 0;
     const stats = perDomain.get(domain.id) ?? {
       messages: 0,
-      spfPassed: 0,
-      dkimPassed: 0,
-      spfSeen: 0,
-      dkimSeen: 0,
+      dmarcPassed: 0,
       windowBegin: null,
     };
 
-    const rates: number[] = [];
-    if (stats.spfSeen) {
-      rates.push((stats.spfPassed / stats.spfSeen) * 100);
-    }
-    if (stats.dkimSeen) {
-      rates.push((stats.dkimPassed / stats.dkimSeen) * 100);
-    }
-    const averageRate = rates.length ? rates.reduce((total, value) => total + value, 0) / rates.length : null;
     const passRatePercent =
-      averageRate === null ? null : Math.round(averageRate * 100) / 100;
+      stats.messages === 0 ? null : Math.round((stats.dmarcPassed / stats.messages) * 10_000) / 100;
     const daysObserved = daySpan(stats.windowBegin, now);
 
     const blockers: string[] = [];
@@ -211,10 +190,10 @@ export async function getPortfolioOnboarding(organizationId: string, now = new D
       );
     }
     if (passRatePercent === null) {
-      blockers.push('No SPF or DKIM results have been observed yet.');
+      blockers.push('No DMARC results have been observed yet.');
     } else if (100 - passRatePercent > 100 - readinessThresholds.quarantinePassRatePercent) {
       blockers.push(
-        `Pass rate is ${passRatePercent}%. At least ${readinessThresholds.quarantinePassRatePercent}% is required for p=quarantine.`,
+        `DMARC pass rate is ${passRatePercent}%. At least ${readinessThresholds.quarantinePassRatePercent}% is required for p=quarantine.`,
       );
     }
     if (openAlerts > 0) {
@@ -228,7 +207,7 @@ export async function getPortfolioOnboarding(organizationId: string, now = new D
     const rejectBlockers = [...blockers];
     if (passRatePercent !== null && 100 - passRatePercent > 100 - readinessThresholds.rejectPassRatePercent) {
       rejectBlockers.push(
-        `Pass rate is ${passRatePercent}%. At least ${readinessThresholds.rejectPassRatePercent}% is required for p=reject.`,
+        `DMARC pass rate is ${passRatePercent}%. At least ${readinessThresholds.rejectPassRatePercent}% is required for p=reject.`,
       );
     }
     const recommendedPolicy: ReadinessLevel = readyForQuarantine

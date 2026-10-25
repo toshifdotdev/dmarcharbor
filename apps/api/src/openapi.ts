@@ -2237,6 +2237,8 @@ export const openApiDocument = {
         description: [
           'Requires report update. Recorded in the audit trail.',
           'Metrics are FAILURE_COUNT, FAILURE_RATE, SOURCE_IP_VOLUME, FORENSIC_FAILURES, REPORT_SILENCE and NEW_UNAUTHENTICATED_SOURCE.',
+          'FAILURE_COUNT and FAILURE_RATE count DMARC failures: messages where both SPF and DKIM failed alignment. A message that passes either aligned check is not a failure, because p=reject would deliver it.',
+          'Existing thresholds were not changed. An open event whose condition no longer holds resolves on the next evaluation.',
           'NEW_UNAUTHENTICATED_SOURCE counts sending sources first seen in the last seven days that failed both SPF and DKIM, which is the closest signal to a spoofing attempt. Use GREATER_THAN_OR_EQUAL with a threshold of 1.',
         ].join(' '),
         parameters: [orgParam],
@@ -2464,6 +2466,8 @@ export const openApiDocument = {
         summary: 'Policy readiness and blockers',
         description: [
           'Never changes anything. Reports whether tightening is safe and lists every blocker.',
+          'passRatePercent is the DMARC pass rate: messages where either aligned check passed. A domain that passes DKIM and fails SPF therefore scores 100%, which is what p=reject would deliver.',
+          'The DKIM pass-rate gate for reject is separate: reject requires DKIM on at least 99% of mail, because SPF alone does not survive forwarding.',
           'Two gates exist to protect legitimate mail that a blended pass rate would hide: a per sending service failure gate, and a staged rollout gate that forbids jumping straight to reject.',
         ].join(' '),
         parameters: [orgParam, idParam('domainId', 'Domain identifier.')],
@@ -2474,7 +2478,11 @@ export const openApiDocument = {
       get: {
         tags: ['Reports'],
         summary: 'Domain insights',
-        description: 'Summary, source attribution, daily trends and spike detection across both report types.',
+        description: [
+          'Summary, source attribution, daily trends and spike detection across both report types.',
+          'aggregate.failedMessages, trend failedMessages and source failedMessages count DMARC failures: messages where both aligned checks failed. dmarcPassRate is the share where either aligned check passed.',
+          'aggregate.partiallyAlignedMessages and source partiallyAlignedMessages count messages that passed DMARC but failed one aligned check.',
+        ].join(' '),
         parameters: [
           orgParam,
           idParam('domainId', 'Domain identifier.'),
@@ -2520,6 +2528,7 @@ export const openApiDocument = {
         description: [
           'The only unauthenticated read endpoint. Rate limited to 30 requests per minute.',
           'Never returns recipient pseudonyms, subject lines, addresses or alert history.',
+          'health.passRatePercent is the DMARC pass rate. Source failedMessages count DMARC failures: both aligned checks failed.',
         ].join(' '),
         parameters: [idParam('token', 'Share token from the created share link.')],
         responses: {
