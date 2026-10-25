@@ -678,6 +678,7 @@ const detail = await waitForEval(
       hasSenders: t.includes('Senders'),
       hasReports: t.includes('Aggregate reports'),
       hasReadiness: t.includes('Policy posture'),
+      hasDnsChanges: !!document.querySelector('[data-testid="dns-changes"]'),
       headings: [...document.querySelectorAll('h1,h2')].map(h => h.textContent.trim()).slice(0, 8),
     };
   })()`,
@@ -687,6 +688,11 @@ check(
   "domain detail renders evidence panels",
   Boolean(detail && detail.hasChart && detail.hasSenders && detail.hasReports && detail.hasReadiness),
   detail ? detail.headings.join(" | ") : "no detail",
+);
+check(
+  "domain detail renders the DNS changes section",
+  Boolean(detail && detail.hasDnsChanges),
+  JSON.stringify({ hasDnsChanges: detail?.hasDnsChanges }),
 );
 const shotDetail = await shot("03-domain-detail.png");
 
@@ -3453,6 +3459,28 @@ check(
   "checkout refund ack: present, unticked, links Terms AND Refunds",
   Boolean(ackAudit && ackAudit.present && ackAudit.unticked && ackAudit.linksTerms && ackAudit.linksRefunds),
   JSON.stringify(ackAudit),
+);
+
+// 10e-2. Webhook settings expose the DNS monitoring events. The API is the
+//        source of the list; this checks the three opt-in events are rendered.
+await navigate(WEB + "/settings/webhooks");
+const webhookEventsAudit = await waitForEval(
+  `(() => {
+    const ids = ['dns.changed', 'policy.changed', 'forensic.received'];
+    return {
+      present: ids.every((id) => !!document.querySelector('[data-testid="webhook-event-' + id + '"]')),
+      words: document.body.textContent.includes('DNS records changed')
+        && document.body.textContent.includes('DMARC policy changed')
+        && document.body.textContent.includes('Forensic report received'),
+    };
+  })()`,
+  (a) => a && a.present,
+  45000,
+);
+check(
+  "webhook settings list the DNS monitoring events",
+  Boolean(webhookEventsAudit?.present && webhookEventsAudit?.words),
+  JSON.stringify(webhookEventsAudit),
 );
 
 // 10f. Interaction layer: a pointer cursor on what is clickable (never on

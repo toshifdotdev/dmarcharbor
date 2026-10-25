@@ -1,9 +1,14 @@
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
 import { domainRef } from './domain-ref.js';
 import { applySwitchRecord } from './switch-kit/switch.service.js';
 import { switchObservationFromScan } from './switch-kit/state.js';
 import { scanDomain } from '../scanner/scanner.js';
+import { systemDnsReader } from '../scanner/dns.js';
+import type { DnsReader, ScanResult } from '../scanner/types.js';
+import { confirmDnsRemovals } from './monitoring/dns-removal-confirmation.js';
+import { changeJson, emitDnsWebhooks } from './monitoring/dns-webhook.service.js';
+import { diffScans } from './monitoring/dns-diff.js';
 
 const scanInclude = {
   domain: {
@@ -34,13 +39,15 @@ type PersistedScan = Prisma.ScanGetPayload<{ include: typeof scanInclude }>;
 type RunDomainScanInput = {
   organizationId: string;
   domainId: string;
-  requestedById: string;
+  requestedById: string | null;
+  trigger?: 'MANUAL' | 'SCHEDULED';
+  reader?: DnsReader;
 };
 
 export type RunDomainScanOutcome =
   | { status: 'not_found' }
   | { status: 'not_verified' }
-  | { status: 'completed'; scan: PersistedScan }
+  | { status: 'completed'; scan: PersistedScan; changes: number }
   | { status: 'failed'; scan: PersistedScan; error: string };
 
 function toJson(value: unknown): Prisma.InputJsonValue {
@@ -51,7 +58,16 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'The scan failed unexpectedly.';
 }
 
+function knownSelectorsFrom(value: Prisma.JsonValue | null): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
+}
+
+const inconsistentRemovalMessage = 'DNS answered inconsistently; the next scheduled check will try again';
+
 export async function runDomainScan(input: RunDomainScanInput): Promise<RunDomainScanOutcome> {
+  const trigger = input.trigger ?? 'MANUAL';
+  const reader = input.reader ?? systemDnsReader;
+
   const domain = await prisma.domain.findFirst({
     where: {
       client: { organizationId: input.organizationId },
@@ -61,6 +77,8 @@ export async function runDomainScan(input: RunDomainScanInput): Promise<RunDomai
       id: true,
       name: true,
       status: true,
+      dkimSelectors: true,
+      client: { select: { organizationId: true } },
     },
   });
 
@@ -76,31 +94,23 @@ export async function runDomainScan(input: RunDomainScanInput): Promise<RunDomai
     data: {
       domainId: domain.id,
       requestedById: input.requestedById,
+      trigger,
       status: 'RUNNING',
     },
   });
 
   try {
-    const result = await scanDomain(domain.name);
+    const result = await scanDomain(domain.name, reader, {
+      knownSelectors: knownSelectorsFrom(domain.dkimSelectors),
+    });
 
     /**
      * A scan that could not reach DNS is not a scan that found nothing.
      *
-     * `scanDomain` answers with `status: 'error'` and `score: 0` when its lookups
-     * fail rather than throwing, so this looked like an ordinary completed scan
-     * and was stored as one. The row then read "completed, score 0" - a measured
-     * zero - and the domain's recorded DMARC policy was overwritten with this
-     * scan's `unknown`, quietly replacing a real answer from a scan that worked
-     * with no answer from one that never ran.
-     *
      * Stored as FAILED, with the reason preserved, and the domain row left
-     * exactly as the previous scan left it.
-     *
-     * `error` is the only status that means this. `missing` and
-     * `needs_attention` are findings, not failures: a domain that publishes no
-     * DMARC record at all is exactly what the scan exists to report, and
-     * treating it as an error would mean a healthy scan of a badly configured
-     * domain was never recorded.
+     * exactly as the previous scan left it. `missing` and `needs_attention`
+     * are findings, not failures: a domain with no DMARC record is exactly what
+     * a scan exists to report.
      */
     if (result.status === 'error') {
       const reason =
@@ -122,7 +132,90 @@ export async function runDomainScan(input: RunDomainScanInput): Promise<RunDomai
     }
 
     const completedAt = new Date(result.scannedAt);
-    const persistedScan = await prisma.$transaction(async (transaction) => {
+
+    /**
+     * Confirm critical removals before anything is written.
+     *
+     * DNS answers inconsistently, so one "missing" is not proof. This reads the
+     * affected name again after a pause. A reappearing record fails the scan
+     * rather than telling the customer their DMARC or SPF record was removed
+     * when it was not.
+     */
+    const previousForConfirmation = await prisma.scan.findFirst({
+      where: {
+        domainId: domain.id,
+        status: 'COMPLETED',
+        id: { not: scan.id },
+      },
+      orderBy: [{ completedAt: 'desc' }, { startedAt: 'desc' }, { id: 'desc' }],
+      select: { id: true, result: true },
+    });
+
+    const previousResultForConfirmation = previousForConfirmation?.result
+      ? (previousForConfirmation.result as unknown as ScanResult)
+      : null;
+
+    if (previousResultForConfirmation) {
+      const confirmation = await confirmDnsRemovals({
+        domainName: domain.name,
+        previous: previousResultForConfirmation,
+        current: result,
+        reader,
+      });
+
+      if (!confirmation.confirmed) {
+        const failedScan = await prisma.scan.update({
+          where: { id: scan.id },
+          data: {
+            status: 'FAILED',
+            error: inconsistentRemovalMessage,
+            result: toJson(result),
+            completedAt,
+          },
+          include: scanInclude,
+        });
+
+        return { status: 'failed', scan: failedScan, error: inconsistentRemovalMessage };
+      }
+    }
+
+    const persisted = await prisma.$transaction(async (transaction) => {
+      // Serialises concurrent scans of one domain, so two of them cannot both
+      // read the same previous scan and record the same change.
+      await transaction.$queryRaw`SELECT id FROM "domain" WHERE id = ${domain.id} FOR UPDATE`;
+
+      const previous = await transaction.scan.findFirst({
+        where: {
+          domainId: domain.id,
+          status: 'COMPLETED',
+          id: { not: scan.id },
+        },
+        orderBy: [{ completedAt: 'desc' }, { startedAt: 'desc' }, { id: 'desc' }],
+        select: { id: true, result: true },
+      });
+
+      const previousResult = previous?.result ? (previous.result as unknown as ScanResult) : null;
+      const drafts = previousResult ? diffScans(previousResult, result) : [];
+
+      const changes = drafts.length
+        ? await transaction.dnsChange.createManyAndReturn({
+            data: drafts.map((draft) => ({
+              organizationId: domain.client.organizationId,
+              domainId: domain.id,
+              scanId: scan.id,
+              previousScanId: previous?.id ?? null,
+              kind: draft.kind,
+              severity: draft.severity,
+              code: draft.code,
+              summary: draft.summary,
+              before: changeJson(draft.before),
+              after: changeJson(draft.after),
+              detectedAt: completedAt,
+            })),
+            select: { id: true, kind: true, severity: true, code: true, summary: true },
+          })
+        : [];
+
       await transaction.scan.update({
         where: { id: scan.id },
         data: {
@@ -146,13 +239,20 @@ export async function runDomainScan(input: RunDomainScanInput): Promise<RunDomai
         },
       });
 
-      return transaction.scan.findUnique({
+      const scanRow = await transaction.scan.findUnique({
         where: { id: scan.id },
         include: scanInclude,
       });
+
+      return {
+        scan: scanRow,
+        changes,
+        previousScanId: previous?.id ?? null,
+        previousResult,
+      };
     });
 
-    if (!persistedScan) {
+    if (!persisted.scan) {
       throw new Error('The completed scan could not be reloaded.');
     }
 
@@ -160,7 +260,19 @@ export async function runDomainScan(input: RunDomainScanInput): Promise<RunDomai
     // lookup. Best effort: applySwitchRecord swallows its own failures.
     await applySwitchRecord(domain.id, switchObservationFromScan(result.dmarc));
 
-    return { status: 'completed', scan: persistedScan };
+    await emitDnsWebhooks({
+      organizationId: domain.client.organizationId,
+      domainId: domain.id,
+      domainName: domain.name,
+      scanId: scan.id,
+      previousScanId: persisted.previousScanId,
+      trigger,
+      changes: persisted.changes,
+      previous: persisted.previousResult,
+      current: result,
+    });
+
+    return { status: 'completed', scan: persisted.scan, changes: persisted.changes.length };
   } catch (error) {
     const message = errorMessage(error);
     const failedScan = await prisma.scan.update({
@@ -177,15 +289,45 @@ export async function runDomainScan(input: RunDomainScanInput): Promise<RunDomai
   }
 }
 
-export async function listDomainScans(organizationId: string, domainId: string): Promise<PersistedScan[]> {
-  return prisma.scan.findMany({
+export interface ScanListRow extends PersistedScan {
+  changeCount: number;
+}
+
+/**
+ * Scan history, newest first.
+ *
+ * Paginated because a scheduled scan adds one row per domain per day, so the
+ * unbounded list would grow without limit.
+ */
+export async function listDomainScans(
+  organizationId: string,
+  domainId: string,
+  options: { limit?: number; cursor?: string } = {},
+): Promise<{ rows: ScanListRow[]; nextCursor: string | null }> {
+  const limit = Math.min(Math.max(options.limit ?? 50, 1), 100);
+
+  const rows = await prisma.scan.findMany({
     where: {
       domainId,
       domain: { client: { organizationId } },
     },
-    include: scanInclude,
-    orderBy: { startedAt: 'desc' },
+    include: {
+      ...scanInclude,
+      _count: { select: { dnsChanges: true } },
+    },
+    orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
+    take: limit + 1,
+    ...(options.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
   });
+
+  const hasMore = rows.length > limit;
+  const items = hasMore ? rows.slice(0, limit) : rows;
+  const last = items[items.length - 1];
+
+  return {
+    rows: items.map(({ _count, ...scan }) => ({ ...scan, changeCount: _count.dnsChanges })),
+    nextCursor: hasMore && last ? last.id : null,
+  };
 }
 
 export async function getScan(organizationId: string, scanId: string): Promise<PersistedScan | null> {

@@ -57,7 +57,7 @@ function timeOf(d: Date): string {
   return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
 
-const KIND: Record<string, string> = { ALERT: "Alert", DIGEST: "Digest" };
+const KIND: Record<string, string> = { ALERT: "Alert", DIGEST: "Digest", DNS_CHANGE: "DNS change" };
 
 export function Inbox() {
   const [rows, setRows] = useState<NotificationRow[] | null>(null);

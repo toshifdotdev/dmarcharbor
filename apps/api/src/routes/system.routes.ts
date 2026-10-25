@@ -119,6 +119,10 @@ systemRouter.get('/meta', (_request, response) => {
       rollupHours: env.ALERT_ROLLUP_HOURS,
       staleDays: env.ALERT_STALE_DAYS,
     },
+    monitoring: {
+      rescanIntervalMinutes: env.DNS_MONITOR_INTERVAL_MINUTES,
+      enabled: env.DNS_MONITOR_ENABLED,
+    },
     schedulerDisabled: env.ALERT_SCHEDULER_DISABLED,
     plans: planCatalogResponse(),
     entitlements: {

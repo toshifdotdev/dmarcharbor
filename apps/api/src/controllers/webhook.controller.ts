@@ -20,13 +20,13 @@ const eventSchema = z.enum(webhookEvents);
 const createSchema = z.object({
   name: z.string().trim().min(2).max(80),
   url: z.string().trim().min(1).max(500),
-  events: z.array(eventSchema).min(1).max(4).optional(),
+  events: z.array(eventSchema).min(1).max(webhookEvents.length).optional(),
 });
 
 const updateSchema = z.object({
   name: z.string().trim().min(2).max(80).optional(),
   url: z.string().trim().min(1).max(500).optional(),
-  events: z.array(eventSchema).min(1).max(4).optional(),
+  events: z.array(eventSchema).min(1).max(webhookEvents.length).optional(),
   active: z.boolean().optional(),
 });
 

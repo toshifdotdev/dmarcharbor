@@ -168,8 +168,10 @@ describe('clients and domains', () => {
 
       const history = await agent.get(`/api/workspaces/${organizationId}/domains/${domainResponse.body.id}/scans`);
       expect(history.status).toBe(200);
-      expect(history.body).toHaveLength(1);
-      expect(history.body[0].id).toBe(scan.body.id);
+      expect(history.body.rows).toHaveLength(1);
+      expect(history.body.rows[0].id).toBe(scan.body.id);
+      expect(history.body.rows[0].trigger).toBe('MANUAL');
+      expect(history.body.rows[0].changeCount).toBe(0);
 
       const detail = await agent.get(`/api/workspaces/${organizationId}/scans/${scan.body.id}`);
       expect(detail.status).toBe(200);
@@ -204,7 +206,7 @@ describe('clients and domains', () => {
     expect(scan.status).toBe(409);
     const history = await agent.get(`/api/workspaces/${organizationId}/domains/${domainResponse.body.id}/scans`);
     expect(history.status).toBe(200);
-    expect(history.body).toHaveLength(0);
+    expect(history.body.rows).toHaveLength(0);
   });
 
   it('enforces workspace role permissions', async () => {

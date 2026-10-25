@@ -15,28 +15,30 @@
  * - Three states, never two: never scanned, history unreadable (never shown as
  *   never scanned), and the history itself.
  * - A 502 still wrote a FAILED scan row, so the page refreshes to show it.
- * - Scans are additive (nothing is deleted), so no confirmation.
+ * - The history is read only, so no confirmation is needed to look at it.
  *
  * Timestamps in the list arrive pre-formatted from the server; only a detail
  * fetched after a click is formatted here, where no server markup can disagree.
  */
 
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clsx } from "clsx";
-import { fetchDomainScan, runDomainScan } from "@/lib/scans-client";
+import { fetchDomainScan, fetchDomainScanPage, runDomainScan } from "@/lib/scans-client";
 import { instantLabel } from "@/lib/instant";
 import type { ScanIssue, ScanRow, ScanRunStatus } from "@/lib/types";
 import { Badge, type Tone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ChevronDown } from "@/components/ui/icons";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
-import { Table, TBody, Td, Th, THead, Tr } from "@/components/ui/table";
+import { Table, TBody, Td, Th, THead, Tr, Nil } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
 
 export interface ScanHistoryRow {
   id: string;
   status: ScanRunStatus;
+  trigger: "MANUAL" | "SCHEDULED";
+  changeCount: number;
   startedLabel: string;
   completedLabel: string | null;
   requestedBy: string;
@@ -55,6 +57,7 @@ export function ScanHistory({
   domainName,
   domainStatus,
   scans,
+  nextCursor,
   loadFailed,
 }: {
   organizationId: string;
@@ -62,10 +65,14 @@ export function ScanHistory({
   domainName: string;
   domainStatus: string;
   scans: ScanHistoryRow[];
+  nextCursor: string | null;
   loadFailed: boolean;
 }) {
   const router = useRouter();
   const toast = useToast();
+  const [rows, setRows] = useState(scans);
+  const [cursor, setCursor] = useState(nextCursor);
+  const [moreBusy, setMoreBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +82,24 @@ export function ScanHistory({
   const [detailFailed, setDetailFailed] = useState(false);
 
   const verified = domainStatus === "VERIFIED";
+
+  useEffect(() => {
+    setRows(scans);
+    setCursor(nextCursor);
+  }, [scans, nextCursor]);
+
+  async function loadMore() {
+    if (!cursor || moreBusy) return;
+    setMoreBusy(true);
+    const res = await fetchDomainScanPage(organizationId, domainId, cursor);
+    setMoreBusy(false);
+    if (!res.ok) {
+      toast({ tone: "fail", title: "More scans could not be read", body: res.error.message ?? "Nothing was changed." });
+      return;
+    }
+    setRows((current) => [...current, ...res.data.rows.map(toScanHistoryRow)]);
+    setCursor(res.data.nextCursor);
+  }
 
   async function run() {
     setBusy(true);
@@ -121,9 +146,9 @@ export function ScanHistory({
         <p className="min-w-0 flex-1 text-ui text-fg-2">
           {loadFailed
             ? "The scan history could not be read."
-            : scans.length === 0
+            : rows.length === 0
               ? "This domain has never been scanned, so no DMARC policy is on record from DNS."
-              : `${scans.length} scan${scans.length === 1 ? "" : "s"} on record. A scan reads DMARC, SPF, DKIM and MX from public DNS and records what it saw.`}
+              : `${rows.length} scan${rows.length === 1 ? "" : "s"} on record. A scan reads DMARC, SPF, DKIM and MX from public DNS and records what it saw.`}
         </p>
         <Button
           variant="primary"
@@ -160,17 +185,19 @@ export function ScanHistory({
           what="the scan history"
           detail="A domain that has never been scanned and a history this page could not read look identical in a table. Only this one is a failure."
         />
-      ) : scans.length === 0 ? (
+      ) : rows.length === 0 ? (
         <EmptyState
           title="No scan has run against this domain"
           description={`A DNS scan is the only thing that records a DMARC policy for a domain, and ${domainName} has never had one. Until it does, the policy shown here comes from what reporters saw, not from DNS.`}
           action={verified ? { label: "Run scan now", onClick: run, busy } : undefined}
         />
       ) : (
-        <Table caption={`DNS scans of ${domainName}`} minWidth={640}>
+        <Table caption={`DNS scans of ${domainName}`} minWidth={760}>
           <THead>
             <tr>
               <Th>Recorded</Th>
+              <Th>Trigger</Th>
+              <Th numeric title="Changes this scan recorded against the previous completed scan">Changes</Th>
               <Th>Status</Th>
               <Th>Asked for by</Th>
               <Th align="right">
@@ -179,15 +206,23 @@ export function ScanHistory({
             </tr>
           </THead>
           <TBody>
-            {scans.map((s) => {
+            {rows.map((s) => {
               const open = openId === s.id;
               return (
                 <Fragment key={s.id}>
-                  <Tr>
+                  <Tr data-testid={`scan-row-${s.id}`}>
                     <Td className="tnum">
                       {s.completedLabel ?? s.startedLabel}
                       {s.completedLabel ? null : <span className="text-fg-3"> (started, no result yet)</span>}
                       {s.error ? <span className="mt-0.5 block text-meta text-fail">{s.error}</span> : null}
+                    </Td>
+                    <Td>
+                      <Badge tone={s.trigger === "SCHEDULED" ? "neutral" : "accent"}>
+                        {s.trigger === "SCHEDULED" ? "Scheduled" : "Manual"}
+                      </Badge>
+                    </Td>
+                    <Td numeric muted={s.changeCount === 0}>
+                      {s.changeCount === 0 ? <Nil label="no changes" /> : s.changeCount}
                     </Td>
                     <Td>
                       <Badge tone={STATUS[s.status].tone}>{STATUS[s.status].label}</Badge>
@@ -208,7 +243,7 @@ export function ScanHistory({
                   </Tr>
                   {open ? (
                     <tr className="border-b border-rule bg-paper">
-                      <td colSpan={4} className="px-3 py-4">
+                      <td colSpan={6} className="px-3 py-4">
                         {detailBusy ? (
                           <LoadingState label="Reading that scan" className="py-2" />
                         ) : detailFailed ? (
@@ -232,8 +267,35 @@ export function ScanHistory({
           </TBody>
         </Table>
       )}
+      {cursor ? (
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={loadMore}
+          busy={moreBusy}
+          busyLabel="Reading more scans"
+          data-testid="scan-show-more"
+          className="self-start"
+        >
+          Show more scans
+        </Button>
+      ) : null}
     </div>
   );
+}
+
+/** The API row, in the strings the server already formatted. */
+export function toScanHistoryRow(scan: ScanRow): ScanHistoryRow {
+  return {
+    id: scan.id,
+    status: scan.status,
+    trigger: scan.trigger,
+    changeCount: scan.changeCount ?? 0,
+    startedLabel: instantLabel(scan.startedAt),
+    completedLabel: scan.completedAt ? instantLabel(scan.completedAt) : null,
+    requestedBy: scan.requestedBy?.name?.trim() || scan.requestedBy?.email?.trim() || "an automated job",
+    error: scan.error,
+  };
 }
 
 /** What a run established, in words: a found record is a measured policy; a

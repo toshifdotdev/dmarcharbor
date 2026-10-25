@@ -206,6 +206,39 @@ export function portalAccessGranted(input: {
   });
 }
 
+/**
+ * A digest of the DNS changes found in one monitoring pass.
+ *
+ * One email per workspace recipient per pass, rather than one per change: a
+ * shared SPF include can change on fifty domains at once, and fifty emails is
+ * how a customer learns to filter this address.
+ */
+export function dnsChangesEmail(input: {
+  workspaceName: string;
+  appUrl: string;
+  changes: Array<{ domainName: string; domainSlug: string; summary: string }>;
+}): RenderedEmail {
+  const count = input.changes.length;
+  const domains = new Set(input.changes.map((change) => change.domainName)).size;
+  const subject = `DNS changed on ${domains} domain${domains === 1 ? '' : 's'} in ${input.workspaceName}`;
+
+  return layout({
+    title: subject,
+    preheader: `${count} DNS change${count === 1 ? '' : 's'} recorded for ${input.workspaceName}.`,
+    heading: subject,
+    paragraphs: [
+      `We re-read public DNS for ${input.workspaceName} and found ${count} change${count === 1 ? '' : 's'}.`,
+      ...input.changes.map(
+        (change) =>
+          `${change.domainName}: ${change.summary} (${input.appUrl}/domains/${change.domainSlug})`,
+      ),
+      'Review each change in DMARC Harbor. If a change was intentional, acknowledge it so the history records that someone has seen it.',
+    ],
+    action: { label: 'Review the DNS history', url: `${input.appUrl}/clients` },
+    footer: 'You are receiving this because you own or administer this DMARC Harbor workspace.',
+  });
+}
+
 export function domainVerificationNotice(input: {
   workspaceName: string;
   domainName: string;

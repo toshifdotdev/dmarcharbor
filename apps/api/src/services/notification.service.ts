@@ -73,6 +73,7 @@ export async function listNotifications(
       link: true,
       readAt: true,
       createdAt: true,
+      dnsChangeId: true,
       organization: { select: { id: true, name: true } },
       alertEvent: {
         select: {

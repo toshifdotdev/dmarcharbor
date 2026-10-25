@@ -1,7 +1,13 @@
 import type { Request, Response } from 'express';
+import { z } from 'zod';
 import { resourceIdSchema } from '../models/client.model.js';
 import { getDomain } from '../services/client.service.js';
 import { getScan, listDomainScans, runDomainScan } from '../services/domain-scan.service.js';
+
+const scanListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+  cursor: z.string().trim().min(1).max(64).optional(),
+});
 
 function parseId(value: string | string[] | undefined): string | null {
   const parsed = resourceIdSchema.safeParse(value);
@@ -62,7 +68,16 @@ export async function listDomainScansController(request: Request, response: Resp
   }
 
   // The resolved id: the path may carry the slug, and scans key on id.
-  const scans = await listDomainScans(response.locals.organizationId, domain.id);
+  const query = scanListQuerySchema.safeParse(request.query);
+  if (!query.success) {
+    response.status(400).json({ error: { message: 'limit must be between 1 and 100, and cursor must be a valid identifier.' } });
+    return;
+  }
+
+  const scans = await listDomainScans(response.locals.organizationId, domain.id, {
+    limit: query.data.limit,
+    cursor: query.data.cursor,
+  });
   response.json(scans);
 }
 

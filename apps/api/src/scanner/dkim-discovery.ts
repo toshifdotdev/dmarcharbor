@@ -103,6 +103,14 @@ export const CONVENTION_SELECTORS: readonly string[] = [
 /** How many DNS lookups one scan may spend on DKIM. */
 export const DKIM_LOOKUP_BUDGET = 25;
 
+/** The most selectors a previous scan may pin into the probe list. */
+export const KNOWN_SELECTOR_LIMIT = 10;
+
+/** A label has to be able to exist as a DNS label; anything else is wasted. */
+function isSelectorLabel(value: string): boolean {
+  return /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(value);
+}
+
 export type SelectorSource = string;
 
 /** Extracts the `include:` targets from an SPF record. */
@@ -144,7 +152,7 @@ export function dkimCandidates(spfRecord: string | null | undefined): DkimCandid
     const label = selector.trim().toLowerCase();
     // A label that is not a bare DNS label cannot exist, so spending a lookup on
     // it is pure waste.
-    if (!label || seen.has(label) || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)) {
+    if (!label || seen.has(label) || !isSelectorLabel(label)) {
       return;
     }
     seen.add(label);
@@ -172,5 +180,48 @@ export function budgetDkimCandidates(
   return {
     selected: candidates.slice(0, budget),
     skipped: candidates.slice(budget),
+  };
+}
+
+/**
+ * Selectors a previous successful scan found.
+ *
+ * They are probed first and are never dropped by the budget. A selector that
+ * existed yesterday but is left unprobed today would look removed, which is a
+ * false alarm on a working key. The list is capped so a corrupted stored array
+ * cannot turn one scan into an unbounded number of lookups.
+ */
+export function knownSelectorCandidates(selectors: readonly string[] | null | undefined): DkimCandidate[] {
+  const ordered: DkimCandidate[] = [];
+  const seen = new Set<string>();
+
+  for (const selector of selectors ?? []) {
+    if (ordered.length >= KNOWN_SELECTOR_LIMIT) break;
+    const label = selector.trim().toLowerCase();
+    if (!label || seen.has(label) || !isSelectorLabel(label)) continue;
+    seen.add(label);
+    ordered.push({ selector: label, source: 'previously found' });
+  }
+
+  return ordered;
+}
+
+/**
+ * The full probe list: known selectors first, then the SPF-derived and
+ * conventional candidates within what is left of the budget.
+ */
+export function buildDkimProbeList(
+  spfRecord: string | null | undefined,
+  knownSelectors: readonly string[] | null | undefined,
+  budget = DKIM_LOOKUP_BUDGET,
+): { selected: DkimCandidate[]; skipped: DkimCandidate[] } {
+  const known = knownSelectorCandidates(knownSelectors);
+  const seen = new Set(known.map((candidate) => candidate.selector));
+  const derived = dkimCandidates(spfRecord).filter((candidate) => !seen.has(candidate.selector));
+  const remaining = Math.max(0, budget - known.length);
+
+  return {
+    selected: [...known, ...derived.slice(0, remaining)],
+    skipped: derived.slice(remaining),
   };
 }

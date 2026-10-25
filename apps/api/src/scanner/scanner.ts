@@ -2,7 +2,7 @@ import { systemDnsReader } from './dns.js';
 import { hasAggregateReporting, readDmarcRecord } from './dmarc-tags.js';
 import { isDmarcPolicyRecord, looksLikeMisversionedDmarc, readDmarcPolicy } from './dmarc-policy.js';
 import { normalizeDomain } from './domain.js';
-import { budgetDkimCandidates, dkimCandidates } from './dkim-discovery.js';
+import { buildDkimProbeList } from './dkim-discovery.js';
 import { evaluateSpfLookups, spfLookupLimit, spfVoidLookupLimit } from './spf-evaluate.js';
 import { calculateScore } from '../services/score.service.js';
 import type {
@@ -144,8 +144,13 @@ export function parseSpfRecords(records: string[][]): SpfResult {
  * The SPF record is passed in rather than re-fetched, because the caller already
  * has it and a second lookup for the same name would be pure waste.
  */
-async function scanDkim(domain: string, spf: SpfResult, reader: DnsReader): Promise<DkimResult> {
-  const { selected, skipped } = budgetDkimCandidates(dkimCandidates(spf.record));
+async function scanDkim(
+  domain: string,
+  spf: SpfResult,
+  reader: DnsReader,
+  knownSelectors: readonly string[] = [],
+): Promise<DkimResult> {
+  const { selected, skipped } = buildDkimProbeList(spf.record, knownSelectors);
   const discoveredVia: Record<string, string> = {};
 
   for (const candidate of selected) {
@@ -496,7 +501,11 @@ function errorResult(domain: string, message: string): ScanResult {
   };
 }
 
-export async function scanDomain(input: string, reader: DnsReader = systemDnsReader): Promise<ScanResult> {
+export async function scanDomain(
+  input: string,
+  reader: DnsReader = systemDnsReader,
+  options: { knownSelectors?: string[] } = {},
+): Promise<ScanResult> {
   const domain = normalizeDomain(input);
 
   try {
@@ -510,7 +519,10 @@ export async function scanDomain(input: string, reader: DnsReader = systemDnsRea
     const parsedSpf = parseSpfRecords(spfLookup.value ?? []);
     // Counted through every include, the way receivers count, with the DKIM
     // probes in parallel: the two are independent.
-    const [spf, dkim] = await Promise.all([withSpfLookups(domain, parsedSpf, reader), scanDkim(domain, parsedSpf, reader)]);
+    const [spf, dkim] = await Promise.all([
+      withSpfLookups(domain, parsedSpf, reader),
+      scanDkim(domain, parsedSpf, reader, options.knownSelectors ?? []),
+    ]);
     const mx: MxResult = mxLookup.status === 'found'
       ? { status: 'found', records: mxLookup.value ?? [] }
       : { status: mxLookup.status, records: [], error: mxLookup.error };

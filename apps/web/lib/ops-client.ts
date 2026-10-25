@@ -15,6 +15,8 @@
 import type {
   ApiErrorBody,
   BillingCurrencyPreference,
+  DnsChangePage,
+  DnsChangeRow,
   DomainSwitchDetail,
   DomainSwitchView,
   ErasureCreated,
@@ -621,6 +623,27 @@ export const checkClientSwitches = (orgId: string, clientId: string) =>
 /** DELETE /domains/:id/switch — stop the switch. Never touches the domain. */
 export const stopDomainSwitch = (orgId: string, domainId: string) =>
   call<void>(wsPath(orgId, `/domains/${domainId}/switch`), { method: "DELETE" });
+
+// ─── DNS monitoring ──────────────────────────────────────────────────────────
+
+/** GET /domains/:id/dns-changes — paginated change history, optionally filtered. */
+export const listDnsChanges = (
+  orgId: string,
+  domainId: string,
+  options: { cursor?: string; severity?: string[] } = {},
+) => {
+  const query = new URLSearchParams({ limit: "50" });
+  if (options.cursor) query.set("cursor", options.cursor);
+  for (const severity of options.severity ?? []) query.append("severity", severity);
+  return call<DnsChangePage>(wsPath(orgId, `/domains/${domainId}/dns-changes?${query.toString()}`));
+};
+
+/** POST /domains/:id/dns-changes/:changeId/acknowledge — idempotent. */
+export const acknowledgeDnsChange = (orgId: string, domainId: string, changeId: string) =>
+  call<DnsChangeRow>(
+    wsPath(orgId, `/domains/${domainId}/dns-changes/${changeId}/acknowledge`),
+    { method: "POST" },
+  );
 
 // ─── report shares (Phase 5) ─────────────────────────────────────────────────
 

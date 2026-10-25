@@ -28,6 +28,7 @@ import type {
   CheckoutRequest,
   CheckoutSummary,
   CreatedShare,
+  DnsChangePage,
   DomainRow,
   DomainSwitchView,
   ErasureCreated,
@@ -44,6 +45,7 @@ import type {
   ReportShareRow,
   ResolvedEntitlements,
   ScanRow,
+  ScanPage,
   SlackDestination,
   SsoConnectionRow,
   TrustSlugStatus,
@@ -350,9 +352,31 @@ export function listAuditEvents(
 export function listDomainScans(
   organizationId: string,
   domainId: string,
-): Promise<ScanRow[]> {
-  return opsFetch<ScanRow[]>(
-    `/api/workspaces/${organizationId}/domains/${domainId}/scans`,
+  options: { limit?: number; cursor?: string } = {},
+): Promise<ScanPage> {
+  const query = new URLSearchParams();
+  query.set("limit", String(Math.min(Math.max(options.limit ?? 50, 1), 100)));
+  if (options.cursor) query.set("cursor", options.cursor);
+  return opsFetch<ScanPage>(
+    `/api/workspaces/${organizationId}/domains/${domainId}/scans?${query.toString()}`,
+  );
+}
+
+/**
+ * GET /domains/:domainId/dns-changes — the history of what changed between
+ * completed scans. Newest first, paginated, with a repeatable severity filter.
+ */
+export function getDnsChanges(
+  organizationId: string,
+  domainId: string,
+  options: { limit?: number; cursor?: string; severity?: string[] } = {},
+): Promise<DnsChangePage> {
+  const query = new URLSearchParams();
+  query.set("limit", String(Math.min(Math.max(options.limit ?? 50, 1), 100)));
+  if (options.cursor) query.set("cursor", options.cursor);
+  for (const severity of options.severity ?? []) query.append("severity", severity);
+  return opsFetch<DnsChangePage>(
+    `/api/workspaces/${organizationId}/domains/${domainId}/dns-changes?${query.toString()}`,
   );
 }
 

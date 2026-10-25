@@ -69,6 +69,11 @@ export interface ServiceMeta {
     rollupHours: number;
     staleDays: number;
   };
+  monitoring?: {
+    /** How often each verified domain is rescanned. */
+    rescanIntervalMinutes: number;
+    enabled: boolean;
+  };
 }
 
 /**

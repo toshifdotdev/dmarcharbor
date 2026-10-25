@@ -466,7 +466,10 @@ export type WebhookEventName =
   | "domain.verified"
   | "alert.triggered"
   | "report.received"
-  | "entitlement.exceeded";
+  | "entitlement.exceeded"
+  | "dns.changed"
+  | "policy.changed"
+  | "forensic.received";
 
 /** GET /webhooks — one row per registered endpoint. `active` is already the
  *  effective state (paused OR auto-suspended), so the UI never re-derives it.
@@ -974,7 +977,8 @@ export type AuditAction =
   | "SWITCH_KIT_IMPORTED"
   | "DOMAIN_SWITCH_STARTED"
   | "DOMAIN_SWITCH_CUT_OVER"
-  | "DOMAIN_SWITCH_CANCELLED";
+  | "DOMAIN_SWITCH_CANCELLED"
+  | "DNS_CHANGE_ACKNOWLEDGED";
 
 /**
  * AuditOutcome is SUCCESS or DENIED. There is no FAILED value: the trail records
@@ -1425,6 +1429,10 @@ export interface ScanRow {
   domainId: string;
   requestedById: string | null;
   status: ScanRunStatus;
+  /** MANUAL when a person asked, SCHEDULED when the DNS monitor did. */
+  trigger: "MANUAL" | "SCHEDULED";
+  /** Changes recorded by this scan against the previous completed scan. */
+  changeCount?: number;
   score: number | null;
   result: ScanResultPayload | null;
   error: string | null;
@@ -1438,6 +1446,34 @@ export interface ScanRow {
     client: { id: string; name: string; slug: string };
   };
   requestedBy: { id: string; name: string; email: string } | null;
+}
+
+export interface ScanPage {
+  rows: ScanRow[];
+  nextCursor: string | null;
+}
+
+// ─── DNS monitoring ──────────────────────────────────────────────────────────
+
+export type DnsChangeSeverityName = "INFO" | "WARNING" | "CRITICAL";
+
+export interface DnsChangeRow {
+  id: string;
+  kind: string;
+  severity: DnsChangeSeverityName;
+  code: string;
+  summary: string;
+  before: unknown;
+  after: unknown;
+  detectedAt: string;
+  scanId: string;
+  acknowledgedAt: string | null;
+  acknowledgedBy: { id: string; name: string } | null;
+}
+
+export interface DnsChangePage {
+  rows: DnsChangeRow[];
+  nextCursor: string | null;
 }
 
 // ─── forensics ────────────────────────────────────────────────────────────────

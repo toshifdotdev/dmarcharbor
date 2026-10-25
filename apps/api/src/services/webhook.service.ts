@@ -12,6 +12,9 @@ export const webhookEvents = [
   'alert.triggered',
   'report.received',
   'entitlement.exceeded',
+  'dns.changed',
+  'policy.changed',
+  'forensic.received',
 ] as const;
 
 export type WebhookEvent = (typeof webhookEvents)[number];

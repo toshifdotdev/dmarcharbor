@@ -4,6 +4,10 @@ import {
   getScanController,
   listDomainScansController,
 } from '../controllers/domain-scan.controller.js';
+import {
+  acknowledgeDnsChangeController,
+  listDnsChangesController,
+} from '../controllers/dns-change.controller.js';
 import { requireSession } from '../middleware/auth.middleware.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
 import { createScanRateLimiter } from '../middleware/rate-limit.middleware.js';
@@ -28,4 +32,16 @@ domainScanRouter.get(
   requireSession,
   requireOrganizationPermission('domain', 'read'),
   getScanController,
+);
+domainScanRouter.get(
+  '/workspaces/:organizationId/domains/:domainId/dns-changes',
+  requireSession,
+  requireOrganizationPermission('domain', 'read'),
+  listDnsChangesController,
+);
+domainScanRouter.post(
+  '/workspaces/:organizationId/domains/:domainId/dns-changes/:changeId/acknowledge',
+  requireSession,
+  requireOrganizationPermission('domain', 'update'),
+  acknowledgeDnsChangeController,
 );

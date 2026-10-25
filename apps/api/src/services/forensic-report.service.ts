@@ -5,6 +5,7 @@ import { normalizeDomain } from '../scanner/domain.js';
 import { parseForensicReport } from './forensic-report-parser.service.js';
 import { resolveLimit } from '../utils/pagination.js';
 import { domainRef } from './domain-ref.js';
+import { emitEvent } from './webhook.service.js';
 import {
   decryptSensitive,
   decryptSensitiveList,
@@ -178,6 +179,23 @@ export async function ingestForensicReport(input: IngestForensicInput): Promise<
       },
       include: forensicInclude,
     });
+
+    // The integration fetches detail through the API, which applies the PII
+    // rules. Nothing identifying goes on the wire here.
+    try {
+      await emitEvent(input.organizationId, 'forensic.received', {
+        forensicId: forensic.id,
+        domainId: domain.id,
+        domainName: domain.name,
+        feedbackType: forensic.feedbackType,
+        arrivedAt: forensic.arrivedAt?.toISOString() ?? null,
+        receivedAt: forensic.receivedAt.toISOString(),
+      });
+    } catch (error) {
+      console.error(
+        `[forensic] forensic.received webhook failed: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+    }
 
     return { status: 'created', forensic };
   } catch (error) {

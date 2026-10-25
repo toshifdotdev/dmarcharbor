@@ -39,6 +39,7 @@ export interface RetentionSweep {
   ssoAuthRequests: number;
   billingPayloads: number;
   rateLimitBuckets: number;
+  scheduledScans: number;
 }
 
 function hoursAgo(hours: number, now: Date): Date {
@@ -91,11 +92,51 @@ export async function purgeExpiredData(now: Date = new Date()): Promise<Retentio
     data: { payload: Prisma.DbNull },
   });
 
+  /**
+   * Scheduled scan history is bounded per domain. The 30 most recent scans of
+   * each domain are the history a person actually reads; older scheduled rows
+   * are one-per-day noise. A scan that recorded a change is evidence, and a
+   * manual scan was done for a reason, so both are kept.
+   */
+  const staleScheduled = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT s."id"
+    FROM "scan" s
+    WHERE s."trigger"::text = 'SCHEDULED'
+      AND s."id" IN (
+        SELECT ranked."id"
+        FROM (
+          SELECT "id", ROW_NUMBER() OVER (
+            PARTITION BY "domainId" ORDER BY "startedAt" DESC, "id" DESC
+          ) AS rn
+          FROM "scan"
+        ) ranked
+        WHERE ranked.rn > 30
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM "dns_change" c WHERE c."scanId" = s."id"
+      )
+      -- Never the newest completed scan: it is the baseline the next scan is
+      -- compared with. Thirty failed scans in a row (a long DNS outage) would
+      -- otherwise prune it, and whatever changed during the outage would be
+      -- recorded as a fresh baseline instead of as a change.
+      AND s."id" NOT IN (
+        SELECT DISTINCT ON (b."domainId") b."id"
+        FROM "scan" b
+        WHERE b."status"::text = 'COMPLETED'
+        ORDER BY b."domainId", b."completedAt" DESC NULLS LAST, b."startedAt" DESC, b."id" DESC
+      )
+    LIMIT 1000
+  `;
+  const scheduledScans = staleScheduled.length
+    ? await prisma.scan.deleteMany({ where: { id: { in: staleScheduled.map((row) => row.id) } } })
+    : { count: 0 };
+
   return {
     exportJobs: exportJobs.count,
     idempotencyRecords: idempotencyRecords.count,
     ssoAuthRequests: ssoAuthRequests.count,
     billingPayloads: billingPayloads.count,
     rateLimitBuckets: await rateLimitStoreFor('retention-sweep').sweep(now),
+    scheduledScans: scheduledScans.count,
   };
 }

@@ -5,20 +5,24 @@ import {
   deriveSignals,
   getDomainInsights,
   getOnboardingState,
+  getSessionUser,
   listClients,
   listDomainReports,
 } from "@/lib/api";
-import { getDomainSwitch, listDomainScans } from "@/lib/api-ops";
+import { getDnsChanges, getDomainSwitch, listDomainScans, listWorkspaceMembers } from "@/lib/api-ops";
+import { getServiceMeta } from "@/lib/api-public";
+import { toDnsChangeView } from "@/lib/dns-change-view";
 import { instantLabel } from "@/lib/instant";
 import { daysSinceReport, fmtVolume, policyLabel, POSTURE_META, resolvePosture } from "@/lib/posture";
 import { onboardingHref } from "@/lib/route-hrefs";
 import { resolveActiveWorkspace } from "@/lib/session";
-import type { DomainInsights, DomainSwitchView, OnboardingState, ReportRow, ScanRow, SenderRow, SourceAttribution } from "@/lib/types";
+import type { DnsChangePage, DomainInsights, DomainSwitchView, OnboardingState, ReportRow, ScanRow, SenderRow, SourceAttribution } from "@/lib/types";
 import { AppShell } from "@/components/harbor/app-shell";
+import { DnsChangesPanel } from "@/components/harbor/dns-changes";
 import { DomainSwitchPanel } from "@/components/harbor/domain-switch";
+import { ScanHistory, toScanHistoryRow } from "@/components/harbor/scan-history";
 import { PageHeader, SectionHead } from "@/components/harbor/page-header";
 import { RefreshButton } from "@/components/harbor/refresh-button";
-import { ScanHistory, type ScanHistoryRow } from "@/components/harbor/scan-history";
 import { VolumeChart } from "@/components/harbor/volume-chart";
 import { Badge, PostureBadge, type Tone } from "@/components/ui/badge";
 import { ButtonLink } from "@/components/ui/button";
@@ -115,16 +119,33 @@ export default async function DomainPage({ params }: { params: Promise<{ domainI
 
   // A scan history is a different claim from the report evidence, so it fails
   // on its own and renders as a failure, never as an empty history.
-  const [scanHistory, switchState] = await Promise.all([
+  const [scanHistory, switchState, dnsChanges, serviceMeta, members, me] = await Promise.all([
     listDomainScans(active.id, id).then(
-      (rows: ScanRow[]) => ({ rows, failed: false }),
-      () => ({ rows: [] as ScanRow[], failed: true }),
+      (page) => ({ rows: page.rows, nextCursor: page.nextCursor, failed: false }),
+      () => ({ rows: [] as ScanRow[], nextCursor: null as string | null, failed: true }),
     ),
     getDomainSwitch(active.id, id).then(
       (data: DomainSwitchView) => ({ data, failed: false }),
       () => ({ data: null as DomainSwitchView | null, failed: true }),
     ),
+    getDnsChanges(active.id, id).then(
+      (page: DnsChangePage) => ({ page, failed: false }),
+      () => ({ page: null as DnsChangePage | null, failed: true }),
+    ),
+    getServiceMeta().catch(() => null),
+    listWorkspaceMembers(active.id).catch(() => null),
+    getSessionUser().catch(() => null),
   ]);
+
+  const role =
+    members?.members.find((member) => (member.userId ?? member.user?.id) === me?.id)?.role ?? null;
+  const canAcknowledgeDnsChanges = role === null || ["owner", "admin", "analyst"].includes(role);
+  const dnsInitial = dnsChanges.page
+    ? {
+        rows: dnsChanges.page.rows.map((row) => toDnsChangeView(row)),
+        nextCursor: dnsChanges.page.nextCursor,
+      }
+    : null;
 
   const today = new Date(now).toISOString().slice(0, 10);
 
@@ -226,6 +247,16 @@ export default async function DomainPage({ params }: { params: Promise<{ domainI
           state={switchState}
         />
 
+        <DnsChangesPanel
+          organizationId={active.id}
+          domainId={id}
+          domainName={insights.domain.name}
+          initial={dnsInitial}
+          loadFailed={dnsChanges.failed}
+          canAcknowledge={canAcknowledgeDnsChanges}
+          rescanIntervalMinutes={serviceMeta?.monitoring?.rescanIntervalMinutes ?? null}
+        />
+
         <div>
           <section aria-label="Evidence tables" className="min-w-0">
             <Tabs
@@ -259,7 +290,8 @@ export default async function DomainPage({ params }: { params: Promise<{ domainI
                       domainId={id}
                       domainName={insights.domain.name}
                       domainStatus={insights.domain.status}
-                      scans={buildScanRows(scanHistory.rows)}
+                      scans={scanHistory.rows.map(toScanHistoryRow)}
+                      nextCursor={scanHistory.nextCursor}
                       loadFailed={scanHistory.failed}
                     />
                   ),
@@ -680,18 +712,6 @@ function yesNo(v: boolean, yes: string, no: string) {
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
-
-function buildScanRows(scans: ScanRow[]): ScanHistoryRow[] {
-  return scans.map((scan) => ({
-    id: scan.id,
-    status: scan.status,
-    startedLabel: instantLabel(scan.startedAt),
-    completedLabel: scan.completedAt ? instantLabel(scan.completedAt) : null,
-    // No member behind a scan means a scheduler or migration ran it.
-    requestedBy: scan.requestedBy?.name?.trim() || scan.requestedBy?.email?.trim() || "an automated job",
-    error: scan.error,
-  }));
-}
 
 /** The API sends pass rates as percentages already (0–100, two decimals). */
 function rate(v: number | null): string {

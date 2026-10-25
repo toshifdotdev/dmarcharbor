@@ -40,6 +40,9 @@ const EVENT_WORDS: Record<WebhookEventName, string> = {
   "alert.triggered": "An alert rule fires",
   "report.received": "A DMARC report arrives",
   "entitlement.exceeded": "The workspace goes over a plan limit",
+  "dns.changed": "DNS records changed",
+  "policy.changed": "DMARC policy changed",
+  "forensic.received": "Forensic report received",
 };
 
 const STATUS: Record<WebhookDeliveryStatus, [string, Tone]> = {
@@ -332,6 +335,7 @@ export function WebhooksBoard({
                   onChange={(e) => setChosen((c) => (e.target.checked ? [...c, ev] : c.filter((x) => x !== ev)))}
                   label={EVENT_WORDS[ev] ?? ev}
                   hint={<code className="data">{ev}</code>}
+                  data-testid={`webhook-event-${ev}`}
                 />
               ))}
               {chosen.length === 0 ? <p className="text-meta font-medium text-fail">Choose at least one.</p> : null}

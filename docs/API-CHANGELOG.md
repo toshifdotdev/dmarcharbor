@@ -161,11 +161,14 @@ refused.
 | `domain.verified` | DNS ownership proof confirmed, on the transition only | Default on |
 | `alert.triggered` | An alert rule crossed its threshold | Default on |
 | `report.received` | A DMARC report arrived | **Opt in** |
-| `entitlement.exceeded` | A plan limit was hit | Default on |
+| `entitlement.exceeded` | A plan limit was hit | **Opt in** |
+| `dns.changed` | A scheduled or manual scan recorded one or more DNS changes | **Opt in** |
+| `policy.changed` | A scan changed the DMARC policy tags | **Opt in** |
+| `forensic.received` | A forensic report was stored for the first time | **Opt in** |
 
-`report.received` is opt in because a large agency receives hundreds a day.
-Subscribing to events you will ignore trains people to ignore the endpoint, so
-it is left off by default.
+`report.received`, `dns.changed`, `policy.changed` and `forensic.received` are
+opt in because they can be high volume. Subscribing to events you will ignore
+trains people to ignore the endpoint, so they are left off by default.
 
 ### The payload is a pointer, not the data
 

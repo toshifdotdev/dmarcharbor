@@ -30,6 +30,7 @@ model User {
   alertDeliveries         AlertDelivery[]
   acknowledgedAlertEvents AlertEvent[]            @relation("AcknowledgedAlertEvents")
   createdDomainSwitches   DomainSwitch[]          @relation("CreatedDomainSwitches")
+  acknowledgedDnsChanges  DnsChange[]             @relation("AcknowledgedDnsChanges")
     notificationPreference  NotificationPreference?
     /// The account's subscription. Keyed here as well as on the workspace it was
     /// started from, so entitlement status can be read where the plan lives.
@@ -186,6 +187,7 @@ model Organization {
   ssoConnections        SsoConnection[]
   webhookEndpoints      WebhookEndpoint[]
   domainSwitches        DomainSwitch[]
+  dnsChanges            DnsChange[]
 
   @@unique([slug])
   /// Reads the document version rather than the column being null, so the sweep
@@ -317,6 +319,12 @@ model Domain {
   /// would each resolve DNS, each decide the transition happened, and each send
   /// the same email.
   recheckedAt            DateTime?
+  /// When the scheduled DNS monitor last claimed this domain.
+  ///
+  /// Separate from `recheckedAt` (ownership re-verification) and `lastScanAt`
+  /// (which manual scans also write), because the monitor's claim is the only
+  /// one that must expire on its own interval.
+  monitorClaimedAt       DateTime?
   lastScanAt             DateTime?
   dmarcPolicy            String?
   dmarcRecord            String?
@@ -340,6 +348,7 @@ model Domain {
   auditEvents            AuditLog[]
   reportDigests          ReportDigest[]
   switch                 DomainSwitch?
+  dnsChanges             DnsChange[]
 
   /// The per client constraint is gone. Global uniqueness on `name` above
   /// subsumes it: two rows in one client with the same name would violate the
@@ -356,14 +365,18 @@ model Scan {
   requestedById String?
   requestedBy   User?         @relation("RequestedScans", fields: [requestedById], references: [id], onDelete: SetNull)
   status        ScanRunStatus @default(RUNNING)
+  /// MANUAL when a person asked, SCHEDULED when the monitor did.
+  trigger       ScanTrigger   @default(MANUAL)
   score         Int?
   result        Json?
   error         String?
   startedAt     DateTime      @default(now())
   completedAt   DateTime?
   updatedAt     DateTime      @updatedAt
+  dnsChanges    DnsChange[]
 
   @@index([domainId, startedAt])
+  @@index([domainId, trigger, startedAt])
   @@index([requestedById])
   @@index([status])
   @@map("scan")
@@ -538,6 +551,61 @@ enum ScanRunStatus {
   FAILED
 }
 
+enum ScanTrigger {
+  MANUAL
+  SCHEDULED
+}
+
+enum DnsChangeKind {
+  DMARC_RECORD
+  DMARC_POLICY
+  DMARC_RUA
+  SPF_RECORD
+  SPF_LOOKUPS
+  SPF_ALL
+  DKIM_SELECTOR
+  MX
+}
+
+enum DnsChangeSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+/// One meaningful difference between two completed scans of the same domain.
+model DnsChange {
+  id                String           @id @default(cuid())
+  organizationId    String
+  organization      Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  domainId          String
+  domain            Domain           @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  scanId            String
+  scan              Scan             @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  /// The earlier scan compared against. Not a foreign key, so pruning an old
+  /// scan never removes the change that proves something happened.
+  previousScanId    String?
+  kind              DnsChangeKind
+  severity          DnsChangeSeverity
+  /// Stable machine code, e.g. dmarc_policy_weakened.
+  code              String
+  /// One plain sentence for the person reading the history.
+  summary           String
+  before            Json?
+  after             Json?
+  detectedAt        DateTime         @default(now())
+  notifiedAt        DateTime?
+  acknowledgedAt    DateTime?
+  acknowledgedById  String?
+  acknowledgedBy    User?            @relation("AcknowledgedDnsChanges", fields: [acknowledgedById], references: [id], onDelete: SetNull)
+  notifications     Notification[]
+
+  @@index([domainId, detectedAt])
+  @@index([organizationId, detectedAt])
+  @@index([notifiedAt, severity])
+  @@map("dns_change")
+}
+
 enum DmarcReportType {
   AGGREGATE
   FORENSIC
@@ -681,10 +749,15 @@ model Notification {
   alertEventId   String?
   reminderLevel  Int                  @default(1)
   alertEvent     AlertEvent?          @relation(fields: [alertEventId], references: [id], onDelete: Cascade)
+  dnsChangeId    String?
+  dnsChange      DnsChange?           @relation(fields: [dnsChangeId], references: [id], onDelete: Cascade)
   readAt         DateTime?
   createdAt      DateTime             @default(now())
 
   @@unique([alertEventId, userId, reminderLevel])
+  /// Postgres treats NULLs as distinct, so existing alert notifications are
+  /// unaffected by this unique pair.
+  @@unique([dnsChangeId, userId])
   @@index([userId, readAt, createdAt])
   @@index([organizationId, createdAt])
   @@map("notification")
@@ -780,6 +853,7 @@ enum AlertDeliveryKind {
 enum NotificationKind {
   ALERT
   DIGEST
+  DNS_CHANGE
 }
 
 enum NotificationSeverity {
@@ -1594,6 +1668,7 @@ enum AuditAction {
   DOMAIN_SWITCH_STARTED
   DOMAIN_SWITCH_CUT_OVER
   DOMAIN_SWITCH_CANCELLED
+  DNS_CHANGE_ACKNOWLEDGED
 }
 
 enum AuditOutcome {

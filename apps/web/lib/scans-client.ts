@@ -22,7 +22,7 @@
  */
 
 import { opsCall, type OpsResult } from "./ops-client";
-import type { ScanRow } from "./types";
+import type { ScanPage, ScanRow } from "./types";
 
 const wsPath = (orgId: string, tail: string) => `/api/workspaces/${orgId}${tail}`;
 
@@ -55,3 +55,14 @@ export const fetchDomainScan = (
   scanId: string,
 ): Promise<OpsResult<ScanRow>> =>
   opsCall<ScanRow>(wsPath(orgId, `/scans/${scanId}`));
+
+/** GET /domains/:domainId/scans — one page of scan history, newest first. */
+export const fetchDomainScanPage = (
+  orgId: string,
+  domainId: string,
+  cursor?: string,
+): Promise<OpsResult<ScanPage>> => {
+  const query = new URLSearchParams({ limit: "50" });
+  if (cursor) query.set("cursor", cursor);
+  return opsCall<ScanPage>(wsPath(orgId, `/domains/${domainId}/scans?${query.toString()}`));
+};

@@ -267,7 +267,7 @@ export const openApiDocument = {
         summary: 'List webhook endpoints',
         description: [
           'Endpoints this workspace delivers events to. Subscribing events and delivery health, never the signing secret, which is shown once at creation.',
-          'A large agency receives hundreds of report notifications a day, so domain.verified and alert.triggered are subscribed by default and report.received is opt in. Ignoring events trains people to ignore the endpoint.',
+          'A large agency receives hundreds of report notifications a day, so domain.verified and alert.triggered are subscribed by default and report.received, dns.changed, policy.changed and forensic.received are opt in. Ignoring events trains people to ignore the endpoint.',
         ].join(' '),
         parameters: [orgParam],
         responses: { 200: { description: 'Endpoints with their events and delivery health.' }, ...standardErrors },
@@ -1901,9 +1901,44 @@ export const openApiDocument = {
       get: {
         tags: ['Scanning'],
         summary: 'List scans for a domain',
-        description: 'Newest first. Only owner, admin, analyst or viewer of this workspace.',
-        parameters: [orgParam, idParam('domainId', 'Domain identifier.')],
-        responses: { 200: { description: 'Scan history.' }, ...standardErrors },
+        description: 'Newest first. Paginated, with the trigger (manual or scheduled) and the number of DNS changes each scan recorded. Only owner, admin, analyst or viewer of this workspace.',
+        parameters: [orgParam, idParam('domainId', 'Domain identifier.'), ...queryPagination],
+        responses: { 200: { description: 'Scan history page.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/domains/{domainId}/dns-changes': {
+      get: {
+        tags: ['Scanning'],
+        summary: 'List DNS changes for a domain',
+        description: [
+          'The difference between consecutive completed scans: DMARC, SPF, DKIM and MX. Newest first, with a before and after view of only the compared values.',
+          'Filter by severity with repeatable ?severity= parameters. INFO changes are history only; WARNING and CRITICAL changes are notified.',
+        ].join(' '),
+        parameters: [
+          orgParam,
+          idParam('domainId', 'Domain identifier, id or slug.'),
+          ...queryPagination,
+          {
+            name: 'severity',
+            in: 'query',
+            required: false,
+            description: 'Repeatable. INFO, WARNING or CRITICAL.',
+            schema: { type: 'array', items: { type: 'string', enum: ['INFO', 'WARNING', 'CRITICAL'] } },
+          },
+        ],
+        responses: { 200: { description: 'A page of DNS changes and the next cursor.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/domains/{domainId}/dns-changes/{changeId}/acknowledge': {
+      post: {
+        tags: ['Scanning'],
+        summary: 'Acknowledge a DNS change',
+        description: [
+          'Records that a person has seen the change. Idempotent: acknowledging an already acknowledged row returns it unchanged.',
+          'A change in another workspace or on another domain is a 404. Recorded in the audit trail.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.'), idParam('changeId', 'DNS change identifier.')],
+        responses: { 200: { description: 'The acknowledged change.' }, ...standardErrors },
       },
     },
     '/workspaces/{organizationId}/scans/{scanId}': {

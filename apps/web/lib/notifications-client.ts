@@ -29,6 +29,8 @@ export interface NotificationRow {
   link: string | null;
   severity: string | null;
   alertEventId: string | null;
+  /** Present when this notification is about a DNS change. */
+  dnsChangeId?: string | null;
   /**
    * The domain that triggered the alert, when this notification came from one.
    *

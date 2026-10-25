@@ -176,6 +176,18 @@ const envSchema = z.object({
     .default('false')
     .transform((value) => value === 'true'),
   /**
+   * Continuous DNS monitoring. Every verified domain is rescanned on the
+   * interval below; the tick only decides how often work is looked for.
+   */
+  DNS_MONITOR_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  DNS_MONITOR_INTERVAL_MINUTES: z.coerce.number().int().min(60).max(10080).default(1440),
+  DNS_MONITOR_TICK_MINUTES: z.coerce.number().int().min(1).max(60).default(10),
+  DNS_MONITOR_BATCH_SIZE: z.coerce.number().int().min(1).max(200).default(30),
+  DNS_MONITOR_CONCURRENCY: z.coerce.number().int().min(1).max(10).default(3),
+  /**
    * How many reverse proxies sit in front of this process, so Express can trust
    * the leftmost `X-Forwarded-For` entry and rate limiters can key on the real
    * client address rather than on the proxy's.

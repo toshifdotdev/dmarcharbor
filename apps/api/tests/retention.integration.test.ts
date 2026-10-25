@@ -251,6 +251,7 @@ describe('data retention sweep', () => {
       ssoAuthRequests: 0,
       billingPayloads: 0,
       rateLimitBuckets: 0,
+      scheduledScans: 0,
     });
   });
 
