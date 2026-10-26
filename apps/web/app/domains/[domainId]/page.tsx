@@ -13,6 +13,7 @@ import {
   getDnsChanges,
   getDnsConnections,
   getDomainSwitch,
+  getMailboxCompliance,
   getPlanCatalog,
   getWorkspaceEntitlements,
   listDomainScans,
@@ -26,10 +27,20 @@ import { instantLabel } from "@/lib/instant";
 import { daysSinceReport, fmtVolume, policyLabel, POSTURE_META, resolvePosture } from "@/lib/posture";
 import { onboardingHref } from "@/lib/route-hrefs";
 import { resolveActiveWorkspace } from "@/lib/session";
-import type { DnsChangePage, DomainInsights, DomainSwitchView, OnboardingState, ReportRow, ScanRow, SourceAttribution } from "@/lib/types";
+import type {
+  DnsChangePage,
+  DomainInsights,
+  DomainSwitchView,
+  MailboxComplianceView,
+  OnboardingState,
+  ReportRow,
+  ScanRow,
+  SourceAttribution,
+} from "@/lib/types";
 import { AppShell } from "@/components/harbor/app-shell";
 import { DnsChangesPanel } from "@/components/harbor/dns-changes";
 import { DomainSwitchPanel } from "@/components/harbor/domain-switch";
+import { MailboxCompliance } from "@/components/harbor/mailbox-compliance";
 import { ScanHistory, toScanHistoryRow } from "@/components/harbor/scan-history";
 import { SendersTable } from "@/components/harbor/senders-table";
 import { PageHeader, SectionHead } from "@/components/harbor/page-header";
@@ -130,7 +141,7 @@ export default async function DomainPage({ params }: { params: Promise<{ domainI
 
   // A scan history is a different claim from the report evidence, so it fails
   // on its own and renders as a failure, never as an empty history.
-  const [scanHistory, switchState, dnsChanges, serviceMeta, members, me, entitlements, catalog, dnsConnections] = await Promise.all([
+  const [scanHistory, switchState, dnsChanges, serviceMeta, members, me, entitlements, catalog, dnsConnections, mailboxCompliance] = await Promise.all([
     listDomainScans(active.id, id).then(
       (page) => ({ rows: page.rows, nextCursor: page.nextCursor, failed: false }),
       () => ({ rows: [] as ScanRow[], nextCursor: null as string | null, failed: true }),
@@ -149,6 +160,10 @@ export default async function DomainPage({ params }: { params: Promise<{ domainI
     getWorkspaceEntitlements(active.id).catch(() => null),
     getPlanCatalog().catch(() => null),
     getDnsConnections(active.id).catch(() => null),
+    getMailboxCompliance(active.id, id).then(
+      (data: MailboxComplianceView) => ({ data, failed: false }),
+      () => ({ data: null as MailboxComplianceView | null, failed: true }),
+    ),
   ]);
 
   const role =
@@ -317,6 +332,12 @@ export default async function DomainPage({ params }: { params: Promise<{ domainI
                   label: "Sources",
                   count: insights.sources.length,
                   panel: <SourcesTable sources={insights.sources} />,
+                },
+                {
+                  id: "mailbox",
+                  label: "Gmail, Yahoo, Outlook",
+                  count: mailboxCompliance.failed ? null : (mailboxCompliance.data?.counts.fails ?? null),
+                  panel: <MailboxCompliance data={mailboxCompliance.data} failed={mailboxCompliance.failed} />,
                 },
                 {
                   id: "reports",

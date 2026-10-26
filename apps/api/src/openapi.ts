@@ -2159,6 +2159,21 @@ export const openApiDocument = {
         responses: { 200: { description: 'Domain verified.' }, ...standardErrors },
       },
     },
+    '/workspaces/{organizationId}/domains/{domainId}/mailbox-compliance': {
+      get: {
+        tags: ['Scanning'],
+        summary: 'Gmail, Yahoo and Outlook sender requirement checks',
+        description: [
+          'Reads only data already stored: the latest completed DNS scan, aggregate DMARC reports from the last 30 days, sender reviews and cached reverse-DNS intelligence. It performs no DNS lookup or network call.',
+          'Reports are attributed to Google, Yahoo or Microsoft by the reporting address domain, falling back to the reporting organisation name. Any other reporter is ignored.',
+          'Each check says whether the domain meets it, does not meet it, cannot have it confirmed, has not measured it, or whether it can only be checked in the provider’s own tools. No check claims compliance with a provider’s full requirements.',
+          'At most 50,000 report records are read; rowsTruncated is true when the cap was reached. The daily peak ignores reports longer than 25 hours. Senders reviewed as NOT_OURS are excluded.',
+          'Available on every plan. Requires domain read permission.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: { 200: { description: 'Provider volumes, requirement checks, evidence and counts.' }, ...standardErrors },
+      },
+    },
     '/workspaces/{organizationId}/domains/{domainId}/scans': {
       post: {
         tags: ['Scanning'],

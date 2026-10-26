@@ -39,6 +39,7 @@ import type {
   ForensicListResponse,
   ForensicReportRow,
   IssuedApiKey,
+  MailboxComplianceView,
   MonthlyReportRow,
   MonthlyReportSchedule,
   PlanDefinition,
@@ -105,6 +106,16 @@ export function getWorkspaceEntitlements(
 ): Promise<ResolvedEntitlements> {
   return opsFetch<ResolvedEntitlements>(
     `/api/workspaces/${organizationId}/entitlements`,
+  );
+}
+
+/** GET /mailbox-compliance — Gmail, Yahoo and Outlook requirements from evidence already held. */
+export function getMailboxCompliance(
+  organizationId: string,
+  domainId: string,
+): Promise<MailboxComplianceView> {
+  return opsFetch<MailboxComplianceView>(
+    `/api/workspaces/${organizationId}/domains/${domainId}/mailbox-compliance`,
   );
 }
 

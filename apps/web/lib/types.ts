@@ -1583,6 +1583,70 @@ export interface ScanPage {
   nextCursor: string | null;
 }
 
+// ─── Gmail, Yahoo and Outlook sender requirements ────────────────────────────
+
+export type MailboxProviderId = "google" | "yahoo" | "microsoft";
+export type RequirementLevel = "every_sender" | "bulk" | "recommended";
+export type MailboxCheckStatus = "meets" | "fails" | "unconfirmed" | "not_measured" | "not_checkable";
+
+export interface MailboxFailingSender {
+  senderKey: string;
+  label: string;
+  messages: number;
+  failingMessages: number;
+  failingSharePercent: number;
+  sourceIps: string[];
+}
+
+export interface MailboxPerProvider {
+  provider: MailboxProviderId;
+  status: MailboxCheckStatus;
+  messages: number;
+  failingMessages: number;
+  failingSharePercent: number | null;
+  failingSenders: MailboxFailingSender[];
+  note: string | null;
+}
+
+export interface MailboxCheck {
+  code: string;
+  group: RequirementLevel;
+  title: string;
+  requiredBy: Array<{ provider: MailboxProviderId; level: RequirementLevel; source: string }>;
+  status: MailboxCheckStatus;
+  summary: string;
+  evidence: string[];
+  fix: string | null;
+  whereToCheck: Array<{ label: string; url: string }>;
+  perProvider: MailboxPerProvider[] | null;
+}
+
+/** GET /api/workspaces/:id/domains/:domainId/mailbox-compliance */
+export interface MailboxComplianceView {
+  domain: { id: string; name: string };
+  generatedAt: string;
+  windowDays: 30;
+  thresholds: { minimumMessagesForSignal: number; maximumFailureSharePercent: number };
+  scan: { id: string; completedAt: string } | null;
+  rowsTruncated: boolean;
+  providers: Array<{
+    id: MailboxProviderId;
+    name: "Google" | "Yahoo" | "Microsoft";
+    covers: string;
+    bulkThreshold: number | null;
+    bulkThresholdRule: string;
+    reportCount: number;
+    messages: number;
+    peakDailyMessages: number | null;
+    peakDay: string | null;
+    aboveBulkThreshold: boolean | null;
+    lastReportAt: string | null;
+    source: string;
+  }>;
+  checks: MailboxCheck[];
+  counts: { meets: number; fails: number; unconfirmed: number; notMeasured: number; notCheckable: number };
+}
+
 // ─── DNS monitoring ──────────────────────────────────────────────────────────
 
 export type DnsChangeSeverityName = "INFO" | "WARNING" | "CRITICAL";

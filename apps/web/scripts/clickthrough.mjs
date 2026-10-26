@@ -760,6 +760,39 @@ check(
   JSON.stringify(sourcesAudit),
 );
 
+// 4b-3. Gmail, Yahoo and Outlook requirements. The tab click can land before
+//       hydration, so retry inside the poll until the panel exists.
+const mailboxTabAudit = await waitForEval(
+  `(() => {
+    const tab = [...document.querySelectorAll('[role="tab"]')].find((t) => t.textContent.includes('Gmail, Yahoo, Outlook'));
+    if (!tab) return { panel: false };
+    const panel = document.querySelector('[data-testid="mailbox-panel"]');
+    const visible = !!panel && !panel.closest('[role="tabpanel"]')?.hidden;
+    if (!visible) tab.click();
+    const text = panel ? panel.textContent : '';
+    return {
+      panel: visible,
+      providers: ['google', 'yahoo', 'microsoft'].every((id) => !!document.querySelector('[data-testid="mailbox-provider-' + id + '"]')),
+      everySenderGroup: text.includes('Required of every sender'),
+      spamStatus: document.querySelector('[data-testid="mailbox-check-status-spam_rate"]')?.textContent.trim() ?? '',
+      noCompliantClaim: !text.toLowerCase().includes('compliant'),
+    };
+  })()`,
+  (a) => a && a.panel,
+  45000,
+);
+check(
+  "Gmail, Yahoo, Outlook tab renders providers, checks and no compliance claim",
+  Boolean(
+    mailboxTabAudit?.panel &&
+      mailboxTabAudit.providers &&
+      mailboxTabAudit.everySenderGroup &&
+      mailboxTabAudit.spamStatus === "Check in the provider's tools" &&
+      mailboxTabAudit.noCompliantClaim,
+  ),
+  JSON.stringify(mailboxTabAudit),
+);
+
 
 // 4c. the stale-feed domain: blackout band + hatched chart gap, no pass.
 // Read the row id from the PORTFOLIO (the detail page's tables have no such

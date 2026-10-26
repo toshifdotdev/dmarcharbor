@@ -299,6 +299,25 @@ holds the published value. A DnsPublication row keeps the previous value, and
 removing the connection keeps that history while clearing its connection
 reference.
 
+## 2026-10-26 — Gmail, Yahoo and Outlook sender requirement checks
+
+`GET /api/workspaces/{id}/domains/{domainId}/mailbox-compliance` returns a
+read-only checklist of the sender requirements Google, Yahoo and Microsoft
+publish, using only evidence DMARC Harbor already holds: the newest completed
+DNS scan, aggregate reports from the last 30 days, sender reviews and the cached
+reverse-DNS intelligence.
+
+No DNS lookup or network call is made when the route is read. Reports are
+attributed to the three providers by the reporting address domain, falling back
+to the reporting organisation name; any other reporter is ignored. At most
+50,000 report records are read.
+
+Each check reports `meets`, `fails`, `unconfirmed`, `not_measured` or
+`not_checkable`, with evidence and a source link. The route never claims full
+provider compliance: TLS, spam rate, message format and one-click unsubscribe
+are marked `not_checkable` with where to check them. Available on every plan;
+domain read permission is required.
+
 ## Planned, not yet available
 
 | Planned | Notes |
