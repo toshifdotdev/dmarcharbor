@@ -18,8 +18,17 @@
  */
 
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useState, type FormEvent } from "react";
-import { cancelInvitation, inviteMember, removeMember, updateMemberRole } from "@/lib/ops-client";
+import {
+  cancelInvitation,
+  inviteMember,
+  removeMember,
+  resetMemberMfa,
+  setWorkspaceMfaRequirement,
+  updateMemberRole,
+} from "@/lib/ops-client";
+import type { WorkspaceSecurity } from "@/lib/types";
 import { ActionRefusal, type ActionError } from "@/components/harbor/plan-refusal";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/dialog";
@@ -72,6 +81,8 @@ export interface MemberView {
   role: string;
   name: string;
   email: string | null;
+  /** Absent for readers who are neither owner nor admin. */
+  twoFactorEnabled?: boolean;
 }
 
 export interface InvitationView {
@@ -85,14 +96,19 @@ export function MembersBoard({
   organizationId,
   members,
   invitations,
+  security,
   canManage,
+  isOwner,
   selfUserId,
 }: {
   organizationId: string;
   members: MemberView[];
   /** null when the pending list could not be read. */
   invitations: InvitationView[] | null;
+  /** null when the workspace requirement could not be read. */
+  security: WorkspaceSecurity | null;
   canManage: boolean;
+  isOwner: boolean;
   selfUserId: string | null;
 }) {
   const router = useRouter();
@@ -107,8 +123,18 @@ export function MembersBoard({
   const [change, setChange] = useState<{ m: MemberView; to: Role } | null>(null);
   const [removing, setRemoving] = useState<MemberView | null>(null);
   const [cancelling, setCancelling] = useState<InvitationView | null>(null);
+  const [resetting, setResetting] = useState<MemberView | null>(null);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [mfaSecurity, setMfaSecurity] = useState(security);
+  const [mfaBusy, setMfaBusy] = useState(false);
+  const [mfaError, setMfaError] = useState<string | null>(null);
+  const [mfaCallerError, setMfaCallerError] = useState<string | null>(null);
+
+  const showTwoStep = canManage && members.some((member) => member.twoFactorEnabled !== undefined);
 
   async function invite(e: FormEvent) {
     e.preventDefault();
@@ -144,6 +170,53 @@ export function MembersBoard({
 
   const changeDiff = change ? diff(asRole(change.m.role), change.to) : null;
 
+  async function resetTwoStep() {
+    if (!resetting) return;
+    setResetBusy(true);
+    setResetError(null);
+    const res = await resetMemberMfa(organizationId, resetting.id);
+    setResetBusy(false);
+    if (!res.ok) {
+      setResetError(res.error?.message ?? "That did not go through. Nothing changed.");
+      return;
+    }
+    toast({ title: `${resetting.name}'s two-step verification is reset`, tone: "ok" });
+    setResetting(null);
+    router.refresh();
+  }
+
+  async function toggleWorkspaceMfa() {
+    if (!mfaSecurity || mfaBusy) return;
+    setMfaBusy(true);
+    setMfaError(null);
+    setMfaCallerError(null);
+    const res = await setWorkspaceMfaRequirement(organizationId, !mfaSecurity.requireMfa);
+    setMfaBusy(false);
+    if (!res.ok) {
+      if (res.error?.code === "MFA_REQUIRED_FOR_CALLER") {
+        setMfaCallerError(
+          res.error.message ??
+            "Turn on two-step verification for your own account first, so you do not lock yourself out.",
+        );
+      } else {
+        setMfaError(res.error?.message ?? "That did not go through. Nothing changed.");
+      }
+      return;
+    }
+    setMfaSecurity({
+      requireMfa: res.data.requireMfa,
+      changedAt: new Date().toISOString(),
+      membersWithout: res.data.membersWithout,
+    });
+    toast({
+      title: res.data.requireMfa
+        ? "Two-step verification is required for this workspace"
+        : "Two-step verification is no longer required",
+      tone: "ok",
+    });
+    router.refresh();
+  }
+
   return (
     <div className="flex flex-col gap-10">
       <Panel id="people" title="People" aside={`${members.length} member${members.length === 1 ? "" : "s"}`}>
@@ -152,6 +225,7 @@ export function MembersBoard({
             <tr>
               <Th>Person</Th>
               <Th>Role</Th>
+              {showTwoStep ? <Th align="center">Two-step</Th> : null}
               <Th align="right">
                 <span className="sr-only">Action</span>
               </Th>
@@ -195,22 +269,41 @@ export function MembersBoard({
                     )}
                     <span className="mt-0.5 block max-w-[46ch] text-meta text-fg-3">{ROLE_SUMMARY[role]}</span>
                   </Td>
+                  {showTwoStep ? (
+                    <Td align="center">
+                      <span className={m.twoFactorEnabled ? "font-semibold text-ok" : "text-fg-3"}>
+                        {m.twoFactorEnabled ? "On" : "Off"}
+                      </span>
+                    </Td>
+                  ) : null}
                   <Td align="right" className="whitespace-nowrap">
-                    {editable ? (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-fail hover:text-fail"
-                        onClick={() => {
-                          setError(null);
-                          setRemoving(m);
-                        }}
-                      >
-                        Remove
-                      </Button>
-                    ) : (
-                      null
-                    )}
+                    <div className="flex flex-wrap items-center justify-end gap-1">
+                      {isOwner && !self && m.twoFactorEnabled ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setResetError(null);
+                            setResetting(m);
+                          }}
+                        >
+                          Reset two-step verification
+                        </Button>
+                      ) : null}
+                      {editable ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-fail hover:text-fail"
+                          onClick={() => {
+                            setError(null);
+                            setRemoving(m);
+                          }}
+                        >
+                          Remove
+                        </Button>
+                      ) : null}
+                    </div>
                   </Td>
                 </Tr>
               );
@@ -221,6 +314,62 @@ export function MembersBoard({
           <p className="text-meta text-fg-3">Owners are not re-roled or removed here, and nobody changes their own role.</p>
         ) : null}
       </Panel>
+
+      {isOwner ? (
+        <Panel
+          id="two-step"
+          title="Require two-step verification"
+          why="Refuse workspace access until each member has an authenticator app. It applies to the API, not only to what this screen shows."
+          aside={
+            mfaSecurity ? (
+              <span className={mfaSecurity.requireMfa ? "font-semibold text-ok" : "font-semibold text-fg-2"}>
+                {mfaSecurity.requireMfa ? "On" : "Off"}
+              </span>
+            ) : null
+          }
+        >
+          {mfaSecurity ? (
+            <>
+              <p className="text-ui text-fg-2">
+                {mfaSecurity.requireMfa
+                  ? "Two-step verification is required. "
+                  : "Two-step verification is not required. "}
+                {mfaSecurity.membersWithout} non-portal member{mfaSecurity.membersWithout === 1 ? "" : "s"} have not set it
+                up.
+              </p>
+              <p className="max-w-[72ch] text-ui text-fg-2">
+                Members who sign in with Google or Microsoft will have to set a password and an authenticator app,
+                because DMARC Harbor cannot see whether Google or Microsoft asked them for a second step. Single
+                sign-on members are not affected: your identity provider handles it. Client portal contacts are not
+                affected.
+              </p>
+              {mfaCallerError ? (
+                <Notice tone="warn" title={mfaCallerError}>
+                  <Link href="/account/security" className="link font-semibold">
+                    Open account security
+                  </Link>{" "}
+                  to turn it on for your own account.
+                </Notice>
+              ) : null}
+              {mfaError ? <Notice tone="fail" title={mfaError} /> : null}
+              <div>
+                <Button
+                  variant={mfaSecurity.requireMfa ? "ghost" : "primary"}
+                  busy={mfaBusy}
+                  busyLabel="Saving"
+                  onClick={toggleWorkspaceMfa}
+                >
+                  {mfaSecurity.requireMfa ? "Stop requiring two-step verification" : "Require two-step verification"}
+                </Button>
+              </div>
+            </>
+          ) : (
+            <Notice tone="warn" title="The two-step requirement could not be read">
+              This is not the same as it being off. Reload the page to try again.
+            </Notice>
+          )}
+        </Panel>
+      ) : null}
 
       <Panel id="invite" title="Invite someone" why="Invite colleagues. Client contacts go under Client portal access, which limits them to their own client.">
         {canManage ? (
@@ -333,6 +482,31 @@ export function MembersBoard({
           </TBody>
         </Table>
       </Panel>
+
+      <ConfirmDialog
+        open={resetting !== null}
+        onClose={() => {
+          setResetting(null);
+          setResetError(null);
+        }}
+        onConfirm={resetTwoStep}
+        title={resetting ? `Reset two-step verification for ${resetting.name}?` : "Reset two-step verification?"}
+        body={
+          resetting ? (
+            <>
+              <p>
+                Their authenticator app and backup codes stop working, and two-step verification is turned off for the
+                account. They are signed out everywhere, including any device they are using now.
+              </p>
+              <p className="mt-2">They can set it up again with their password. Their account and other workspaces are untouched.</p>
+            </>
+          ) : null
+        }
+        confirmLabel="Reset two-step verification"
+        busy={resetBusy}
+        danger
+        error={resetting ? resetError : null}
+      />
 
       <ConfirmDialog
         open={change !== null}

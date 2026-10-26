@@ -1094,7 +1094,14 @@ export type AuditAction =
   | "DNS_CONNECTION_CREATED"
   | "DNS_CONNECTION_REMOVED"
   | "DNS_RECORD_PUBLISHED"
-  | "DNS_RECORD_RESTORED";
+  | "DNS_RECORD_RESTORED"
+  | "MFA_ENABLED"
+  | "MFA_DISABLED"
+  | "MFA_BACKUP_CODE_USED"
+  | "MFA_BACKUP_CODES_REGENERATED"
+  | "MFA_RESET"
+  | "WORKSPACE_MFA_REQUIREMENT_CHANGED"
+  | "MFA_SIGN_IN_REFUSED";
 
 /**
  * AuditOutcome is SUCCESS or DENIED. There is no FAILED value: the trail records
@@ -1145,6 +1152,24 @@ export interface WorkspaceMemberRow {
   userId: string;
   role: string;
   user?: { id: string; name: string; email: string };
+  /** Present only for an owner or admin reading the roster. */
+  twoFactorEnabled?: boolean;
+}
+
+/** GET /api/me/security — account-level two-step verification state. */
+export interface MySecurity {
+  twoFactorEnabled: boolean;
+  hasPassword: boolean;
+  sessionAuthMethod: "sso" | null;
+  backupCodesRemaining: number | null;
+  requiredBy: Array<{ id: string; name: string }>;
+}
+
+/** GET /api/workspaces/{id}/security */
+export interface WorkspaceSecurity {
+  requireMfa: boolean;
+  changedAt: string | null;
+  membersWithout: number;
 }
 
 /** GET /api/auth/organization/list-invitations — a pending invitation row from

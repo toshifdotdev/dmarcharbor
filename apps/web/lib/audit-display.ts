@@ -109,6 +109,13 @@ const ACTION_SENTENCES: Record<AuditAction, string> = {
   DNS_CONNECTION_REMOVED: "Cloudflare connection removed",
   DNS_RECORD_PUBLISHED: "DNS record published",
   DNS_RECORD_RESTORED: "DNS record restored",
+  MFA_ENABLED: "Two-step verification turned on",
+  MFA_DISABLED: "Two-step verification turned off",
+  MFA_BACKUP_CODE_USED: "A backup code was used to sign in",
+  MFA_BACKUP_CODES_REGENERATED: "New backup codes generated",
+  MFA_RESET: "Two-step verification reset",
+  WORKSPACE_MFA_REQUIREMENT_CHANGED: "Workspace two-step requirement changed",
+  MFA_SIGN_IN_REFUSED: "Sign-in refused until two-step verification is set up",
 };
 
 /**

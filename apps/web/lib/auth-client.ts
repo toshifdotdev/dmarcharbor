@@ -27,6 +27,13 @@ const MESSAGES: Record<string, string> = {
   VALIDATION_ERROR: "Fill in both the email and the password.",
   INVALID_TOKEN: "This reset link is not valid any more. Ask for a new one below.",
   EMAIL_NOT_VERIFIED: "This email address is not verified yet. We have sent a fresh verification link to it.",
+  INVALID_CODE: "That code is not right. Codes change every 30 seconds; use the current one.",
+  INVALID_BACKUP_CODE: "That backup code is not valid, or it was already used.",
+  TOO_MANY_ATTEMPTS_REQUEST_NEW_CODE: "This sign-in timed out or had too many attempts. Sign in again.",
+  INVALID_TWO_FACTOR_COOKIE: "This sign-in timed out or had too many attempts. Sign in again.",
+  ACCOUNT_TEMPORARILY_LOCKED: "Too many wrong codes. Wait 15 minutes, or use a backup code.",
+  SESSION_NOT_FRESH: "For safety, sign out and sign in again before turning this off.",
+  INVALID_PASSWORD: "That password is not right.",
 };
 
 export class AuthError extends Error {
@@ -75,9 +82,69 @@ async function fail(res: Response): Promise<never> {
 }
 
 /** `returnTo` is the same-site path to land on after an emailed link. */
-export async function signIn(email: string, password: string, returnTo = "/"): Promise<void> {
+export async function signIn(
+  email: string,
+  password: string,
+  returnTo = "/",
+): Promise<{ twoFactor: boolean }> {
   const res = await post("sign-in/email", { email, password, callbackURL: `${origin()}${returnTo}` });
   if (!res.ok) await fail(res);
+  let body: { twoFactorRedirect?: unknown } | null = null;
+  try {
+    body = (await res.json()) as { twoFactorRedirect?: unknown };
+  } catch {
+    // A 200 with no JSON body is still a successful sign-in.
+  }
+  return { twoFactor: body?.twoFactorRedirect === true };
+}
+
+/** The second step of a password sign-in, using the ten-second-lived challenge
+ *  cookie Better Auth set on the first. */
+export async function verifyTotp(code: string): Promise<void> {
+  const res = await post("two-factor/verify-totp", { code });
+  if (!res.ok) await fail(res);
+}
+
+export async function verifyBackupCode(code: string): Promise<void> {
+  const res = await post("two-factor/verify-backup-code", { code });
+  if (!res.ok) await fail(res);
+}
+
+export interface TwoFactorSetup {
+  totpURI: string;
+  backupCodes: string[];
+}
+
+/** Starts authenticator setup. Nothing is enabled until confirmTwoFactor. */
+export async function enableTwoFactor(password: string): Promise<TwoFactorSetup> {
+  const res = await post("two-factor/enable", { password });
+  if (!res.ok) await fail(res);
+  const body = (await res.json()) as { totpURI?: unknown; backupCodes?: unknown };
+  return {
+    totpURI: typeof body.totpURI === "string" ? body.totpURI : "",
+    backupCodes: Array.isArray(body.backupCodes)
+      ? body.backupCodes.filter((code): code is string => typeof code === "string")
+      : [],
+  };
+}
+
+/** Confirms setup with a current code. Better Auth rotates the session here. */
+export async function confirmTwoFactor(code: string): Promise<void> {
+  await verifyTotp(code);
+}
+
+export async function disableTwoFactor(password: string): Promise<void> {
+  const res = await post("two-factor/disable", { password });
+  if (!res.ok) await fail(res);
+}
+
+export async function regenerateBackupCodes(password: string): Promise<string[]> {
+  const res = await post("two-factor/generate-backup-codes", { password });
+  if (!res.ok) await fail(res);
+  const body = (await res.json()) as { backupCodes?: unknown };
+  return Array.isArray(body.backupCodes)
+    ? body.backupCodes.filter((code): code is string => typeof code === "string")
+    : [];
 }
 
 /**

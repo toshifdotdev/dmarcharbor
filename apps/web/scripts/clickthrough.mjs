@@ -16,6 +16,7 @@
  * Run: node scripts/clickthrough.mjs
  */
 import { spawn, spawnSync } from "node:child_process";
+import { createHmac } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -3696,6 +3697,208 @@ check(
   JSON.stringify(cursorAudit),
 );
 
+
+// 10g. Two-step verification, end to end on a fresh account: set up an
+//      authenticator app, save the backup codes, then prove password sign-in
+//      is gated by a current code. The seed user sam@example.test is never
+//      touched; later checks rely on signing in as sam without a code.
+const mfaEmail = `mfa-check-${Date.now()}@harbor.example`;
+const mfaPassword = "harbor-test-2026";
+const mfaAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+function mfaBase32(value) {
+  const clean = value.replace(/=+$/g, "").replace(/\s+/g, "").toUpperCase();
+  let bits = 0;
+  let acc = 0;
+  const out = [];
+  for (const character of clean) {
+    const index = mfaAlphabet.indexOf(character);
+    if (index < 0) throw new Error("bad base32");
+    acc = (acc << 5) | index;
+    bits += 5;
+    if (bits >= 8) {
+      out.push((acc >>> (bits - 8)) & 0xff);
+      bits -= 8;
+    }
+  }
+  return Buffer.from(out);
+}
+function mfaCode(secretText, now = Date.now()) {
+  const key = mfaBase32(secretText);
+  const counter = Math.floor(now / 1000 / 30);
+  const message = Buffer.alloc(8);
+  message.writeBigUInt64BE(BigInt(counter));
+  const digest = createHmac("sha1", key).update(message).digest();
+  const offset = digest[digest.length - 1] & 0x0f;
+  const value =
+    ((digest[offset] & 0x7f) << 24) |
+    ((digest[offset + 1] & 0xff) << 16) |
+    ((digest[offset + 2] & 0xff) << 8) |
+    (digest[offset + 3] & 0xff);
+  return String(value % 1_000_000).padStart(6, "0");
+}
+async function clickMfaTestId(id, timeoutMs = 20000) {
+  return (
+    (await waitForEval(
+      `(() => {
+        const el = document.querySelector('[data-testid="${id}"]');
+        if (!el || el.disabled) return false;
+        if (!Object.keys(el).some((k) => k.startsWith('__react'))) return false;
+        el.click();
+        return true;
+      })()`,
+      (v) => v === true,
+      timeoutMs,
+    )) === true
+  );
+}
+async function clickMfaText(text, timeoutMs = 20000) {
+  const wanted = JSON.stringify(text);
+  return (
+    (await waitForEval(
+      `(() => {
+        const button = [...document.querySelectorAll('button')].find((b) => (b.textContent || '').includes(${wanted}));
+        if (!button || button.disabled) return false;
+        if (!Object.keys(button).some((k) => k.startsWith('__react'))) return false;
+        button.click();
+        return true;
+      })()`,
+      (v) => v === true,
+      timeoutMs,
+    )) === true
+  );
+}
+
+await cdp("Network.clearBrowserCookies");
+await navigate(WEB + "/sign-up");
+await waitForEval(`!!document.querySelector('[data-testid="auth-submit"]')`, (v) => v === true, 30000);
+await waitForHydration();
+await fillInput('input[type="text"]', "MFA Check");
+await fillInput('input[type="email"]', mfaEmail);
+await fillInput('input[type="password"]', mfaPassword);
+await evalJs(`(() => { const b = document.querySelector('[data-testid="auth-submit"]'); if (b && !b.disabled) b.click(); return true; })()`);
+let mfaSignedUp = false;
+for (let i = 0; i < 30 && !mfaSignedUp; i++) {
+  const notice = await evalJs(`document.body.textContent.toLowerCase()`);
+  mfaSignedUp = notice.includes("verify your email") || notice.includes("account created");
+  if (mfaSignedUp) break;
+  await new Promise((res) => setTimeout(res, 700));
+}
+
+const mfaToken = runTestPatternOut(`
+  const { config } = await import("dotenv");
+  config();
+  const { signJWT } = await import("better-auth/crypto");
+  const secret = process.env.BETTER_AUTH_SECRET;
+  if (secret) {
+    process.stdout.write(await signJWT({ email: ${JSON.stringify(mfaEmail.toLowerCase())} }, secret, 3600));
+  }
+`);
+if (mfaToken) {
+  await fetch(`${WEB}/api/auth/verify-email?token=${encodeURIComponent(mfaToken)}`, { redirect: "manual" }).catch(() => {});
+}
+
+// A workspace so the account shell has somewhere to stand. The security screen
+// itself is account-level; this fixture is only the frame's active workspace.
+const mfaFixture = runTestPatternOut(`
+  const { PrismaClient } = await import("@prisma/client");
+  const prisma = new PrismaClient();
+  const email = ${JSON.stringify(mfaEmail.toLowerCase())};
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user) process.exit(1);
+  const id = "mfa-check-" + Date.now();
+  await prisma.organization.create({
+    data: {
+      id,
+      name: "MFA Check",
+      slug: id,
+      createdAt: new Date(),
+      dpaAcceptedAt: new Date(),
+      dpaVersion: "1.0",
+      dpaAcceptedById: user.id,
+      dpaAcceptedByEmail: email,
+    },
+  });
+  await prisma.member.create({
+    data: { id: "mfa-member-" + Date.now(), organizationId: id, userId: user.id, role: "owner", createdAt: new Date() },
+  });
+  await prisma.$disconnect();
+  process.stdout.write("ok");
+`);
+
+await navigate(WEB + "/sign-in");
+await waitForEval(`!!document.querySelector('[data-testid="auth-submit"]')`, (v) => v === true, 30000);
+await waitForHydration();
+await fillInput('input[type="email"]', mfaEmail);
+await fillInput('input[type="password"]', mfaPassword);
+await evalJs(`(() => { const b = document.querySelector('[data-testid="auth-submit"]'); if (b && !b.disabled) b.click(); return true; })()`);
+await waitForEval(`location.pathname === "/"`, (v) => v === true, 60000);
+
+await navigate(WEB + "/account/security");
+const mfaOff = await waitForEval(
+  `(() => { const el = document.querySelector('[data-testid="mfa-status"]'); return el ? el.textContent.trim() : null; })()`,
+  (v) => v === "Off",
+  30000,
+);
+await waitForHydration();
+const mfaStarted = await clickMfaTestId("mfa-start");
+await waitForEval(`!!document.querySelector('input[type="password"]')`, (v) => v === true, 20000);
+await waitForHydration();
+await fillInput('input[type="password"]', mfaPassword);
+await clickMfaText("Continue");
+const setupReady = await waitForEval(
+  `(() => {
+    const key = document.querySelector('[data-testid="mfa-setup-key"]');
+    const qr = document.querySelector('[data-testid="mfa-qr"]');
+    return { key: key ? key.textContent.trim() : "", qr: Boolean(qr) };
+  })()`,
+  (v) => v && v.key.length > 0 && v.qr,
+  30000,
+);
+const setupKey = setupReady?.key ?? "";
+await clickMfaText("I have added it");
+await waitForEval(`!!document.querySelector('[data-testid="mfa-confirm-code"]')`, (v) => v === true, 20000);
+await waitForHydration();
+await fillInput('[data-testid="mfa-confirm-code"]', mfaCode(setupKey));
+await clickMfaText("Turn on two-step verification");
+const backupReady = await waitForEval(
+  `(() => document.querySelectorAll('[data-testid="mfa-backup-list"] li').length)()`,
+  (v) => v === 10,
+  30000,
+);
+await waitForEval(
+  `(() => { const box = document.querySelector('[data-testid="mfa-saved-check"]'); if (!box) return false; if (!box.checked) box.click(); return true; })()`,
+  (v) => v === true,
+  20000,
+);
+await new Promise((res) => setTimeout(res, 300));
+await clickMfaTestId("mfa-done");
+const mfaOn = await waitForEval(
+  `(() => { const el = document.querySelector('[data-testid="mfa-status"]'); return el ? el.textContent.trim() : null; })()`,
+  (v) => v === "On",
+  20000,
+);
+
+await cdp("Network.clearBrowserCookies");
+await navigate(WEB + "/sign-in");
+await waitForEval(`!!document.querySelector('[data-testid="auth-submit"]')`, (v) => v === true, 30000);
+await waitForHydration();
+await fillInput('input[type="email"]', mfaEmail);
+await fillInput('input[type="password"]', mfaPassword);
+await evalJs(`(() => { const b = document.querySelector('[data-testid="auth-submit"]'); if (b && !b.disabled) b.click(); return true; })()`);
+const codePrompt = await waitForEval(`!!document.querySelector('[data-testid="mfa-code"]')`, (v) => v === true, 30000);
+await waitForHydration();
+await fillInput('[data-testid="mfa-code"]', mfaCode(setupKey));
+const submitted = await clickMfaTestId("mfa-submit");
+const mfaSignedIn = await waitForEval(
+  `(() => ({ path: location.pathname, prompt: !!document.querySelector('[data-testid="mfa-code"]') }))()`,
+  (v) => v && v.path === "/" && !v.prompt,
+  60000,
+);
+check(
+  "two-step verification: setup, backup codes and a code-gated sign-in",
+  Boolean(mfaFixture === "ok" && mfaSignedUp && mfaOff === "Off" && mfaStarted && setupReady?.qr && backupReady === 10 && mfaOn === "On" && codePrompt && submitted && mfaSignedIn?.path === "/"),
+  JSON.stringify({ fixture: mfaFixture, signedUp: mfaSignedUp, off: mfaOff, started: mfaStarted, setup: Boolean(setupReady?.qr), backups: backupReady, on: mfaOn, prompt: codePrompt, submitted, landed: mfaSignedIn?.path ?? null }),
+);
 
 // 8d. Console hygiene: the whole run must have produced zero uncaught errors,
 //     zero unexpected failed requests, zero React key warnings, zero hydration

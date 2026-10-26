@@ -35,7 +35,7 @@ import { redirect } from "next/navigation";
 import { Fragment, type ReactNode } from "react";
 import type { WorkspaceSummary } from "@/lib/types";
 import { getSessionUser } from "@/lib/api";
-import { getDpaAcceptance } from "@/lib/api-ops";
+import { getDpaAcceptance, getMySecurity } from "@/lib/api-ops";
 import { readHostBrand, type HostBrand } from "@/lib/host-brand";
 import { LEGAL_FOOTER_LINKS } from "@/lib/site-links";
 import { PierMark } from "@/components/mark";
@@ -59,26 +59,52 @@ export async function AppShell({
   workspaces,
   activeWorkspace,
   trail = [],
+  accountLevel = false,
   children,
 }: {
   workspaces: WorkspaceSummary[];
   activeWorkspace: WorkspaceSummary | null;
   trail?: TrailItem[];
+  /**
+   * Account screens are outside the workspace gate. They must not read DPA,
+   * alerts or plan state, because those are workspace routes and a member who
+   * has not enrolled would be redirected back to the page they are on.
+   */
+  accountLevel?: boolean;
   children: ReactNode;
 }) {
   // No workspace yet is an onboarding step, not an error.
   if (!activeWorkspace) redirect("/welcome");
 
   // In parallel: the frame must not add a round trip per read.
-  const [hostBrand, dpaOutOfDate, user] = await Promise.all([
+  const [hostBrand, dpaOutOfDate, security, user] = await Promise.all([
     readHostBrand(),
     // A failed read renders nothing: failing to reach the agreement state is
     // not proof that the agreement is out of date.
-    getDpaAcceptance(activeWorkspace.id)
-      .then((a) => (a.requiresReconsent ? { acceptedVersion: a.version, currentVersion: a.currentVersion } : null))
-      .catch(() => null),
+    accountLevel
+      ? Promise.resolve(null)
+      : getDpaAcceptance(activeWorkspace.id)
+          .then((a) => (a.requiresReconsent ? { acceptedVersion: a.version, currentVersion: a.currentVersion } : null))
+          .catch(() => null),
+    accountLevel ? Promise.resolve(null) : getMySecurity().catch(() => null),
     getSessionUser(),
   ]);
+
+  /**
+   * The API refuses every workspace route when a member has not enrolled, but
+   * many page reads turn a failed fetch into an inline error state. Asking the
+   * account-level endpoint here turns that into the one destination that can
+   * fix it, without relying on each page to rethrow a redirect.
+   */
+  if (
+    !accountLevel &&
+    security &&
+    security.requiredBy.some((workspace) => workspace.id === activeWorkspace.id) &&
+    !security.twoFactorEnabled &&
+    security.sessionAuthMethod !== "sso"
+  ) {
+    redirect("/account/security?required=1");
+  }
 
   return (
     <div data-harbor data-host-brand={hostBrand.state} className="flex min-h-screen flex-col">
@@ -129,8 +155,10 @@ export async function AppShell({
             </ol>
           </nav>
 
-          <Watch organizationId={activeWorkspace.id} />
-          <Jump organizationId={activeWorkspace.id} workspaces={workspaces} activeId={activeWorkspace.id} />
+          {accountLevel ? null : <Watch organizationId={activeWorkspace.id} />}
+          {accountLevel ? null : (
+            <Jump organizationId={activeWorkspace.id} workspaces={workspaces} activeId={activeWorkspace.id} />
+          )}
           <AccountMenu name={user?.name ?? null} email={user?.email ?? null} />
         </div>
 
@@ -160,7 +188,7 @@ export async function AppShell({
         />
       ) : null}
       {hostBrand.state === "unverified" ? <HostUnverifiedBanner /> : null}
-      <PlanWatch organizationId={activeWorkspace.id} />
+      {accountLevel ? null : <PlanWatch organizationId={activeWorkspace.id} />}
 
       <ToastProvider>
         <main id="main" tabIndex={-1} className="w-full flex-1 px-4 pb-16 pt-6 outline-none sm:px-6 lg:px-8 lg:pt-7">

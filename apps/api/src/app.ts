@@ -26,6 +26,7 @@ import { billingRouter } from './routes/billing.routes.js';
 import { refundRouter } from './routes/refund.routes.js';
 import { trustRouter } from './routes/trust.routes.js';
 import { monthlyReportRouter } from './routes/monthly-report.routes.js';
+import { mfaRouter } from './routes/mfa.routes.js';
 import { portalErrorHandler } from './middleware/portal.middleware.js';
 import { globalErrorHandler } from './middleware/global-error.middleware.js';
 import { domainScanRouter } from './routes/domain-scan.routes.js';
@@ -40,6 +41,7 @@ import { systemRouter } from './routes/system.routes.js';
 import { requestContext } from './middleware/request-context.middleware.js';
 import { createAuthRateLimiter, createSessionReadRateLimiter, createWorkspaceRateLimiter } from './middleware/rate-limit.middleware.js';
 import { requireCurrentDpa } from './middleware/dpa-consent.middleware.js';
+import { requireWorkspaceMfa } from './middleware/mfa-requirement.middleware.js';
 import { sendError } from './utils/api-error.js';
 import { withReadableAuthErrors } from './middleware/auth-error-rewrite.middleware.js';
 import { lifecycleRouter } from './routes/lifecycle.routes.js';
@@ -111,14 +113,24 @@ export function createApp(): express.Express {
   app.use('/api/auth', authOptionsRouter);
 
   // Ahead of the Better Auth handler so it covers every auth path, not only the
-  // ones this codebase registers. There is no MFA, so this is the only brake
-  // on credential stuffing.
+  // ones this codebase registers. This is the brake on credential stuffing, and
+  // it also covers the two-factor endpoints because they live under /api/auth.
   app.use('/api/auth', createAuthRateLimiter());
   // Reading one's own session is not a credential attempt and is asked on every
   // page render, so it has its own, larger budget (see isSessionRead).
   app.use('/api/auth', createSessionReadRateLimiter());
 
   app.all('/api/auth/*splat', withReadableAuthErrors(toNodeHandler(auth)));
+
+  /**
+   * The workspace two-step requirement, immediately after the auth handler.
+   *
+   * Mounted here rather than beside the DPA gate further down because it must
+   * cover every workspace router, including those deliberately mounted before
+   * that gate. It reads the workspace id from the path, so it is inert for
+   * /api/me, /api/workspaces and every /api/auth route.
+   */
+  app.use('/api', requireWorkspaceMfa());
   app.use('/api', systemRouter);
   app.use('/api', inboundReportRouter);
   app.use('/api', publicReportRouter);
@@ -175,6 +187,7 @@ export function createApp(): express.Express {
   app.use(express.urlencoded({ extended: false, limit: '256kb' }));
   app.use('/api', sessionRouter);
   app.use('/api', sessionManagementRouter);
+  app.use('/api', mfaRouter);
 
   /**
    * A brake on the authenticated surface, which had no limit of any kind.

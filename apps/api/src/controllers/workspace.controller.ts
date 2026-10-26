@@ -1,6 +1,7 @@
 import { fromNodeHeaders } from 'better-auth/node';
 import type { Request, Response } from 'express';
 import { auth } from '../auth/auth.config.js';
+import { prisma } from '../database/prisma.js';
 import { createWorkspaceSchema, workspaceIdSchema } from '../models/auth.model.js';
 import {
   dpaPath,
@@ -193,5 +194,45 @@ export async function listWorkspaceMembers(request: Request, response: Response)
     query: { organizationId: parsed.data },
     headers: fromNodeHeaders(request.headers),
   });
-  response.json(members);
+
+  /**
+   * The two-step status is visible to owners and admins only.
+   *
+   * Better Auth's listMembers returns only id, name, email and image for each
+   * user, so the flag is joined from the member's account. It is added rather
+   * than always present because an analyst has no reason to learn who has and
+   * has not enrolled, and the field is omitted entirely for them - not sent as
+   * false, which would be a claim.
+   */
+  const session = response.locals.session as { user?: { id?: string } } | undefined;
+  const callerId = session?.user?.id;
+  const caller = callerId
+    ? await prisma.member.findUnique({
+        where: { organizationId_userId: { organizationId: parsed.data, userId: callerId } },
+        select: { role: true },
+      })
+    : null;
+  const callerRoles = (caller?.role ?? '').split(',').map((role) => role.trim());
+  const maySee = callerRoles.includes('owner') || callerRoles.includes('admin');
+
+  if (!maySee) {
+    response.json(members);
+    return;
+  }
+
+  const list = members as { members?: Array<{ userId: string }> } & Record<string, unknown>;
+  const userIds = (list.members ?? []).map((member) => member.userId);
+  const flags = await prisma.user.findMany({
+    where: { id: { in: userIds } },
+    select: { id: true, twoFactorEnabled: true },
+  });
+  const enabled = new Map(flags.map((user) => [user.id, user.twoFactorEnabled]));
+
+  response.json({
+    ...list,
+    members: (list.members ?? []).map((member) => ({
+      ...member,
+      twoFactorEnabled: enabled.get(member.userId) ?? false,
+    })),
+  });
 }

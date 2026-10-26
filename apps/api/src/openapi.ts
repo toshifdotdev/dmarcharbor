@@ -1964,6 +1964,100 @@ export const openApiDocument = {
         responses: { 200: { description: 'Members and roles.' }, ...standardErrors },
       },
     },
+    '/me/security': {
+      get: {
+        tags: ['Auth'],
+        summary: 'Read your two-step verification state',
+        description: [
+          'Account level and never workspace scoped, so a member blocked by a workspace requirement can still reach the screen that fixes it.',
+          'Returns whether an authenticator app is on, whether the account has a password, how many backup codes remain, and which workspaces require two-step verification.',
+        ].join(' '),
+        responses: { 200: { description: 'The account security state.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/members/{memberId}/mfa/reset': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Reset a member two-step verification',
+        description: [
+          'Owner only. Removes the authenticator secret and backup codes, clears the account flag, signs the member out everywhere and deletes trust-device records.',
+          'The owner cannot reset their own account here; turning it off is an account action and needs the password.',
+        ].join(' '),
+        parameters: [orgParam, idParam('memberId', 'Member identifier from the member list.')],
+        responses: {
+          ...standardErrors,
+          200: { description: 'Reset, signed out everywhere, and the member was emailed.' },
+          400: { description: 'The owner targeted their own membership.' },
+          403: { description: 'The caller is not the workspace owner.' },
+          404: { description: 'No such member in this workspace.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/security': {
+      get: {
+        tags: ['Auth'],
+        summary: 'Read the workspace two-step requirement',
+        description: 'Returns the requirement, when it last changed, and how many non-portal members have not enrolled.',
+        parameters: [orgParam],
+        responses: { 200: { description: 'The requirement and its reach.' }, ...standardErrors },
+      },
+      put: {
+        tags: ['Auth'],
+        summary: 'Set the workspace two-step requirement',
+        description: [
+          'Owner only. Turning it on requires the owner to satisfy it already, with an authenticator app or an SSO session, so the setting cannot lock its own author out.',
+          'The refusal is 409 MFA_REQUIRED_FOR_CALLER and names the action to take first.',
+        ].join(' '),
+        parameters: [orgParam],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['requireMfa'],
+                properties: { requireMfa: { type: 'boolean' } },
+              },
+            },
+          },
+        },
+        responses: {
+          ...standardErrors,
+          200: { description: 'Saved, with the number of non-portal members still to enrol.' },
+          409: { description: 'The owner has not set up two-step verification yet.' },
+        },
+      },
+    },
+    '/staff/users/{userId}/mfa/reset': {
+      post: {
+        tags: ['Auth'],
+        security: [{ staffKey: [] }],
+        summary: 'Reset any account two-step verification (staff)',
+        description: [
+          'Authorised by the deployment staff key, not by a workspace role. This is the recovery path for a sole owner who lost the authenticator and the backup codes.',
+          'Requires a reason of 10 to 280 characters, recorded in the audit trail with the reset.',
+        ].join(' '),
+        parameters: [idParam('userId', 'Account identifier.')],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['reason'],
+                properties: { reason: { type: 'string', minLength: 10, maxLength: 280 } },
+              },
+            },
+          },
+        },
+        responses: {
+          ...standardErrors,
+          200: { description: 'Reset and signed out everywhere.' },
+          400: { description: 'The reason is missing or outside 10 to 280 characters.' },
+          404: { description: 'No such account.' },
+        },
+      },
+    },
     '/scan': {
       post: {
         tags: ['Scanning'],

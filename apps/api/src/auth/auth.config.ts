@@ -1,6 +1,6 @@
 import { betterAuth } from 'better-auth';
 import { prismaAdapter } from '@better-auth/prisma-adapter';
-import { organization } from 'better-auth/plugins';
+import { organization, twoFactor } from 'better-auth/plugins';
 import { createAuthMiddleware, APIError } from 'better-auth/api';
 import { env } from '../config/env.js';
 import { prisma } from '../database/prisma.js';
@@ -8,6 +8,217 @@ import { recordAuditEvent } from '../services/audit.service.js';
 import { accessControl, organizationRoles } from './permissions.js';
 import { queueAuthEmail, queueEmail } from '../email/email.service.js';
 import { workspaceInvitationEmail } from '../email/templates.js';
+
+/**
+ * Session creation is denied by default for a user with two-step verification.
+ *
+ * The plugin protects the password sign-in path, but it does not hook OAuth
+ * callbacks, social sign-in or the auto sign-in after an email verification.
+ * Those would otherwise mint a full session from a single factor. The allowlist
+ * below is the small set of endpoints that already asked for the code and must
+ * be able to rotate or create a session afterwards.
+ *
+ * The paths are Better Auth's route templates, not the request URL: the OAuth
+ * callback arrives as `/callback/google` and is reported here as `/callback/:id`.
+ */
+const sessionPathsAllowedWithTwoFactor = new Set([
+  '/sign-in/email',
+  '/two-factor/verify-totp',
+  '/two-factor/verify-backup-code',
+  '/two-factor/enable',
+  '/two-factor/disable',
+  '/change-password',
+]);
+
+interface SessionGuardContext {
+  path?: string;
+}
+
+interface SessionGuardSession {
+  userId: string;
+}
+
+/**
+ * Exported so the deny-by-default rule can be tested without a provider.
+ *
+ * `context` is absent for server-side session creation (tests and `auth.api`
+ * calls), which is trusted code and is allowed. A present context is an HTTP
+ * endpoint and is checked.
+ */
+export async function mfaSessionGuard(
+  session: SessionGuardSession,
+  context?: SessionGuardContext | null,
+): Promise<boolean> {
+  if (!context) {
+    return true;
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.userId },
+    select: { twoFactorEnabled: true },
+  });
+
+  if (!user?.twoFactorEnabled) {
+    return true;
+  }
+
+  const path = context.path ?? '';
+  if (sessionPathsAllowedWithTwoFactor.has(path)) {
+    return true;
+  }
+
+  try {
+    await recordAuditEvent({
+      actorUserId: session.userId,
+      action: 'MFA_SIGN_IN_REFUSED',
+      targetType: 'user',
+      targetId: session.userId,
+      detail: { path },
+    });
+  } catch (error) {
+    console.error('Failed to record a refused two-step sign-in', error);
+  }
+
+  return false;
+}
+
+const securityEmailFooter =
+  'If this was not you, reset your password and contact your workspace owner.';
+
+function securityEmail(firstLine: string): string {
+  return `${firstLine}\n\n${securityEmailFooter}`;
+}
+
+interface MfaHookSession {
+  user: { id: string; email: string; twoFactorEnabled?: boolean };
+  session: { token: string };
+}
+
+interface MfaHookContext {
+  path?: string;
+  context: {
+    returned?: unknown;
+    session?: MfaHookSession | null;
+    newSession?: MfaHookSession | null;
+  };
+}
+
+async function recordMfaAudit(input: {
+  actorUserId: string;
+  action:
+    | 'MFA_ENABLED'
+    | 'MFA_DISABLED'
+    | 'MFA_BACKUP_CODE_USED'
+    | 'MFA_BACKUP_CODES_REGENERATED';
+  detail?: Record<string, unknown>;
+}): Promise<void> {
+  try {
+    await recordAuditEvent({
+      actorUserId: input.actorUserId,
+      action: input.action,
+      targetType: 'user',
+      targetId: input.actorUserId,
+      detail: input.detail,
+    });
+  } catch (error) {
+    console.error(`Failed to record ${input.action}`, error);
+  }
+}
+
+/**
+ * Side effects for the two-factor endpoints.
+ *
+ * `ctx.context.returned` is only set after the endpoint answered without
+ * throwing, so a wrong code or a wrong password never produces an audit row or
+ * an email. The setup case is told apart from a sign-in verification by the
+ * session that existed before the request: setup has one and flips
+ * twoFactorEnabled from false to true; a sign-in verification has none.
+ */
+async function handleTwoFactorAfter(ctx: MfaHookContext): Promise<void> {
+  // After hooks also run when the endpoint threw. An Error in `returned`
+  // means the code or password was refused (or the endpoint failed), which
+  // must not produce an email, an audit row, or a session revocation.
+  if (!ctx.context.returned || ctx.context.returned instanceof Error) {
+    return;
+  }
+
+  if (ctx.path === '/two-factor/verify-totp') {
+    const before = ctx.context.session?.user;
+    const after = ctx.context.newSession;
+    if (!before || !after || before.twoFactorEnabled !== false || after.user.twoFactorEnabled !== true) {
+      return;
+    }
+
+    // Sessions signed in with only a password predate the second factor. They
+    // must not survive setup, or the workspace gate would keep accepting them.
+    await prisma.session.deleteMany({
+      where: { userId: after.user.id, token: { not: after.session.token } },
+    });
+
+    await recordMfaAudit({ actorUserId: after.user.id, action: 'MFA_ENABLED' });
+    queueAuthEmail({
+      to: after.user.email,
+      subject: 'Two-step verification was turned on',
+      text: securityEmail('Two-step verification was turned on for your DMARC Harbor account.'),
+    });
+    return;
+  }
+
+  if (ctx.path === '/two-factor/disable') {
+    const user = ctx.context.session?.user;
+    if (!user) return;
+
+    await recordMfaAudit({ actorUserId: user.id, action: 'MFA_DISABLED' });
+    queueAuthEmail({
+      to: user.email,
+      subject: 'Two-step verification was turned off',
+      text: securityEmail('Two-step verification was turned off for your DMARC Harbor account.'),
+    });
+    return;
+  }
+
+  if (ctx.path === '/two-factor/verify-backup-code') {
+    const user = ctx.context.newSession?.user ?? ctx.context.session?.user;
+    if (!user) return;
+
+    // Count, never return. The plugin also returns the codes it has left only
+    // to a caller that asks for them; this email reports the number alone.
+    let remaining: number | null = null;
+    try {
+      const viewed = await auth.api.viewBackupCodes({ body: { userId: user.id } });
+      remaining = viewed.backupCodes.length;
+    } catch {
+      // The code was accepted either way; a missing count must not turn a
+      // successful sign-in into a failure.
+    }
+
+    await recordMfaAudit({
+      actorUserId: user.id,
+      action: 'MFA_BACKUP_CODE_USED',
+      ...(remaining === null ? {} : { detail: { remaining } }),
+    });
+    const count = remaining === null ? '' : ` ${remaining} left.`;
+    const advice = remaining !== null && remaining <= 2 ? ' Generate new ones in Account security.' : '';
+    queueAuthEmail({
+      to: user.email,
+      subject: 'A backup code was used to sign in',
+      text: securityEmail(`A backup code was used to sign in.${count}${advice}`),
+    });
+    return;
+  }
+
+  if (ctx.path === '/two-factor/generate-backup-codes') {
+    const user = ctx.context.session?.user ?? ctx.context.newSession?.user;
+    if (!user) return;
+
+    await recordMfaAudit({ actorUserId: user.id, action: 'MFA_BACKUP_CODES_REGENERATED' });
+    queueAuthEmail({
+      to: user.email,
+      subject: 'New backup codes were generated',
+      text: securityEmail('New backup codes were generated; the old ones no longer work.'),
+    });
+  }
+}
 
 const socialProviders = {
   ...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
@@ -94,6 +305,20 @@ export const auth = betterAuth({
   session: {
     expiresIn: 60 * 60 * 24 * 7,
     updateAge: 60 * 60 * 24,
+    additionalFields: {
+      authMethod: { type: 'string', required: false, input: false },
+    },
+  },
+  databaseHooks: {
+    session: {
+      create: {
+        before: (session, context) =>
+          mfaSessionGuard(
+            session as SessionGuardSession,
+            context as SessionGuardContext | null | undefined,
+          ),
+      },
+    },
   },
   advanced: {
     database: {
@@ -102,6 +327,14 @@ export const auth = betterAuth({
   },
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path === '/two-factor/verify-totp' || ctx.path === '/two-factor/verify-backup-code') {
+        const body = ctx.body as { trustDevice?: unknown } | undefined;
+        if (body && typeof body === 'object') {
+          body.trustDevice = false;
+        }
+        return;
+      }
+
       if (ctx.path !== '/change-password') {
         return;
       }
@@ -120,26 +353,24 @@ export const auth = betterAuth({
       body.revokeOtherSessions = true;
     }),
     after: createAuthMiddleware(async (ctx) => {
-      if (ctx.path !== '/change-password' || !ctx.context.returned) {
-        return;
+      if (ctx.path === '/change-password' && ctx.context.returned) {
+        const newSession = ctx.context.newSession;
+        if (newSession?.user?.id) {
+          try {
+            await recordAuditEvent({
+              actorUserId: newSession.user.id,
+              action: 'PASSWORD_CHANGED',
+              targetType: 'user',
+              targetId: newSession.user.id,
+              detail: { revokedOtherSessions: true, sessionRotated: true },
+            });
+          } catch (error) {
+            console.error('Failed to record password change audit event', error);
+          }
+        }
       }
 
-      const newSession = ctx.context.newSession;
-      if (!newSession?.user?.id) {
-        return;
-      }
-
-      try {
-        await recordAuditEvent({
-          actorUserId: newSession.user.id,
-          action: 'PASSWORD_CHANGED',
-          targetType: 'user',
-          targetId: newSession.user.id,
-          detail: { revokedOtherSessions: true, sessionRotated: true },
-        });
-      } catch (error) {
-        console.error('Failed to record password change audit event', error);
-      }
+      await handleTwoFactorAfter(ctx as unknown as MfaHookContext);
     }),
   },
   plugins: [
@@ -164,6 +395,11 @@ export const auth = betterAuth({
           `invitation:${data.id}:${new Date(data.invitation.expiresAt ?? Date.now()).getTime()}`,
         );
       },
+    }),
+    twoFactor({
+      issuer: 'DMARC Harbor',
+      totpOptions: { digits: 6, period: 30 },
+      backupCodeOptions: { amount: 10, length: 10 },
     }),
   ],
 });

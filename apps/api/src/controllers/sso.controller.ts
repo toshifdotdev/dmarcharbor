@@ -14,12 +14,12 @@ import {
 } from '../services/sso/sso.service.js';
 import { zodMessage } from '../utils/zod-messages.js';
 import {
-  SESSION_COOKIE,
   beginOidcSignIn,
   completeSamlSignIn,
   createSessionForUser,
   finishOidcSignIn,
   samlEntryPoint,
+  ssoSessionCookie,
 } from '../services/sso/sso-flow.service.js';
 
 /**
@@ -342,15 +342,10 @@ export async function ssoCallbackController(request: Request, response: Response
       userAgent: request.get('user-agent') ?? undefined,
     });
 
-    // Signed in the same way as after a password sign in, so the rest of the
-    // product cannot tell the difference and needs no special case.
-    response.cookie(SESSION_COOKIE, token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: request.secure,
-      path: '/',
-      expires: expiresAt,
-    });
+    // Signed the way Better Auth reads it back, so getSession recognises the
+    // browser exactly as it would after a password sign in.
+    const cookie = await ssoSessionCookie(token, expiresAt);
+    response.cookie(cookie.name, cookie.value, cookie.options);
 
     response.redirect('/portal');
   } catch (error) {

@@ -243,6 +243,42 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-10-26 — Two-step verification
+
+Accounts can turn on an authenticator app (TOTP, 6 digits, 30 seconds) and
+receive 10 one-time backup codes. Password sign-in then answers
+`{ twoFactorRedirect: true }` until the code is verified. Google and Microsoft
+sign-in and email-verification auto sign-in cannot create a session for an
+account with two-step verification on; the user signs in with email, password
+and code instead.
+
+Session-authenticated management routes:
+
+- `GET /api/me/security` returns the account's two-step state, whether it has a
+  password, the session's auth method, how many backup codes remain and which
+  workspaces require two-step verification. It is never workspace scoped so a
+  blocked member can still reach it.
+- `PUT /api/workspaces/{id}/security` (owner) turns the workspace requirement on
+  or off. Turning it on requires the owner to satisfy it already with an
+  authenticator app or an SSO session; otherwise the answer is
+  `409 MFA_REQUIRED_FOR_CALLER`. `GET` returns the requirement and how many
+  non-portal members have not enrolled.
+- `POST /api/workspaces/{id}/members/{memberId}/mfa/reset` (owner) resets another
+  member: the secret and backup codes are deleted, the flag is cleared and every
+  session is revoked.
+- `POST /api/staff/users/{userId}/mfa/reset` (staff key) is the recovery path for
+  a sole owner, and requires a recorded reason.
+- The workspace gate refuses a non-portal member without two-step verification or
+  an SSO session with `403 MFA_REQUIRED`, on every workspace-scoped browser route.
+  API keys under `/api/v1` and staff endpoints are unaffected.
+- `GET /api/workspaces/{id}/members` includes `twoFactorEnabled` for owners and
+  admins only.
+
+New audit actions: `MFA_ENABLED`, `MFA_DISABLED`, `MFA_BACKUP_CODE_USED`,
+`MFA_BACKUP_CODES_REGENERATED`, `MFA_RESET`,
+`WORKSPACE_MFA_REQUIREMENT_CHANGED`, `MFA_SIGN_IN_REFUSED`. The SSO session
+cookie is now signed so `getSession` can read it. `/api/v1` is unchanged.
+
 ## 2026-10-26 — DMARC failure counting
 
 DMARC passes when **either** aligned check passed (RFC 9989 section 4.4). A

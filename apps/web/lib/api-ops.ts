@@ -14,6 +14,7 @@
 
 import { API_BASE, apiFetch } from "./api-fetch";
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import type {
   AlertEventRow,
   AlertRuleRow,
@@ -42,6 +43,7 @@ import type {
   MailboxComplianceView,
   MonthlyReportRow,
   MonthlyReportSchedule,
+  MySecurity,
   PlanDefinition,
   PortalGrant,
   ReportDigestRow,
@@ -59,6 +61,7 @@ import type {
   WebhookEventName,
   WorkspaceInvitation,
   WorkspaceMemberRow,
+  WorkspaceSecurity,
   PageEnvelope,
 } from "./types";
 
@@ -95,11 +98,32 @@ async function opsFetch<T>(path: string, init?: RequestInit): Promise<T> {
   if (res.status === 204) return undefined as T;
   const text = await res.text();
   const body = text ? (JSON.parse(text) as T & ApiErrorBody) : null;
+  /**
+   * A workspace that requires two-step verification refuses every workspace
+   * route until this account enrols. Sending the person to the account screen is
+   * the only useful answer; rendering a generic permission error would leave
+   * them with no control that fixes it.
+   */
+  if (res.status === 403 && (body as ApiErrorBody | null)?.error?.code === "MFA_REQUIRED") {
+    redirect("/account/security?required=1");
+  }
   if (!res.ok) throw new OpsError(res.status, (body as ApiErrorBody) ?? null);
   return body as T;
 }
 
 // ─── billing & entitlements ──────────────────────────────────────────────────
+
+/** GET /api/me/security — account level, deliberately not workspace scoped so
+ *  the workspace MFA gate can never make the page that fixes it unreachable. */
+export function getMySecurity(): Promise<MySecurity> {
+  return opsFetch<MySecurity>("/api/me/security");
+}
+
+/** GET /api/workspaces/:id/security — the workspace requirement and how many
+ *  non-portal members still have to enrol. */
+export function getWorkspaceSecurity(organizationId: string): Promise<WorkspaceSecurity> {
+  return opsFetch<WorkspaceSecurity>(`/api/workspaces/${organizationId}/security`);
+}
 
 export function getWorkspaceEntitlements(
   organizationId: string,

@@ -1,4 +1,5 @@
-import { randomBytes, createHash } from 'node:crypto';
+import { randomBytes, createHash, createHmac } from 'node:crypto';
+import type { CookieOptions } from 'express';
 import * as saml from '@node-saml/node-saml';
 import {
   ClientSecretPost,
@@ -15,6 +16,7 @@ import { lookup as dnsLookup } from 'node:dns';
 import { assertPublicHost } from '../net-guard.js';
 import { decryptSensitive, encryptSensitive } from '../privacy.service.js';
 import { recordAuditEvent } from '../audit.service.js';
+import { auth } from '../../auth/auth.config.js';
 import { SsoError, assertMayProvision, normalizeEmailDomain } from './sso.service.js';
 
 /**
@@ -300,19 +302,29 @@ export async function completeSignIn(
 }
 
 /**
- * Creates a session for a user the provider has just vouched for.
+ * The cookie that makes a session written here readable by Better Auth.
  *
- * Written straight to the session table rather than through Better Auth's
- * internal adapter, because that adapter's signature is not part of the
- * library's stable surface and would break on an upgrade. The session shape is
- * ours, in our own schema, and Better Auth reads it back by the cookie value
- * exactly as it would one it created itself.
- *
- * The cookie is `better-auth.session_token`, which is the name the library
- * derives from the plugin name, so the browser is signed in the same way as
- * after a password sign in.
+ * Better Auth reads session cookies through getSignedCookie, which rejects any
+ * value that is not `token.signature` and verifies the signature with the auth
+ * secret. Writing the raw token - as this file used to - looked correct in the
+ * browser and answered 401 everywhere else. The name and attributes come from
+ * Better Auth so the __Secure- prefix, secure, sameSite and path are exactly
+ * what a session it created itself carries.
  */
-export const SESSION_COOKIE = 'better-auth.session_token';
+export async function ssoSessionCookie(
+  token: string,
+  expiresAt: Date,
+): Promise<{ name: string; value: string; options: CookieOptions }> {
+  const context = await auth.$context;
+  const cookie = context.authCookies.sessionToken;
+  const signature = createHmac('sha256', env.BETTER_AUTH_SECRET).update(token).digest('base64');
+  const options: CookieOptions = { ...(cookie.attributes as CookieOptions) };
+  // Better Auth expresses lifetime in seconds; Express expects milliseconds.
+  // The explicit expiry is the one that matters here, so drop the other.
+  delete options.maxAge;
+  options.expires = expiresAt;
+  return { name: cookie.name, value: `${token}.${signature}`, options };
+}
 
 export async function createSessionForUser(
   userId: string,
@@ -331,6 +343,7 @@ export async function createSessionForUser(
       ipAddress: context.ipAddress ?? null,
       userAgent: context.userAgent ?? null,
       createdAt: new Date(),
+      authMethod: 'sso',
     },
   });
 

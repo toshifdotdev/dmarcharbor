@@ -179,9 +179,10 @@ export function createSessionReadRateLimiter(limit = env.WORKSPACE_RATE_LIMIT_PE
  *
  * Better Auth ships its own limiter but it is per-instance in-memory and resets
  * on deploy, so behind a load balancer the effective limit is multiplied by the
- * replica count and reset to full on every release. There is no MFA in this
- * product by decision, which makes this the primary brake on credential
- * stuffing and password spraying rather than a defence in depth extra.
+ * replica count and reset to full on every release. This is the primary brake
+ * on credential stuffing and password spraying; the two-factor endpoints live
+ * under the same auth prefix and share this budget, with the plugin's own
+ * five-attempt and account-lockout limits on top.
  *
  * Mounted ahead of the Better Auth handler, so it applies to every auth path
  * including the social sign-in start.

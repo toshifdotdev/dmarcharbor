@@ -33,12 +33,14 @@ import {
   resetPassword,
   signIn,
   signUp,
+  verifyBackupCode,
+  verifyTotp,
 } from "@/lib/auth-client";
 import type { AuthProviders } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 
-type Mode = "sign-in" | "sign-up" | "forgot" | "reset";
+type Mode = "sign-in" | "sign-up" | "forgot" | "reset" | "two-factor";
 const MIN_PASSWORD = 8;
 const RESEND_AFTER_S = 45;
 
@@ -68,7 +70,10 @@ export function AuthPanel({
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [resetSentTo, setResetSentTo] = useState<string | null>(null);
   const [resetDone, setResetDone] = useState(false);
+  const [code, setCode] = useState("");
+  const [backupCode, setBackupCode] = useState(false);
   const emailRef = useRef<HTMLInputElement | null>(null);
+  const codeRef = useRef<HTMLInputElement | null>(null);
 
   const destination = next ?? "/";
 
@@ -77,6 +82,8 @@ export function AuthPanel({
     setError(null);
     setUnverified(false);
     setResetSentTo(null);
+    setCode("");
+    setBackupCode(false);
     requestAnimationFrame(() => emailRef.current?.focus());
   }
 
@@ -88,7 +95,26 @@ export function AuthPanel({
     setUnverified(false);
     try {
       if (mode === "sign-in") {
-        await signIn(email.trim(), password, destination);
+        const result = await signIn(email.trim(), password, destination);
+        if (result.twoFactor) {
+          setPassword("");
+          setMode("two-factor");
+          setCode("");
+          setBackupCode(false);
+          setError(null);
+          requestAnimationFrame(() => codeRef.current?.focus());
+          return;
+        }
+        router.replace(destination);
+        router.refresh();
+        return;
+      }
+      if (mode === "two-factor") {
+        if (backupCode) {
+          await verifyBackupCode(code.trim());
+        } else {
+          await verifyTotp(code.trim());
+        }
         router.replace(destination);
         router.refresh();
         return;
@@ -117,8 +143,22 @@ export function AuthPanel({
         router.replace(next ? `/sign-in?next=${encodeURIComponent(next)}` : "/sign-in");
       }
     } catch (err) {
-      if (err instanceof AuthError && err.code === "EMAIL_NOT_VERIFIED") setUnverified(true);
-      else setError(err instanceof Error ? err.message : "That did not work. Try again.");
+      if (err instanceof AuthError && err.code === "EMAIL_NOT_VERIFIED") {
+        setUnverified(true);
+      } else {
+        const timedOut =
+          err instanceof AuthError &&
+          (err.code === "TOO_MANY_ATTEMPTS_REQUEST_NEW_CODE" || err.code === "INVALID_TWO_FACTOR_COOKIE");
+        if (timedOut) {
+          // The challenge cookie is spent. Keep the email so the next attempt
+          // is one password field away, and say what happened.
+          setMode("sign-in");
+          setCode("");
+          setBackupCode(false);
+          setPassword("");
+        }
+        setError(err instanceof Error ? err.message : "That did not work. Try again.");
+      }
     } finally {
       setBusy(false);
     }
@@ -133,12 +173,16 @@ export function AuthPanel({
     "sign-up": "Create your account",
     forgot: "Reset your password",
     reset: "Choose a new password",
+    "two-factor": "Enter your code",
   };
   const lede: Record<Mode, string> = {
     "sign-in": "Welcome back. Your portfolio is where you left it.",
     "sign-up": "Free to start, no card. Next you name a workspace and add a first domain.",
     forgot: "Enter the address you sign in with and we will email a reset link. It works for one hour.",
     reset: "Every other session on this account is signed out once the new password is set.",
+    "two-factor": backupCode
+      ? "Enter one of the backup codes you saved when you set up two-step verification."
+      : "Open your authenticator app and enter the current six-digit code for DMARC Harbor.",
   };
 
   return (
@@ -165,7 +209,7 @@ export function AuthPanel({
         {mode === "sign-up" ? (
           <TextField label="Your name" value={name} onChange={setName} autoComplete="name" type="text" required />
         ) : null}
-        {mode !== "reset" ? (
+        {mode !== "reset" && mode !== "two-factor" ? (
           <TextField
             label="Email"
             value={email}
@@ -196,6 +240,35 @@ export function AuthPanel({
         {mode === "reset" ? (
           <PasswordField label="New password again" value={confirm} onChange={setConfirm} autoComplete="new-password" />
         ) : null}
+        {mode === "two-factor" ? (
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="mfa-code" className="text-meta font-semibold text-fg-2">
+              {backupCode ? "Backup code" : "Six-digit code"}
+            </label>
+            <input
+              id="mfa-code"
+              ref={codeRef}
+              type="text"
+              value={code}
+              onChange={(event) => setCode(event.target.value)}
+              inputMode={backupCode ? "text" : "numeric"}
+              autoComplete={backupCode ? "off" : "one-time-code"}
+              autoCapitalize="none"
+              spellCheck={false}
+              maxLength={backupCode ? 11 : 6}
+              required
+              autoFocus
+              data-testid={backupCode ? "mfa-backup-code" : "mfa-code"}
+              className="data h-11 w-full rounded-ctl border border-rule-2 bg-paper-2 px-3 text-[20px] tracking-[0.18em] text-fg focus-visible:border-act focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-act-line"
+              placeholder={backupCode ? "xxxxx-xxxxx" : "000000"}
+            />
+            <p className="text-meta text-fg-3">
+              {backupCode
+                ? "Each backup code works once."
+                : "The code changes every 30 seconds. Enter the one showing now."}
+            </p>
+          </div>
+        ) : null}
 
         {unverified ? (
           <UnverifiedNotice email={email.trim()} />
@@ -214,12 +287,20 @@ export function AuthPanel({
           variant="primary"
           size="lg"
           busy={busy}
-          busyLabel={mode === "sign-in" ? "Signing in" : "Working"}
-          data-testid="auth-submit"
+          busyLabel={mode === "sign-in" ? "Signing in" : mode === "two-factor" ? "Checking" : "Working"}
+          data-testid={mode === "two-factor" ? "mfa-submit" : "auth-submit"}
           className="mt-1 w-full"
-          disabled={mode !== "sign-in" && mode !== "forgot" && password.length > 0 && password.length < MIN_PASSWORD}
+          disabled={(mode !== "sign-in" && mode !== "forgot" && password.length > 0 && password.length < MIN_PASSWORD) || (mode === "two-factor" && code.trim().length === 0)}
         >
-          {mode === "sign-in" ? "Sign in" : mode === "sign-up" ? "Create account" : mode === "forgot" ? "Email me a reset link" : "Set the new password"}
+          {mode === "sign-in"
+            ? "Sign in"
+            : mode === "sign-up"
+              ? "Create account"
+              : mode === "forgot"
+                ? "Email me a reset link"
+                : mode === "two-factor"
+                  ? "Verify"
+                  : "Set the new password"}
         </Button>
       </form>
 
@@ -258,6 +339,25 @@ export function AuthPanel({
               any time.
             </p>
           </>
+        ) : mode === "two-factor" ? (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <button
+              type="button"
+              data-testid="mfa-use-backup"
+              onClick={() => {
+                setBackupCode((value) => !value);
+                setCode("");
+                setError(null);
+                requestAnimationFrame(() => codeRef.current?.focus());
+              }}
+              className="link font-semibold"
+            >
+              {backupCode ? "Use your authenticator app instead" : "Use a backup code instead"}
+            </button>
+            <button type="button" onClick={() => go("sign-in")} className="link text-fg-3">
+              Back to sign in
+            </button>
+          </div>
         ) : (
           <p>
             <button type="button" onClick={() => go("sign-in")} className="link font-semibold">
@@ -567,7 +667,10 @@ function Providers({ destination }: { destination: string }) {
         body: JSON.stringify({
           provider: p,
           callbackURL: `${window.location.origin}${destination}`,
-          errorCallbackURL: `${window.location.origin}/sign-in?error=social`,
+          // Better Auth appends the actual error code. A pre-set code here
+          // would be a second `error` parameter, and the MFA refusal needs its
+          // own sentence, not the generic social one.
+          errorCallbackURL: `${window.location.origin}/sign-in`,
         }),
       });
       const body = res.ok ? ((await res.json()) as { url?: string }) : null;

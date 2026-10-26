@@ -511,6 +511,17 @@ export const updateMemberRole = (orgId: string, memberId: string, role: string) 
 export const removeMember = (orgId: string, memberId: string) =>
   orgCall<unknown>("remove-member", { organizationId: orgId, memberIdOrEmail: memberId });
 
+/** Owner-only: removes the member's authenticator, backup codes and sessions. */
+export const resetMemberMfa = (orgId: string, memberId: string) =>
+  call<{ status: boolean }>(wsPath(orgId, `/members/${memberId}/mfa/reset`), { method: "POST" });
+
+/** Owner-only: turns the workspace two-step requirement on or off. */
+export const setWorkspaceMfaRequirement = (orgId: string, requireMfa: boolean) =>
+  call<{ requireMfa: boolean; membersWithout: number }>(wsPath(orgId, "/security"), {
+    method: "PUT",
+    body: JSON.stringify({ requireMfa }),
+  });
+
 /** Invitations addressed to the signed-in person, from any workspace. */
 export interface InvitationForMe {
   id: string;

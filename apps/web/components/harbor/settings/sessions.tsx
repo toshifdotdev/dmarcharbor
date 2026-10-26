@@ -22,6 +22,7 @@
  */
 
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useState } from "react";
 import { revokeAllSessions, revokeOtherSessions, revokeSession } from "@/lib/ops-client";
 import { Button } from "@/components/ui/button";
@@ -197,6 +198,13 @@ export function SessionsBoard({ sessions }: { sessions: SessionView[] }) {
           <p className="mt-1 max-w-[72ch] text-ui text-fg-2">
             Sign out everywhere, this device included, then choose a new password from the sign-in page
             (&ldquo;Forgot your password?&rdquo;). Until the password changes, anyone who has it can sign straight back in.
+          </p>
+          <p className="mt-2 text-ui text-fg-2">
+            Add a second step as well:{" "}
+            <Link href="/account/security" className="link font-semibold">
+              set up two-step verification
+            </Link>
+            , so a password alone is not enough.
           </p>
         </div>
         <div>

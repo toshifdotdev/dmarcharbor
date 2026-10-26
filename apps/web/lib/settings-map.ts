@@ -22,6 +22,7 @@ export type SettingsKey =
   | "members"
   | "sso"
   | "sessions"
+  | "security"
   | "portal"
   | "branding"
   | "compliance"
@@ -57,7 +58,10 @@ export interface SettingsGroup {
   sections: SettingsSection[];
 }
 
-const s = (x: Omit<SettingsSection, "href">): SettingsSection => ({ ...x, href: `/settings/${x.key}` });
+const s = (x: Omit<SettingsSection, "href"> & { href?: string }): SettingsSection => ({
+  ...x,
+  href: x.href ?? `/settings/${x.key}`,
+});
 
 export const SETTINGS_GROUPS: SettingsGroup[] = [
   {
@@ -92,6 +96,14 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
         label: "Signed-in devices",
         does: "Every device signed in as you, and signing any of them out.",
         tasks: ["sign out a lost laptop", "where am i signed in", "sign out everywhere", "sessions", "stolen device"],
+        who: "anyone",
+      }),
+      s({
+        key: "security",
+        href: "/account/security",
+        label: "Two-step verification",
+        does: "The authenticator app that signs you in, and the backup codes for a lost phone.",
+        tasks: ["2fa", "mfa", "two factor", "authenticator app", "backup codes", "require mfa", "lost my phone"],
         who: "anyone",
       }),
     ],

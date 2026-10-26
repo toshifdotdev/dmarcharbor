@@ -16,6 +16,7 @@
  */
 
 import { cache } from "react";
+import { redirect } from "next/navigation";
 import { API_BASE, apiFetch as apiRequest } from "./api-fetch";
 import { cookies } from "next/headers";
 import type {
@@ -71,6 +72,15 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
   const text = await res.text();
   const body = text ? (JSON.parse(text) as T & ApiErrorBody) : null;
+
+  /**
+   * A workspace requirement refuses the read, not the account. The account
+   * security screen is the one place that can fix it, so every workspace call
+   * lands there instead of showing a permission failure with no next step.
+   */
+  if (res.status === 403 && (body as ApiErrorBody | null)?.error?.code === "MFA_REQUIRED") {
+    redirect("/account/security?required=1");
+  }
 
   if (!res.ok) {
     throw new ApiError(res.status, (body as ApiErrorBody) ?? null);
