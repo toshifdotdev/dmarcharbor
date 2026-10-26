@@ -364,6 +364,27 @@ export const monthlyReportIssueRateLimiter = rateLimit({
 });
 
 /**
+ * Publishing a DNS record is a thirty-an-hour workspace operation.
+ *
+ * Keyed on the workspace because the cost and the provider rate limit belong to
+ * the account, not to one staff member or one office address. It runs after the
+ * role check, so organizationId is the path's resolved value.
+ */
+export const dnsPublishRateLimiter = rateLimit({
+  ...SHARED_LIMITER_OPTIONS,
+  windowMs: 60 * 60 * 1000,
+  limit: 30,
+  store: rateLimitStoreFor('dns-publish'),
+  keyGenerator: (request) => `org:${String(request.params.organizationId ?? clientKey(request))}`,
+  message: {
+    error: {
+      code: 'RATE_LIMITED',
+      message: 'That workspace has published 30 DNS records this hour. Wait before publishing another.',
+    },
+  },
+});
+
+/**
  * The emailed report link is public, so it gets its own budget, per link.
  *
  * Keyed on the token rather than the address. Recipients open the link through

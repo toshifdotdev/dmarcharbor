@@ -1354,6 +1354,106 @@ export const openApiDocument = {
         responses: { 204: { description: 'Removed.' } },
       },
     },
+    '/workspaces/{organizationId}/dns-connections': {
+      get: {
+        tags: ['DNS automation'],
+        summary: 'List Cloudflare connections',
+        description: [
+          'Returns each connection with its label, the last four characters of the token, verification time and last error.',
+          'The token itself is never returned. paused is true when the plan no longer grants dns.automation; the connection is kept so it can be removed or resumed.',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: { 200: { description: 'Connections, without any usable credential.' }, ...standardErrors },
+      },
+      post: {
+        tags: ['DNS automation'],
+        summary: 'Connect a Cloudflare API Token',
+        description: [
+          'Verifies the token with Cloudflare before saving it. The token must be active; a Global API Key (37 hex characters) is refused with an explanation because it grants account-wide access.',
+          'The token is stored encrypted and only its last four characters are ever returned. Requires dns.automation; a plan without it answers 402.',
+          'At most five connections may exist in a workspace.',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: {
+          ...standardErrors,
+          201: { description: 'Connection created, with tokenHint only.' },
+          402: { description: 'DNS automation is not included in this workspace plan.' },
+          409: { description: 'The five-connection limit was reached.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/dns-connections/{connectionId}': {
+      delete: {
+        tags: ['DNS automation'],
+        summary: 'Remove a Cloudflare connection',
+        description: [
+          'Deletes the stored token. Publication history is kept with its connection reference cleared.',
+          'Never plan-gated, so a downgraded workspace can always remove the credential it stored.',
+        ].join(' '),
+        parameters: [orgParam, idParam('connectionId', 'Connection identifier.')],
+        responses: { 204: { description: 'Removed.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/domains/{domainId}/dns-publish/preview': {
+      post: {
+        tags: ['DNS automation'],
+        summary: 'Preview publishing one generated record',
+        description: [
+          'The client names a record kind; the server builds the name and value. Raw record text in the body is ignored, never written.',
+          'Kinds are verification, dmarc_suggested, dmarc_policy, switch_dual and switch_cutover. dmarc_policy accepts policy, testing and np, and refuses pct.',
+          'Returns the zone found, the current TXT values at the name, the proposed value, the action (create, update, unchanged or refused) and a SHA-256 fingerprint of the sorted current values.',
+          'A name with two or more DMARC records, or with a CNAME, is refused. Other TXT records at the name are never touched.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier.')],
+        responses: {
+          ...standardErrors,
+          200: { description: 'The preview and its fingerprint.' },
+          402: { description: 'DNS automation is not included in this workspace plan.' },
+          404: { description: 'The domain or connection is not in this workspace, or no zone is visible to the token.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/domains/{domainId}/dns-publish': {
+      post: {
+        tags: ['DNS automation'],
+        summary: 'Publish one generated record',
+        description: [
+          'Re-reads Cloudflare and compares the fingerprint from the preview. A changed fingerprint answers 409 DNS_CHANGED with the new preview; nothing is overwritten.',
+          'Applies exactly one create or update. This endpoint never deletes a record; restoring a publication can delete a record it created.',
+          'Rate limited to 30 publishes per workspace per hour.',
+          'After success, verification re-checks ownership and DMARC kinds run a manual scan. A failure in that refresh does not fail the publish. DNS propagation may take a few minutes.',
+          'A successful publish is recorded in the audit trail and in the publication history.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier.')],
+        responses: {
+          ...standardErrors,
+          200: { description: 'Published, unchanged, and the publication history entry.' },
+          400: { description: 'The record kind or its parameters were refused.' },
+          402: { description: 'DNS automation is not included in this workspace plan.' },
+          409: { description: 'DNS_CHANGED with the new preview, or the publication cannot be applied.' },
+          429: { description: 'The workspace publish rate limit was exceeded.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/dns-publications/{publicationId}/restore': {
+      post: {
+        tags: ['DNS automation'],
+        summary: 'Restore the value before a publication',
+        description: [
+          'Allowed for seven days after publishing, only once, and only while the record still holds the value that publication wrote.',
+          'Puts the previous value back, or deletes the record when the publication created it. A record changed in Cloudflare in the meantime is refused with 409 RECORD_CHANGED.',
+          'If the connection used was removed, the record has to be restored in Cloudflare.',
+        ].join(' '),
+        parameters: [orgParam, idParam('publicationId', 'Publication identifier.')],
+        responses: {
+          ...standardErrors,
+          200: { description: 'Restored or deleted.' },
+          402: { description: 'DNS automation is not included in this workspace plan.' },
+          404: { description: 'The publication is not in this workspace.' },
+          409: { description: 'Expired, already restored, changed since, or the connection was removed.' },
+        },
+      },
+    },
     '/workspaces/{organizationId}/billing/currency': {
       get: {
         tags: ['Billing'],

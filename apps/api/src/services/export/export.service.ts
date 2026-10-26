@@ -183,7 +183,7 @@ export async function buildExportPayload(input: {
           ...(input.scope === 'CLIENT' && input.targetId ? { clientId: input.targetId } : {}),
         };
 
-  const [organization, clients, domains, users, members, sessions, reports, forensics, alertRules, alertEvents, shares, digests, monthlyReports, senderReviews, auditLog] =
+  const [organization, clients, domains, users, members, sessions, reports, forensics, alertRules, alertEvents, shares, digests, monthlyReports, senderReviews, dnsConnections, dnsPublications, auditLog] =
     await Promise.all([
       prisma.organization.findUnique({
         where: { id: org },
@@ -402,6 +402,43 @@ export async function buildExportPayload(input: {
         orderBy: { createdAt: 'asc' },
         take: exportTableLimit,
       }),
+      prisma.dnsProviderConnection.findMany({
+        where: { organizationId: org },
+        select: {
+          id: true,
+          provider: true,
+          label: true,
+          tokenHint: true,
+          accountName: true,
+          lastVerifiedAt: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'asc' },
+        take: exportTableLimit,
+      }),
+      prisma.dnsPublication.findMany({
+        where: {
+          organizationId: org,
+          ...(input.scope === 'CLIENT' && input.targetId
+            ? { domain: { clientId: input.targetId } }
+            : {}),
+          ...(input.scope === 'DOMAIN' && input.targetId ? { domainId: input.targetId } : {}),
+        },
+        select: {
+          provider: true,
+          zoneId: true,
+          recordName: true,
+          kind: true,
+          previousValue: true,
+          newValue: true,
+          publishedAt: true,
+          restoredAt: true,
+          domain: { select: { name: true } },
+          publishedBy: { select: { email: true } },
+        },
+        orderBy: { publishedAt: 'asc' },
+        take: exportTableLimit,
+      }),
       prisma.auditLog.findMany({
         where: input.scope === 'DOMAIN' && input.targetId ? { domainId: input.targetId } : { organizationId: org },
         select: { id: true, action: true, targetType: true, targetId: true, createdAt: true },
@@ -509,6 +546,27 @@ export async function buildExportPayload(input: {
         note: row.note,
         ownerEmail: row.ownerUser?.email ?? null,
         reviewedAt: row.reviewedAt,
+      })),
+      dnsConnections: dnsConnections.map((row) => ({
+        id: row.id,
+        provider: row.provider,
+        label: row.label,
+        tokenHint: row.tokenHint,
+        accountName: row.accountName,
+        lastVerifiedAt: row.lastVerifiedAt,
+        createdAt: row.createdAt,
+      })),
+      dnsPublications: dnsPublications.map((row) => ({
+        domainName: row.domain.name,
+        provider: row.provider,
+        zoneId: row.zoneId,
+        recordName: row.recordName,
+        kind: row.kind,
+        previousValue: row.previousValue,
+        newValue: row.newValue,
+        publishedAt: row.publishedAt,
+        restoredAt: row.restoredAt,
+        publishedByEmail: row.publishedBy?.email ?? null,
       })),
       auditLog,
     },

@@ -29,6 +29,7 @@ import type {
   CheckoutSummary,
   CreatedShare,
   DnsChangePage,
+  DnsConnectionRow,
   DomainRow,
   DomainSwitchView,
   ErasureCreated,
@@ -104,6 +105,15 @@ export function getWorkspaceEntitlements(
 ): Promise<ResolvedEntitlements> {
   return opsFetch<ResolvedEntitlements>(
     `/api/workspaces/${organizationId}/entitlements`,
+  );
+}
+
+/** GET /dns-connections — never includes a token, only its last four characters. */
+export function getDnsConnections(
+  organizationId: string,
+): Promise<{ connections: DnsConnectionRow[] }> {
+  return opsFetch<{ connections: DnsConnectionRow[] }>(
+    `/api/workspaces/${organizationId}/dns-connections`,
   );
 }
 

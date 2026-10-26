@@ -267,6 +267,38 @@ On the browser routes:
 The `/api/v1` surface exposes none of these fields, so its contract is
 unchanged.
 
+## 2026-10-26 — Publish DNS records through Cloudflare
+
+New browser routes under `/api` (not `/api/v1`) let a workspace store a scoped
+Cloudflare API Token and publish the DNS records this service already generates.
+The feature is available from Fairway.
+
+- `GET/POST /workspaces/{id}/dns-connections`, `DELETE
+  /workspaces/{id}/dns-connections/{connectionId}`. The token is verified with
+  Cloudflare before saving, encrypted at rest, and never returned; only its last
+  four characters are shown. Listing and removing are available after a
+  downgrade, and the connection is then reported as `paused`.
+- `POST /workspaces/{id}/domains/{domainId}/dns-publish/preview` and
+  `POST /workspaces/{id}/domains/{domainId}/dns-publish`.
+- `POST /workspaces/{id}/dns-publications/{publicationId}/restore`.
+
+**The server-generated record rule.** A caller names a record kind
+(`verification`, `dmarc_suggested`, `dmarc_policy`, `switch_dual`,
+`switch_cutover`). The server rebuilds the name and TXT value itself. Record text
+sent in the body is ignored and never written. `dmarc_policy` refuses the retired
+`pct` parameter.
+
+Publishing re-reads the name and compares a SHA-256 fingerprint of the sorted
+current values with the preview. If Cloudflare changed in between, the request
+answers `409 DNS_CHANGED` with a fresh preview rather than overwriting. Only the
+matching record kind is touched; unrelated TXT records at the same name are left
+alone, and two DMARC records or a CNAME are refused.
+
+Restores are allowed once, within seven days, and only while the record still
+holds the published value. A DnsPublication row keeps the previous value, and
+removing the connection keeps that history while clearing its connection
+reference.
+
 ## Planned, not yet available
 
 | Planned | Notes |

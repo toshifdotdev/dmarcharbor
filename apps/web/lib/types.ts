@@ -112,6 +112,72 @@ export interface SenderReviewResult {
   owner: SenderRow["owner"];
 }
 
+// ─── DNS publishing through Cloudflare ───────────────────────────────────────
+
+export interface DnsConnectionRow {
+  id: string;
+  provider: "CLOUDFLARE";
+  label: string | null;
+  /** Last four characters only; never the token. */
+  tokenHint: string;
+  accountName: string | null;
+  lastVerifiedAt: string | null;
+  lastError: string | null;
+  /** True when the plan no longer grants dns.automation. */
+  paused: boolean;
+  createdAt: string;
+}
+
+export type DnsPublishKind =
+  | "verification"
+  | "dmarc_suggested"
+  | "dmarc_policy"
+  | "switch_dual"
+  | "switch_cutover";
+
+export interface DnsPublishRecord {
+  kind: DnsPublishKind;
+  policy?: "none" | "quarantine" | "reject";
+  testing?: boolean;
+  np?: "none" | "quarantine" | "reject" | null;
+}
+
+export interface DnsPublishPreview {
+  connection: { id: string; label: string | null };
+  zone: { id: string; name: string };
+  recordName: string;
+  currentValues: string[];
+  proposedValue: string;
+  action: "create" | "update" | "unchanged" | "refused";
+  reason: string | null;
+  currentFingerprint: string;
+  kind: DnsPublishKind;
+}
+
+export interface DnsPublicationRow {
+  id: string;
+  provider: "CLOUDFLARE";
+  zoneId: string;
+  recordName: string;
+  kind: DnsPublishKind;
+  previousValue: string | null;
+  newValue: string;
+  publishedAt: string;
+  restoredAt: string | null;
+}
+
+export interface DnsPublishResult {
+  action: "create" | "update" | "unchanged";
+  message: string;
+  preview: DnsPublishPreview;
+  publication: DnsPublicationRow | null;
+}
+
+export interface DnsRestoreResult {
+  message: string;
+  publication: DnsPublicationRow;
+}
+
 export interface TrendPoint {
   date: string;
   reportsReceived: number;
@@ -780,7 +846,8 @@ export type EntitlementKey =
   | "reports.inbox"
   | "branding.logoUpload"
   | "integrations.webhooks"
-  | "senders.owners";
+  | "senders.owners"
+  | "dns.automation";
 
 export type QuotaKey = "client" | "activeDomain" | "member";
 
@@ -1023,7 +1090,11 @@ export type AuditAction =
   | "MONTHLY_REPORT_SCHEDULE_DELETED"
   | "MONTHLY_REPORT_DOWNLOADED"
   | "SENDER_REVIEWED"
-  | "SENDER_OWNER_SET";
+  | "SENDER_OWNER_SET"
+  | "DNS_CONNECTION_CREATED"
+  | "DNS_CONNECTION_REMOVED"
+  | "DNS_RECORD_PUBLISHED"
+  | "DNS_RECORD_RESTORED";
 
 /**
  * AuditOutcome is SUCCESS or DENIED. There is no FAILED value: the trail records
@@ -1731,6 +1802,8 @@ export interface ApiErrorBody {
     overage?: PlanOverageRow[];
     from?: string;
     to?: string;
+    /** A 409 DNS_CHANGED carries the new preview so the dialog can ask again. */
+    preview?: DnsPublishPreview;
     /**
      * set on the 400 the identity route answers when a named-recipient purge
      * was asked for without `confirmNamePurge`. The flag is what tells the UI

@@ -33,6 +33,8 @@ model User {
   acknowledgedDnsChanges  DnsChange[]             @relation("AcknowledgedDnsChanges")
   ownedSenderReviews      SenderReview[]          @relation("SenderReviewOwner")
   reviewedSenderReviews   SenderReview[]          @relation("SenderReviewer")
+  createdDnsConnections   DnsProviderConnection[] @relation("CreatedDnsConnections")
+  dnsPublications         DnsPublication[]        @relation("DnsPublications")
     notificationPreference  NotificationPreference?
     /// The account's subscription. Keyed here as well as on the workspace it was
     /// started from, so entitlement status can be read where the plan lives.
@@ -192,6 +194,8 @@ model Organization {
   dnsChanges            DnsChange[]
   monthlyReportSchedules MonthlyReportSchedule[]
   senderReviews         SenderReview[]
+  dnsConnections        DnsProviderConnection[]
+  dnsPublications       DnsPublication[]
 
   @@unique([slug])
   /// Reads the document version rather than the column being null, so the sweep
@@ -355,6 +359,7 @@ model Domain {
   switch                 DomainSwitch?
   dnsChanges             DnsChange[]
   senderReviews          SenderReview[]
+  dnsPublications        DnsPublication[]
 
   /// The per client constraint is gone. Global uniqueness on `name` above
   /// subsumes it: two rows in one client with the same name would violate the
@@ -1309,6 +1314,74 @@ model SlackDestination {
   @@map("slack_destination")
 }
 
+enum DnsProvider {
+  CLOUDFLARE
+}
+
+enum DnsRecordKind {
+  VERIFICATION
+  DMARC_SUGGESTED
+  DMARC_POLICY
+  SWITCH_DUAL
+  SWITCH_CUTOVER
+}
+
+/// A DNS provider credential a workspace has chosen to store.
+///
+/// The token is encrypted at rest and never returned. `tokenHint` is the last
+/// four characters, enough to tell two connections apart without being usable.
+model DnsProviderConnection {
+  id              String        @id @default(cuid())
+  organizationId  String
+  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  provider        DnsProvider   @default(CLOUDFLARE)
+  /// A name the customer chooses, e.g. "Acme production Cloudflare".
+  label           String?       @db.VarChar(80)
+  encryptedToken  String
+  /// Last four characters only. Never enough to authenticate.
+  tokenHint       String
+  accountName     String?
+  createdById     String?
+  createdBy       User?         @relation("CreatedDnsConnections", fields: [createdById], references: [id], onDelete: SetNull)
+  lastVerifiedAt  DateTime?
+  lastError       String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  publications    DnsPublication[]
+
+  @@index([organizationId])
+  @@map("dns_provider_connection")
+}
+
+/// One record this service wrote through a provider, with the value it replaced.
+///
+/// Values are public DNS TXT content, never the credential. The row survives
+/// removal of the connection so the history remains auditable.
+model DnsPublication {
+  id               String                @id @default(cuid())
+  organizationId   String
+  organization     Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  domainId         String
+  domain           Domain                @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  connectionId     String?
+  connection       DnsProviderConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  provider         DnsProvider
+  zoneId           String
+  recordName       String
+  providerRecordId String
+  kind             DnsRecordKind
+  previousValue    String?
+  newValue         String
+  publishedById    String?
+  publishedBy      User?                 @relation("DnsPublications", fields: [publishedById], references: [id], onDelete: SetNull)
+  publishedAt      DateTime              @default(now())
+  restoredAt       DateTime?
+
+  @@index([organizationId, publishedAt])
+  @@index([domainId, publishedAt])
+  @@map("dns_publication")
+}
+
 /// A signed compliance pack issued for one client.
 ///
 /// The PDF is not stored. Its SHA-256 is, because the hash is the claim and the
@@ -1749,6 +1822,10 @@ enum AuditAction {
   DNS_CHANGE_ACKNOWLEDGED
   SENDER_REVIEWED
   SENDER_OWNER_SET
+  DNS_CONNECTION_CREATED
+  DNS_CONNECTION_REMOVED
+  DNS_RECORD_PUBLISHED
+  DNS_RECORD_RESTORED
   MONTHLY_REPORT_ISSUED
   MONTHLY_REPORT_SCHEDULE_UPDATED
   MONTHLY_REPORT_SCHEDULE_DELETED

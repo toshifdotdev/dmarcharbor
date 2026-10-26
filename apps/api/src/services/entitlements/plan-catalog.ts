@@ -23,7 +23,8 @@ export type EntitlementKey =
   | 'reports.inbox'
   | 'branding.logoUpload'
   | 'integrations.webhooks'
-  | 'senders.owners';
+  | 'senders.owners'
+  | 'dns.automation';
 
 export type QuotaKey = 'client' | 'activeDomain' | 'member';
 
@@ -54,6 +55,7 @@ export const entitlementLabels: Record<EntitlementKey, string> = {
   'branding.logoUpload': 'Logo upload',
   'integrations.webhooks': 'Webhooks',
   'senders.owners': 'Sender owners',
+  'dns.automation': 'Publish DNS records through Cloudflare',
 };
 
 /**
@@ -146,6 +148,7 @@ const allFeatures = (overrides: Partial<Record<EntitlementKey, boolean>> = {}): 
   'branding.logoUpload': true,
   'integrations.webhooks': true,
   'senders.owners': true,
+  'dns.automation': true,
   ...overrides,
 });
 
@@ -250,6 +253,16 @@ const noInbox = { 'reports.inbox': false } as const;
 const noIntegrations = { 'integrations.webhooks': false, 'senders.owners': false } as const;
 
 /**
+ * Publishing DNS records starts at Fairway with the other integrations.
+ *
+ * The Cloudflare token is a credential a workspace chooses to store, and the
+ * feature removes the last copy-paste between adding a domain and enforcing a
+ * policy. Mooring keeps its connection on a downgrade so it can be removed or
+ * resumed, but publishing is refused until the plan grants it again.
+ */
+const noDnsAutomation = { 'dns.automation': false } as const;
+
+/**
  * Harbor's feature set, shared by FLEET rather than copied.
  *
  * FLEET is Harbor's features for a much larger portfolio. A copy would drift
@@ -272,7 +285,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
       maxMembers: 1,
       maxWorkspaces: 1,
     activeDomainWindowDays: 30,
-    features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noIntegrations, ...off }),
+    features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noIntegrations, ...noDnsAutomation, ...off }),
   },
   FAIRWAY: {
     tier: 'FAIRWAY',

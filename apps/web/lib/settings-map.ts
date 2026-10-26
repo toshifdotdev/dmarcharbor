@@ -27,6 +27,7 @@ export type SettingsKey =
   | "compliance"
   | "slack"
   | "webhooks"
+  | "dns"
   | "api-keys"
   | "mailbox"
   | "audit"
@@ -140,6 +141,13 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
         label: "Webhooks",
         does: "Signed events posted to your own systems, and the record of each delivery.",
         tasks: ["send events to our system", "psa", "ticketing", "callback url", "retry a failed delivery", "integration"],
+        who: "admin",
+      }),
+      s({
+        key: "dns",
+        label: "DNS publishing",
+        does: "A Cloudflare connection that can publish the DNS records this service generates.",
+        tasks: ["publish dns", "automatic dns", "connect cloudflare", "cloudflare", "dns integration"],
         who: "admin",
       }),
       s({

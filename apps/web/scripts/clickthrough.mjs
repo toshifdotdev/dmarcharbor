@@ -2219,9 +2219,15 @@ const sessionsBefore = await waitForEval(
   (s) => s && (s.currentMarked || s.othersExist),
 );
 // Open the confirm and assert the wording — the nuke must declare itself.
-await evalJs(`(() => { const b = document.querySelector('[data-testid="revoke-all-toggle"]'); if (b) b.click(); return true; })()`);
+// The click is retried on every poll until the dialog opens: a single click can
+// land on the server-rendered button before React has attached its handler,
+// and then nothing ever opens. Opening is idempotent, so a repeat is harmless.
 const confirmAudit = await waitForEval(
   `(() => {
+    if (!document.querySelector('[data-testid="revoke-all-confirm"]')) {
+      const b = document.querySelector('[data-testid="revoke-all-toggle"]');
+      if (b) b.click();
+    }
     const el = document.querySelector('[data-testid="revoke-all-confirm"]');
     const t = el ? el.textContent.toLowerCase() : '';
     return {
@@ -3615,6 +3621,29 @@ check(
   "webhook settings: a HARBOR workspace is not refused",
   Boolean(webhookPlanAudit && !webhookPlanAudit.upgradeNotice && webhookPlanAudit.addFormEnabled),
   JSON.stringify(webhookPlanAudit),
+);
+
+// 10e-3. DNS publishing is a Fairway feature; the HARBOR seed must render the
+//        connection form and the exact token instructions.
+await navigate(WEB + "/settings/dns");
+const dnsSettingsAudit = await waitForEval(
+  `(() => {
+    const t = document.body.textContent;
+    return {
+      token: !!document.querySelector('[data-testid="dns-token"]'),
+      connect: !!document.querySelector('[data-testid="dns-connect"]'),
+      instructions: t.includes('Global API Key')
+        && t.includes('Zone → DNS → Edit')
+        && t.includes('Zone → Zone → Read'),
+    };
+  })()`,
+  (a) => a && a.token && a.connect && a.instructions,
+  45000,
+);
+check(
+  "DNS settings render the Cloudflare token instructions and add form",
+  Boolean(dnsSettingsAudit?.token && dnsSettingsAudit?.connect && dnsSettingsAudit?.instructions),
+  JSON.stringify(dnsSettingsAudit),
 );
 
 

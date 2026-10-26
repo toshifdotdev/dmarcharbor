@@ -17,8 +17,9 @@
  */
 
 import { useState } from "react";
-import type { DmarcRecordDraft } from "@/lib/types";
+import type { DmarcRecordDraft, DnsConnectionRow } from "@/lib/types";
 import { DnsHandoff, type PublishRecord } from "./dns-handoff";
+import type { DnsPublishContext } from "./dns-publish";
 import { OwnershipCheck, type Verification } from "./ownership-check";
 
 export function DomainRecords({
@@ -28,6 +29,8 @@ export function DomainRecords({
   verified,
   dmarc,
   publishedPolicy,
+  canPublish,
+  connections,
 }: {
   organizationId: string;
   domainId: string;
@@ -36,8 +39,16 @@ export function DomainRecords({
   dmarc: DmarcRecordDraft | null;
   /** The policy DNS already carries, from the onboarding state. */
   publishedPolicy: string | null;
+  canPublish: boolean;
+  connections: DnsConnectionRow[];
 }) {
   const [check, setCheck] = useState<Verification | null>(null);
+  const publishContext: DnsPublishContext = {
+    organizationId,
+    domainId,
+    connections,
+    canPublish,
+  };
 
   const records: PublishRecord[] = [];
   if (check && check.status !== "VERIFIED") {
@@ -47,6 +58,7 @@ export function DomainRecords({
       value: check.value,
       note: "Only used to confirm ownership. It changes nothing about mail.",
       testId: "ownership-record",
+      publish: { kind: "verification" },
     });
   }
   // Replacing an enforcing record with a watching one would relax the domain:
@@ -73,6 +85,7 @@ export function DomainRecords({
             ? `Testing mode: receivers are asked to treat mail that fails one step softer than p=${dmarc.policy} while you watch the reports. Replace the record already at this host: a domain can have only one.`
             : `Receivers are asked to ${dmarc.policy === "reject" ? "reject" : "quarantine"} mail that fails. Replace the record already at this host: a domain can have only one.`,
       testId: "suggested-record",
+      publish: { kind: "dmarc_suggested" },
     });
   }
 
@@ -102,7 +115,7 @@ export function DomainRecords({
       {records.length > 0 ? (
         // Keyed by what is listed, so a newly issued ownership record arrives
         // with the same stagger as the first render rather than popping in.
-        <DnsHandoff key={records.map((r) => r.host).join("|")} domain={domainName} records={records} />
+        <DnsHandoff key={records.map((r) => r.host).join("|")} domain={domainName} records={records} publish={publishContext} />
       ) : (
         <p className="border-y border-rule py-3 text-ui text-fg-3">
           The DMARC record could not be generated just now. Reload the page to try again.

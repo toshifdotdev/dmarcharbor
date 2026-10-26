@@ -11,6 +11,7 @@ import {
 } from "@/lib/api";
 import {
   getDnsChanges,
+  getDnsConnections,
   getDomainSwitch,
   getPlanCatalog,
   getWorkspaceEntitlements,
@@ -129,7 +130,7 @@ export default async function DomainPage({ params }: { params: Promise<{ domainI
 
   // A scan history is a different claim from the report evidence, so it fails
   // on its own and renders as a failure, never as an empty history.
-  const [scanHistory, switchState, dnsChanges, serviceMeta, members, me, entitlements, catalog] = await Promise.all([
+  const [scanHistory, switchState, dnsChanges, serviceMeta, members, me, entitlements, catalog, dnsConnections] = await Promise.all([
     listDomainScans(active.id, id).then(
       (page) => ({ rows: page.rows, nextCursor: page.nextCursor, failed: false }),
       () => ({ rows: [] as ScanRow[], nextCursor: null as string | null, failed: true }),
@@ -147,6 +148,7 @@ export default async function DomainPage({ params }: { params: Promise<{ domainI
     getSessionUser().catch(() => null),
     getWorkspaceEntitlements(active.id).catch(() => null),
     getPlanCatalog().catch(() => null),
+    getDnsConnections(active.id).catch(() => null),
   ]);
 
   const role =
@@ -270,6 +272,12 @@ export default async function DomainPage({ params }: { params: Promise<{ domainI
           domainId={id}
           domainName={insights.domain.name}
           state={switchState}
+          publish={{
+            organizationId: active.id,
+            domainId: id,
+            connections: dnsConnections?.connections ?? [],
+            canPublish: role === null || ["owner", "admin", "analyst"].includes(role),
+          }}
         />
 
         <DnsChangesPanel

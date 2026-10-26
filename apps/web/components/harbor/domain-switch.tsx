@@ -20,6 +20,7 @@ import { ConfirmDialog } from "@/components/ui/dialog";
 import { Notice } from "@/components/ui/notice";
 import { Table, TBody, Td, Th, THead, Tr } from "@/components/ui/table";
 import { DnsHandoff } from "./dns-handoff";
+import type { DnsPublishContext } from "./dns-publish";
 import { ActionRefusal, type ActionError } from "./plan-refusal";
 
 const STEP_ORDER: DomainSwitchStatus[] = ["PLANNED", "DUAL_REPORTING", "CUT_OVER"];
@@ -46,11 +47,13 @@ export function DomainSwitchPanel({
   domainId,
   domainName,
   state,
+  publish,
 }: {
   organizationId: string;
   domainId: string;
   domainName: string;
   state: { data: DomainSwitchView | null; failed: boolean };
+  publish: DnsPublishContext;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<"start" | "check" | "stop" | null>(null);
@@ -229,12 +232,14 @@ export function DomainSwitchPanel({
             <p className="legend pb-2">Dual reporting record</p>
             <DnsHandoff
               domain={domainName}
+              publish={publish}
               records={[
                 {
                   purpose: "Add our address next to the current provider",
                   host: view.records.dual.host,
                   value: view.records.dual.value,
                   testId: "switch-dual-record",
+                  publish: { kind: "switch_dual" },
                 },
               ]}
             />
@@ -246,6 +251,7 @@ export function DomainSwitchPanel({
             </p>
             <DnsHandoff
               domain={domainName}
+              publish={publish}
               records={[
                 {
                   purpose: cutOver
@@ -256,6 +262,7 @@ export function DomainSwitchPanel({
                   host: view.records.cutover.host,
                   value: view.records.cutover.value,
                   testId: "switch-cutover-record",
+                  publish: { kind: "switch_cutover" },
                 },
               ]}
             />

@@ -24,6 +24,7 @@ const FEATURES: Array<[key: string, label: string]> = [
   ["alerts.spoofing", "Spoofing alerts"],
   ["senders.owners", "Sender owners"],
   ["integrations.webhooks", "Webhooks"],
+  ["dns.automation", "Publish DNS records through Cloudflare"],
   ["reports.forensic", "Forensic reports, recipients unnamed"],
   ["sharing.links", "Report share links"],
   ["reports.forensicNamed", "Named forensic evidence"],

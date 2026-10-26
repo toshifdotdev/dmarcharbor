@@ -20,6 +20,8 @@
 
 import { useState } from "react";
 import { DnsRecord, CopyButton } from "@/components/ui/copy";
+import type { DnsPublishRecord } from "@/lib/types";
+import { DnsPublishButton, type DnsPublishContext } from "./dns-publish";
 
 export interface PublishRecord {
   /** What the record is for, in plain words. */
@@ -28,6 +30,8 @@ export interface PublishRecord {
   value: string;
   note?: React.ReactNode;
   testId?: string;
+  /** Names a server-generated record that Cloudflare may publish. */
+  publish?: DnsPublishRecord;
 }
 
 function quoteTxt(value: string): string {
@@ -40,7 +44,15 @@ export function zoneLines(records: PublishRecord[]): string {
   return records.map((r) => `${r.host}. IN TXT ${quoteTxt(r.value)}`).join("\n");
 }
 
-export function DnsHandoff({ domain, records }: { domain: string; records: PublishRecord[] }) {
+export function DnsHandoff({
+  domain,
+  records,
+  publish,
+}: {
+  domain: string;
+  records: PublishRecord[];
+  publish?: DnsPublishContext;
+}) {
   const [showZone, setShowZone] = useState(false);
   const zone = zoneLines(records);
   const body = [
@@ -66,6 +78,11 @@ export function DnsHandoff({ domain, records }: { domain: string; records: Publi
               <span className="font-semibold text-fg">{r.purpose}</span>
             </p>
             <DnsRecord type="TXT" host={r.host} zone={domain} value={r.value} note={r.note} testId={r.testId} />
+            {publish && r.publish ? (
+              <div className="mt-2">
+                <DnsPublishButton context={publish} record={r.publish} purpose={r.purpose} />
+              </div>
+            ) : null}
           </li>
         ))}
       </ol>

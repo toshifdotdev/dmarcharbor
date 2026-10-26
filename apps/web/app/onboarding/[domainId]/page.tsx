@@ -2,10 +2,11 @@ import Link from "next/link";
 import { notFound, redirect, unstable_rethrow } from "next/navigation";
 import type { CSSProperties } from "react";
 import { clsx } from "clsx";
-import { ApiError, getOnboardingState, listClients } from "@/lib/api";
-import { listReportShares, OpsError } from "@/lib/api-ops";
+import { ApiError, getOnboardingState, getSessionUserId, listClients } from "@/lib/api";
+import { getDnsConnections, listReportShares, listWorkspaceMembers, OpsError } from "@/lib/api-ops";
 import { domainHref } from "@/lib/route-hrefs";
 import { resolveActiveWorkspace } from "@/lib/session";
+import { strongestRole } from "@/lib/settings-map";
 import type { DomainRow, OnboardingState, ReportShareRow } from "@/lib/types";
 import { AppShell } from "@/components/harbor/app-shell";
 import { DomainRecords } from "@/components/harbor/domain-records";
@@ -68,6 +69,17 @@ export default async function OnboardingPage({ params }: { params: Promise<{ dom
   const { domainId } = await params;
   const { workspaces, active } = await resolveActiveWorkspace();
   if (!active) redirect("/welcome");
+
+  // Publishing is a domain:update action. The role comes from the roster, and
+  // connections are read once rather than per record.
+  const [members, userId, dnsConnections] = await Promise.all([
+    listWorkspaceMembers(active.id).catch(() => null),
+    getSessionUserId().catch(() => null),
+    getDnsConnections(active.id).catch(() => null),
+  ]);
+  const role = strongestRole(members?.members.find((member) => (member.userId ?? member.user?.id) === userId)?.role ?? null);
+  const canPublish = role === null || ["owner", "admin", "analyst"].includes(role);
+  const publishConnections = dnsConnections?.connections ?? [];
 
   // Three facts kept apart: the client list failed (an API problem), the
   // domain is not in this workspace (a real 404), and the domain exists.
@@ -232,6 +244,8 @@ export default async function OnboardingPage({ params }: { params: Promise<{ dom
               verified={verified}
               dmarc={onboarding.suggestedRecord ?? null}
               publishedPolicy={onboarding.reporting.publishedPolicy}
+              canPublish={canPublish}
+              connections={publishConnections}
             />
           </section>
         </div>

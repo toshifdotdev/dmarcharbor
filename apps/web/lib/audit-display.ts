@@ -105,6 +105,10 @@ const ACTION_SENTENCES: Record<AuditAction, string> = {
   MONTHLY_REPORT_DOWNLOADED: "Monthly report downloaded",
   SENDER_REVIEWED: "Sender reviewed",
   SENDER_OWNER_SET: "Sender owner changed",
+  DNS_CONNECTION_CREATED: "Cloudflare connection added",
+  DNS_CONNECTION_REMOVED: "Cloudflare connection removed",
+  DNS_RECORD_PUBLISHED: "DNS record published",
+  DNS_RECORD_RESTORED: "DNS record restored",
 };
 
 /**

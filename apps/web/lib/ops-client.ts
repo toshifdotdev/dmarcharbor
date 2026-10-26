@@ -17,6 +17,11 @@ import type {
   BillingCurrencyPreference,
   DnsChangePage,
   DnsChangeRow,
+  DnsConnectionRow,
+  DnsPublishPreview,
+  DnsPublishRecord,
+  DnsPublishResult,
+  DnsRestoreResult,
   DomainSwitchDetail,
   DomainSwitchView,
   ErasureCreated,
@@ -85,7 +90,7 @@ async function call<T>(
     return {
       ok: false,
       status: ui.status,
-      error: { code: extractErrorCode(raw) ?? String(res.status), message: ui.message, ...planKeys(raw) },
+      error: { code: extractErrorCode(raw) ?? String(res.status), message: ui.message, ...planKeys(raw), ...errorPreview(raw) },
     };
   }
 
@@ -137,6 +142,15 @@ function planKeys(raw: string): Pick<ApiErrorBody["error"], "feature" | "quota" 
       ...(typeof e?.from === "string" ? { from: e.from } : {}),
       ...(typeof e?.to === "string" ? { to: e.to } : {}),
     };
+  } catch {
+    return {};
+  }
+}
+
+function errorPreview(raw: string): Pick<ApiErrorBody["error"], "preview"> {
+  try {
+    const body = JSON.parse(raw) as { preview?: DnsPublishPreview };
+    return body?.preview ? { preview: body.preview } : {};
   } catch {
     return {};
   }
@@ -1021,3 +1035,40 @@ export const deleteClient = (orgId: string, clientId: string) =>
 
 export const deleteWorkspace = (orgId: string) =>
   call<DeletionResult>(wsPath(orgId, ""), { method: "DELETE" });
+
+// ─── Cloudflare DNS publishing ───────────────────────────────────────────────
+
+export const createDnsConnection = (
+  orgId: string,
+  body: { provider: "CLOUDFLARE"; token: string; label?: string | null },
+) =>
+  call<DnsConnectionRow>(wsPath(orgId, "/dns-connections"), {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const deleteDnsConnection = (orgId: string, connectionId: string) =>
+  call<void>(wsPath(orgId, `/dns-connections/${connectionId}`), { method: "DELETE" });
+
+export const previewDnsRecord = (
+  orgId: string,
+  domainId: string,
+  body: { connectionId: string; record: DnsPublishRecord },
+) =>
+  call<DnsPublishPreview>(wsPath(orgId, `/domains/${domainId}/dns-publish/preview`), {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const publishDnsRecord = (
+  orgId: string,
+  domainId: string,
+  body: { connectionId: string; record: DnsPublishRecord; expectedFingerprint: string },
+) =>
+  call<DnsPublishResult>(wsPath(orgId, `/domains/${domainId}/dns-publish`), {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const restoreDnsPublication = (orgId: string, publicationId: string) =>
+  call<DnsRestoreResult>(wsPath(orgId, `/dns-publications/${publicationId}/restore`), { method: "POST" });
