@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { HttpsFailure } from '../scanner/https-get.js';
 
 export type LookupStatus = 'found' | 'missing' | 'error';
 
@@ -123,6 +124,76 @@ export interface MxResult {
   error?: string;
 }
 
+export type MtaStsMode = 'enforce' | 'testing' | 'none';
+
+export interface MtaStsResult {
+  status: LookupStatus;
+  record?: string;
+  id?: string;
+  /** Set when status is found but the record is unusable. */
+  recordProblem?: string;
+  /** Null unless exactly one valid TXT record was found. */
+  policy: null | {
+    url: string;
+    status: 'fetched' | 'unavailable' | 'invalid';
+    failure?: HttpsFailure | 'content_type';
+    httpStatus?: number;
+    detail?: string;
+    mode?: MtaStsMode;
+    maxAge?: number;
+    mx?: string[];
+    problems: string[];
+    /** The policy as served, first 2,000 characters, always shown as plain text. */
+    text?: string;
+  };
+  mxCoverage?: Array<{ host: string; covered: boolean }>;
+  error?: string;
+}
+
+export interface TlsRptResult {
+  status: LookupStatus;
+  record?: string;
+  valid: boolean;
+  mailtoTargets: string[];
+  httpsTargets: string[];
+  problems: string[];
+  error?: string;
+}
+
+export interface BimiResult {
+  status: LookupStatus;
+  record?: string;
+  /** Set when this domain had no record and the organisational domain's applies. */
+  inheritedFrom?: string;
+  logoUrl: string | null;
+  authorityUrl: string | null;
+  /** l= present and empty: this domain opts out of BIMI. */
+  declined: boolean;
+  problems: string[];
+  /**
+   * dependsOnParent: a subdomain with no DMARC record of its own, so the
+   * parent's record decides and this scan cannot. qualifies is then false
+   * but no finding is raised.
+   */
+  dmarc: { qualifies: boolean; reasons: string[]; dependsOnParent?: true };
+  logo: null | {
+    status: 'fetched' | 'unavailable' | 'invalid';
+    failure?: HttpsFailure;
+    detail?: string;
+    bytes?: number;
+    checks?: {
+      svgRoot: boolean;
+      tinyPsProfile: boolean;
+      version12: boolean;
+      title: boolean;
+      noForbiddenElements: boolean;
+      noExternalReferences: boolean;
+      withinSizeLimit: boolean;
+    };
+  };
+  error?: string;
+}
+
 export interface ScoreFactor {
   code: string;
   label: string;
@@ -146,6 +217,10 @@ export interface ScanResult {
   spf: SpfResult;
   dkim: DkimResult;
   mx: MxResult;
+  /** Optional: scans stored before the transport checks do not have these. */
+  mtaSts?: MtaStsResult;
+  tlsRpt?: TlsRptResult;
+  bimi?: BimiResult;
   issues: ScanIssue[];
   recommendations: string[];
 }

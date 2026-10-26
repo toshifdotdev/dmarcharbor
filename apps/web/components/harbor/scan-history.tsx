@@ -26,7 +26,14 @@ import { useRouter } from "next/navigation";
 import { clsx } from "clsx";
 import { fetchDomainScan, fetchDomainScanPage, runDomainScan } from "@/lib/scans-client";
 import { instantLabel } from "@/lib/instant";
-import type { ScanIssue, ScanRow, ScanRunStatus } from "@/lib/types";
+import type {
+  BimiResult,
+  MtaStsResult,
+  ScanIssue,
+  ScanRow,
+  ScanRunStatus,
+  TlsRptResult,
+} from "@/lib/types";
 import { Badge, type Tone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ChevronDown } from "@/components/ui/icons";
@@ -318,6 +325,126 @@ function describeOutcome(scan: ScanRow): string {
   return `Scan completed for ${r.domain}. ${policy} ${findings}`;
 }
 
+const NOT_CHECKED =
+  "Not checked: this scan predates MTA-STS, TLS-RPT and BIMI checks. Scan again.";
+
+function maxAgeLabel(seconds: number): string {
+  const days = Math.round((seconds / 86_400) * 10) / 10;
+  return `${seconds}${days > 0 ? ` (${days} day${days === 1 ? "" : "s"})` : ""}`;
+}
+
+function mtaStsLabel(mta: MtaStsResult | undefined): string {
+  if (!mta) return NOT_CHECKED;
+  if (mta.status === "error") return "lookup failed";
+  if (mta.recordProblem) return `found but unusable: ${mta.recordProblem}`;
+  if (mta.status === "missing") return "not published";
+  const policy = mta.policy;
+  if (!policy) return "record found";
+  if (policy.status === "unavailable") {
+    return `Record found; the policy could not be fetched${policy.detail ? `: ${policy.detail}` : "."}`;
+  }
+  if (policy.status === "invalid") {
+    return `Record found; the policy is invalid${policy.problems[0] ? `: ${policy.problems[0]}` : "."}`;
+  }
+  const coverage = mta.mxCoverage
+    ? `${mta.mxCoverage.filter((entry) => entry.covered).length} of ${mta.mxCoverage.length} MX hosts covered`
+    : "MX coverage not checked";
+  return `${policy.mode ?? "mode unknown"}, ${coverage}${policy.maxAge !== undefined ? `, max_age ${maxAgeLabel(policy.maxAge)}` : ""}`;
+}
+
+function tlsRptLabel(tlsRpt: TlsRptResult | undefined): string {
+  if (!tlsRpt) return NOT_CHECKED;
+  if (tlsRpt.status === "error") return "lookup failed";
+  if (tlsRpt.status === "missing") return "not published";
+  if (!tlsRpt.valid) return `found but invalid: ${tlsRpt.problems[0] ?? "the record could not be read"}`;
+  const targets = [...tlsRpt.mailtoTargets, ...tlsRpt.httpsTargets];
+  return targets.length > 0 ? `reports to ${targets.join(", ")}` : "found but no reporting address";
+}
+
+function bimiLabel(bimi: BimiResult | undefined): string {
+  if (!bimi) return NOT_CHECKED;
+  if (bimi.status === "error") return "lookup failed";
+  if (bimi.status === "missing") return "not published";
+  if (bimi.declined) return "declined (empty l=)";
+  if (bimi.problems.length > 0) return `found but invalid: ${bimi.problems[0]}`;
+  const logo =
+    bimi.logo?.status === "invalid"
+      ? "logo failed basic checks"
+      : bimi.logo?.status === "unavailable"
+        ? "logo could not be fetched"
+        : "logo published";
+  const certificate = bimi.authorityUrl ? "certificate present" : "no certificate";
+  const dmarc = bimi.dmarc.qualifies
+    ? "DMARC qualifies"
+    : bimi.dmarc.dependsOnParent
+      ? `DMARC is set by the parent domain (${bimi.dmarc.reasons[0] ?? "scan the parent domain to check"})`
+    : `DMARC does not qualify${bimi.dmarc.reasons[0] ? ` (${bimi.dmarc.reasons[0]})` : ""}`;
+  return `${logo}, ${certificate}, ${dmarc}${bimi.inheritedFrom ? `, inherited from ${bimi.inheritedFrom}` : ""}`;
+}
+
+const BIMI_CHECK_LABELS: Array<[keyof NonNullable<NonNullable<BimiResult["logo"]>["checks"]>, string]> = [
+  ["svgRoot", "First element is svg"],
+  ["tinyPsProfile", 'baseProfile="tiny-ps"'],
+  ["version12", 'version="1.2"'],
+  ["title", "Non-empty title"],
+  ["noForbiddenElements", "No forbidden elements or event attributes"],
+  ["noExternalReferences", "No external references"],
+  ["withinSizeLimit", "Within 32,768 bytes"],
+];
+
+function TransportDetails({
+  mtaSts,
+  tlsRpt,
+  bimi,
+}: {
+  mtaSts: MtaStsResult | undefined;
+  tlsRpt: TlsRptResult | undefined;
+  bimi: BimiResult | undefined;
+}) {
+  const tlsNote = mtaSts?.status === "found" && tlsRpt?.status === "missing";
+  return (
+    <div className="flex flex-col gap-4">
+      {mtaSts?.policy?.text ? (
+        <div>
+          <p className="legend">MTA-STS policy as served</p>
+          <pre className="data mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-all border border-rule bg-paper-3 px-2.5 py-2 text-meta text-fg">
+            {mtaSts.policy.text}
+          </pre>
+        </div>
+      ) : null}
+      {tlsNote ? (
+        <p className="text-meta text-warn">
+          Without TLS-RPT, failed TLS deliveries are never reported to you.
+        </p>
+      ) : null}
+      {bimi?.status === "found" && !bimi.declined ? (
+        <div>
+          <p className="legend">BIMI</p>
+          {bimi.logo?.checks ? (
+            <ul className="mt-1 grid gap-x-6 gap-y-1 text-meta sm:grid-cols-2">
+              {BIMI_CHECK_LABELS.map(([key, label]) => (
+                <li key={key} className={bimi.logo!.checks![key] ? "text-fg-2" : "text-fail"}>
+                  <span aria-hidden>{bimi.logo!.checks![key] ? "Pass" : "Fail"}: </span>
+                  {label}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {bimi.logo?.detail ? <p className="mt-1 text-meta text-fg-2">{bimi.logo.detail}</p> : null}
+          <p className="mt-2 text-meta text-fg-3">
+            {bimi.authorityUrl
+              ? `Certificate published at ${bimi.authorityUrl}. DMARC Harbor does not verify it.`
+              : "No certificate (a=). Gmail shows BIMI logos only with a Verified Mark Certificate or Common Mark Certificate."}
+          </p>
+          <p className="mt-1 text-meta text-fg-3">
+            These are basic SVG Tiny PS checks, not a full validation. The logo is never rendered here.
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ScanDetail({ scan }: { scan: ScanRow }) {
   const r = scan.result;
   if (!r) {
@@ -355,9 +482,13 @@ function ScanDetail({ scan }: { scan: ScanRow }) {
             .map((m) => `${m.exchange} (${m.priority})`)
             .join(", "),
     ],
+    ["MTA-STS", mtaStsLabel(r.mtaSts)],
+    ["TLS-RPT", tlsRptLabel(r.tlsRpt)],
+    ["BIMI", bimiLabel(r.bimi)],
   ];
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]" data-testid="scan-detail-body">
+    <>
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]" data-testid="scan-detail-body">
       <div className="flex flex-col gap-4">
         <dl className="grid grid-cols-[96px_minmax(0,1fr)] gap-x-4 gap-y-1.5">
           {facts.map(([k, v]) => (
@@ -397,7 +528,9 @@ function ScanDetail({ scan }: { scan: ScanRow }) {
           </ul>
         )}
       </div>
-    </div>
+      </div>
+      <TransportDetails mtaSts={r.mtaSts} tlsRpt={r.tlsRpt} bimi={r.bimi} />
+    </>
   );
 }
 

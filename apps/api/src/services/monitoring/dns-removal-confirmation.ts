@@ -17,7 +17,23 @@ export interface RemovalConfirmation {
   affected: string[];
 }
 
-const removalCodes = new Set(['dmarc_record_removed', 'dmarc_rua_ours_removed', 'spf_record_removed']);
+const removalCodes = new Set([
+  'dmarc_record_removed',
+  'dmarc_rua_ours_removed',
+  'spf_record_removed',
+  'mta_sts_removed',
+  'tls_rpt_removed',
+  'bimi_removed',
+]);
+
+const transportRemovals: Record<
+  string,
+  { name: (domain: string) => string; prefix: string }
+> = {
+  mta_sts_removed: { name: (domain) => `_mta-sts.${domain}`, prefix: 'v=STSv1' },
+  tls_rpt_removed: { name: (domain) => `_smtp._tls.${domain}`, prefix: 'v=TLSRPTv1' },
+  bimi_removed: { name: (domain) => `default._bimi.${domain}`, prefix: 'v=BIMI1' },
+};
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -39,23 +55,43 @@ export async function confirmDnsRemovals(input: {
   }
 
   const affected = new Set<string>();
+  const checks: Array<{ name: string; prefix: string | null }> = [];
   for (const removal of removals) {
-    if (removal.code === 'spf_record_removed') {
+    const transport = transportRemovals[removal.code];
+    if (transport) {
+      const name = transport.name(input.domainName);
+      affected.add(name);
+      checks.push({ name, prefix: transport.prefix });
+    } else if (removal.code === 'spf_record_removed') {
       affected.add(input.domainName);
+      checks.push({ name: input.domainName, prefix: null });
     } else {
-      affected.add(`_dmarc.${input.domainName}`);
+      const name = `_dmarc.${input.domainName}`;
+      affected.add(name);
+      checks.push({ name, prefix: null });
     }
   }
 
   await delay(input.waitMs ?? 2_000);
 
-  for (const name of affected) {
-    const lookup = await input.reader.resolveTxt(name);
+  const toRead = [...new Map(checks.map((check) => [`${check.name}|${check.prefix ?? ''}`, check])).values()];
+  for (const check of toRead) {
+    const lookup = await input.reader.resolveTxt(check.name);
     // Anything other than a missing answer means the removal is not proven.
     // An error is unknown, and unknown is never a reason to alarm a customer.
-    if (lookup.status !== 'missing') {
-      return { confirmed: false, affected: [...affected] };
+    if (lookup.status === 'missing') {
+      continue;
     }
+    if (check.prefix && lookup.status === 'found') {
+      const stillPublished = (lookup.value ?? []).some((chunks) =>
+        chunks.join('').trim().startsWith(check.prefix!),
+      );
+      // An unrelated TXT left at the name is not evidence the record survived.
+      if (!stillPublished) {
+        continue;
+      }
+    }
+    return { confirmed: false, affected: [...affected] };
   }
 
   return { confirmed: true, affected: [...affected] };

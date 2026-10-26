@@ -5,6 +5,7 @@ import { applySwitchRecord } from './switch-kit/switch.service.js';
 import { switchObservationFromScan } from './switch-kit/state.js';
 import { scanDomain } from '../scanner/scanner.js';
 import { systemDnsReader } from '../scanner/dns.js';
+import type { HttpsGetter } from '../scanner/https-get.js';
 import type { DnsReader, ScanResult } from '../scanner/types.js';
 import { confirmDnsRemovals } from './monitoring/dns-removal-confirmation.js';
 import { changeJson, emitDnsWebhooks } from './monitoring/dns-webhook.service.js';
@@ -42,6 +43,7 @@ type RunDomainScanInput = {
   requestedById: string | null;
   trigger?: 'MANUAL' | 'SCHEDULED';
   reader?: DnsReader;
+  https?: HttpsGetter;
 };
 
 export type RunDomainScanOutcome =
@@ -102,6 +104,7 @@ export async function runDomainScan(input: RunDomainScanInput): Promise<RunDomai
   try {
     const result = await scanDomain(domain.name, reader, {
       knownSelectors: knownSelectorsFrom(domain.dkimSelectors),
+      ...(input.https ? { https: input.https } : {}),
     });
 
     /**

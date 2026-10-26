@@ -576,6 +576,9 @@ enum DnsChangeKind {
   SPF_ALL
   DKIM_SELECTOR
   MX
+  MTA_STS
+  TLS_RPT
+  BIMI
 }
 
 enum DnsChangeSeverity {

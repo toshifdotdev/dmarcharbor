@@ -1,10 +1,13 @@
 export type {
+  BimiResult,
   DkimResult,
   DmarcPolicy,
   DmarcResult,
   DnsReader,
   LookupResult,
   LookupStatus,
+  MtaStsMode,
+  MtaStsResult,
   MxRecord,
   MxResult,
   ScanIssue,
@@ -15,6 +18,7 @@ export type {
   ScoreFactor,
   SpfLookupNode,
   SpfResult,
+  TlsRptResult,
 } from '../models/scan.model.js';
 
 export { scanRequestSchema } from '../models/scan.model.js';

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { DkimResult, DmarcResult, MxResult, ScanResult, SpfResult } from '../src/scanner/types.js';
+import type { BimiResult, DkimResult, DmarcResult, MtaStsResult, MxResult, ScanResult, SpfResult, TlsRptResult } from '../src/scanner/types.js';
 import { diffScans } from '../src/services/monitoring/dns-diff.js';
 
 const OUR_URI = 'mailto:dmarc-reports@reports.dmarcharbor.com';
@@ -39,7 +39,51 @@ function mx(overrides: Partial<MxResult> = {}): MxResult {
   return { status: 'found', records: [{ exchange: 'mx.example.test', priority: 10 }], ...overrides };
 }
 
-function scan(overrides: { dmarc?: Partial<DmarcResult>; spf?: Partial<SpfResult>; dkim?: Partial<DkimResult>; mx?: Partial<MxResult> } = {}): ScanResult {
+function mta(overrides: Partial<MtaStsResult> = {}): MtaStsResult {
+  return {
+    status: 'found',
+    record: 'v=STSv1; id=abc',
+    id: 'abc',
+    policy: {
+      url: 'https://mta-sts.example.test/.well-known/mta-sts.txt',
+      status: 'fetched',
+      mode: 'enforce',
+      maxAge: 604800,
+      mx: ['mx.example.test'],
+      problems: [],
+    },
+    mxCoverage: [{ host: 'mx.example.test', covered: true }],
+    ...overrides,
+  };
+}
+
+function tls(overrides: Partial<TlsRptResult> = {}): TlsRptResult {
+  return {
+    status: 'found',
+    record: 'v=TLSRPTv1; rua=mailto:tls@example.test',
+    valid: true,
+    mailtoTargets: ['mailto:tls@example.test'],
+    httpsTargets: [],
+    problems: [],
+    ...overrides,
+  };
+}
+
+function bimi(overrides: Partial<BimiResult> = {}): BimiResult {
+  return {
+    status: 'found',
+    record: 'v=BIMI1; l=https://example.test/logo.svg',
+    logoUrl: 'https://example.test/logo.svg',
+    authorityUrl: null,
+    declined: false,
+    problems: [],
+    dmarc: { qualifies: true, reasons: [] },
+    logo: null,
+    ...overrides,
+  };
+}
+
+function scan(overrides: { dmarc?: Partial<DmarcResult>; spf?: Partial<SpfResult>; dkim?: Partial<DkimResult>; mx?: Partial<MxResult>; mtaSts?: MtaStsResult; tlsRpt?: TlsRptResult; bimi?: BimiResult } = {}): ScanResult {
   return {
     domain: 'example.test',
     scannedAt: '2026-10-26T12:00:00.000Z',
@@ -50,6 +94,9 @@ function scan(overrides: { dmarc?: Partial<DmarcResult>; spf?: Partial<SpfResult
     spf: spf(overrides.spf),
     dkim: dkim(overrides.dkim),
     mx: mx(overrides.mx),
+    ...(overrides.mtaSts ? { mtaSts: overrides.mtaSts } : {}),
+    ...(overrides.tlsRpt ? { tlsRpt: overrides.tlsRpt } : {}),
+    ...(overrides.bimi ? { bimi: overrides.bimi } : {}),
     issues: [],
     recommendations: [],
   };
@@ -395,5 +442,96 @@ describe('determinism and missing data', () => {
     expect(drafts.map((draft) => draft.code)).not.toContain('dkim_selector_removed');
     expect(drafts.map((draft) => draft.code)).not.toContain('mx_removed');
     expect(drafts.map((draft) => draft.code)).not.toContain('dmarc_rua_changed');
+  });
+});
+
+
+describe('transport record changes', () => {
+  it('reports MTA-STS removal, addition, mode changes and a policy becoming invalid', () => {
+    const removed = diffScans(scan({ mtaSts: mta() }), scan({ mtaSts: mta({ status: 'missing', record: undefined, id: undefined, policy: null, mxCoverage: undefined }) }));
+    expect(removed.find((draft) => draft.code === 'mta_sts_removed')?.kind).toBe('MTA_STS');
+
+    const added = diffScans(scan({ mtaSts: mta({ status: 'missing', record: undefined, id: undefined, policy: null, mxCoverage: undefined }) }), scan({ mtaSts: mta() }));
+    expect(added.find((draft) => draft.code === 'mta_sts_added')?.severity).toBe('INFO');
+
+    const weakened = diffScans(
+      scan({ mtaSts: mta() }),
+      scan({ mtaSts: mta({ policy: { ...mta().policy!, mode: 'testing' } }) }),
+    );
+    expect(weakened.find((draft) => draft.code === 'mta_sts_mode_weakened')?.severity).toBe('WARNING');
+
+    const strengthened = diffScans(
+      scan({ mtaSts: mta({ policy: { ...mta().policy!, mode: 'testing' } }) }),
+      scan({ mtaSts: mta() }),
+    );
+    expect(strengthened.find((draft) => draft.code === 'mta_sts_mode_strengthened')?.severity).toBe('INFO');
+
+    const broken = diffScans(
+      scan({ mtaSts: mta() }),
+      scan({ mtaSts: mta({ policy: { ...mta().policy!, status: 'invalid', problems: ['mode must be enforce'] } }) }),
+    );
+    expect(broken.find((draft) => draft.code === 'mta_sts_policy_broken')?.severity).toBe('WARNING');
+  });
+
+  it('does not call an unavailable policy a break, or compare a lookup error', () => {
+    const unavailableBefore = diffScans(
+      scan({ mtaSts: mta({ policy: { ...mta().policy!, status: 'unavailable', detail: 'TLS failed', problems: [] } }) }),
+      scan({ mtaSts: mta({ policy: { ...mta().policy!, status: 'invalid', problems: ['bad'] } }) }),
+    );
+    expect(unavailableBefore.map((draft) => draft.code)).not.toContain('mta_sts_policy_broken');
+
+    const fetchedThenUnavailable = diffScans(
+      scan({ mtaSts: mta() }),
+      scan({ mtaSts: mta({ policy: { ...mta().policy!, status: 'unavailable', detail: 'TLS failed', problems: [] } }) }),
+    );
+    expect(fetchedThenUnavailable.map((draft) => draft.code)).not.toContain('mta_sts_policy_broken');
+
+    const errored = diffScans(
+      scan({ mtaSts: mta({ status: 'error', policy: null, record: undefined }) }),
+      scan({ mtaSts: mta() }),
+    );
+    expect(errored.filter((draft) => draft.code.startsWith('mta_sts_'))).toEqual([]);
+  });
+
+  it('reports TLS-RPT removal, addition and changed reporting addresses', () => {
+    const removed = diffScans(scan({ tlsRpt: tls() }), scan({ tlsRpt: tls({ status: 'missing', record: undefined, valid: false, mailtoTargets: [] }) }));
+    expect(removed.find((draft) => draft.code === 'tls_rpt_removed')?.kind).toBe('TLS_RPT');
+
+    const added = diffScans(scan({ tlsRpt: tls({ status: 'missing', record: undefined, valid: false, mailtoTargets: [] }) }), scan({ tlsRpt: tls() }));
+    expect(added.find((draft) => draft.code === 'tls_rpt_added')?.severity).toBe('INFO');
+
+    const changed = diffScans(
+      scan({ tlsRpt: tls() }),
+      scan({ tlsRpt: tls({ mailtoTargets: ['mailto:new@example.test'], httpsTargets: ['https://tls.example.test/report'] }) }),
+    );
+    expect(changed.find((draft) => draft.code === 'tls_rpt_changed')?.severity).toBe('INFO');
+  });
+
+  it('reports BIMI removal, addition and a logo change, ignoring inherited records', () => {
+    const removed = diffScans(scan({ bimi: bimi() }), scan({ bimi: bimi({ status: 'missing', record: undefined, logoUrl: null }) }));
+    expect(removed.find((draft) => draft.code === 'bimi_removed')?.kind).toBe('BIMI');
+
+    const inheritedMissing = diffScans(
+      scan({ bimi: bimi({ inheritedFrom: 'example.test' }) }),
+      scan({ bimi: bimi({ status: 'missing', record: undefined, logoUrl: null }) }),
+    );
+    expect(inheritedMissing.map((draft) => draft.code)).not.toContain('bimi_removed');
+
+    const added = diffScans(scan({ bimi: bimi({ status: 'missing', record: undefined, logoUrl: null }) }), scan({ bimi: bimi() }));
+    expect(added.find((draft) => draft.code === 'bimi_added')?.severity).toBe('INFO');
+
+    const inheritedAdded = diffScans(
+      scan({ bimi: bimi({ status: 'missing', record: undefined, logoUrl: null }) }),
+      scan({ bimi: bimi({ inheritedFrom: 'example.test' }) }),
+    );
+    expect(inheritedAdded.find((draft) => draft.code === 'bimi_added')?.kind).toBe('BIMI');
+
+    const changed = diffScans(scan({ bimi: bimi() }), scan({ bimi: bimi({ logoUrl: 'https://example.test/new.svg' }) }));
+    expect(changed.find((draft) => draft.code === 'bimi_changed')?.severity).toBe('INFO');
+  });
+
+  it('produces no transport change when an old scan did not store the fields', () => {
+    const drafts = diffScans(scan(), scan({ mtaSts: mta(), tlsRpt: tls(), bimi: bimi() }));
+    expect(drafts.filter((draft) => ['MTA_STS', 'TLS_RPT', 'BIMI'].includes(draft.kind))).toEqual([]);
   });
 });

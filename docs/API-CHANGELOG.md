@@ -318,6 +318,32 @@ provider compliance: TLS, spam rate, message format and one-click unsubscribe
 are marked `not_checkable` with where to check them. Available on every plan;
 domain read permission is required.
 
+## 2026-10-26 — MTA-STS, TLS-RPT and BIMI in DNS scans
+
+DNS scan results gain three optional fields: `mtaSts`, `tlsRpt` and `bimi`.
+`undefined` means the scan predates these checks, not that the record is absent.
+A published MTA-STS policy and BIMI logo are fetched over HTTPS through a
+guarded fetcher that refuses private and reserved addresses, pins the connection
+to the checked address, follows no redirects and caps time and size. Only parsed
+facts are stored; fetched policy text is stored as the first 2,000 characters and
+logo bytes are never stored or returned.
+
+New finding codes:
+
+- `mta_sts_record_invalid`, `mta_sts_policy_unavailable`,
+  `mta_sts_policy_invalid`, `mta_sts_mx_not_covered`
+- `tls_rpt_record_invalid`
+- `bimi_record_invalid`, `bimi_dmarc_not_enforced`, `bimi_logo_unavailable`,
+  `bimi_logo_invalid`
+
+A missing record produces no finding, and the scan score is unchanged. DNS
+monitoring gains the change kinds `MTA_STS`, `TLS_RPT` and `BIMI`, with
+`mta_sts_removed`, `mta_sts_added`, `mta_sts_mode_weakened`,
+`mta_sts_mode_strengthened`, `mta_sts_policy_broken`, `tls_rpt_removed`,
+`tls_rpt_added`, `tls_rpt_changed`, `bimi_removed`, `bimi_added` and
+`bimi_changed`. These travel in the existing `dns.changed` webhook. No route or
+webhook event was added. `/api/v1` is unchanged.
+
 ## Planned, not yet available
 
 | Planned | Notes |

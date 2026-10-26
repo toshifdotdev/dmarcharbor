@@ -1968,7 +1968,8 @@ export const openApiDocument = {
       post: {
         tags: ['Scanning'],
         summary: 'Public single domain scan',
-        description: 'Unauthenticated and rate limited. Returns a score and the issues found, without storing anything.',
+        description:
+          'Unauthenticated and rate limited. Returns a score and the issues found, without storing anything. It also reads MTA-STS, TLS-RPT and BIMI records and, when a policy or logo is published, fetches that HTTPS document through a guarded fetcher that refuses private addresses and does not follow redirects.',
         requestBody: {
           required: true,
           content: {
@@ -2178,7 +2179,8 @@ export const openApiDocument = {
       post: {
         tags: ['Scanning'],
         summary: 'Run a scan',
-        description: 'Requires a verified domain. Stores the result and updates the domain summary.',
+        description:
+          'Requires a verified domain. Stores the result and updates the domain summary. The result includes MTA-STS, TLS-RPT and BIMI checks; those fields are absent on scans stored before they existed.',
         parameters: [orgParam, idParam('domainId', 'Domain identifier.')],
         responses: { 201: { description: 'Scan completed.' }, ...standardErrors },
       },
@@ -2229,7 +2231,8 @@ export const openApiDocument = {
       get: {
         tags: ['Scanning'],
         summary: 'Get one scan',
-        description: 'Returns the full stored scan result including the score breakdown.',
+        description:
+          'Returns the full stored scan result including the score breakdown. mtaSts, tlsRpt and bimi are optional: undefined means the scan predates those checks.',
         parameters: [orgParam, idParam('scanId', 'Scan identifier.')],
         responses: { 200: { description: 'Scan detail.' }, ...standardErrors },
       },

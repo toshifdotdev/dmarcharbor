@@ -1532,6 +1532,77 @@ export interface ScanScoreBreakdown {
 
 /** The scanner's result, as stored in Scan.result. Null on a row that never got
  *  that far: a FAILED scan records the reason in `error` and nothing else. */
+export type HttpsFailure =
+  | "invalid_url"
+  | "refused_address"
+  | "dns"
+  | "tls"
+  | "timeout"
+  | "redirect"
+  | "http_status"
+  | "too_large"
+  | "network";
+
+export type MtaStsMode = "enforce" | "testing" | "none";
+
+export interface MtaStsResult {
+  status: "found" | "missing" | "error";
+  record?: string;
+  id?: string;
+  recordProblem?: string;
+  policy: null | {
+    url: string;
+    status: "fetched" | "unavailable" | "invalid";
+    failure?: HttpsFailure | "content_type";
+    httpStatus?: number;
+    detail?: string;
+    mode?: MtaStsMode;
+    maxAge?: number;
+    mx?: string[];
+    problems: string[];
+    text?: string;
+  };
+  mxCoverage?: Array<{ host: string; covered: boolean }>;
+  error?: string;
+}
+
+export interface TlsRptResult {
+  status: "found" | "missing" | "error";
+  record?: string;
+  valid: boolean;
+  mailtoTargets: string[];
+  httpsTargets: string[];
+  problems: string[];
+  error?: string;
+}
+
+export interface BimiResult {
+  status: "found" | "missing" | "error";
+  record?: string;
+  inheritedFrom?: string;
+  logoUrl: string | null;
+  authorityUrl: string | null;
+  declined: boolean;
+  problems: string[];
+  dmarc: { qualifies: boolean; reasons: string[]; dependsOnParent?: true };
+  logo: null | {
+    status: "fetched" | "unavailable" | "invalid";
+    failure?: HttpsFailure;
+    detail?: string;
+    bytes?: number;
+    checks?: {
+      svgRoot: boolean;
+      tinyPsProfile: boolean;
+      version12: boolean;
+      title: boolean;
+      noForbiddenElements: boolean;
+      noExternalReferences: boolean;
+      withinSizeLimit: boolean;
+    };
+  };
+  error?: string;
+}
+
 export interface ScanResultPayload {
   domain: string;
   scannedAt: string;
@@ -1542,6 +1613,10 @@ export interface ScanResultPayload {
   spf: ScanSpfDetail;
   dkim: ScanDkimDetail;
   mx: ScanMxDetail;
+  /** Optional: scans stored before these checks have no fields. */
+  mtaSts?: MtaStsResult;
+  tlsRpt?: TlsRptResult;
+  bimi?: BimiResult;
   issues: ScanIssue[];
   recommendations: string[];
 }

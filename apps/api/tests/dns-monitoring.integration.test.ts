@@ -16,6 +16,7 @@ import { encryptSensitive } from '../src/services/privacy.service.js';
 import { deliverDueWebhooks } from '../src/services/webhook.service.js';
 import { grantPlan } from './helpers/plan.js';
 import type { DnsReader, LookupResult, MxRecord } from '../src/scanner/types.js';
+import type { HttpsGetResult, HttpsGetter } from '../src/scanner/https-get.js';
 
 const password = 'correct-horse-battery-staple';
 const forensicBoundary = 'dns-monitor-boundary';
@@ -1338,5 +1339,76 @@ describe('webhook event catalogue', () => {
     });
     expect(created.status).toBe(201);
     expect(created.body.events).toEqual(['domain.verified', 'alert.triggered']);
+  });
+});
+
+describe('MTA-STS monitoring', () => {
+  it('stores, re-confirms and emits an MTA-STS removal', async () => {
+    const workspace = await createWorkspace();
+    const client = await createClient(workspace.agent, workspace.organizationId);
+    const domain = await createDomain(
+      workspace.agent,
+      workspace.organizationId,
+      client.id,
+      uniqueDomain('mta-sts'),
+    );
+    await registerEndpoint(workspace.agent, workspace.organizationId, ['dns.changed'], 'mta');
+
+    const mtaUrl = `https://mta-sts.${domain.name}/.well-known/mta-sts.txt`;
+    const https: HttpsGetter = {
+      async get(url): Promise<HttpsGetResult> {
+        expect(url).toBe(mtaUrl);
+        return {
+          status: 'ok',
+          statusCode: 200,
+          contentType: 'text/plain',
+          body: Buffer.from('version: STSv1\nmode: enforce\nmx: mx1.example.test\nmax_age: 604800\n'),
+        };
+      },
+    };
+
+    const state = dnsState();
+    state.txt = { [`_mta-sts.${domain.name}`]: 'v=STSv1; id=abc123' };
+    const first = await runDomainScan({
+      organizationId: workspace.organizationId,
+      domainId: domain.id,
+      requestedById: null,
+      trigger: 'SCHEDULED',
+      reader: fakeReader(domain.name, state),
+      https,
+    });
+    expect(first.status).toBe('completed');
+
+    state.txt = {};
+    const second = await runDomainScan({
+      organizationId: workspace.organizationId,
+      domainId: domain.id,
+      requestedById: null,
+      trigger: 'SCHEDULED',
+      reader: fakeReader(domain.name, state),
+      https,
+    });
+    expect(second.status).toBe('completed');
+    if (second.status === 'completed') {
+      expect(second.changes).toBe(1);
+    }
+
+    const change = await prisma.dnsChange.findFirstOrThrow({
+      where: { domainId: domain.id, code: 'mta_sts_removed' },
+    });
+    expect(change.kind).toBe('MTA_STS');
+    expect(change.severity).toBe('WARNING');
+
+    const stored = await prisma.scan.findUniqueOrThrow({ where: { id: change.scanId } });
+    expect(stored.status).toBe('COMPLETED');
+
+    await deliverDueWebhooks();
+    const event = eventPayloads('mta').find((payload) => payload.type === 'dns.changed');
+    expect(event).toBeDefined();
+    expect(event?.data.changes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'MTA_STS', code: 'mta_sts_removed' }),
+      ]),
+    );
   });
 });

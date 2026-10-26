@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseDmarcRecords, parseSpfRecords, scanDomain } from '../src/scanner/scanner.js';
 import type { DnsReader, MxRecord } from '../src/scanner/types.js';
+import type { HttpsGetResult, HttpsGetter } from '../src/scanner/https-get.js';
 
 function createReader(records: Record<string, string[][]>, mx: MxRecord[]): DnsReader {
   return {
@@ -205,5 +206,147 @@ describe('scanDomain', () => {
     expect(result.status).toBe('healthy');
     expect(result.score).toBe(100);
     expect(result.scoreBreakdown.factors).toEqual([]);
+  });
+});
+
+describe('MTA-STS, TLS-RPT and BIMI in the scan', () => {
+  const KEY = 'v=DKIM1; k=rsa; p=public-key';
+  const baseRecords: Record<string, string[][]> = {
+    '_dmarc.mail.test': [['v=DMARC1; p=reject; rua=mailto:reports@example.test']],
+    'mail.test': [['v=spf1 ip4:1.2.3.4 -all']],
+    'google._domainkey.mail.test': [[KEY]],
+  };
+  const mx = [{ exchange: 'mx1.mail.test', priority: 10 }];
+
+  function fakeGetter(responses: Record<string, HttpsGetResult> = {}) {
+    const calls: string[] = [];
+    const getter: HttpsGetter = {
+      async get(url) {
+        calls.push(url);
+        return (
+          responses[url] ?? {
+            status: 'error',
+            failure: 'network',
+            detail: 'Unexpected fetch in this test.',
+          }
+        );
+      },
+    };
+    return { getter, calls };
+  }
+
+  function ok(contentType: string, body: string): HttpsGetResult {
+    return { status: 'ok', statusCode: 200, contentType, body: Buffer.from(body) };
+  }
+
+  it('leaves status, score and issues unchanged when none of the three is published', async () => {
+    const { getter, calls } = fakeGetter();
+    const result = await scanDomain('mail.test', createReader(baseRecords, mx), { https: getter });
+
+    expect(result.status).toBe('healthy');
+    expect(result.score).toBe(100);
+    expect(result.issues).toEqual([]);
+    expect(result.mtaSts?.status).toBe('missing');
+    expect(result.tlsRpt?.status).toBe('missing');
+    expect(result.bimi?.status).toBe('missing');
+    expect(calls).toEqual([]);
+  });
+
+  it('reports an uncovered MX host as an error in enforce mode and a warning in testing', async () => {
+    const records = {
+      ...baseRecords,
+      '_mta-sts.mail.test': [['v=STSv1; id=abc123']],
+    };
+    const url = 'https://mta-sts.mail.test/.well-known/mta-sts.txt';
+    const enforce = fakeGetter({
+      [url]: ok('text/plain', 'version: STSv1\nmode: enforce\nmx: mx2.mail.test\nmax_age: 604800\n'),
+    });
+    const enforceResult = await scanDomain('mail.test', createReader(records, mx), { https: enforce.getter });
+    const enforceIssue = enforceResult.issues.find((issue) => issue.code === 'mta_sts_mx_not_covered');
+    expect(enforceIssue?.severity).toBe('error');
+    expect(enforceIssue?.message).toContain('mx1.mail.test');
+    expect(enforceIssue?.message).toContain('refuse to deliver');
+
+    const testing = fakeGetter({
+      [url]: ok('text/plain', 'version: STSv1\nmode: testing\nmx: mx2.mail.test\nmax_age: 604800\n'),
+    });
+    const testingResult = await scanDomain('mail.test', createReader(records, mx), { https: testing.getter });
+    expect(testingResult.issues.find((issue) => issue.code === 'mta_sts_mx_not_covered')?.severity).toBe('warning');
+  });
+
+  it('reports a policy fetch TLS failure as unavailable with the detail', async () => {
+    const records = {
+      ...baseRecords,
+      '_mta-sts.mail.test': [['v=STSv1; id=abc123']],
+    };
+    const url = 'https://mta-sts.mail.test/.well-known/mta-sts.txt';
+    const { getter } = fakeGetter({
+      [url]: {
+        status: 'error',
+        failure: 'tls',
+        detail: 'The certificate is not valid for mta-sts.mail.test.',
+      },
+    });
+
+    const result = await scanDomain('mail.test', createReader(records, mx), { https: getter });
+    expect(result.mtaSts?.policy?.status).toBe('unavailable');
+    const issue = result.issues.find((entry) => entry.code === 'mta_sts_policy_unavailable');
+    expect(issue?.severity).toBe('warning');
+    expect(issue?.message).toContain('certificate');
+    expect(issue?.message).toContain('deliver as if there were none');
+  });
+
+  it('reports BIMI without enforced DMARC and leaves a declined record alone', async () => {
+    const pNone = {
+      ...baseRecords,
+      '_dmarc.mail.test': [['v=DMARC1; p=none; rua=mailto:reports@example.test']],
+      'default._bimi.mail.test': [['v=BIMI1; l=https://example.test/logo.svg']],
+    };
+    const logoUrl = 'https://example.test/logo.svg';
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny-ps"><title>Logo</title></svg>';
+    const enabled = fakeGetter({ [logoUrl]: ok('image/svg+xml', svg) });
+    const result = await scanDomain('mail.test', createReader(pNone, mx), { https: enabled.getter });
+    expect(result.issues.find((issue) => issue.code === 'bimi_dmarc_not_enforced')?.severity).toBe('warning');
+    expect(result.bimi?.logo?.status).toBe('fetched');
+
+    const declined = {
+      ...baseRecords,
+      'default._bimi.mail.test': [['v=BIMI1; l=']],
+    };
+    const never = fakeGetter();
+    const declinedResult = await scanDomain('mail.test', createReader(declined, mx), { https: never.getter });
+    expect(declinedResult.bimi?.declined).toBe(true);
+    expect(declinedResult.issues.some((issue) => issue.code.startsWith('bimi_'))).toBe(false);
+    expect(never.calls).toEqual([]);
+  });
+
+  it('does not warn a subdomain that inherits both BIMI and DMARC from its parent', async () => {
+    const records = {
+      '_dmarc.mail.test': [['v=DMARC1; p=reject; rua=mailto:reports@example.test']],
+      'default._bimi.mail.test': [['v=BIMI1; l=https://example.test/logo.svg']],
+    };
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny-ps"><title>Logo</title></svg>';
+    const { getter } = fakeGetter({ 'https://example.test/logo.svg': ok('image/svg+xml', svg) });
+    const result = await scanDomain('news.mail.test', createReader(records, mx), { https: getter });
+
+    expect(result.bimi?.inheritedFrom).toBe('mail.test');
+    expect(result.bimi?.dmarc.dependsOnParent).toBe(true);
+    expect(result.issues.some((issue) => issue.code === 'bimi_dmarc_not_enforced')).toBe(false);
+  });
+
+  it('places new issues after every existing finding', async () => {
+    const records = {
+      ...baseRecords,
+      '_dmarc.mail.test': [['v=DMARC1; p=none']],
+      '_mta-sts.mail.test': [['v=STSv1;']],
+    };
+    const { getter } = fakeGetter();
+    const result = await scanDomain('mail.test', createReader(records, mx), { https: getter });
+
+    const existingIndex = result.issues.findIndex((issue) => issue.code === 'dmarc_monitor_only');
+    const transportIndex = result.issues.findIndex((issue) => issue.code === 'mta_sts_record_invalid');
+    expect(existingIndex).toBeGreaterThanOrEqual(0);
+    expect(transportIndex).toBeGreaterThan(existingIndex);
+    expect(result.issues.at(-1)?.code).toBe('mta_sts_record_invalid');
   });
 });

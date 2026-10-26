@@ -9,7 +9,10 @@ export type DnsChangeKind =
   | 'SPF_LOOKUPS'
   | 'SPF_ALL'
   | 'DKIM_SELECTOR'
-  | 'MX';
+  | 'MX'
+  | 'MTA_STS'
+  | 'TLS_RPT'
+  | 'BIMI';
 
 export type DnsChangeSeverity = 'INFO' | 'WARNING' | 'CRITICAL';
 
@@ -130,6 +133,9 @@ export function diffScans(previous: ScanResult, current: ScanResult): DnsChangeD
   const spfAll: DnsChangeDraft[] = [];
   const dkim: DnsChangeDraft[] = [];
   const mx: DnsChangeDraft[] = [];
+  const mtaSts: DnsChangeDraft[] = [];
+  const tlsRpt: DnsChangeDraft[] = [];
+  const bimi: DnsChangeDraft[] = [];
 
   const prevDmarc = previous.dmarc;
   const curDmarc = current.dmarc;
@@ -454,7 +460,145 @@ export function diffScans(previous: ScanResult, current: ScanResult): DnsChangeD
     }
   }
 
-  return [...record, ...policy, ...rua, ...spf, ...lookups, ...spfAll, ...dkim, ...mx];
+  if (
+    previous.mtaSts &&
+    current.mtaSts &&
+    previous.mtaSts.status !== 'error' &&
+    current.mtaSts.status !== 'error'
+  ) {
+    const prev = previous.mtaSts;
+    const cur = current.mtaSts;
+    if (prev.status === 'found' && cur.status === 'missing') {
+      mtaSts.push({
+        kind: 'MTA_STS',
+        severity: 'WARNING',
+        code: 'mta_sts_removed',
+        summary: 'The MTA-STS record was removed.',
+        before: { record: prev.record ?? null },
+        after: null,
+      });
+    } else if (prev.status === 'missing' && cur.status === 'found') {
+      mtaSts.push({
+        kind: 'MTA_STS',
+        severity: 'INFO',
+        code: 'mta_sts_added',
+        summary: 'An MTA-STS record was published.',
+        before: null,
+        after: { record: cur.record ?? null },
+      });
+    }
+
+    const prevMode = prev.policy?.status === 'fetched' ? prev.policy.mode : undefined;
+    const curMode = cur.policy?.status === 'fetched' ? cur.policy.mode : undefined;
+    const modeLevel = { none: 0, testing: 1, enforce: 2 } as const;
+    if (prevMode && curMode && prevMode !== curMode) {
+      const weakened = modeLevel[curMode] < modeLevel[prevMode];
+      mtaSts.push({
+        kind: 'MTA_STS',
+        severity: weakened ? 'WARNING' : 'INFO',
+        code: weakened ? 'mta_sts_mode_weakened' : 'mta_sts_mode_strengthened',
+        summary: `The MTA-STS policy ${weakened ? 'weakened' : 'strengthened'} from ${prevMode} to ${curMode}.`,
+        before: { mode: prevMode },
+        after: { mode: curMode },
+      });
+    }
+
+    if (prev.policy?.status === 'fetched' && cur.policy?.status === 'invalid') {
+      mtaSts.push({
+        kind: 'MTA_STS',
+        severity: 'WARNING',
+        code: 'mta_sts_policy_broken',
+        summary: 'The MTA-STS policy was fetched before but is now invalid.',
+        before: { mode: prev.policy.mode ?? null },
+        after: { problems: cur.policy.problems },
+      });
+    }
+  }
+
+  if (
+    previous.tlsRpt &&
+    current.tlsRpt &&
+    previous.tlsRpt.status !== 'error' &&
+    current.tlsRpt.status !== 'error'
+  ) {
+    const prev = previous.tlsRpt;
+    const cur = current.tlsRpt;
+    if (prev.status === 'found' && cur.status === 'missing') {
+      tlsRpt.push({
+        kind: 'TLS_RPT',
+        severity: 'WARNING',
+        code: 'tls_rpt_removed',
+        summary: 'The TLS-RPT record was removed.',
+        before: { record: prev.record ?? null },
+        after: null,
+      });
+    } else if (prev.status === 'missing' && cur.status === 'found') {
+      tlsRpt.push({
+        kind: 'TLS_RPT',
+        severity: 'INFO',
+        code: 'tls_rpt_added',
+        summary: 'A TLS-RPT record was published.',
+        before: null,
+        after: { record: cur.record ?? null },
+      });
+    } else if (prev.status === 'found' && cur.status === 'found') {
+      const prevUris = [...prev.mailtoTargets, ...prev.httpsTargets].sort();
+      const curUris = [...cur.mailtoTargets, ...cur.httpsTargets].sort();
+      if (!sameSet(prevUris, curUris)) {
+        tlsRpt.push({
+          kind: 'TLS_RPT',
+          severity: 'INFO',
+          code: 'tls_rpt_changed',
+          summary: `TLS-RPT report addresses changed from ${list(prevUris)} to ${list(curUris)}.`,
+          before: { uris: prevUris },
+          after: { uris: curUris },
+        });
+      }
+    }
+  }
+
+  if (
+    previous.bimi &&
+    current.bimi &&
+    previous.bimi.status !== 'error' &&
+    current.bimi.status !== 'error'
+  ) {
+    const prev = previous.bimi;
+    const cur = current.bimi;
+    const prevOwn = prev.status === 'found' && !prev.inheritedFrom;
+    if (prevOwn && cur.status === 'missing') {
+      bimi.push({
+        kind: 'BIMI',
+        severity: 'WARNING',
+        code: 'bimi_removed',
+        summary: 'The BIMI record was removed.',
+        before: { record: prev.record ?? null },
+        after: null,
+      });
+    } else if (prev.status === 'missing' && cur.status === 'found') {
+      bimi.push({
+        kind: 'BIMI',
+        severity: 'INFO',
+        code: 'bimi_added',
+        summary: 'A BIMI record was published.',
+        before: null,
+        after: { record: cur.record ?? null },
+      });
+    } else if (prev.status === 'found' && cur.status === 'found') {
+      if (prev.logoUrl !== cur.logoUrl || prev.authorityUrl !== cur.authorityUrl) {
+        bimi.push({
+          kind: 'BIMI',
+          severity: 'INFO',
+          code: 'bimi_changed',
+          summary: 'The BIMI logo or certificate URL changed.',
+          before: { logoUrl: prev.logoUrl, authorityUrl: prev.authorityUrl },
+          after: { logoUrl: cur.logoUrl, authorityUrl: cur.authorityUrl },
+        });
+      }
+    }
+  }
+
+  return [...record, ...policy, ...rua, ...spf, ...lookups, ...spfAll, ...dkim, ...mx, ...mtaSts, ...tlsRpt, ...bimi];
 }
 
 /** The policy tags published in a scan, for the policy.changed webhook. */

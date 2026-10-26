@@ -1,4 +1,6 @@
 import { systemDnsReader } from './dns.js';
+import { systemHttpsGetter, type HttpsGetter } from './https-get.js';
+import { scanTransportRecords } from './transport-scan.js';
 import { hasAggregateReporting, readDmarcRecord } from './dmarc-tags.js';
 import { isDmarcPolicyRecord, looksLikeMisversionedDmarc, readDmarcPolicy } from './dmarc-policy.js';
 import { normalizeDomain } from './domain.js';
@@ -504,9 +506,10 @@ function errorResult(domain: string, message: string): ScanResult {
 export async function scanDomain(
   input: string,
   reader: DnsReader = systemDnsReader,
-  options: { knownSelectors?: string[] } = {},
+  options: { knownSelectors?: string[]; https?: HttpsGetter } = {},
 ): Promise<ScanResult> {
   const domain = normalizeDomain(input);
+  const https = options.https ?? systemHttpsGetter;
 
   try {
     const [dmarcLookup, spfLookup, mxLookup] = await Promise.all([
@@ -517,17 +520,26 @@ export async function scanDomain(
 
     const dmarc = parseDmarcRecords(dmarcLookup.value ?? []);
     const parsedSpf = parseSpfRecords(spfLookup.value ?? []);
+    const mx: MxResult = mxLookup.status === 'found'
+      ? { status: 'found', records: mxLookup.value ?? [] }
+      : { status: mxLookup.status, records: [], error: mxLookup.error };
+
+    // The transport checks read their own TXT records and, when published,
+    // fetch two HTTPS documents. They run alongside the SPF walk and DKIM
+    // probes, which dominate the scan's time.
+    const transportPromise = scanTransportRecords({ domain, reader, https, dmarc, mx });
+
     // Counted through every include, the way receivers count, with the DKIM
     // probes in parallel: the two are independent.
     const [spf, dkim] = await Promise.all([
       withSpfLookups(domain, parsedSpf, reader),
       scanDkim(domain, parsedSpf, reader, options.knownSelectors ?? []),
     ]);
-    const mx: MxResult = mxLookup.status === 'found'
-      ? { status: 'found', records: mxLookup.value ?? [] }
-      : { status: mxLookup.status, records: [], error: mxLookup.error };
+    const transport = await transportPromise;
 
-    const issues = buildIssues(dmarc, spf, dkim, mx);
+    // Existing findings stay first: the public scanner shows the first one as
+    // its verdict, and adding transport checks must not move it.
+    const issues = [...buildIssues(dmarc, spf, dkim, mx), ...transport.issues];
     const scoreBreakdown = calculateScore(dmarc, spf, dkim, mx);
     return {
       domain,
@@ -539,6 +551,9 @@ export async function scanDomain(
       spf,
       dkim,
       mx,
+      mtaSts: transport.mtaSts,
+      tlsRpt: transport.tlsRpt,
+      bimi: transport.bimi,
       issues,
       recommendations: issues.flatMap((issue) => (issue.recommendation ? [issue.recommendation] : [])),
     };
