@@ -66,6 +66,7 @@ export function ScanHistory({
   scans,
   nextCursor,
   loadFailed,
+  hostedZone,
 }: {
   organizationId: string;
   domainId: string;
@@ -74,6 +75,8 @@ export function ScanHistory({
   scans: ScanHistoryRow[];
   nextCursor: string | null;
   loadFailed: boolean;
+  /** The hosted zone, so a delegated DMARC record can be named as ours. */
+  hostedZone?: string | null;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -263,7 +266,7 @@ export function ScanHistory({
                             }}
                           />
                         ) : detail ? (
-                          <ScanDetail scan={detail} />
+                          <ScanDetail scan={detail} hostedZone={hostedZone} />
                         ) : null}
                       </td>
                     </tr>
@@ -445,14 +448,30 @@ function TransportDetails({
   );
 }
 
-function ScanDetail({ scan }: { scan: ScanRow }) {
+function ScanDetail({ scan, hostedZone }: { scan: ScanRow; hostedZone?: string | null }) {
   const r = scan.result;
   if (!r) {
     return <p className="text-ui text-fg-3">This scan stored no DNS result. {scan.error ?? "It may still be running."}</p>;
   }
+  const delegatedTo = r.dmarc.delegatedTo?.trim().toLowerCase().replace(/\.+$/, "") ?? null;
+  const hostedByUs = Boolean(
+    delegatedTo &&
+      hostedZone &&
+      /^[a-z2-7]{16}\./.test(delegatedTo) &&
+      delegatedTo.endsWith(`.${hostedZone.toLowerCase()}`),
+  );
   const facts: Array<[string, string]> = [
     ["Measured at", instantLabel(r.scannedAt)],
-    ["DMARC", r.dmarc.status === "found" ? `found, p=${r.dmarc.policy}` : r.dmarc.status === "error" ? "lookup failed" : "no record found"],
+    [
+      "DMARC",
+      `${
+        r.dmarc.status === "found"
+          ? `found, p=${r.dmarc.policy}`
+          : r.dmarc.status === "error"
+            ? "lookup failed"
+            : "no record found"
+      }${hostedByUs ? " (hosted by DMARC Harbor)" : ""}`,
+    ],
     [
       "SPF",
       r.spf.status === "found"

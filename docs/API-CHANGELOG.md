@@ -243,6 +243,44 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-10-26 — Hosted DMARC records
+
+A workspace on Fairway or above can serve a domain's DMARC record from DMARC
+Harbor's own zone. The customer publishes one CNAME at `_dmarc.<domain>`
+pointing at a random 16-character token name, and every later policy change is
+made here without touching their DNS again. The CNAME and TXT are read back to
+mark the record active; a release keeps serving until the CNAME is gone and a
+TXT is published again.
+
+Browser routes:
+
+- `GET /api/workspaces/{id}/domains/{domainId}/hosted-dmarc` returns
+  availability, the CNAME, the served value and version, policy tags,
+  delegation state, the last 20 changes and whether the deployment's zone is
+  full. `paused` is true when the plan no longer grants `dns.hosted`.
+- `POST …/hosted-dmarc` starts hosting. Over an existing record it keeps the
+  published policy and other tags and adds our report address; without one it
+  uses the onboarding suggestion. The TXT is live before the row is returned.
+- `PUT …/hosted-dmarc` changes `p`, `testing` and `np` with `expectedVersion`.
+  A strengthening change uses the same readiness assessment as the policy
+  planner and can be overridden explicitly. A provider failure rolls the value
+  and version back.
+- `POST …/hosted-dmarc/check` re-reads the CNAME and TXT.
+- `POST …/hosted-dmarc/changes/{changeId}/restore` restores a policy change
+  within 7 days, once.
+- `POST …/hosted-dmarc/release` stops hosting; it is allowed on every plan.
+
+Capacity is explicit: `HOSTED_DNS_RECORD_LIMIT` defaults to 200 (Cloudflare
+Free) and new hosting is refused with `503 HOSTED_DNS_FULL` at the limit. The
+feature is off unless the zone, token and zone id are all configured; a partial
+set refuses boot.
+
+Scan results gain an optional `dmarc.delegatedTo`. The workspace deletion
+preview lists hosted records with the TXT to republish first, and data export
+includes hosted records and their changes. The switch planner recognises our
+own CNAME and no longer warns about it. DNS monitoring changes are unchanged.
+`/api/v1` is unchanged.
+
 ## 2026-10-26 — Two-step verification
 
 Accounts can turn on an authenticator app (TOTP, 6 digits, 30 seconds) and

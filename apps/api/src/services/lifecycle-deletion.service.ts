@@ -1,6 +1,7 @@
 import { prisma } from '../database/prisma.js';
 import { recordAuditEvent } from './audit.service.js';
 import { domainRef } from './domain-ref.js';
+import { hostedSnapshotsForDomainIds, removeHostedForDeletion } from './hosted-dns/hosted-dmarc.service.js';
 
 /**
  * lifecycle-deletion.ts — removing a domain, a client, or a whole workspace.
@@ -136,6 +137,7 @@ export async function deleteDomain(
   const reportShares = await prisma.reportShare.count({ where: { domainId: domain.id } });
 
   const summary: DeletionSummary = merge({ ...EMPTY, domains: 1 }, { ...rows, reportShares });
+  const hosted = await hostedSnapshotsForDomainIds([domain.id]);
 
   await prisma.$transaction(async (transaction) => {
     await transaction.domain.delete({ where: { id: domain.id } });
@@ -151,6 +153,7 @@ export async function deleteDomain(
     });
   });
 
+  await removeHostedForDeletion(hosted);
   return { ok: true, name: domain.name, summary };
 }
 
@@ -216,6 +219,7 @@ export async function deleteClient(
   }
 
   const summary = await summariseClient(client.id);
+  const hosted = await hostedSnapshotsForDomainIds((await domainIdsFor(client.id)).map((domain) => domain.id));
 
   await prisma.$transaction(async (transaction) => {
     await transaction.client.delete({ where: { id: client.id } });
@@ -228,6 +232,8 @@ export async function deleteClient(
       detail: { name: client.name, slug: client.slug, destroyed: summary },
     });
   });
+
+  await removeHostedForDeletion(hosted);
 
   // No trust-link revocation here. `trustSlug` is a column on Client, so the
   // delete above already withdrew the Trust Center address with the row. The old
@@ -307,6 +313,11 @@ export async function deleteWorkspace(
   }
 
   const summary = await summariseWorkspace(organization.id);
+  const hosted = await hostedSnapshotsForDomainIds(
+    (await prisma.domain.findMany({ where: { client: { organizationId } }, select: { id: true } })).map(
+      (domain) => domain.id,
+    ),
+  );
 
   await prisma.$transaction(async (transaction) => {
     // Audit FIRST, on this transaction's own client, and only then delete.
@@ -335,5 +346,6 @@ export async function deleteWorkspace(
     await transaction.organization.delete({ where: { id: organization.id } });
   });
 
+  await removeHostedForDeletion(hosted);
   return { ok: true, name: organization.name, summary };
 }

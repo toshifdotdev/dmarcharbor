@@ -10,6 +10,7 @@ import type { DnsReader, ScanResult } from '../scanner/types.js';
 import { confirmDnsRemovals } from './monitoring/dns-removal-confirmation.js';
 import { changeJson, emitDnsWebhooks } from './monitoring/dns-webhook.service.js';
 import { diffScans } from './monitoring/dns-diff.js';
+import { checkDelegation } from './hosted-dns/hosted-dmarc.service.js';
 
 const scanInclude = {
   domain: {
@@ -274,6 +275,30 @@ export async function runDomainScan(input: RunDomainScanInput): Promise<RunDomai
       previous: persisted.previousResult,
       current: result,
     });
+
+    /**
+     * A hosted record can become delegated (or its CNAME can disappear) between
+     * checks. A scan has just read the same names, so it can move the row
+     * without another lookup. Any failure is the hosted feature's problem, not
+     * the scan's.
+     */
+    try {
+      const hosted = await prisma.hostedDmarcRecord.findUnique({
+        where: { domainId: domain.id },
+        select: { status: true },
+      });
+      if (hosted && hosted.status !== 'RELEASED') {
+        await checkDelegation({
+          organizationId: domain.client.organizationId,
+          domainId: domain.id,
+          reader,
+        });
+      }
+    } catch (error) {
+      console.warn(
+        `[hosted-dmarc] delegation check during a scan failed for ${domain.name}: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+    }
 
     return { status: 'completed', scan: persisted.scan, changes: persisted.changes.length };
   } catch (error) {

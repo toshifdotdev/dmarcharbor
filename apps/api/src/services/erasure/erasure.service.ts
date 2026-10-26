@@ -12,6 +12,7 @@ import {
   type PlannedAction,
 } from '../inventory/deletion-planner.js';
 import { buildInventory, type InventoryScope } from '../inventory/inventory.service.js';
+import { hostedSnapshotsForDomainIds, removeHostedForDeletion } from '../hosted-dns/hosted-dmarc.service.js';
 
 export const erasureGraceDays = 7;
 export const erasureCertificateRetentionDays = 1095;
@@ -406,6 +407,12 @@ export async function executeErasure(
   const anonymous = await anonymiseAuditTrail(organizationId);
   const anonymisedSubscriptions = await anonymiseSubscription(organizationId);
 
+  const hosted = await hostedSnapshotsForDomainIds(
+    (await prisma.domain.findMany({ where: domainFilter, select: { id: true } })).map(
+      (domain) => domain.id,
+    ),
+  );
+
   const counts = {
     clients: await prisma.client.count({ where: clientFilter }),
     domains: await prisma.domain.count({ where: domainFilter }),
@@ -494,6 +501,8 @@ export async function executeErasure(
       await prisma.client.deleteMany({ where: clientFilter });
     }
   }
+
+  await removeHostedForDeletion(hosted);
 
   await prisma.erasureRequest.update({
     where: { id: request.id },

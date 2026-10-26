@@ -42,6 +42,11 @@ export interface DmarcResult {
   /** t=y is published: the policy is in testing mode (RFC 9989 section 4.7). */
   testing?: boolean;
   /**
+   * The CNAME target at _dmarc, when the reader can read CNAMEs. Undefined on
+   * old scans and on reader doubles without resolveCname.
+   */
+  delegatedTo?: string | null;
+  /**
    * What failing mail actually gets: the policy, one level softer while t=y
    * is published (quarantine is handled as none, reject as quarantine).
    */

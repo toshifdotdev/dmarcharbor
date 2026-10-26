@@ -112,6 +112,42 @@ export interface SenderReviewResult {
   owner: SenderRow["owner"];
 }
 
+// ─── Hosted DMARC records ────────────────────────────────────────────────────
+
+export type HostedDmarcStatus = "PENDING" | "ACTIVE" | "RELEASING" | "RELEASED";
+
+export interface HostedDmarcChangeView {
+  id: string;
+  reason: string;
+  previousValue: string | null;
+  newValue: string;
+  readinessOverride: boolean;
+  actor: { id: string; name: string } | null;
+  createdAt: string;
+  restoredAt: string | null;
+  restorable: boolean;
+}
+
+export interface HostedDmarcView {
+  available: boolean;
+  hosted: null | {
+    status: HostedDmarcStatus;
+    paused: boolean;
+    cname: { host: string; type: "CNAME"; target: string };
+    value: string;
+    version: number;
+    policy: { p: string; testing: boolean; np: string | null };
+    delegated: boolean;
+    delegationCheckedAt: string | null;
+    lastSyncedAt: string | null;
+    lastSyncError: string | null;
+    releaseBlocked: "no_record_published" | null;
+    republish: { host: string; type: "TXT"; value: string } | null;
+    changes: HostedDmarcChangeView[];
+  };
+  capacity: { full: boolean };
+}
+
 // ─── DNS publishing through Cloudflare ───────────────────────────────────────
 
 export interface DnsConnectionRow {
@@ -847,7 +883,8 @@ export type EntitlementKey =
   | "branding.logoUpload"
   | "integrations.webhooks"
   | "senders.owners"
-  | "dns.automation";
+  | "dns.automation"
+  | "dns.hosted";
 
 export type QuotaKey = "client" | "activeDomain" | "member";
 
@@ -1101,7 +1138,12 @@ export type AuditAction =
   | "MFA_BACKUP_CODES_REGENERATED"
   | "MFA_RESET"
   | "WORKSPACE_MFA_REQUIREMENT_CHANGED"
-  | "MFA_SIGN_IN_REFUSED";
+  | "MFA_SIGN_IN_REFUSED"
+  | "HOSTED_DMARC_CREATED"
+  | "HOSTED_DMARC_UPDATED"
+  | "HOSTED_DMARC_RESTORED"
+  | "HOSTED_DMARC_RELEASE_REQUESTED"
+  | "HOSTED_DMARC_RELEASED";
 
 /**
  * AuditOutcome is SUCCESS or DENIED. There is no FAILED value: the trail records
@@ -1482,6 +1524,8 @@ export interface ScanDmarcDetail {
   testing?: boolean;
   /** The policy failing mail actually gets, one level softer while t=y is published. */
   effectivePolicy?: "none" | "quarantine" | "reject" | "unknown";
+  /** CNAME at _dmarc, when the scan could read it; absent on older scans. */
+  delegatedTo?: string | null;
   error?: string;
 }
 
@@ -1968,6 +2012,9 @@ export interface ApiErrorBody {
     to?: string;
     /** A 409 DNS_CHANGED carries the new preview so the dialog can ask again. */
     preview?: DnsPublishPreview;
+    /** A 409 from hosted DMARC: the blockers, or the current view on a version conflict. */
+    blockers?: string[];
+    view?: HostedDmarcView;
     /**
      * set on the 400 the identity route answers when a named-recipient purge
      * was asked for without `confirmNamePurge`. The flag is what tells the UI

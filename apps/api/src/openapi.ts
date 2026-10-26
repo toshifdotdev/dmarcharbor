@@ -2269,6 +2269,122 @@ export const openApiDocument = {
         responses: { 200: { description: 'Provider volumes, requirement checks, evidence and counts.' }, ...standardErrors },
       },
     },
+    '/workspaces/{organizationId}/domains/{domainId}/hosted-dmarc': {
+      get: {
+        tags: ['Clients and domains'],
+        summary: 'Read a domain hosted DMARC record',
+        description: [
+          'Returns whether this deployment serves hosted records, the CNAME the customer must publish, the value currently served, its version, the policy tags, delegation state and the last 20 changes.',
+          'paused is true when the plan no longer grants dns.hosted; the last value keeps being served. capacity never exposes raw counts.',
+          'Requires domain read permission.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: { 200: { description: 'Availability, the hosted record if any, and capacity.' }, ...standardErrors },
+      },
+      post: {
+        tags: ['Clients and domains'],
+        summary: 'Start hosting a DMARC record',
+        description: [
+          'Publishes one TXT in the hosted zone and returns the CNAME the customer must publish at _dmarc. Starting over an existing DMARC record keeps its policy and other tags and adds our report address; without a record it uses the onboarding suggestion.',
+          'The TXT is live before the row is returned. A provider failure deletes the row and answers 502. Requires domain update permission and dns.hosted.',
+          'Answers 503 HOSTED_DNS_UNAVAILABLE when the deployment has no hosted zone, 503 HOSTED_DNS_FULL at capacity, 409 DOMAIN_NOT_VERIFIED, ALREADY_HOSTED or MULTIPLE_DMARC_RECORDS, and 503 DNS_LOOKUP_FAILED without creating anything.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: {
+          ...standardErrors,
+          201: { description: 'Hosting started; the CNAME and the served value.' },
+          402: { description: 'The plan does not include hosted DMARC records.' },
+          502: { description: 'The DNS provider refused; nothing was kept.' },
+          503: { description: 'Hosting is unavailable, full, or DNS could not be read.' },
+        },
+      },
+      put: {
+        tags: ['Clients and domains'],
+        summary: 'Change the hosted DMARC policy',
+        description: [
+          'Rewrites p, testing and np in the served value; rua, ruf, sp and every other tag stay as published. A strengthening change runs the same readiness assessment as the policy planner and refuses with POLICY_NOT_READY unless override is true.',
+          'expectedVersion must be the version that was read. A mismatch answers 409 VERSION_CHANGED with the current view. A provider failure rolls the value and version back and answers 502, so nothing reports a change receivers did not get. Requires domain update permission and dns.hosted.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['expectedVersion', 'policy'],
+                properties: {
+                  expectedVersion: { type: 'integer', minimum: 1 },
+                  policy: { type: 'string', enum: ['none', 'quarantine', 'reject'] },
+                  testing: { type: 'boolean' },
+                  np: { type: 'string', enum: ['none', 'quarantine', 'reject'], nullable: true },
+                  override: { type: 'boolean' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          ...standardErrors,
+          200: { description: 'The updated view, or { action: "unchanged" }.' },
+          402: { description: 'The plan does not include hosted DMARC records.' },
+          409: { description: 'VERSION_CHANGED, HOSTED_RELEASING or POLICY_NOT_READY with blockers.' },
+          502: { description: 'The DNS provider refused; the value was rolled back.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/domains/{domainId}/hosted-dmarc/check': {
+      post: {
+        tags: ['Clients and domains'],
+        summary: 'Check the hosted DMARC delegation now',
+        description: [
+          'Reads the CNAME and TXT at _dmarc. A PENDING row becomes ACTIVE when the CNAME points at this token. A RELEASING row is released only when the CNAME is gone and a TXT is published again; with no TXT it stays RELEASING and reports releaseBlocked.',
+          'Requires domain read permission.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: { 200: { description: 'The updated view.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/domains/{domainId}/hosted-dmarc/changes/{changeId}/restore': {
+      post: {
+        tags: ['Clients and domains'],
+        summary: 'Restore an earlier hosted DMARC value',
+        description: [
+          'Restores a policy change within 7 days, once, and only while the served value is still the one that change produced. Restoring writes a new change and moves the version. Requires domain update permission and dns.hosted.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.'), idParam('changeId', 'Change identifier from the view.')],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['expectedVersion'],
+                properties: { expectedVersion: { type: 'integer', minimum: 1 } },
+              },
+            },
+          },
+        },
+        responses: {
+          ...standardErrors,
+          200: { description: 'The restored view.' },
+          409: { description: 'RESTORE_NOT_ALLOWED or VERSION_CHANGED.' },
+          502: { description: 'The DNS provider refused; the value was rolled back.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/domains/{domainId}/hosted-dmarc/release': {
+      post: {
+        tags: ['Clients and domains'],
+        summary: 'Stop hosting a DMARC record',
+        description: [
+          'A PENDING record is removed and released at once. An ACTIVE record becomes RELEASING: we keep serving until a check or scan sees the CNAME gone and a TXT published again, and the view carries the TXT to republish.',
+          'Allowed on every plan, so a downgraded workspace can always leave. Requires domain update permission.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: { 200: { description: 'The updated view, with republish when releasing.' }, ...standardErrors },
+      },
+    },
     '/workspaces/{organizationId}/domains/{domainId}/scans': {
       post: {
         tags: ['Scanning'],

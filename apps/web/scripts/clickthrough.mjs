@@ -794,6 +794,39 @@ check(
   JSON.stringify(mailboxTabAudit),
 );
 
+// 4b-4. Hosted DMARC panel. The tab click can land before hydration, so it is
+//       retried inside the poll. This deployment has no hosted zone, so the
+//       panel must say so rather than disappear; a configured deployment still
+//       renders the same panel in its own state.
+const hostedTabAudit = await waitForEval(
+  `(() => {
+    const tab = [...document.querySelectorAll('[role="tab"]')].find((t) => t.textContent.includes('Reporting and setup'));
+    if (!tab) return { tab: false, visible: false, text: '' };
+    const panelId = tab.getAttribute('aria-controls');
+    const panel = panelId ? document.getElementById(panelId) : null;
+    const visible = !!panel && !panel.hidden;
+    if (!visible) tab.click();
+    return { tab: true, visible, text: panel ? panel.textContent : '' };
+  })()`,
+  (a) => a && a.tab && a.visible,
+  45000,
+);
+const hostedPanelText = hostedTabAudit?.text ?? '';
+check(
+  "hosted DMARC panel renders on Reporting and setup",
+  Boolean(
+    hostedTabAudit?.visible &&
+      hostedPanelText.includes("Hosted DMARC record") &&
+      (hostedPanelText.includes("not set up on this deployment") ||
+        hostedPanelText.includes("Point _dmarc at DMARC Harbor once")),
+  ),
+  JSON.stringify({
+    visible: hostedTabAudit?.visible ?? false,
+    unavailable: hostedPanelText.includes("not set up on this deployment"),
+    explainer: hostedPanelText.includes("Point _dmarc at DMARC Harbor once"),
+  }),
+);
+
 
 // 4c. the stale-feed domain: blackout band + hatched chart gap, no pass.
 // Read the row id from the PORTFOLIO (the detail page's tables have no such

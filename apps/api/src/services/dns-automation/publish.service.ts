@@ -25,8 +25,9 @@ import {
   type PublishRecordInput,
   type PublishableKind,
 } from './records.js';
+import { restoreWindowDays } from './restore-window.js';
 
-export const restoreWindowDays = 7;
+export { restoreWindowDays };
 
 export class DnsPublishError extends Error {
   constructor(

@@ -87,6 +87,7 @@ function timedOutPlan(domainName: string): SwitchPlan {
     record: null,
     currentRecord: null,
     cname: null,
+    hostedByUs: false,
     alreadyReportingToUs: false,
     incumbents: [],
     incumbentAggregateTargets: [],

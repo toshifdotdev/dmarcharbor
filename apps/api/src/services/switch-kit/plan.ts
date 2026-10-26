@@ -2,6 +2,7 @@ import type { DnsReader } from '../../scanner/types.js';
 import { isDmarcPolicyRecord } from '../../scanner/dmarc-policy.js';
 import { parseDmarcTags } from '../../scanner/dmarc-tags.js';
 import { buildDmarcRecord } from '../onboarding.service.js';
+import { isOurHostedTarget } from '../hosted-dns/target.js';
 import { isOurAddress, normaliseReportUri } from '../report-address.service.js';
 import { buildDualRecord, readRuaUris, type SwitchWarning } from './record-rewrite.js';
 import { detectVendor } from './vendors.js';
@@ -27,6 +28,8 @@ export interface SwitchPlan {
   currentRecord: string | null;
   /** Where a CNAME sends the name, when one is published. */
   cname: string | null;
+  /** The CNAME points at a record this service hosts, not at an incumbent. */
+  hostedByUs: boolean;
   alreadyReportingToUs: boolean;
   incumbents: SwitchIncumbent[];
   /** Raw rua URIs classified as the incumbent's. */
@@ -98,7 +101,8 @@ export async function planDomainSwitch(input: {
       : null;
 
   const warnings: SwitchWarning[] = [];
-  if (cname) {
+  const hostedByUs = isOurHostedTarget(cname);
+  if (cname && !hostedByUs) {
     warnings.push({
       code: 'cname',
       message: `A CNAME points ${host} at ${cname}. A CNAME and a TXT record cannot coexist at one name: replace the CNAME with this TXT record, or edit the record at ${cname}.`,
@@ -126,6 +130,7 @@ export async function planDomainSwitch(input: {
     domain: domainName,
     host,
     cname,
+    hostedByUs,
     alreadyReportingToUs: false,
     incumbents: [] as SwitchIncumbent[],
     incumbentAggregateTargets: [] as string[],
@@ -223,6 +228,7 @@ export async function planDomainSwitch(input: {
     record: { host, type: 'TXT', value: dual.value },
     currentRecord,
     cname,
+    hostedByUs,
     alreadyReportingToUs,
     incumbents,
     incumbentAggregateTargets: incumbents.map((entry) => entry.uri),

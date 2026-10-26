@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DnsReader, LookupResult } from '../src/models/scan.model.js';
 import { planDomainSwitch } from '../src/services/switch-kit/plan.js';
+import { env } from '../src/config/env.js';
 
 const DOMAIN = 'client.example.test';
 const OUR = 'dmarc-reports+abcdef012345@reports.dmarcharbor.com';
@@ -97,6 +98,22 @@ describe('planning a switch from what DNS shows', () => {
     expect(warning).toBeDefined();
     expect(warning!.message).toContain('dmarc.dmarcian.com');
     expect(warning!.message).toContain('cannot coexist');
+  });
+
+  it('does not warn about a CNAME that points at our own hosted record', async () => {
+    const previous = env.HOSTED_DNS_ZONE;
+    env.HOSTED_DNS_ZONE = 'hosted.example.test';
+    try {
+      const result = await plan({
+        dmarc: txt('v=DMARC1; p=none; rua=mailto:agg@dmarcian.com'),
+        cname: { status: 'found', value: ['abcdefghijklmnop.hosted.example.test'] },
+      });
+      expect(result.hostedByUs).toBe(true);
+      expect(result.cname).toBe('abcdefghijklmnop.hosted.example.test');
+      expect(result.warnings.some((entry) => entry.code === 'cname')).toBe(false);
+    } finally {
+      env.HOSTED_DNS_ZONE = previous;
+    }
   });
 
   it('reports a failed lookup with a short message, never the raw error', async () => {

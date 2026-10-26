@@ -116,6 +116,11 @@ const ACTION_SENTENCES: Record<AuditAction, string> = {
   MFA_RESET: "Two-step verification reset",
   WORKSPACE_MFA_REQUIREMENT_CHANGED: "Workspace two-step requirement changed",
   MFA_SIGN_IN_REFUSED: "Sign-in refused until two-step verification is set up",
+  HOSTED_DMARC_CREATED: "Hosted DMARC record created",
+  HOSTED_DMARC_UPDATED: "Hosted DMARC policy changed",
+  HOSTED_DMARC_RESTORED: "Hosted DMARC policy restored",
+  HOSTED_DMARC_RELEASE_REQUESTED: "Hosted DMARC release requested",
+  HOSTED_DMARC_RELEASED: "Hosted DMARC record released",
 };
 
 /**

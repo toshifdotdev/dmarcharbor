@@ -14,8 +14,14 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { deleteWorkspace, previewWorkspaceDeletion, type DeletionSummary } from "@/lib/ops-client";
+import {
+  deleteWorkspace,
+  previewWorkspaceDeletion,
+  type DeletionSummary,
+  type HostedDeletionPreview,
+} from "@/lib/ops-client";
 import { Button, ButtonLink } from "@/components/ui/button";
+import { DnsRecord } from "@/components/ui/copy";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
@@ -48,6 +54,7 @@ export function WorkspaceDeletion({
 }) {
   const [open, setOpen] = useState(false);
   const [summary, setSummary] = useState<DeletionSummary | null>(null);
+  const [hosted, setHosted] = useState<HostedDeletionPreview[]>([]);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [typed, setTyped] = useState("");
@@ -60,6 +67,7 @@ export function WorkspaceDeletion({
     setError(null);
     setPreviewError(null);
     setLoading(true);
+    setHosted([]);
     const res = await previewWorkspaceDeletion(organizationId);
     setLoading(false);
     if (!res.ok) {
@@ -67,6 +75,7 @@ export function WorkspaceDeletion({
       return;
     }
     setSummary(res.data.summary);
+    setHosted(res.data.hostedDmarc ?? []);
   }
 
   async function confirm() {
@@ -154,6 +163,28 @@ export function WorkspaceDeletion({
                   </li>
                 ))}
               </ul>
+            </div>
+          ) : null}
+          {hosted.length > 0 ? (
+            <div className="border border-warn/40 bg-paper-2 p-3">
+              <p className="font-semibold text-fg">These domains read their DMARC record from DMARC Harbor.</p>
+              <p className="mt-1 max-w-[72ch] text-meta text-fg-2">
+                Publish this TXT at your DNS host and remove the CNAME first, or the domain will have no DMARC record once
+                it is deleted here.
+              </p>
+              <div className="mt-3 flex flex-col gap-3">
+                {hosted.map((record) => (
+                  <div key={record.domain}>
+                    <p className="mb-1 text-meta font-semibold text-fg">{record.domain}</p>
+                    <DnsRecord
+                      type="TXT"
+                      host={record.republish.host}
+                      zone={record.republish.host.replace(/^_dmarc\./, "")}
+                      value={record.republish.value}
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
           ) : null}
           <Field label={<>Type the workspace slug, <code className="data text-fg">{slug}</code>, to confirm</>}>

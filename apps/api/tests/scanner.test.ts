@@ -39,6 +39,28 @@ describe('DMARC and SPF parsing', () => {
   });
 });
 
+describe('DMARC delegation in the scanner', () => {
+  it('records the CNAME target when the reader supports CNAME, and omits it otherwise', async () => {
+    const records = {
+      '_dmarc.mail.test': [['v=DMARC1; p=none']],
+      'mail.test': [['v=spf1 -all']],
+    };
+    const mx = [{ exchange: 'mx1.mail.test', priority: 10 }];
+    const withCname: DnsReader = {
+      ...createReader(records, mx),
+      async resolveCname() {
+        return { status: 'found', value: ['abcdefghijklmnop.hosted.test'] };
+      },
+    };
+
+    const result = await scanDomain('mail.test', withCname);
+    expect(result.dmarc.delegatedTo).toBe('abcdefghijklmnop.hosted.test');
+
+    const without = await scanDomain('mail.test', createReader(records, mx));
+    expect(without.dmarc.delegatedTo).toBeUndefined();
+  });
+});
+
 describe('DKIM discovery through the scanner', () => {
   const KEY = 'v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQ==';
 

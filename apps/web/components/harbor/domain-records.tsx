@@ -17,6 +17,7 @@
  */
 
 import { useState } from "react";
+import Link from "next/link";
 import type { DmarcRecordDraft, DnsConnectionRow } from "@/lib/types";
 import { DnsHandoff, type PublishRecord } from "./dns-handoff";
 import type { DnsPublishContext } from "./dns-publish";
@@ -26,6 +27,7 @@ export function DomainRecords({
   organizationId,
   domainId,
   domainName,
+  slug,
   verified,
   dmarc,
   publishedPolicy,
@@ -35,6 +37,7 @@ export function DomainRecords({
   organizationId: string;
   domainId: string;
   domainName: string;
+  slug: string;
   verified: boolean;
   dmarc: DmarcRecordDraft | null;
   /** The policy DNS already carries, from the onboarding state. */
@@ -121,6 +124,16 @@ export function DomainRecords({
           The DMARC record could not be generated just now. Reload the page to try again.
         </p>
       )}
+
+      {dmarc ? (
+        <p className="max-w-[76ch] text-meta text-fg-2">
+          Prefer not to edit DNS for every policy change?{" "}
+          <Link href={`/domains/${encodeURIComponent(slug)}?tab=setup`} className="link font-semibold">
+            Host this record with DMARC Harbor
+          </Link>{" "}
+          from the domain&apos;s Reporting and setup tab.
+        </p>
+      ) : null}
 
       {dmarc && dmarc.notes.length > 0 ? (
         <div>

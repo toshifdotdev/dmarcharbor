@@ -74,6 +74,8 @@ export interface ServiceMeta {
     rescanIntervalMinutes: number;
     enabled: boolean;
   };
+  /** The zone hosted DMARC records are served from, when the feature is on. */
+  hostedZone?: string | null;
 }
 
 /**

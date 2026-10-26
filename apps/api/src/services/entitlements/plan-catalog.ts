@@ -24,7 +24,8 @@ export type EntitlementKey =
   | 'branding.logoUpload'
   | 'integrations.webhooks'
   | 'senders.owners'
-  | 'dns.automation';
+  | 'dns.automation'
+  | 'dns.hosted';
 
 export type QuotaKey = 'client' | 'activeDomain' | 'member';
 
@@ -56,6 +57,7 @@ export const entitlementLabels: Record<EntitlementKey, string> = {
   'integrations.webhooks': 'Webhooks',
   'senders.owners': 'Sender owners',
   'dns.automation': 'Publish DNS records through Cloudflare',
+  'dns.hosted': 'Hosted DMARC record',
 };
 
 /**
@@ -149,6 +151,7 @@ const allFeatures = (overrides: Partial<Record<EntitlementKey, boolean>> = {}): 
   'integrations.webhooks': true,
   'senders.owners': true,
   'dns.automation': true,
+  'dns.hosted': true,
   ...overrides,
 });
 
@@ -263,6 +266,12 @@ const noIntegrations = { 'integrations.webhooks': false, 'senders.owners': false
 const noDnsAutomation = { 'dns.automation': false } as const;
 
 /**
+ * Hosted DMARC records start at Fairway with the other DNS automation.
+ * On a downgrade the last value keeps being served; only changes pause.
+ */
+const noDnsHosted = { 'dns.hosted': false } as const;
+
+/**
  * Harbor's feature set, shared by FLEET rather than copied.
  *
  * FLEET is Harbor's features for a much larger portfolio. A copy would drift
@@ -285,7 +294,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
       maxMembers: 1,
       maxWorkspaces: 1,
     activeDomainWindowDays: 30,
-    features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noIntegrations, ...noDnsAutomation, ...off }),
+    features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noIntegrations, ...noDnsAutomation, ...noDnsHosted, ...off }),
   },
   FAIRWAY: {
     tier: 'FAIRWAY',

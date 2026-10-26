@@ -23,13 +23,18 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState } from "react";
-import { deleteClient, type DeletionSummary } from "@/lib/ops-client";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  deleteClient,
+  previewWorkspaceDeletion,
+  type DeletionSummary,
+  type HostedDeletionPreview,
+} from "@/lib/ops-client";
 import { domainHref, onboardingHref } from "@/lib/route-hrefs";
 import type { DomainStatus } from "@/lib/types";
 import { Badge, type Tone } from "@/components/ui/badge";
 import { Button, ButtonLink } from "@/components/ui/button";
-import { CopyButton } from "@/components/ui/copy";
+import { CopyButton, DnsRecord } from "@/components/ui/copy";
 import { Dialog } from "@/components/ui/dialog";
 import { Input, SearchInput, Segmented } from "@/components/ui/field";
 import { External, Plus } from "@/components/ui/icons";
@@ -397,6 +402,23 @@ function DeleteClientDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ message: string; portal: boolean } | null>(null);
   const [shownFor, setShownFor] = useState<string | null>(null);
+  const [hosted, setHosted] = useState<HostedDeletionPreview[]>([]);
+
+  useEffect(() => {
+    if (!client) {
+      setHosted([]);
+      return;
+    }
+    let active = true;
+    previewWorkspaceDeletion(organizationId, client.id)
+      .then((result) => {
+        if (active && result.ok) setHosted(result.data.hostedDmarc ?? []);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [client, organizationId]);
 
   // A fresh dialog per client: reset the typed name and any refusal.
   if (client && client.id !== shownFor) {
@@ -461,6 +483,28 @@ function DeleteClientDialog({
                   <li key={d.id}>{d.name}</li>
                 ))}
               </ul>
+              {hosted.length > 0 ? (
+                <div className="border border-warn/40 bg-paper-2 p-3">
+                  <p className="font-semibold text-fg">These domains read their DMARC record from DMARC Harbor.</p>
+                  <p className="mt-1 text-meta text-fg-2">
+                    Publish this TXT at your DNS host and remove the CNAME first, or the domain will have no DMARC record
+                    once it is deleted here.
+                  </p>
+                  <div className="mt-3 flex flex-col gap-3">
+                    {hosted.map((record) => (
+                      <div key={record.domain}>
+                        <p className="mb-1 text-meta font-semibold text-fg">{record.domain}</p>
+                        <DnsRecord
+                          type="TXT"
+                          host={record.republish.host}
+                          zone={record.republish.host.replace(/^_dmarc\./, "")}
+                          value={record.republish.value}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               <label htmlFor="delete-client-name" className="text-meta font-semibold text-fg-2">
                 Type <span className="text-fg">{client.name}</span> to confirm
               </label>

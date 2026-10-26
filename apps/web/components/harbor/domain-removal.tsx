@@ -17,6 +17,7 @@ import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 import { deleteDomain } from "@/lib/ops-client";
 import { Button } from "@/components/ui/button";
+import { DnsRecord } from "@/components/ui/copy";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/field";
 
@@ -24,10 +25,13 @@ export function DomainRemoval({
   organizationId,
   domainId,
   domainName,
+  hosted,
 }: {
   organizationId: string;
   domainId: string;
   domainName: string;
+  /** The TXT DMARC Harbor serves for this domain, when it is hosted here. */
+  hosted: { value: string } | null;
 }) {
   const router = useRouter();
   const id = useId();
@@ -110,6 +114,15 @@ export function DomainRemoval({
             Every report, forensic report, scan, alert rule, alert event, share link and digest for this domain is
             deleted. Live share links stop working. This cannot be undone.
           </p>
+          {hosted ? (
+            <div className="border border-warn/40 bg-paper-2 p-3">
+              <p className="font-semibold text-fg">
+                This domain reads its DMARC record from DMARC Harbor. Publish this TXT at your DNS host and remove the
+                CNAME first, or the domain will have no DMARC record once it is deleted here.
+              </p>
+              <DnsRecord type="TXT" host={`_dmarc.${domainName}`} zone={domainName} value={hosted.value} />
+            </div>
+          ) : null}
           <label htmlFor={`${id}-confirm`} className="text-meta font-semibold text-fg-2">
             Type <span className="data text-fg">{domainName}</span> to confirm
           </label>

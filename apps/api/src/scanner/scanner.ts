@@ -512,13 +512,21 @@ export async function scanDomain(
   const https = options.https ?? systemHttpsGetter;
 
   try {
-    const [dmarcLookup, spfLookup, mxLookup] = await Promise.all([
+    const [dmarcLookup, spfLookup, mxLookup, cnameLookup] = await Promise.all([
       reader.resolveTxt(`_dmarc.${domain}`),
       reader.resolveTxt(domain),
       reader.resolveMx(domain),
+      reader.resolveCname ? reader.resolveCname(`_dmarc.${domain}`) : Promise.resolve(null),
     ]);
 
-    const dmarc = parseDmarcRecords(dmarcLookup.value ?? []);
+    const parsedDmarc = parseDmarcRecords(dmarcLookup.value ?? []);
+    const dmarc: DmarcResult = reader.resolveCname
+      ? {
+          ...parsedDmarc,
+          delegatedTo:
+            cnameLookup?.status === 'found' ? cnameLookup.value?.[0] ?? null : null,
+        }
+      : parsedDmarc;
     const parsedSpf = parseSpfRecords(spfLookup.value ?? []);
     const mx: MxResult = mxLookup.status === 'found'
       ? { status: 'found', records: mxLookup.value ?? [] }

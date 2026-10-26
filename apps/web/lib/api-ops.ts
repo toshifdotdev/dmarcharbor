@@ -39,6 +39,7 @@ import type {
   ExportJob,
   ForensicListResponse,
   ForensicReportRow,
+  HostedDmarcView,
   IssuedApiKey,
   MailboxComplianceView,
   MonthlyReportRow,
@@ -140,6 +141,16 @@ export function getMailboxCompliance(
 ): Promise<MailboxComplianceView> {
   return opsFetch<MailboxComplianceView>(
     `/api/workspaces/${organizationId}/domains/${domainId}/mailbox-compliance`,
+  );
+}
+
+/** GET /hosted-dmarc — availability, the CNAME and the served value. */
+export function getHostedDmarc(
+  organizationId: string,
+  domainId: string,
+): Promise<HostedDmarcView> {
+  return opsFetch<HostedDmarcView>(
+    `/api/workspaces/${organizationId}/domains/${domainId}/hosted-dmarc`,
   );
 }
 

@@ -183,7 +183,7 @@ export async function buildExportPayload(input: {
           ...(input.scope === 'CLIENT' && input.targetId ? { clientId: input.targetId } : {}),
         };
 
-  const [organization, clients, domains, users, members, sessions, reports, forensics, alertRules, alertEvents, shares, digests, monthlyReports, senderReviews, dnsConnections, dnsPublications, auditLog] =
+  const [organization, clients, domains, users, members, sessions, reports, forensics, alertRules, alertEvents, shares, digests, monthlyReports, senderReviews, dnsConnections, dnsPublications, hostedDmarcRecords, auditLog] =
     await Promise.all([
       prisma.organization.findUnique({
         where: { id: org },
@@ -439,6 +439,49 @@ export async function buildExportPayload(input: {
         orderBy: { publishedAt: 'asc' },
         take: exportTableLimit,
       }),
+      prisma.hostedDmarcRecord.findMany({
+        where: {
+          organizationId: org,
+          ...(input.scope === 'CLIENT' && input.targetId
+            ? { domain: { clientId: input.targetId } }
+            : {}),
+          ...(input.scope === 'DOMAIN' && input.targetId ? { domainId: input.targetId } : {}),
+        },
+        select: {
+          id: true,
+          token: true,
+          value: true,
+          version: true,
+          status: true,
+          providerRecordId: true,
+          delegated: true,
+          delegationCheckedAt: true,
+          activatedAt: true,
+          releaseRequestedAt: true,
+          releasedAt: true,
+          lastSyncedAt: true,
+          lastSyncError: true,
+          createdAt: true,
+          updatedAt: true,
+          domain: { select: { name: true } },
+          changes: {
+            select: {
+              id: true,
+              previousValue: true,
+              newValue: true,
+              reason: true,
+              readinessOverride: true,
+              actorUserId: true,
+              createdAt: true,
+              restoredAt: true,
+            },
+            orderBy: { createdAt: 'asc' },
+            take: exportTableLimit,
+          },
+        },
+        orderBy: { createdAt: 'asc' },
+        take: exportTableLimit,
+      }),
       prisma.auditLog.findMany({
         where: input.scope === 'DOMAIN' && input.targetId ? { domainId: input.targetId } : { organizationId: org },
         select: { id: true, action: true, targetType: true, targetId: true, createdAt: true },
@@ -567,6 +610,24 @@ export async function buildExportPayload(input: {
         publishedAt: row.publishedAt,
         restoredAt: row.restoredAt,
         publishedByEmail: row.publishedBy?.email ?? null,
+      })),
+      hostedDmarcRecords: hostedDmarcRecords.map((row) => ({
+        domainName: row.domain.name,
+        token: row.token,
+        value: row.value,
+        version: row.version,
+        status: row.status,
+        providerRecordId: row.providerRecordId,
+        delegated: row.delegated,
+        delegationCheckedAt: row.delegationCheckedAt,
+        activatedAt: row.activatedAt,
+        releaseRequestedAt: row.releaseRequestedAt,
+        releasedAt: row.releasedAt,
+        lastSyncedAt: row.lastSyncedAt,
+        lastSyncError: row.lastSyncError,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        changes: row.changes,
       })),
       auditLog,
     },

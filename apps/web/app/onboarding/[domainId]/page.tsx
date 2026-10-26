@@ -3,11 +3,11 @@ import { notFound, redirect, unstable_rethrow } from "next/navigation";
 import type { CSSProperties } from "react";
 import { clsx } from "clsx";
 import { ApiError, getOnboardingState, getSessionUserId, listClients } from "@/lib/api";
-import { getDnsConnections, listReportShares, listWorkspaceMembers, OpsError } from "@/lib/api-ops";
+import { getDnsConnections, getHostedDmarc, listReportShares, listWorkspaceMembers, OpsError } from "@/lib/api-ops";
 import { domainHref } from "@/lib/route-hrefs";
 import { resolveActiveWorkspace } from "@/lib/session";
 import { strongestRole } from "@/lib/settings-map";
-import type { DomainRow, OnboardingState, ReportShareRow } from "@/lib/types";
+import type { DomainRow, HostedDmarcView, OnboardingState, ReportShareRow } from "@/lib/types";
 import { AppShell } from "@/components/harbor/app-shell";
 import { DomainRecords } from "@/components/harbor/domain-records";
 import { DomainRemoval } from "@/components/harbor/domain-removal";
@@ -129,6 +129,14 @@ export default async function OnboardingPage({ params }: { params: Promise<{ dom
     if ((error instanceof OpsError || error instanceof ApiError) && error.status === 404) notFound();
     stateFailed = true;
   }
+  // A failed read leaves the delete dialog without the hosted list; it does
+  // not block deletion.
+  let hosted: HostedDmarcView | null;
+  try {
+    hosted = await getHostedDmarc(active.id, domain.id);
+  } catch {
+    hosted = null;
+  }
 
   const trail = [
     { label: "Clients", href: "/clients" },
@@ -241,6 +249,7 @@ export default async function OnboardingPage({ params }: { params: Promise<{ dom
               organizationId={active.id}
               domainId={domain.id}
               domainName={domain.name}
+              slug={domain.slug}
               verified={verified}
               dmarc={onboarding.suggestedRecord ?? null}
               publishedPolicy={onboarding.reporting.publishedPolicy}
@@ -324,7 +333,12 @@ export default async function OnboardingPage({ params }: { params: Promise<{ dom
             <ShareLinks organizationId={active.id} domainId={domain.id} domainName={domain.name} shares={shares} />
           )}
 
-          <DomainRemoval organizationId={active.id} domainId={domain.id} domainName={domain.name} />
+          <DomainRemoval
+            organizationId={active.id}
+            domainId={domain.id}
+            domainName={domain.name}
+            hosted={hosted?.hosted && hosted.hosted.status !== "RELEASED" ? { value: hosted.hosted.value } : null}
+          />
         </div>
       </div>
     </div>,

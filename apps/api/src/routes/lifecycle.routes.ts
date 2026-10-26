@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { deleteClient, deleteDomain, deleteWorkspace, summariseWorkspace } from '../services/lifecycle-deletion.service.js';
+import { prisma } from '../database/prisma.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
 import { requireSession } from '../middleware/auth.middleware.js';
 
@@ -83,7 +84,27 @@ lifecycleRouter.get(
   requireSession,
   requireOrganizationPermission('organization', 'read'),
   async (request: Request, response: Response) => {
-    response.json({ summary: await summariseWorkspace(organizationId(request)) });
+    const organizationIdValue = organizationId(request);
+    const clientId = typeof request.query.clientId === 'string' ? request.query.clientId : null;
+    const [summary, hosted] = await Promise.all([
+      summariseWorkspace(organizationIdValue),
+      prisma.hostedDmarcRecord.findMany({
+        where: {
+          organizationId: organizationIdValue,
+          status: { not: 'RELEASED' },
+          ...(clientId ? { domain: { clientId } } : {}),
+        },
+        select: { value: true, domain: { select: { name: true } } },
+        orderBy: { domain: { name: 'asc' } },
+      }),
+    ]);
+    response.json({
+      summary,
+      hostedDmarc: hosted.map((row) => ({
+        domain: row.domain.name,
+        republish: { host: `_dmarc.${row.domain.name}`, type: 'TXT', value: row.value },
+      })),
+    });
   },
 );
 

@@ -27,6 +27,8 @@ export interface PublishRecord {
   /** What the record is for, in plain words. */
   purpose: string;
   host: string;
+  /** TXT unless a caller needs a CNAME (the hosted DMARC delegation). */
+  type?: "TXT" | "CNAME";
   value: string;
   note?: React.ReactNode;
   testId?: string;
@@ -41,7 +43,14 @@ function quoteTxt(value: string): string {
 }
 
 export function zoneLines(records: PublishRecord[]): string {
-  return records.map((r) => `${r.host}. IN TXT ${quoteTxt(r.value)}`).join("\n");
+  return records
+    .map((record) => {
+      const type = record.type ?? "TXT";
+      return type === "CNAME"
+        ? `${record.host}. IN CNAME ${record.value}`
+        : `${record.host}. IN TXT ${quoteTxt(record.value)}`;
+    })
+    .join("\n");
 }
 
 export function DnsHandoff({
@@ -55,13 +64,19 @@ export function DnsHandoff({
 }) {
   const [showZone, setShowZone] = useState(false);
   const zone = zoneLines(records);
+  const types = [...new Set(records.map((record) => record.type ?? "TXT"))];
+  const hasTxt = types.includes("TXT");
   const body = [
     `Hello,`,
     ``,
-    `Please publish ${records.length === 1 ? "this DNS record" : `these ${records.length} DNS records`} for ${domain}. ${records.length === 1 ? "It is" : "They are"} TXT records and ${records.length === 1 ? "does" : "do"} not change how mail is delivered.`,
+    `Please publish ${records.length === 1 ? "this DNS record" : `these ${records.length} DNS records`} for ${domain}. ${
+      records.length === 1 ? "It is" : "They are"
+    } ${types.join(" and ")} ${records.length === 1 ? "record" : "records"} and ${records.length === 1 ? "does" : "do"} not change how mail is delivered.`,
     ``,
-    ...records.flatMap((r, i) => [`${i + 1}. ${r.purpose}`, `   Type:  TXT`, `   Host:  ${r.host}`, `   Value: ${r.value}`, ``]),
-    `Some DNS panels want only the part of the host before ${domain}. Copy values exactly, including every semicolon.`,
+    ...records.flatMap((r, i) => [`${i + 1}. ${r.purpose}`, `   Type:  ${r.type ?? "TXT"}`, `   Host:  ${r.host}`, `   Value: ${r.value}`, ``]),
+    hasTxt
+      ? `Some DNS panels want only the part of the host before ${domain}. Copy values exactly, including every semicolon.`
+      : `Some DNS panels want only the part of the host before ${domain}. Copy the target exactly.`,
     `It can take a few hours for a new record to be visible everywhere. That is normal.`,
     ``,
     `Thank you.`,
@@ -77,7 +92,7 @@ export function DnsHandoff({
               <span className="tnum grid size-5 place-items-center rounded-full border border-fg text-meta font-bold text-fg">{i + 1}</span>
               <span className="font-semibold text-fg">{r.purpose}</span>
             </p>
-            <DnsRecord type="TXT" host={r.host} zone={domain} value={r.value} note={r.note} testId={r.testId} />
+            <DnsRecord type={r.type ?? "TXT"} host={r.host} zone={domain} value={r.value} note={r.note} testId={r.testId} />
             {publish && r.publish ? (
               <div className="mt-2">
                 <DnsPublishButton context={publish} record={r.publish} purpose={r.purpose} />

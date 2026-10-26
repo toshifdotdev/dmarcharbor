@@ -224,6 +224,7 @@ model Organization {
   senderReviews         SenderReview[]
   dnsConnections        DnsProviderConnection[]
   dnsPublications       DnsPublication[]
+  hostedDmarcRecords    HostedDmarcRecord[]
 
   @@unique([slug])
   /// Reads the document version rather than the column being null, so the sweep
@@ -388,6 +389,7 @@ model Domain {
   dnsChanges             DnsChange[]
   senderReviews          SenderReview[]
   dnsPublications        DnsPublication[]
+  hostedDmarc            HostedDmarcRecord?
 
   /// The per client constraint is gone. Global uniqueness on `name` above
   /// subsumes it: two rows in one client with the same name would violate the
@@ -1413,6 +1415,65 @@ model DnsPublication {
   @@map("dns_publication")
 }
 
+enum HostedDmarcStatus {
+  PENDING
+  ACTIVE
+  RELEASING
+  RELEASED
+}
+
+/// One domain whose DMARC record this service serves from its own zone.
+///
+/// The customer publishes a CNAME at `_dmarc.<domain>` pointing at the token
+/// name; the policy itself lives here and can change without touching their
+/// DNS again.
+model HostedDmarcRecord {
+  id                  String             @id @default(cuid())
+  organizationId      String
+  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  domainId            String             @unique
+  domain              Domain             @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  token               String             @unique
+  value               String
+  /// Incremented on every value change; a change must name the version it read.
+  version             Int                @default(1)
+  status              HostedDmarcStatus  @default(PENDING)
+  providerRecordId    String?
+  lastSyncedAt        DateTime?
+  lastSyncError       String?
+  delegated           Boolean            @default(false)
+  delegationCheckedAt DateTime?
+  activatedAt         DateTime?
+  releaseRequestedAt  DateTime?
+  releasedAt          DateTime?
+  createdById         String?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  changes             HostedDmarcChange[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@map("hosted_dmarc_record")
+}
+
+model HostedDmarcChange {
+  id                String            @id @default(cuid())
+  recordId          String
+  record            HostedDmarcRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  organizationId    String
+  previousValue     String?
+  newValue          String
+  /// 'created' | 'policy' | 'restore'
+  reason            String
+  readinessOverride Boolean            @default(false)
+  actorUserId       String?
+  createdAt         DateTime           @default(now())
+  restoredAt        DateTime?
+
+  @@index([recordId, createdAt])
+  @@map("hosted_dmarc_change")
+}
+
 /// A signed compliance pack issued for one client.
 ///
 /// The PDF is not stored. Its SHA-256 is, because the hash is the claim and the
@@ -1868,6 +1929,11 @@ enum AuditAction {
   MFA_RESET
   WORKSPACE_MFA_REQUIREMENT_CHANGED
   MFA_SIGN_IN_REFUSED
+  HOSTED_DMARC_CREATED
+  HOSTED_DMARC_UPDATED
+  HOSTED_DMARC_RESTORED
+  HOSTED_DMARC_RELEASE_REQUESTED
+  HOSTED_DMARC_RELEASED
 }
 
 enum AuditOutcome {

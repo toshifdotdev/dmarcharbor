@@ -225,6 +225,33 @@ const envSchema = z.object({
   REPORT_INGEST_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(100_000).default(30),
   /** SSO start and callback requests allowed per client per minute. */
   SESSION_ROUTER_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(100_000).default(10),
+
+  /**
+   * Hosted DMARC records. All three are required for the feature to switch on;
+   * a partial set is refused at boot rather than serving a half-configured zone.
+   *
+   * HOSTED_DNS_ZONE is a whole registered domain on Cloudflare. Subdomain zones
+   * need an Enterprise plan, so the common deployment is the registrable domain.
+   */
+  HOSTED_DNS_ZONE: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .refine(
+      (value) =>
+        /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(value) &&
+        !value.endsWith('.'),
+      'HOSTED_DNS_ZONE must be a lowercase hostname with at least two labels and no trailing dot.',
+    )
+    .optional(),
+  HOSTED_DNS_CLOUDFLARE_TOKEN: optionalSecret,
+  HOSTED_DNS_CLOUDFLARE_ZONE_ID: z
+    .string()
+    .trim()
+    .regex(/^[a-fA-F0-9]{32}$/, 'HOSTED_DNS_CLOUDFLARE_ZONE_ID must be 32 hexadecimal characters.')
+    .optional(),
+  /** Cloudflare Free holds 200 records; Pro and Business hold 3,500. */
+  HOSTED_DNS_RECORD_LIMIT: z.coerce.number().int().min(1).max(1_000_000).default(200),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -259,6 +286,36 @@ if (Boolean(parsed.data.RAZORPAY_KEY_ID) !== Boolean(parsed.data.RAZORPAY_KEY_SE
 if (Boolean(parsed.data.PADDLE_API_KEY) !== Boolean(parsed.data.PADDLE_WEBHOOK_SECRET)) {
   throw new Error('PADDLE_API_KEY and PADDLE_WEBHOOK_SECRET must be configured together.');
 }
+
+/**
+ * Hosted DMARC is optional, but half of it is worse than none: a zone without a
+ * token serves nothing, and a token without a zone has nowhere to write. The
+ * refusal is outside the production block so it applies in every environment,
+ * including the test one.
+ */
+export function assertHostedDnsConfig(input: {
+  zone?: string;
+  token?: string;
+  zoneId?: string;
+}): void {
+  const configured = [input.zone, input.token, input.zoneId].filter(Boolean).length;
+  if (configured > 0 && configured < 3) {
+    throw new Error(
+      'HOSTED_DNS_ZONE, HOSTED_DNS_CLOUDFLARE_TOKEN and HOSTED_DNS_CLOUDFLARE_ZONE_ID must be configured together.',
+    );
+  }
+}
+
+assertHostedDnsConfig({
+  zone: parsed.data.HOSTED_DNS_ZONE,
+  token: parsed.data.HOSTED_DNS_CLOUDFLARE_TOKEN,
+  zoneId: parsed.data.HOSTED_DNS_CLOUDFLARE_ZONE_ID,
+});
+const hostedDnsConfigured = [
+  parsed.data.HOSTED_DNS_ZONE,
+  parsed.data.HOSTED_DNS_CLOUDFLARE_TOKEN,
+  parsed.data.HOSTED_DNS_CLOUDFLARE_ZONE_ID,
+].filter(Boolean).length;
 
 if (parsed.data.NODE_ENV === 'production' && parsed.data.BETTER_AUTH_SECRET === developmentSecret) {
   throw new Error('BETTER_AUTH_SECRET must be set in production.');
@@ -396,4 +453,5 @@ if (parsed.data.NODE_ENV === 'production') {
 export const env = {
   ...parsed.data,
   CORS_ORIGINS: parsed.data.CORS_ORIGIN.split(',').map((origin) => origin.trim()),
+  HOSTED_DNS_ENABLED: hostedDnsConfigured === 3,
 };

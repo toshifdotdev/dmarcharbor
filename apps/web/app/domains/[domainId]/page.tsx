@@ -13,6 +13,7 @@ import {
   getDnsChanges,
   getDnsConnections,
   getDomainSwitch,
+  getHostedDmarc,
   getMailboxCompliance,
   getPlanCatalog,
   getWorkspaceEntitlements,
@@ -31,6 +32,7 @@ import type {
   DnsChangePage,
   DomainInsights,
   DomainSwitchView,
+  HostedDmarcView,
   MailboxComplianceView,
   OnboardingState,
   ReportRow,
@@ -40,6 +42,7 @@ import type {
 import { AppShell } from "@/components/harbor/app-shell";
 import { DnsChangesPanel } from "@/components/harbor/dns-changes";
 import { DomainSwitchPanel } from "@/components/harbor/domain-switch";
+import { HostedDmarc } from "@/components/harbor/hosted-dmarc";
 import { MailboxCompliance } from "@/components/harbor/mailbox-compliance";
 import { ScanHistory, toScanHistoryRow } from "@/components/harbor/scan-history";
 import { SendersTable } from "@/components/harbor/senders-table";
@@ -67,8 +70,14 @@ import { Tabs } from "@/components/ui/tabs";
  * aligned checks failed), because a message that passes one is delivered under
  * p=reject. The Reports table uses the same shared rule as the API.
  */
-export default async function DomainPage({ params }: { params: Promise<{ domainId: string }> }) {
-  const { domainId } = await params;
+export default async function DomainPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ domainId: string }>;
+  searchParams: Promise<{ tab?: string }>;
+}) {
+  const [{ domainId }, { tab }] = await Promise.all([params, searchParams]);
   const { workspaces, active } = await resolveActiveWorkspace();
   // No workspace is an onboarding step, never a 404.
   if (!active) redirect("/welcome");
@@ -141,7 +150,7 @@ export default async function DomainPage({ params }: { params: Promise<{ domainI
 
   // A scan history is a different claim from the report evidence, so it fails
   // on its own and renders as a failure, never as an empty history.
-  const [scanHistory, switchState, dnsChanges, serviceMeta, members, me, entitlements, catalog, dnsConnections, mailboxCompliance] = await Promise.all([
+  const [scanHistory, switchState, dnsChanges, serviceMeta, members, me, entitlements, catalog, dnsConnections, mailboxCompliance, hostedDmarc] = await Promise.all([
     listDomainScans(active.id, id).then(
       (page) => ({ rows: page.rows, nextCursor: page.nextCursor, failed: false }),
       () => ({ rows: [] as ScanRow[], nextCursor: null as string | null, failed: true }),
@@ -164,12 +173,18 @@ export default async function DomainPage({ params }: { params: Promise<{ domainI
       (data: MailboxComplianceView) => ({ data, failed: false }),
       () => ({ data: null as MailboxComplianceView | null, failed: true }),
     ),
+    getHostedDmarc(active.id, id).then(
+      (data: HostedDmarcView) => ({ data, failed: false }),
+      () => ({ data: null as HostedDmarcView | null, failed: true }),
+    ),
   ]);
 
   const role =
     members?.members.find((member) => (member.userId ?? member.user?.id) === me?.id)?.role ?? null;
   const canAcknowledgeDnsChanges = role === null || ["owner", "admin", "analyst"].includes(role);
   const ownerFeature = featureOf(entitlements, "senders.owners");
+  const hostedFeature = featureOf(entitlements, "dns.hosted");
+  const canEditDomain = role === null || ["owner", "admin", "analyst"].includes(role);
   const ownersPlanLabel =
     catalog?.order
       .map((tier) => catalog.plans.find((plan) => plan.tier === tier))
@@ -309,6 +324,7 @@ export default async function DomainPage({ params }: { params: Promise<{ domainI
           <section aria-label="Evidence tables" className="min-w-0">
             <Tabs
               label="Evidence"
+              defaultTab={tab === "setup" ? "setup" : undefined}
               tabs={[
                 {
                   id: "senders",
@@ -358,6 +374,7 @@ export default async function DomainPage({ params }: { params: Promise<{ domainI
                       scans={scanHistory.rows.map(toScanHistoryRow)}
                       nextCursor={scanHistory.nextCursor}
                       loadFailed={scanHistory.failed}
+                      hostedZone={serviceMeta?.hostedZone ?? null}
                     />
                   ),
                 },
@@ -365,7 +382,19 @@ export default async function DomainPage({ params }: { params: Promise<{ domainI
                   id: "setup",
                   label: "Reporting and setup",
                   count: null,
-                  panel: <SetupPanel onboarding={onboarding} insights={insights} slug={slug} />,
+                  panel: (
+                    <SetupPanel
+                      onboarding={onboarding}
+                      insights={insights}
+                      slug={slug}
+                      domainId={id}
+                      organizationId={active.id}
+                      domainName={insights.domain.name}
+                      hosted={hostedDmarc}
+                      hasHostedFeature={hostedFeature}
+                      canEdit={canEditDomain}
+                    />
+                  ),
                 },
               ]}
             />
@@ -657,10 +686,40 @@ function PolicyPanel({
 }
 
 /** How reports reach us for this domain, and where its setup stands. */
-function SetupPanel({ onboarding, insights, slug }: { onboarding: OnboardingState; insights: DomainInsights; slug: string }) {
+function SetupPanel({
+  onboarding,
+  insights,
+  slug,
+  domainId,
+  organizationId,
+  domainName,
+  hosted,
+  hasHostedFeature,
+  canEdit,
+}: {
+  onboarding: OnboardingState;
+  insights: DomainInsights;
+  slug: string;
+  domainId: string;
+  organizationId: string;
+  domainName: string;
+  hosted: { data: HostedDmarcView | null; failed: boolean };
+  hasHostedFeature: boolean | null;
+  canEdit: boolean;
+}) {
   const rep = insights.reporting;
   return (
-    <div className="grid gap-8 pt-4 lg:grid-cols-2">
+    <div className="flex flex-col gap-6 pt-4">
+      <HostedDmarc
+        organizationId={organizationId}
+        domainId={domainId}
+        domainName={domainName}
+        view={hosted.data}
+        failed={hosted.failed}
+        canEdit={canEdit}
+        hasFeature={hasHostedFeature}
+      />
+      <div className="grid gap-8 lg:grid-cols-2">
       <div>
         <p className="legend pb-1.5">Reporting</p>
         <dl className="flex flex-col border-t border-rule-2">
@@ -695,6 +754,7 @@ function SetupPanel({ onboarding, insights, slug }: { onboarding: OnboardingStat
           </ul>
         </div>
       ) : null}
+      </div>
     </div>
   );
 }

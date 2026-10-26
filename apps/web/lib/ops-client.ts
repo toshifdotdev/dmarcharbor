@@ -27,6 +27,7 @@ import type {
   ErasureCreated,
   ErasurePreview,
   ExportJob,
+  HostedDmarcView,
   IssuedApiKey,
   MonthlyReportSchedule,
   PlanOverageRow,
@@ -90,7 +91,13 @@ async function call<T>(
     return {
       ok: false,
       status: ui.status,
-      error: { code: extractErrorCode(raw) ?? String(res.status), message: ui.message, ...planKeys(raw), ...errorPreview(raw) },
+      error: {
+        code: extractErrorCode(raw) ?? String(res.status),
+        message: ui.message,
+        ...planKeys(raw),
+        ...errorPreview(raw),
+        ...conflictDetails(raw),
+      },
     };
   }
 
@@ -151,6 +158,21 @@ function errorPreview(raw: string): Pick<ApiErrorBody["error"], "preview"> {
   try {
     const body = JSON.parse(raw) as { preview?: DnsPublishPreview };
     return body?.preview ? { preview: body.preview } : {};
+  } catch {
+    return {};
+  }
+}
+
+/** A hosted-DMARC 409 carries blockers or the current view at the top level. */
+function conflictDetails(raw: string): Pick<ApiErrorBody["error"], "blockers" | "view"> {
+  try {
+    const body = JSON.parse(raw) as { blockers?: unknown; view?: unknown };
+    return {
+      ...(Array.isArray(body.blockers)
+        ? { blockers: body.blockers.filter((entry): entry is string => typeof entry === "string") }
+        : {}),
+      ...(body.view && typeof body.view === "object" ? { view: body.view as HostedDmarcView } : {}),
+    };
   } catch {
     return {};
   }
@@ -1035,8 +1057,15 @@ export interface DeletionResult {
  * rather than "are you sure?". A preview that cannot be read is a confirmation
  * that asks the operator to trust a guess.
  */
-export const previewWorkspaceDeletion = (orgId: string) =>
-  call<{ summary: DeletionSummary }>(wsPath(orgId, "/deletion-preview"));
+export interface HostedDeletionPreview {
+  domain: string;
+  republish: { host: string; type: "TXT"; value: string };
+}
+
+export const previewWorkspaceDeletion = (orgId: string, clientId?: string) =>
+  call<{ summary: DeletionSummary; hostedDmarc: HostedDeletionPreview[] }>(
+    wsPath(orgId, `/deletion-preview${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`),
+  );
 
 export const deleteDomain = (orgId: string, domainId: string) =>
   call<DeletionResult>(wsPath(orgId, `/domains/${domainId}`), { method: "DELETE" });
@@ -1083,3 +1112,44 @@ export const publishDnsRecord = (
 
 export const restoreDnsPublication = (orgId: string, publicationId: string) =>
   call<DnsRestoreResult>(wsPath(orgId, `/dns-publications/${publicationId}/restore`), { method: "POST" });
+
+// ─── hosted DMARC records ────────────────────────────────────────────────────
+
+const hostedPath = (orgId: string, domainId: string) =>
+  wsPath(orgId, `/domains/${domainId}/hosted-dmarc`);
+
+export const startHostedDmarc = (orgId: string, domainId: string) =>
+  call<HostedDmarcView>(hostedPath(orgId, domainId), { method: "POST" });
+
+export const checkHostedDmarc = (orgId: string, domainId: string) =>
+  call<HostedDmarcView>(`${hostedPath(orgId, domainId)}/check`, { method: "POST" });
+
+export const updateHostedDmarc = (
+  orgId: string,
+  domainId: string,
+  body: {
+    expectedVersion: number;
+    policy: "none" | "quarantine" | "reject";
+    testing: boolean;
+    np: "none" | "quarantine" | "reject" | null;
+    override?: boolean;
+  },
+) =>
+  call<HostedDmarcView & { action?: "updated" | "unchanged" }>(hostedPath(orgId, domainId), {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+
+export const restoreHostedDmarc = (
+  orgId: string,
+  domainId: string,
+  changeId: string,
+  expectedVersion: number,
+) =>
+  call<HostedDmarcView>(`${hostedPath(orgId, domainId)}/changes/${changeId}/restore`, {
+    method: "POST",
+    body: JSON.stringify({ expectedVersion }),
+  });
+
+export const releaseHostedDmarc = (orgId: string, domainId: string) =>
+  call<HostedDmarcView>(`${hostedPath(orgId, domainId)}/release`, { method: "POST" });

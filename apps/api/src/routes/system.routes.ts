@@ -123,6 +123,7 @@ systemRouter.get('/meta', (_request, response) => {
       rescanIntervalMinutes: env.DNS_MONITOR_INTERVAL_MINUTES,
       enabled: env.DNS_MONITOR_ENABLED,
     },
+    hostedZone: env.HOSTED_DNS_ENABLED ? env.HOSTED_DNS_ZONE ?? null : null,
     schedulerDisabled: env.ALERT_SCHEDULER_DISABLED,
     plans: planCatalogResponse(),
     entitlements: {

@@ -50,7 +50,16 @@ export interface CloudflareClient {
   findZone(domainName: string): Promise<CloudflareZone>;
   listTxtRecords(zoneId: string, name: string): Promise<CloudflareTxtRecord[]>;
   findCname(zoneId: string, name: string): Promise<boolean>;
-  createTxtRecord(zoneId: string, name: string, content: string): Promise<CloudflareTxtRecord>;
+  createTxtRecord(
+    zoneId: string,
+    name: string,
+    content: string,
+    comment?: string,
+  ): Promise<CloudflareTxtRecord>;
+  listZoneTxtRecords(
+    zoneId: string,
+    page: number,
+  ): Promise<{ records: CloudflareTxtRecord[]; totalPages: number }>;
   updateTxtRecord(
     zoneId: string,
     record: CloudflareTxtRecord,
@@ -63,6 +72,7 @@ interface CloudflareEnvelope<T> {
   success?: boolean;
   errors?: Array<{ code?: number; message?: string }>;
   result?: T;
+  result_info?: { total_pages?: unknown; page?: unknown };
 }
 
 interface RawTxtRecord {
@@ -201,7 +211,7 @@ export function createCloudflareClient(input: {
   const fetchImpl = input.fetchImpl ?? defaultFetch;
   const token = input.token.trim();
 
-  async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  async function requestEnvelope<T>(path: string, init: RequestInit = {}): Promise<CloudflareEnvelope<T>> {
     let response: Response;
     try {
       response = await fetchImpl(`${CLOUDFLARE_BASE}${path}`, {
@@ -238,6 +248,11 @@ export function createCloudflareClient(input: {
       throw classifyFailure(response.status, errorCodes(envelope));
     }
 
+    return envelope;
+  }
+
+  async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const envelope = await requestEnvelope<T>(path, init);
     return envelope.result as T;
   }
 
@@ -288,12 +303,18 @@ export function createCloudflareClient(input: {
       return Array.isArray(result) && result.length > 0;
     },
 
-    async createTxtRecord(zoneId, name, content) {
+    async createTxtRecord(zoneId, name, content, comment) {
       const result = await request<RawTxtRecord>(
         `/zones/${encodeURIComponent(zoneId)}/dns_records`,
         {
           method: 'POST',
-          body: JSON.stringify({ type: 'TXT', name, content, ttl: 1 }),
+          body: JSON.stringify({
+            type: 'TXT',
+            name,
+            content,
+            ttl: 1,
+            ...(comment ? { comment } : {}),
+          }),
         },
       );
       const record = result ? toTxtRecord(result) : null;
@@ -305,6 +326,18 @@ export function createCloudflareClient(input: {
         );
       }
       return record;
+    },
+
+    async listZoneTxtRecords(zoneId, page) {
+      const envelope = await requestEnvelope<RawTxtRecord[]>(
+        `/zones/${encodeURIComponent(zoneId)}/dns_records?type=TXT&per_page=100&page=${encodeURIComponent(String(page))}`,
+        { method: 'GET' },
+      );
+      const records = (Array.isArray(envelope.result) ? envelope.result : [])
+        .map(toTxtRecord)
+        .filter((record): record is CloudflareTxtRecord => record !== null);
+      const total = numberValue(envelope.result_info?.total_pages);
+      return { records, totalPages: total !== null && total > 0 ? total : 1 };
     },
 
     async updateTxtRecord(zoneId, record, content) {
