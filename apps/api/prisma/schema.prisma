@@ -392,6 +392,7 @@ model Domain {
   dnsPublications        DnsPublication[]
   hostedDmarc            HostedDmarcRecord?
   hostedSpf              HostedSpfRecord?
+  tlsReports             TlsReport[]
 
   /// The per client constraint is gone. Global uniqueness on `name` above
   /// subsumes it: two rows in one client with the same name would violate the
@@ -1422,6 +1423,64 @@ enum HostedDmarcStatus {
   ACTIVE
   RELEASING
   RELEASED
+}
+
+/// A daily TLS-RPT report (RFC 8460) received by email for one domain.
+model TlsReport {
+  id                 String            @id @default(cuid())
+  domainId           String
+  domain             Domain            @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  fingerprint        String            @unique
+  reportIdentity     String?           @unique
+  reportId           String
+  organizationName   String
+  contactInfo        String?
+  policyDomain       String
+  dateRangeBegin     DateTime
+  dateRangeEnd       DateTime
+  successfulSessions BigInt
+  failedSessions     BigInt
+  truncated          Boolean           @default(false)
+  receivedAt         DateTime          @default(now())
+  retentionExpiresAt DateTime?
+  policies           TlsReportPolicy[]
+
+  @@index([domainId, dateRangeBegin])
+  @@index([domainId, receivedAt])
+  @@index([retentionExpiresAt])
+  @@map("tls_report")
+}
+
+model TlsReportPolicy {
+  id                 String             @id @default(cuid())
+  reportId           String
+  report             TlsReport          @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  policyType         String
+  policyString       String?
+  mxHost             String?
+  successfulSessions BigInt
+  failedSessions     BigInt
+  failures           TlsReportFailure[]
+
+  @@index([reportId])
+  @@map("tls_report_policy")
+}
+
+model TlsReportFailure {
+  id                    String          @id @default(cuid())
+  policyId              String
+  policy                TlsReportPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  resultType            String
+  sendingMtaIp          String?
+  receivingMxHostname   String?
+  receivingMxHelo       String?
+  receivingIp           String?
+  failedSessions        BigInt
+  additionalInformation String?
+  failureReasonCode     String?
+
+  @@index([policyId])
+  @@map("tls_report_failure")
 }
 
 enum HostedSpfStatus {

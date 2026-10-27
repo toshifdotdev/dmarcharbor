@@ -12,6 +12,7 @@ import {
   type PolicyStageRecommendation,
 } from './dmarc-rollout.service.js';
 import { historicDmarcTags } from '../scanner/dmarc-policy.js';
+import { tlsRecordForDomain, type TlsRecordView } from './tls-report/record.js';
 
 export type DmarcPolicyChoice = 'none' | 'quarantine' | 'reject';
 export type ReadinessLevel = 'none' | 'quarantine' | 'reject';
@@ -380,6 +381,8 @@ export interface OnboardingResult extends OnboardingState_ {
   /** The next policy stage, per RFC 9989 section 7.4. Replaces the retired pct ladder. */
   rollout: PolicyStageRecommendation;
   suggestedRecord: DmarcRecordDraft;
+  /** The TLS-RPT record to publish, shown beside the DMARC suggestion. */
+  tlsRpt: TlsRecordView;
 }
 
 export async function getOnboardingState(organizationId: string, domainId: string): Promise<OnboardingResult | null> {
@@ -533,6 +536,21 @@ export async function getOnboardingState(organizationId: string, domainId: strin
             ? 'NEEDS_ATTENTION'
             : 'MONITORING';
 
+  const tlsRpt = await tlsRecordForDomain(
+    domain.id,
+    domain.name,
+    domain.client.reportToken,
+  );
+  steps.splice(steps.length - 1, 0, {
+    id: 'tls_reports_optional',
+    title: 'Collect TLS reports',
+    status: tlsRpt.status === 'ours' ? 'done' : 'optional',
+    detail:
+      tlsRpt.status === 'ours'
+        ? 'TLS-RPT is published; reporters send delivery-failure reports by email.'
+        : 'Optional. Publish a TLS-RPT record so senders can tell you why TLS deliveries failed.',
+  });
+
   return {
     domain: {
       id: domain.id,
@@ -561,5 +579,6 @@ export async function getOnboardingState(organizationId: string, domainId: strin
     suggestedRecord: buildDmarcRecord(domain.name, 'none', !forensicConfigured, {
       aggregateAddress: clientAddress,
     }),
+    tlsRpt,
   };
 }

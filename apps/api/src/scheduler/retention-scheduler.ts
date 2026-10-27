@@ -26,6 +26,7 @@ const empty: RetentionSweep = {
   monthlyReportFiles: 0,
   monthlyReportLinks: 0,
   sourceIpIntel: 0,
+  tlsReports: 0,
 };
 
 export async function runRetentionOnce(): Promise<RetentionSweep> {

@@ -11,7 +11,11 @@ import { env } from '../config/env.js';
 export const reportTokenPattern = /^[0-9a-f]{12}$/;
 
 function sharedAddress(): { address: string; local: string; domain: string } {
-  const address = env.REPORT_AGGREGATE_ADDRESS.trim().toLowerCase();
+  return addressParts(env.REPORT_AGGREGATE_ADDRESS);
+}
+
+function addressParts(input: string): { address: string; local: string; domain: string } {
+  const address = input.trim().toLowerCase();
   const at = address.lastIndexOf('@');
   return {
     address,
@@ -20,12 +24,23 @@ function sharedAddress(): { address: string; local: string; domain: string } {
   };
 }
 
-export function clientAggregateAddress(reportToken: string): string {
+/** The subaddressing rule shared by every client report address. */
+function withSubaddress(input: string, reportToken: string): string {
+  const address = input.trim();
   if (env.REPORT_ADDRESS_SUBADDRESSING === 'off') {
-    return env.REPORT_AGGREGATE_ADDRESS;
+    return address;
   }
-  const { local, domain } = sharedAddress();
+  const { local, domain } = addressParts(address);
   return `${local}+${reportToken}@${domain}`;
+}
+
+export function clientAggregateAddress(reportToken: string): string {
+  return withSubaddress(env.REPORT_AGGREGATE_ADDRESS, reportToken);
+}
+
+/** TLS-RPT uses its own mailbox when configured, and the aggregate one otherwise. */
+export function clientTlsReportAddress(reportToken: string): string {
+  return withSubaddress(env.REPORT_TLSRPT_ADDRESS ?? env.REPORT_AGGREGATE_ADDRESS, reportToken);
 }
 
 function isAddrSpec(value: string): boolean {

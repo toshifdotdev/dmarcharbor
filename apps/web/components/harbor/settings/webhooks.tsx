@@ -45,6 +45,7 @@ const EVENT_WORDS: Record<WebhookEventName, string> = {
   "dns.changed": "DNS records changed",
   "policy.changed": "DMARC policy changed",
   "forensic.received": "Forensic report received",
+  "tlsrpt.received": "TLS report received",
 };
 
 const STATUS: Record<WebhookDeliveryStatus, [string, Tone]> = {

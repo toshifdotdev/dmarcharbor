@@ -170,8 +170,10 @@ delivery log and setting only `active: false` remain available on every plan.
 | `dns.changed` | A scheduled or manual scan recorded one or more DNS changes | **Opt in** |
 | `policy.changed` | A scan changed the DMARC policy tags | **Opt in** |
 | `forensic.received` | A forensic report was stored for the first time | **Opt in** |
+| `tlsrpt.received` | A TLS-RPT report was stored for the first time | **Opt in** |
 
-`report.received`, `dns.changed`, `policy.changed` and `forensic.received` are
+`report.received`, `dns.changed`, `policy.changed`, `forensic.received` and
+`tlsrpt.received` are
 opt in because they can be high volume. Subscribing to events you will ignore
 trains people to ignore the endpoint, so they are left off by default.
 
@@ -242,6 +244,37 @@ waiting for a customer complaint. `POST .../webhook-deliveries/{id}/replay`
 requeues a failed delivery with a fresh signature.
 
 ---
+
+## 2026-10-27 — TLS-RPT reports
+
+Verified domains now receive and store daily TLS-RPT reports (RFC 8460) from
+the same signed inbound mailbox and IMAP poll as DMARC aggregate mail. Reports
+are accepted on every plan; reading them is a Fairway feature
+(`reports.tlsrpt`). The published address is the client's existing report
+address, or `REPORT_TLSRPT_ADDRESS` when an operator configures a separate
+mailbox.
+
+Browser routes:
+
+- `GET /api/workspaces/{id}/domains/{domainId}/tls-reports` returns a newest-first
+  page of reports with per-policy summaries.
+- `GET …/tls-reports/summary?days=30` returns report and session totals, the
+  failure share, breakdowns by result type, receiving MX and policy type, and
+  the `record` state with the suggested `_smtp._tls` record.
+- `GET /api/workspaces/{id}/tls-reports/{reportId}` returns the full report with
+  policies and failure details.
+
+Every report carries the reporting organisation and contact. TLS reports are
+not authenticated: RFC 8460 asks reporters to DKIM-sign their mail, but this
+intake cannot verify that today, just as the aggregate intake cannot. Reports
+are bounded to 5 MB decompressed, 100 policies and 1,000 failure details per
+policy; session counts are capped at 10^12.
+
+A new opt-in `tlsrpt.received` webhook carries a pointer only (`reportId`,
+`domainId`, `domainName`, `organizationName`, successful and failed session
+counts, `receivedAt`). Data export includes TLS reports and a
+`tls_report_failures` CSV section, and the inventory and erasure certificate
+count the three new tables. `/api/v1` is unchanged.
 
 ## 2026-10-26 — Managed SPF
 

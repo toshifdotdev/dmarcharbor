@@ -21,6 +21,7 @@ export type EntitlementKey =
   | 'trust.center'
   | 'reports.compliancePack'
   | 'reports.inbox'
+  | 'reports.tlsrpt'
   | 'branding.logoUpload'
   | 'integrations.webhooks'
   | 'senders.owners'
@@ -54,6 +55,7 @@ export const entitlementLabels: Record<EntitlementKey, string> = {
   'trust.center': 'The Trust Center',
   'reports.compliancePack': 'The compliance pack',
   'reports.inbox': 'Report collection from your own mailbox',
+  'reports.tlsrpt': 'TLS reports',
   'branding.logoUpload': 'Logo upload',
   'integrations.webhooks': 'Webhooks',
   'senders.owners': 'Sender owners',
@@ -149,6 +151,7 @@ const allFeatures = (overrides: Partial<Record<EntitlementKey, boolean>> = {}): 
   'trust.center': true,
   'reports.compliancePack': true,
   'reports.inbox': true,
+  'reports.tlsrpt': true,
   'branding.logoUpload': true,
   'integrations.webhooks': true,
   'senders.owners': true,
@@ -281,6 +284,9 @@ const noDnsHosted = { 'dns.hosted': false } as const;
  */
 const noManagedSpf = { 'dns.managedSpf': false } as const;
 
+/** TLS-RPT viewing starts at Fairway; collection happens on every plan. */
+const noTlsRpt = { 'reports.tlsrpt': false } as const;
+
 /**
  * Harbor's feature set, shared by FLEET rather than copied.
  *
@@ -304,7 +310,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
       maxMembers: 1,
       maxWorkspaces: 1,
     activeDomainWindowDays: 30,
-    features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noIntegrations, ...noDnsAutomation, ...noDnsHosted, ...noManagedSpf, ...off }),
+    features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noIntegrations, ...noDnsAutomation, ...noDnsHosted, ...noManagedSpf, ...noTlsRpt, ...off }),
   },
   FAIRWAY: {
     tier: 'FAIRWAY',

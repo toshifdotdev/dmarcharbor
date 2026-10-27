@@ -110,6 +110,9 @@ export async function buildInventory(
     reports,
     reportRecords,
     authResults,
+    tlsReports,
+    tlsPolicies,
+    tlsFailures,
     forensic,
     forensicNamed,
     alertRules,
@@ -157,6 +160,12 @@ export async function buildInventory(
     prisma.dmarcReportRecord.count({ where: { report: { domain } } }),
 
     prisma.dmarcAuthResult.count({ where: { record: { report: { domain } } } }),
+
+    prisma.tlsReport.count({ where: { domain } }),
+
+    prisma.tlsReportPolicy.count({ where: { report: { domain } } }),
+
+    prisma.tlsReportFailure.count({ where: { policy: { report: { domain } } } }),
 
     prisma.dmarcForensicReport.count({ where: named }),
 
@@ -216,6 +225,9 @@ export async function buildInventory(
     report: reports,
     reportRecord: reportRecords,
     authResult: authResults,
+    tlsReport: tlsReports,
+    tlsReportPolicy: tlsPolicies,
+    tlsReportFailure: tlsFailures,
     forensicEvidence: forensic,
     forensicPseudonym: forensic,
     forensicPersonalData: forensicNamed,

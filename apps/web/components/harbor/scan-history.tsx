@@ -22,6 +22,7 @@
  */
 
 import { Fragment, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { clsx } from "clsx";
 import { fetchDomainScan, fetchDomainScanPage, runDomainScan } from "@/lib/scans-client";
@@ -266,7 +267,7 @@ export function ScanHistory({
                             }}
                           />
                         ) : detail ? (
-                          <ScanDetail scan={detail} hostedZone={hostedZone} />
+                          <ScanDetail scan={detail} hostedZone={hostedZone} domainId={domainId} />
                         ) : null}
                       </td>
                     </tr>
@@ -399,10 +400,12 @@ function TransportDetails({
   mtaSts,
   tlsRpt,
   bimi,
+  domainId,
 }: {
   mtaSts: MtaStsResult | undefined;
   tlsRpt: TlsRptResult | undefined;
   bimi: BimiResult | undefined;
+  domainId: string;
 }) {
   const tlsNote = mtaSts?.status === "found" && tlsRpt?.status === "missing";
   return (
@@ -417,7 +420,10 @@ function TransportDetails({
       ) : null}
       {tlsNote ? (
         <p className="text-meta text-warn">
-          Without TLS-RPT, failed TLS deliveries are never reported to you.
+          Without TLS-RPT, failed TLS deliveries are never reported to you.{" "}
+          <Link href={`/domains/${encodeURIComponent(domainId)}?tab=tls`} className="link font-semibold">
+            Publish a TLS-RPT record to collect them here.
+          </Link>
         </p>
       ) : null}
       {bimi?.status === "found" && !bimi.declined ? (
@@ -462,7 +468,15 @@ function spfRedirectsToHostedZone(record: string, zone: string): boolean {
   return false;
 }
 
-function ScanDetail({ scan, hostedZone }: { scan: ScanRow; hostedZone?: string | null }) {
+function ScanDetail({
+  scan,
+  hostedZone,
+  domainId,
+}: {
+  scan: ScanRow;
+  hostedZone?: string | null;
+  domainId: string;
+}) {
   const r = scan.result;
   if (!r) {
     return <p className="text-ui text-fg-3">This scan stored no DNS result. {scan.error ?? "It may still be running."}</p>;
@@ -567,7 +581,7 @@ function ScanDetail({ scan, hostedZone }: { scan: ScanRow; hostedZone?: string |
         )}
       </div>
       </div>
-      <TransportDetails mtaSts={r.mtaSts} tlsRpt={r.tlsRpt} bimi={r.bimi} />
+      <TransportDetails mtaSts={r.mtaSts} tlsRpt={r.tlsRpt} bimi={r.bimi} domainId={domainId} />
     </>
   );
 }

@@ -15,6 +15,7 @@ export const webhookEvents = [
   'dns.changed',
   'policy.changed',
   'forensic.received',
+  'tlsrpt.received',
 ] as const;
 
 export type WebhookEvent = (typeof webhookEvents)[number];

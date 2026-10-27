@@ -18,8 +18,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import type { DmarcRecordDraft, DnsConnectionRow } from "@/lib/types";
+import type { DmarcRecordDraft, DnsConnectionRow, TlsRecordView } from "@/lib/types";
 import { DnsHandoff, type PublishRecord } from "./dns-handoff";
+import { DnsRecord } from "@/components/ui/copy";
 import type { DnsPublishContext } from "./dns-publish";
 import { OwnershipCheck, type Verification } from "./ownership-check";
 
@@ -30,6 +31,7 @@ export function DomainRecords({
   slug,
   verified,
   dmarc,
+  tlsRpt,
   publishedPolicy,
   canPublish,
   connections,
@@ -40,6 +42,8 @@ export function DomainRecords({
   slug: string;
   verified: boolean;
   dmarc: DmarcRecordDraft | null;
+  /** The TLS-RPT record to publish, when the API could build one. */
+  tlsRpt?: TlsRecordView | null;
   /** The policy DNS already carries, from the onboarding state. */
   publishedPolicy: string | null;
   canPublish: boolean;
@@ -146,6 +150,28 @@ export function DomainRecords({
               </li>
             ))}
           </ul>
+        </div>
+      ) : null}
+
+      {tlsRpt ? (
+        <div className="border-t border-rule pt-4">
+          <p className="legend pb-1.5">Optional: collect TLS reports</p>
+          <p className="max-w-[76ch] text-ui text-fg-2">
+            {tlsRpt.status === "ours"
+              ? "Your TLS-RPT record is already in place, so senders can report failed TLS deliveries."
+              : "Publish this record so senders can tell you why TLS deliveries failed. It is optional and never blocks the steps above."}
+          </p>
+          {tlsRpt.status !== "ours" ? (
+            <div className="mt-3">
+              <DnsRecord
+                type="TXT"
+                host={tlsRpt.host}
+                zone={domainName}
+                value={tlsRpt.suggested}
+                testId="onboarding-tls-record"
+              />
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

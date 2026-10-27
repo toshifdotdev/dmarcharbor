@@ -78,6 +78,30 @@ export const dataClasses: DataClass[] = [
     erasure: 'delete',
   },
   {
+    key: 'tlsReport',
+    label: 'TLS reports',
+    description: 'Daily TLS-RPT delivery reports received by email.',
+    containsPersonalData: false,
+    erasure: 'delete',
+    retentionReason: evidence,
+    retentionBasis:
+      'TLS-RPT reports name mail servers and IP addresses, not recipients, and are the product record of delivery failures.',
+  },
+  {
+    key: 'tlsReportPolicy',
+    label: 'TLS report policies',
+    description: 'One policy block inside a TLS-RPT report.',
+    containsPersonalData: false,
+    erasure: 'delete',
+  },
+  {
+    key: 'tlsReportFailure',
+    label: 'TLS failure details',
+    description: 'One failed delivery result inside a TLS-RPT policy.',
+    containsPersonalData: false,
+    erasure: 'delete',
+  },
+  {
     key: 'forensicEvidence',
     label: 'Forensic report evidence',
     description: 'Per message failure detail: source IP, disposition, alignment and arrival time.',

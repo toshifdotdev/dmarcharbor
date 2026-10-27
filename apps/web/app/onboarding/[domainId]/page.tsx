@@ -272,6 +272,7 @@ export default async function OnboardingPage({ params }: { params: Promise<{ dom
               slug={domain.slug}
               verified={verified}
               dmarc={onboarding.suggestedRecord ?? null}
+              tlsRpt={onboarding.tlsRpt}
               publishedPolicy={onboarding.reporting.publishedPolicy}
               canPublish={canPublish}
               connections={publishConnections}

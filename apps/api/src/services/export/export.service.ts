@@ -183,7 +183,7 @@ export async function buildExportPayload(input: {
           ...(input.scope === 'CLIENT' && input.targetId ? { clientId: input.targetId } : {}),
         };
 
-  const [organization, clients, domains, users, members, sessions, reports, forensics, alertRules, alertEvents, shares, digests, monthlyReports, senderReviews, dnsConnections, dnsPublications, hostedDmarcRecords, hostedSpfRecords, auditLog] =
+  const [organization, clients, domains, users, members, sessions, reports, forensics, alertRules, alertEvents, shares, digests, monthlyReports, senderReviews, dnsConnections, dnsPublications, hostedDmarcRecords, hostedSpfRecords, tlsReports, auditLog] =
     await Promise.all([
       prisma.organization.findUnique({
         where: { id: org },
@@ -529,6 +529,49 @@ export async function buildExportPayload(input: {
         orderBy: { createdAt: 'asc' },
         take: exportTableLimit,
       }),
+      prisma.tlsReport.findMany({
+        where: { domain: domainFilter },
+        select: {
+          id: true,
+          domainId: true,
+          reportId: true,
+          organizationName: true,
+          contactInfo: true,
+          policyDomain: true,
+          dateRangeBegin: true,
+          dateRangeEnd: true,
+          successfulSessions: true,
+          failedSessions: true,
+          truncated: true,
+          receivedAt: true,
+          policies: {
+            select: {
+              id: true,
+              policyType: true,
+              policyString: true,
+              mxHost: true,
+              successfulSessions: true,
+              failedSessions: true,
+              failures: {
+                take: exportRecordLimit,
+                select: {
+                  id: true,
+                  resultType: true,
+                  sendingMtaIp: true,
+                  receivingMxHostname: true,
+                  receivingMxHelo: true,
+                  receivingIp: true,
+                  failedSessions: true,
+                  additionalInformation: true,
+                  failureReasonCode: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { receivedAt: 'asc' },
+        take: exportTableLimit,
+      }),
       prisma.auditLog.findMany({
         where: input.scope === 'DOMAIN' && input.targetId ? { domainId: input.targetId } : { organizationId: org },
         select: { id: true, action: true, targetType: true, targetId: true, createdAt: true },
@@ -552,6 +595,7 @@ export async function buildExportPayload(input: {
     [
       ['reports', reports],
       ['forensicReports', forensics],
+      ['tlsReports', tlsReports],
       ['alertEvents', alertEvents],
       ['auditLog', auditLog],
       ['sessions', sessions],
@@ -698,6 +742,31 @@ export async function buildExportPayload(input: {
         updatedAt: row.updatedAt,
         changes: row.changes,
       })),
+      tlsReports: tlsReports.map((row) => ({
+        domainId: row.domainId,
+        reportId: row.reportId,
+        organizationName: row.organizationName,
+        contactInfo: row.contactInfo,
+        policyDomain: row.policyDomain,
+        dateRangeBegin: row.dateRangeBegin,
+        dateRangeEnd: row.dateRangeEnd,
+        successfulSessions: Number(row.successfulSessions),
+        failedSessions: Number(row.failedSessions),
+        truncated: row.truncated,
+        receivedAt: row.receivedAt,
+        policies: row.policies.map((policy) => ({
+          id: policy.id,
+          policyType: policy.policyType,
+          policyString: policy.policyString,
+          mxHost: policy.mxHost,
+          successfulSessions: Number(policy.successfulSessions),
+          failedSessions: Number(policy.failedSessions),
+          failures: policy.failures.map((failure) => ({
+            ...failure,
+            failedSessions: Number(failure.failedSessions),
+          })),
+        })),
+      })),
       auditLog,
     },
   };
@@ -787,6 +856,57 @@ export function toForensicCsv(payload: ExportPayload): string {
   return rows.join('\n');
 }
 
+const tlsFailureColumns = [
+  'report_id',
+  'organization',
+  'policy_type',
+  'mx_host',
+  'result_type',
+  'sending_mta_ip',
+  'receiving_mx_hostname',
+  'receiving_mx_helo',
+  'receiving_ip',
+  'failed_sessions',
+  'additional_information',
+  'failure_reason_code',
+] as const;
+
+export function toTlsReportFailuresCsv(payload: ExportPayload): string {
+  const rows: string[] = [tlsFailureColumns.join(',')];
+  const reports = payload.data.tlsReports as Array<{
+    reportId: string;
+    organizationName: string;
+    policies: Array<{
+      policyType: string;
+      mxHost: string | null;
+      failures: Array<Record<string, unknown>>;
+    }>;
+  }>;
+  for (const report of reports) {
+    for (const policy of report.policies) {
+      for (const failure of policy.failures) {
+        rows.push(
+          [
+            csvCell(report.reportId),
+            csvCell(report.organizationName),
+            csvCell(policy.policyType),
+            csvCell(policy.mxHost),
+            csvCell(failure.resultType),
+            csvCell(failure.sendingMtaIp),
+            csvCell(failure.receivingMxHostname),
+            csvCell(failure.receivingMxHelo),
+            csvCell(failure.receivingIp),
+            csvCell(failure.failedSessions),
+            csvCell(failure.additionalInformation),
+            csvCell(failure.failureReasonCode),
+          ].join(','),
+        );
+      }
+    }
+  }
+  return rows.join('\n');
+}
+
 export function csvSection(title: string, body: string): string {
   return `${title}\n${body}`;
 }
@@ -798,5 +918,6 @@ export function buildCsvExport(payload: ExportPayload): string {
     '#',
     csvSection('report_records', toReportRecordsCsv(payload)),
     csvSection('forensic_reports', toForensicCsv(payload)),
+    csvSection('tls_report_failures', toTlsReportFailuresCsv(payload)),
   ].join('\n\n');
 }

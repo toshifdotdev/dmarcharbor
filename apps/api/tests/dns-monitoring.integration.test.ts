@@ -1329,7 +1329,7 @@ describe('webhook event catalogue', () => {
     const listed = await workspace.agent.get(`/api/workspaces/${workspace.organizationId}/webhooks`);
     expect(listed.status).toBe(200);
     expect(listed.body.events).toEqual(
-      expect.arrayContaining(['dns.changed', 'policy.changed', 'forensic.received']),
+      expect.arrayContaining(['dns.changed', 'policy.changed', 'forensic.received', 'tlsrpt.received']),
     );
     expect(listed.body.defaultEvents).toEqual(['domain.verified', 'alert.triggered']);
 

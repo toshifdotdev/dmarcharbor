@@ -36,6 +36,7 @@ const FEATURES: Array<[key: string, label: string]> = [
   ["trust.center", "Trust Center"],
   ["reports.compliancePack", "Compliance pack"],
   ["reports.inbox", "Report collection from your own mailbox"],
+  ["reports.tlsrpt", "TLS reports"],
   ["branding.whitelabel", "White label"],
   ["branding.logoUpload", "Logo upload"],
   ["auth.sso", "Single sign-on (OIDC and SAML)"],

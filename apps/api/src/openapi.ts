@@ -267,7 +267,7 @@ export const openApiDocument = {
         summary: 'List webhook endpoints',
         description: [
           'Endpoints this workspace delivers events to. Subscribing events and delivery health, never the signing secret, which is shown once at creation.',
-          'A large agency receives hundreds of report notifications a day, so domain.verified and alert.triggered are subscribed by default and report.received, dns.changed, policy.changed and forensic.received are opt in. Ignoring events trains people to ignore the endpoint.',
+          'A large agency receives hundreds of report notifications a day, so domain.verified and alert.triggered are subscribed by default and report.received, dns.changed, policy.changed, forensic.received and tlsrpt.received are opt in. Ignoring events trains people to ignore the endpoint.',
           'Webhooks are included from Fairway. A workspace that downgrades keeps its endpoints and can still list, pause and delete them; delivery resumes on upgrade.',
         ].join(' '),
         parameters: [orgParam],
@@ -2524,6 +2524,61 @@ export const openApiDocument = {
         ].join(' '),
         parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
         responses: { 200: { description: 'The updated view, with republish when releasing.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/domains/{domainId}/tls-reports': {
+      get: {
+        tags: ['Reports'],
+        summary: 'List TLS-RPT reports for a domain',
+        description: [
+          'Newest first by date-range start, 25 by default and 100 at most, with an opaque cursor. Each item carries the report fields and a per-policy summary, without failure details.',
+          'Collection happens on every plan; reading is gated by reports.tlsrpt. TLS reports are not authenticated, so every item names the reporting organisation and contact.',
+        ].join(' '),
+        parameters: [
+          orgParam,
+          idParam('domainId', 'Domain identifier, id or slug.'),
+          { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 100 } },
+          { name: 'cursor', in: 'query', schema: { type: 'string' } },
+        ],
+        responses: {
+          200: { description: 'A page of TLS reports.' },
+          402: { description: 'The plan does not include TLS reports.' },
+          ...standardErrors,
+        },
+      },
+    },
+    '/workspaces/{organizationId}/domains/{domainId}/tls-reports/summary': {
+      get: {
+        tags: ['Reports'],
+        summary: 'Summarise TLS-RPT outcomes and the record to publish',
+        description: [
+          'Selects reports whose date-range start is within the last days (1 to 365, default 30) and aggregates totals, failures by result type and mail server, and policy types in SQL.',
+          'record is built from the latest completed scan: missing, ours, other, invalid or unknown, with current and suggested record text. Reading is gated by reports.tlsrpt.',
+        ].join(' '),
+        parameters: [
+          orgParam,
+          idParam('domainId', 'Domain identifier, id or slug.'),
+          { name: 'days', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 365, default: 30 } },
+        ],
+        responses: {
+          200: { description: 'Totals, breakdowns and the TLS-RPT record state.' },
+          402: { description: 'The plan does not include TLS reports.' },
+          404: { description: 'The domain is not in this workspace.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/tls-reports/{reportId}': {
+      get: {
+        tags: ['Reports'],
+        summary: 'Read one TLS-RPT report',
+        description:
+          'Returns the full report with policies and every failure detail, scoped to the workspace. Reading is gated by reports.tlsrpt.',
+        parameters: [orgParam, idParam('reportId', 'TLS report identifier.')],
+        responses: {
+          200: { description: 'The full report.' },
+          402: { description: 'The plan does not include TLS reports.' },
+          404: { description: 'The report is not in this workspace.' },
+        },
       },
     },
     '/workspaces/{organizationId}/domains/{domainId}/scans': {

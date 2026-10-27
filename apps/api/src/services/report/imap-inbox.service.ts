@@ -293,7 +293,7 @@ export async function pollInbox(organizationId: string): Promise<PollOutcome> {
           // only understood aggregate XML would drop them silently.
           const result = await processInboundDmarcEmail(Buffer.concat(chunks).toString('utf8'));
 
-          if (result.kind === 'aggregate') {
+          if (result.kind === 'aggregate' || result.kind === 'tlsrpt') {
             for (const item of result.results) {
               if (item.status === 'created') {
                 outcome.accepted += 1;

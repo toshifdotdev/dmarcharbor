@@ -37,6 +37,7 @@ import { forensicRouter } from './routes/forensic.routes.js';
 import { inboundReportRouter } from './routes/inbound-report.routes.js';
 import { notificationRouter } from './routes/notification.routes.js';
 import { reportRouter } from './routes/report.routes.js';
+import { tlsReportRouter } from './routes/tls-report.routes.js';
 import { sessionRouter } from './routes/session.routes.js';
 import { sessionManagementRouter } from './routes/session-management.routes.js';
 import { systemRouter } from './routes/system.routes.js';
@@ -137,6 +138,7 @@ export function createApp(): express.Express {
   app.use('/api', inboundReportRouter);
   app.use('/api', publicReportRouter);
   app.use('/api', reportRouter);
+  app.use('/api', tlsReportRouter);
   app.use('/api', forensicRouter);
   app.use('/api', alertRouter);
   app.use('/api', onboardingRouter);

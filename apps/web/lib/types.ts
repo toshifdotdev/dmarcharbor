@@ -414,7 +414,77 @@ export interface OnboardingState {
    *  client-side, so tags, ruf and notes stay consistent with what the backend
    *  verifies. */
   suggestedRecord: DmarcRecordDraft;
+  /** The TLS-RPT record to publish, shown beside the DMARC suggestion. */
+  tlsRpt: TlsRecordView;
   recommendedPolicy: "none" | "quarantine" | "reject";
+}
+
+export type TlsRecordStatus = "missing" | "ours" | "other" | "invalid" | "unknown";
+
+export interface TlsRecordView {
+  status: TlsRecordStatus;
+  host: string;
+  current: string | null;
+  suggested: string;
+}
+
+export interface TlsReportPolicySummary {
+  id: string;
+  policyType: string;
+  policyString: string | null;
+  mxHost: string | null;
+  successfulSessions: number;
+  failedSessions: number;
+}
+
+export interface TlsReportListItem {
+  id: string;
+  reportId: string;
+  organizationName: string;
+  contactInfo: string | null;
+  policyDomain: string;
+  dateRangeBegin: string;
+  dateRangeEnd: string;
+  successfulSessions: number;
+  failedSessions: number;
+  truncated: boolean;
+  receivedAt: string;
+  policies: TlsReportPolicySummary[];
+}
+
+export interface TlsReportFailure {
+  id: string;
+  resultType: string;
+  sendingMtaIp: string | null;
+  receivingMxHostname: string | null;
+  receivingMxHelo: string | null;
+  receivingIp: string | null;
+  failedSessions: number;
+  additionalInformation: string | null;
+  failureReasonCode: string | null;
+}
+
+export interface TlsReportDetail extends TlsReportListItem {
+  policies: Array<TlsReportPolicySummary & { failures: TlsReportFailure[] }>;
+}
+
+export interface TlsReportSummary {
+  days: number;
+  reportCount: number;
+  successfulSessions: number;
+  failedSessions: number;
+  failureSharePercent: number | null;
+  lastReportAt: string | null;
+  byResultType: Array<{ resultType: string; failedSessions: number; reporters: string[] }>;
+  byMxHost: Array<{ receivingMxHostname: string; failedSessions: number; resultTypes: string[] }>;
+  byPolicyType: Array<{ policyType: string; successfulSessions: number; failedSessions: number }>;
+  record: TlsRecordView;
+}
+
+export interface TlsReportPage {
+  items: TlsReportListItem[];
+  nextCursor: string | null;
+  hasMore: boolean;
 }
 
 export interface PolicyStageRecommendation {
@@ -675,7 +745,8 @@ export type WebhookEventName =
   | "entitlement.exceeded"
   | "dns.changed"
   | "policy.changed"
-  | "forensic.received";
+  | "forensic.received"
+  | "tlsrpt.received";
 
 /** GET /webhooks — one row per registered endpoint. `active` is already the
  *  effective state (paused OR auto-suspended), so the UI never re-derives it.
@@ -951,6 +1022,7 @@ export type EntitlementKey =
   | "trust.center"
   | "reports.compliancePack"
   | "reports.inbox"
+  | "reports.tlsrpt"
   | "branding.logoUpload"
   | "integrations.webhooks"
   | "senders.owners"

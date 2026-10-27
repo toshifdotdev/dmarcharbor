@@ -56,6 +56,8 @@ import type {
   ScanPage,
   SlackDestination,
   SsoConnectionRow,
+  TlsReportPage,
+  TlsReportSummary,
   TrustSlugStatus,
   VerifyDomainResult,
   WebhookDeliveryRow,
@@ -162,6 +164,32 @@ export function getManagedSpf(
 ): Promise<ManagedSpfView> {
   return opsFetch<ManagedSpfView>(
     `/api/workspaces/${organizationId}/domains/${domainId}/managed-spf`,
+  );
+}
+
+/** GET /tls-reports/summary — totals, breakdowns and the record state. */
+export function getTlsReportSummary(
+  organizationId: string,
+  domainId: string,
+  days = 30,
+): Promise<TlsReportSummary> {
+  return opsFetch<TlsReportSummary>(
+    `/api/workspaces/${organizationId}/domains/${domainId}/tls-reports/summary?days=${days}`,
+  );
+}
+
+/** GET /tls-reports — the first page of TLS-RPT reports. */
+export function getTlsReports(
+  organizationId: string,
+  domainId: string,
+  options: { limit?: number; cursor?: string } = {},
+): Promise<TlsReportPage> {
+  const query = new URLSearchParams();
+  if (options.limit !== undefined) query.set("limit", String(options.limit));
+  if (options.cursor) query.set("cursor", options.cursor);
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  return opsFetch<TlsReportPage>(
+    `/api/workspaces/${organizationId}/domains/${domainId}/tls-reports${suffix}`,
   );
 }
 

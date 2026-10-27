@@ -17,9 +17,12 @@ import {
   getManagedSpf,
   getMailboxCompliance,
   getPlanCatalog,
+  getTlsReportSummary,
+  getTlsReports,
   getWorkspaceEntitlements,
   listDomainScans,
   listWorkspaceMembers,
+  OpsError,
 } from "@/lib/api-ops";
 import { getServiceMeta } from "@/lib/api-public";
 import { featureOf } from "@/lib/entitlements";
@@ -40,6 +43,8 @@ import type {
   ReportRow,
   ScanRow,
   SourceAttribution,
+  TlsReportPage,
+  TlsReportSummary,
 } from "@/lib/types";
 import { AppShell } from "@/components/harbor/app-shell";
 import { DnsChangesPanel } from "@/components/harbor/dns-changes";
@@ -49,6 +54,7 @@ import { ManagedSpf } from "@/components/harbor/managed-spf";
 import { MailboxCompliance } from "@/components/harbor/mailbox-compliance";
 import { ScanHistory, toScanHistoryRow } from "@/components/harbor/scan-history";
 import { SendersTable } from "@/components/harbor/senders-table";
+import { TlsReports } from "@/components/harbor/tls-reports";
 import { PageHeader, SectionHead } from "@/components/harbor/page-header";
 import { RefreshButton } from "@/components/harbor/refresh-button";
 import { VolumeChart } from "@/components/harbor/volume-chart";
@@ -153,7 +159,7 @@ export default async function DomainPage({
 
   // A scan history is a different claim from the report evidence, so it fails
   // on its own and renders as a failure, never as an empty history.
-  const [scanHistory, switchState, dnsChanges, serviceMeta, members, me, entitlements, catalog, dnsConnections, mailboxCompliance, hostedDmarc, managedSpf] = await Promise.all([
+  const [scanHistory, switchState, dnsChanges, serviceMeta, members, me, entitlements, catalog, dnsConnections, mailboxCompliance, hostedDmarc, managedSpf, tlsSummary, tlsReports] = await Promise.all([
     listDomainScans(active.id, id).then(
       (page) => ({ rows: page.rows, nextCursor: page.nextCursor, failed: false }),
       () => ({ rows: [] as ScanRow[], nextCursor: null as string | null, failed: true }),
@@ -184,6 +190,20 @@ export default async function DomainPage({
       (data: ManagedSpfView) => ({ data, failed: false }),
       () => ({ data: null as ManagedSpfView | null, failed: true }),
     ),
+    getTlsReportSummary(active.id, id).then(
+      (data: TlsReportSummary) => ({ data, failed: false, notInPlan: false }),
+      (error: unknown) =>
+        error instanceof OpsError && error.status === 402
+          ? { data: null as TlsReportSummary | null, failed: false, notInPlan: true }
+          : { data: null as TlsReportSummary | null, failed: true, notInPlan: false },
+    ),
+    getTlsReports(active.id, id, { limit: 25 }).then(
+      (data: TlsReportPage) => ({ data, failed: false, notInPlan: false }),
+      (error: unknown) =>
+        error instanceof OpsError && error.status === 402
+          ? { data: null as TlsReportPage | null, failed: false, notInPlan: true }
+          : { data: null as TlsReportPage | null, failed: true, notInPlan: false },
+    ),
   ]);
 
   const role =
@@ -200,6 +220,17 @@ export default async function DomainPage({
         lookupCount: latestSpfScan.result.spf.lookupCount ?? null,
       }
     : null;
+  const latestScan = scanHistory.rows.find((row) => row.result) ?? null;
+  const mtaStsPresent =
+    latestScan?.result?.mtaSts?.status === "found"
+      ? true
+      : latestScan?.result?.mtaSts
+        ? false
+        : null;
+  const tlsCount =
+    tlsSummary.notInPlan || tlsSummary.failed || !tlsSummary.data
+      ? null
+      : tlsSummary.data.reportCount;
   const ownersPlanLabel =
     catalog?.order
       .map((tier) => catalog.plans.find((plan) => plan.tier === tier))
@@ -339,7 +370,7 @@ export default async function DomainPage({
           <section aria-label="Evidence tables" className="min-w-0">
             <Tabs
               label="Evidence"
-              defaultTab={tab === "setup" ? "setup" : undefined}
+              defaultTab={tab === "setup" ? "setup" : tab === "tls" ? "tls" : undefined}
               tabs={[
                 {
                   id: "senders",
@@ -375,6 +406,22 @@ export default async function DomainPage({
                   label: "Aggregate reports",
                   count: reports.length,
                   panel: <ReportsTable reports={reports} />,
+                },
+                {
+                  id: "tls",
+                  label: "TLS reports",
+                  count: tlsCount,
+                  panel: (
+                    <TlsReports
+                      organizationId={active.id}
+                      domainName={insights.domain.name}
+                      summary={tlsSummary.data}
+                      reports={tlsReports.data}
+                      failed={tlsSummary.failed || tlsReports.failed}
+                      notInPlan={tlsSummary.notInPlan || tlsReports.notInPlan}
+                      mtaStsPresent={mtaStsPresent}
+                    />
+                  ),
                 },
                 {
                   id: "scans",

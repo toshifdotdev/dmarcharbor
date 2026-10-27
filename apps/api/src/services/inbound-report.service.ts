@@ -3,9 +3,12 @@ import { containsForensicParts, parseForensicReport, ForensicReportParseError } 
 import { ingestForensicReportByReportedDomain } from './forensic-report.service.js';
 import { ingestDmarcReportByPolicyDomain } from './report.service.js';
 import { looksLikeReportAttachment, ReportArchiveError, reportXmlFromAttachment } from './report/report-archive.js';
+import { looksLikeTlsReportEmail } from './tls-report/detect.js';
+import { tlsReportJsonFromAttachment } from './tls-report/attachment.js';
+import { ingestTlsReportByPolicyDomain } from './tls-report/tls-report.service.js';
 
 export type InboundReportStatus = 'created' | 'duplicate' | 'rejected' | 'failed' | 'ignored';
-export type InboundReportKind = 'aggregate' | 'forensic';
+export type InboundReportKind = 'aggregate' | 'forensic' | 'tlsrpt';
 
 export interface InboundReportResult {
   kind: InboundReportKind;
@@ -192,7 +195,109 @@ async function processAggregateEmail(rawEmail: string): Promise<InboundEmailResu
   };
 }
 
+async function processTlsReportEmail(rawEmail: string): Promise<InboundEmailResult> {
+  const parsedEmail = await simpleParser(rawEmail);
+  const attachments = parsedEmail.attachments;
+  const qualified = attachments
+    .filter((attachment) => {
+      const type = (attachment.contentType ?? '').toLowerCase();
+      const name = (attachment.filename ?? '').toLowerCase();
+      return type.startsWith('application/tlsrpt') || name.endsWith('.json') || name.endsWith('.json.gz');
+    })
+    .slice(0, 20);
+
+  const candidates: Array<{ json: string } | { failure: string }> = [];
+  const decode = async (attachment: (typeof attachments)[number]): Promise<void> => {
+    try {
+      candidates.push({ json: await tlsReportJsonFromAttachment(attachment.content) });
+    } catch (error) {
+      candidates.push({
+        failure:
+          error instanceof ReportArchiveError
+            ? `${attachment.filename ?? 'The attachment'}: ${error.message}`
+            : 'The TLS report attachment could not be decoded.',
+      });
+    }
+  };
+
+  if (qualified.length > 0) {
+    for (const attachment of qualified) {
+      await decode(attachment);
+    }
+  } else {
+    // Nothing named itself a TLS report. Try every attachment by its bytes, but
+    // only keep the ones that actually decode.
+    for (const attachment of attachments) {
+      try {
+        candidates.push({ json: await tlsReportJsonFromAttachment(attachment.content) });
+      } catch {
+        // Not a TLS report; the aggregate branch will consider it normally.
+      }
+    }
+  }
+
+  const results: InboundReportResult[] = [];
+  for (const candidate of candidates) {
+    if ('failure' in candidate) {
+      results.push({ kind: 'tlsrpt', status: 'failed', message: candidate.failure });
+      continue;
+    }
+
+    try {
+      const outcome = await ingestTlsReportByPolicyDomain(candidate.json);
+      if (outcome.status === 'created' || outcome.status === 'duplicate') {
+        results.push({
+          kind: 'tlsrpt',
+          status: outcome.status,
+          reportId: outcome.report.id,
+          reportDomain: outcome.report.policyDomain,
+        });
+      } else if (outcome.status === 'domain_not_found' || outcome.status === 'ambiguous_domain') {
+        results.push({
+          kind: 'tlsrpt',
+          status: 'rejected',
+          reportDomain: outcome.reportDomain,
+          message: `No unique verified workspace domain matched ${outcome.reportDomain}.`,
+        });
+      } else if (outcome.status === 'not_verified') {
+        results.push({ kind: 'tlsrpt', status: 'rejected', message: 'The matched domain is not verified.' });
+      } else if (outcome.status === 'domain_mismatch') {
+        results.push({
+          kind: 'tlsrpt',
+          status: 'rejected',
+          reportDomain: outcome.reportDomain,
+          message: 'The report domain did not match the selected domain.',
+        });
+      } else {
+        results.push({
+          kind: 'tlsrpt',
+          status: 'rejected',
+          message: 'The report could not be matched to a workspace domain.',
+        });
+      }
+    } catch (error) {
+      results.push({
+        kind: 'tlsrpt',
+        status: 'failed',
+        message: error instanceof Error ? error.message : 'The TLS report could not be processed.',
+      });
+    }
+  }
+
+  return { candidateCount: candidates.length, kind: 'tlsrpt', results };
+}
+
 export async function processInboundDmarcEmail(rawEmail: string): Promise<InboundEmailResult> {
+  if (looksLikeTlsReportEmail(rawEmail)) {
+    const tls = await processTlsReportEmail(rawEmail);
+    // The detector reads marker strings anywhere in the message, so a DMARC
+    // report that merely quotes one (an ARF report carrying the headers of a
+    // TLS-RPT message, say) would otherwise be dropped with nothing ingested.
+    // Only a message that actually held a TLS report stops here.
+    if (tls.candidateCount > 0) {
+      return tls;
+    }
+  }
   if (containsForensicParts(rawEmail)) {
     return processForensicEmail(rawEmail);
   }

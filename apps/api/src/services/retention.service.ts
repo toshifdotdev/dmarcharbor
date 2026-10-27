@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { env } from '../config/env.js';
 import { prisma } from '../database/prisma.js';
 import { rateLimitStoreFor } from '../middleware/postgres-rate-limit-store.js';
+import { purgeExpiredTlsReports } from './tls-report/tls-report.service.js';
 
 /**
  * Retention for the tables that hold customer data and had no sweeper.
@@ -43,6 +44,7 @@ export interface RetentionSweep {
   monthlyReportFiles: number;
   monthlyReportLinks: number;
   sourceIpIntel: number;
+  tlsReports: number;
 }
 
 function hoursAgo(hours: number, now: Date): Date {
@@ -184,5 +186,6 @@ export async function purgeExpiredData(now: Date = new Date()): Promise<Retentio
     monthlyReportFiles: monthlyReportFiles.count,
     monthlyReportLinks: monthlyReportLinks.count,
     sourceIpIntel: sourceIpIntel.count,
+    tlsReports: await purgeExpiredTlsReports(),
   };
 }

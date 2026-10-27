@@ -157,6 +157,8 @@ const envSchema = z.object({
     .email()
     .default('dmarc-reports@reports.dmarcharbor.com'),
   REPORT_FORENSIC_ADDRESS: z.string().trim().email().default('dmarc-forensics@reports.dmarcharbor.com'),
+  /** Optional separate mailbox for TLS-RPT; defaults to the aggregate address. */
+  REPORT_TLSRPT_ADDRESS: z.string().trim().email().optional(),
   /**
    * Whether each client gets its own report address.
    *
@@ -275,6 +277,15 @@ if (
 ) {
   throw new Error(
     'REPORT_AGGREGATE_ADDRESS local part must not contain "+" when REPORT_ADDRESS_SUBADDRESSING is plus: the client token is appended with one.',
+  );
+}
+
+if (
+  parsed.data.REPORT_ADDRESS_SUBADDRESSING === 'plus' &&
+  parsed.data.REPORT_TLSRPT_ADDRESS?.split('@')[0]?.includes('+')
+) {
+  throw new Error(
+    'REPORT_TLSRPT_ADDRESS local part must not contain "+" when REPORT_ADDRESS_SUBADDRESSING is plus: the client token is appended with one.',
   );
 }
 

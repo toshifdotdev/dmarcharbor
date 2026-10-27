@@ -41,6 +41,7 @@ import type {
   SwitchCheckRow,
   SwitchKitImportResult,
   SwitchPlan,
+  TlsReportDetail,
   VerifyDomainResult,
 } from "./types";
 import { errorFromResponse, extractErrorCode, genericForStatus, networkUiError } from "./ui-errors";
@@ -1219,3 +1220,6 @@ export const checkManagedSpf = (orgId: string, domainId: string) =>
 
 export const releaseManagedSpf = (orgId: string, domainId: string) =>
   call<ManagedSpfView>(`${spfPath(orgId, domainId)}/release`, { method: "POST" });
+
+export const getTlsReportDetail = (orgId: string, reportId: string) =>
+  call<TlsReportDetail>(wsPath(orgId, `/tls-reports/${reportId}`));

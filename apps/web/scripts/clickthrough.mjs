@@ -928,6 +928,32 @@ check(
 );
 const shotEmpty = await shot("05-never-reported.png");
 
+// 4e. TLS reports tab: the seeded Harbor domain has no TLS-RPT record, so the
+//     tab must render the record to publish. The tab click can land before
+//     hydration; retry inside the poll.
+const tlsTabAudit = await waitForEval(
+  `(() => {
+    const tab = [...document.querySelectorAll('[role="tab"]')].find((t) => t.textContent.includes('TLS reports'));
+    if (!tab) return { tab: false, visible: false, record: '' };
+    const panelId = tab.getAttribute('aria-controls');
+    const panel = panelId ? document.getElementById(panelId) : null;
+    const visible = !!panel && !panel.hidden;
+    if (!visible) tab.click();
+    const record = panel?.querySelector('[data-testid="tls-record"]')?.textContent ?? '';
+    return { tab: true, visible, record };
+  })()`,
+  (a) => a && a.tab && a.visible && a.record.includes('v=TLSRPTv1'),
+  45000,
+);
+check(
+  "TLS reports tab renders the record to publish",
+  Boolean(tlsTabAudit?.visible && tlsTabAudit.record.includes('v=TLSRPTv1')),
+  JSON.stringify({
+    visible: tlsTabAudit?.visible ?? false,
+    record: (tlsTabAudit?.record ?? '').slice(0, 120),
+  }),
+);
+
 console.log("evidence shots:", shotDetail, shotStale, shotEmpty);
 
 // ─── 5. Phase 3: operations screens ─────────────────────────────────────────
