@@ -53,49 +53,57 @@ function describeFor(issue: ZodIssue): string {
 
   switch (issue.code) {
     case 'too_small':
-      if (issue.type === 'string') {
+      if (issue.origin === 'string') {
         return `${field} must be at least ${issue.minimum} characters.`;
       }
-      if (issue.type === 'array') {
+      if (issue.origin === 'array') {
         // "must have" rather than "needs": the field name is plural in the
         // common case (scopes, domains, events), and "Scopes needs at least 1
         // item" read as a typo. "must have" carries no number agreement.
-        return `${field} must have at least ${issue.minimum} item${issue.minimum === 1 ? '' : 's'}.`;
+        return `${field} must have at least ${issue.minimum} item${Number(issue.minimum) === 1 ? '' : 's'}.`;
       }
-      if (issue.type === 'number') {
+      if (issue.origin === 'number') {
         return `${field} must be at least ${issue.minimum}.`;
       }
       return `${field} is too short.`;
 
     case 'too_big':
-      if (issue.type === 'string') {
+      if (issue.origin === 'string') {
         return `${field} must be at most ${issue.maximum} characters.`;
       }
-      if (issue.type === 'array') {
-        return `${field} can have at most ${issue.maximum} item${issue.maximum === 1 ? '' : 's'}.`;
+      if (issue.origin === 'array') {
+        return `${field} can have at most ${issue.maximum} item${Number(issue.maximum) === 1 ? '' : 's'}.`;
       }
-      if (issue.type === 'number') {
+      if (issue.origin === 'number') {
         return `${field} must be at most ${issue.maximum}.`;
       }
       return `${field} is too long.`;
 
     case 'invalid_type':
+      // Zod 4 reports an infinite number here too (Zod 3 had `not_finite`).
+      // `received` is set at runtime but is not in Zod 4's issue type.
+      if (issue.expected === 'number' && /received -?Infinity$/.test(issue.message)) {
+        return `${field} must be a number.`;
+      }
       return `${field} is required.`;
 
-    case 'invalid_string':
-      if (issue.validation === 'email') {
+    case 'invalid_format':
+      // Zod 4 folds `.email()`, `.url()`, `.regex()`, `.startsWith()` and the
+      // other string checks into this one code (Zod 3's `invalid_string`).
+      if (issue.format === 'email') {
         return `${field} must be an email address.`;
       }
-      if (issue.validation === 'url') {
+      if (issue.format === 'url') {
         return `${field} must be a URL starting with https.`;
       }
       return `${field} is not in the right format.`;
 
-    case 'invalid_enum_value':
-      return `${field} is not one of the allowed values: ${issue.options.join(', ')}.`;
-
-    case 'invalid_literal':
-      return `${field} must be exactly ${String(issue.expected)}.`;
+    case 'invalid_value':
+      // Zod 4 uses this one code for both enums and literals.
+      if (issue.values.length === 1) {
+        return `${field} must be exactly ${String(issue.values[0])}.`;
+      }
+      return `${field} is not one of the allowed values: ${issue.values.map(String).join(', ')}.`;
 
     case 'unrecognized_keys':
       return `${field} is not a field this endpoint accepts.`;
@@ -104,10 +112,7 @@ function describeFor(issue: ZodIssue): string {
       return `${field} is not in a recognised format.`;
 
     case 'not_multiple_of':
-      return `${field} must be a multiple of ${issue.multipleOf}.`;
-
-    case 'not_finite':
-      return `${field} must be a number.`;
+      return `${field} must be a multiple of ${issue.divisor}.`;
 
     case 'custom':
       // A refinement's own sentence when the author wrote one; Zod's boilerplate

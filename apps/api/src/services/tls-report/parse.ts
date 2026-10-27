@@ -116,7 +116,9 @@ function normaliseDomain(value: string): string {
 
 function describeIssue(issue: z.ZodIssue): string {
   const field = issue.path.join('.') || 'report';
-  if (issue.code === 'invalid_type' && issue.received === 'undefined') {
+  // Zod 4 no longer types `received`; its message ends "received undefined"
+  // when the key is absent.
+  if (issue.code === 'invalid_type' && /received undefined$/.test(issue.message)) {
     return `The report is missing ${field}.`;
   }
   if (issue.code === 'too_small' && field.includes('session-count')) {
@@ -131,10 +133,10 @@ function describeIssue(issue: z.ZodIssue): string {
   if (issue.code === 'too_small' && field === 'policies') {
     return 'The report has no policies.';
   }
-  if (issue.code === 'invalid_string' && issue.validation === 'datetime') {
+  if (issue.code === 'invalid_format' && issue.format === 'datetime') {
     return `${field} is not an RFC 3339 date.`;
   }
-  if (issue.code === 'invalid_enum_value') {
+  if (issue.code === 'invalid_value') {
     return `${field} is not a recognised value.`;
   }
   return `The report has an invalid ${field}.`;
