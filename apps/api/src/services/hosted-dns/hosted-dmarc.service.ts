@@ -225,21 +225,26 @@ async function domainFor(organizationId: string, domainRefOrId: string) {
 
 /**
  * The zone's capacity in records, not customers: a hosted DMARC row is one
- * TXT, and a managed SPF row may be an entry plus up to eight continuations.
- * Both features share the same Cloudflare limit, so both must count the same
- * way.
+ * TXT, a managed SPF row may be an entry plus up to eight continuations, and a
+ * hosted BIMI row is one TXT once it has a logo (before that it publishes
+ * nothing). All three features share the same Cloudflare limit, so all three
+ * must count the same way.
  */
 export async function usedHostedRecords(): Promise<number> {
-  const [dmarc, spf] = await Promise.all([
+  const [dmarc, spf, bimi] = await Promise.all([
     prisma.hostedDmarcRecord.count({ where: { status: { not: 'RELEASED' } } }),
     prisma.hostedSpfRecord.findMany({
       where: { status: { not: 'RELEASED' } },
       select: { parts: true },
     }),
+    prisma.hostedBimiRecord.count({
+      where: { status: { not: 'RELEASED' }, assets: { some: { kind: 'LOGO' } } },
+    }),
   ]);
   return (
     dmarc +
-    spf.reduce((total, row) => total + (Array.isArray(row.parts) ? row.parts.length : 0), 0)
+    spf.reduce((total, row) => total + (Array.isArray(row.parts) ? row.parts.length : 0), 0) +
+    bimi
   );
 }
 
@@ -1105,6 +1110,18 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/**
+ * The names our DMARC records live at, and nothing else.
+ *
+ * Exported so the orphan sweep and a test read the same expression: hosted
+ * BIMI and managed SPF write into the same zone, and a pattern that also
+ * matched `<token>.bimi.<zone>` would let this pass delete a BIMI record as an
+ * orphan.
+ */
+export function hostedDmarcNamePattern(zone: string): RegExp {
+  return new RegExp(`^[a-z2-7]{16}\\.${escapeRegExp(zone)}$`);
+}
+
 export async function reconcileHostedDns(): Promise<ReconcileSummary> {
   const provider = hostedDnsProvider();
   if (!provider) {
@@ -1120,7 +1137,7 @@ export async function reconcileHostedDns(): Promise<ReconcileSummary> {
     else summary.failed += 1;
   }
 
-  const namePattern = new RegExp(`^[a-z2-7]{16}\\.${escapeRegExp(provider.zone)}$`);
+  const namePattern = hostedDmarcNamePattern(provider.zone);
   for await (const record of provider.listAll()) {
     const name = record.name.toLowerCase().replace(/\.+$/, '');
     if (!namePattern.test(name)) continue;

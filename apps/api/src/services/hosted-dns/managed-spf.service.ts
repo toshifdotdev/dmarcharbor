@@ -1565,6 +1565,18 @@ function escapeRegExp(value: string): string {
 }
 
 /**
+ * The names our SPF parts live at, and nothing else.
+ *
+ * Exported so the orphan sweep and a test read the same expression: hosted
+ * BIMI and hosted DMARC write into the same zone, and a pattern that also
+ * matched `<token>.bimi.<zone>` would let this pass delete a BIMI record as an
+ * orphan.
+ */
+export function hostedSpfNamePattern(zone: string): RegExp {
+  return new RegExp(`^[a-z2-7]{16}(?:-[2-9])?\\.spf\\.${escapeRegExp(zone)}$`);
+}
+
+/**
  * One reconciler pass for managed SPF: refresh every live row, then remove
  * SPF-shaped records with our comment that no live row owns. The DMARC sweep
  * is a separate pass and is deliberately untouched.
@@ -1585,9 +1597,7 @@ export async function reconcileManagedSpf(): Promise<ManagedSpfReconcileSummary>
     else summary.failed += 1;
   }
 
-  const namePattern = new RegExp(
-    `^[a-z2-7]{16}(?:-[2-9])?\\.spf\\.${escapeRegExp(provider.zone)}$`,
-  );
+  const namePattern = hostedSpfNamePattern(provider.zone);
   for await (const record of provider.listAll()) {
     const name = record.name.toLowerCase().replace(/\.+$/, '');
     if (!namePattern.test(name)) continue;

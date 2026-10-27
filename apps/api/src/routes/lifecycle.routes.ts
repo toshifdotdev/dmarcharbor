@@ -87,7 +87,7 @@ lifecycleRouter.get(
   async (request: Request, response: Response) => {
     const organizationIdValue = organizationId(request);
     const clientId = typeof request.query.clientId === 'string' ? request.query.clientId : null;
-    const [summary, hosted, spf] = await Promise.all([
+    const [summary, hosted, spf, bimi] = await Promise.all([
       summariseWorkspace(organizationIdValue),
       prisma.hostedDmarcRecord.findMany({
         where: {
@@ -105,6 +105,15 @@ lifecycleRouter.get(
           ...(clientId ? { domain: { clientId } } : {}),
         },
         select: { sources: true, allQualifier: true, domain: { select: { name: true } } },
+        orderBy: { domain: { name: 'asc' } },
+      }),
+      prisma.hostedBimiRecord.findMany({
+        where: {
+          organizationId: organizationIdValue,
+          status: { not: 'RELEASED' },
+          ...(clientId ? { domain: { clientId } } : {}),
+        },
+        select: { status: true, domain: { select: { name: true } } },
         orderBy: { domain: { name: 'asc' } },
       }),
     ]);
@@ -125,6 +134,17 @@ lifecycleRouter.get(
             domain: row.domain.name,
           }),
         },
+      })),
+      /**
+       * BIMI is the one hosted record whose loss changes nothing about mail
+       * delivery: the messages are unaffected and only the logo stops showing.
+       * Saying so is the point, because a confirmation screen that implies
+       * every listed row is a deliverability risk trains people to ignore it.
+       */
+      hostedBimi: bimi.map((row) => ({
+        domain: row.domain.name,
+        status: row.status,
+        note: 'The logo stops showing beside this domain’s mail. Delivery is unaffected, and the DMARC record is separate.',
       })),
     });
   },

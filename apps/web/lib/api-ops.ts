@@ -39,6 +39,7 @@ import type {
   ExportJob,
   ForensicListResponse,
   ForensicReportRow,
+  HostedBimiView,
   HostedDmarcView,
   IssuedApiKey,
   MailboxComplianceView,
@@ -164,6 +165,16 @@ export function getManagedSpf(
 ): Promise<ManagedSpfView> {
   return opsFetch<ManagedSpfView>(
     `/api/workspaces/${organizationId}/domains/${domainId}/managed-spf`,
+  );
+}
+
+/** GET /hosted-bimi — availability, the CNAME, the logo and the certificate. */
+export function getHostedBimi(
+  organizationId: string,
+  domainId: string,
+): Promise<HostedBimiView> {
+  return opsFetch<HostedBimiView>(
+    `/api/workspaces/${organizationId}/domains/${domainId}/hosted-bimi`,
   );
 }
 

@@ -125,6 +125,11 @@ const ACTION_SENTENCES: Record<AuditAction, string> = {
   MANAGED_SPF_UPDATED: "Managed SPF sources changed",
   MANAGED_SPF_RELEASE_REQUESTED: "Managed SPF release requested",
   MANAGED_SPF_RELEASED: "Managed SPF record released",
+  HOSTED_BIMI_CREATED: "Hosted BIMI record created",
+  HOSTED_BIMI_LOGO_UPDATED: "BIMI logo uploaded",
+  HOSTED_BIMI_CERTIFICATE_UPDATED: "BIMI certificate uploaded",
+  HOSTED_BIMI_CERTIFICATE_REMOVED: "BIMI certificate removed",
+  HOSTED_BIMI_RELEASED: "Hosted BIMI record released",
 };
 
 /**

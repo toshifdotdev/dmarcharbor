@@ -13,6 +13,7 @@ import {
   getDnsChanges,
   getDnsConnections,
   getDomainSwitch,
+  getHostedBimi,
   getHostedDmarc,
   getManagedSpf,
   getMailboxCompliance,
@@ -36,6 +37,7 @@ import type {
   DnsChangePage,
   DomainInsights,
   DomainSwitchView,
+  HostedBimiView,
   HostedDmarcView,
   ManagedSpfView,
   MailboxComplianceView,
@@ -49,6 +51,7 @@ import type {
 import { AppShell } from "@/components/harbor/app-shell";
 import { DnsChangesPanel } from "@/components/harbor/dns-changes";
 import { DomainSwitchPanel } from "@/components/harbor/domain-switch";
+import { HostedBimi } from "@/components/harbor/hosted-bimi";
 import { HostedDmarc } from "@/components/harbor/hosted-dmarc";
 import { ManagedSpf } from "@/components/harbor/managed-spf";
 import { MailboxCompliance } from "@/components/harbor/mailbox-compliance";
@@ -159,7 +162,7 @@ export default async function DomainPage({
 
   // A scan history is a different claim from the report evidence, so it fails
   // on its own and renders as a failure, never as an empty history.
-  const [scanHistory, switchState, dnsChanges, serviceMeta, members, me, entitlements, catalog, dnsConnections, mailboxCompliance, hostedDmarc, managedSpf, tlsSummary, tlsReports] = await Promise.all([
+  const [scanHistory, switchState, dnsChanges, serviceMeta, members, me, entitlements, catalog, dnsConnections, mailboxCompliance, hostedDmarc, managedSpf, hostedBimi, tlsSummary, tlsReports] = await Promise.all([
     listDomainScans(active.id, id).then(
       (page) => ({ rows: page.rows, nextCursor: page.nextCursor, failed: false }),
       () => ({ rows: [] as ScanRow[], nextCursor: null as string | null, failed: true }),
@@ -190,6 +193,10 @@ export default async function DomainPage({
       (data: ManagedSpfView) => ({ data, failed: false }),
       () => ({ data: null as ManagedSpfView | null, failed: true }),
     ),
+    getHostedBimi(active.id, id).then(
+      (data: HostedBimiView) => ({ data, failed: false }),
+      () => ({ data: null as HostedBimiView | null, failed: true }),
+    ),
     getTlsReportSummary(active.id, id).then(
       (data: TlsReportSummary) => ({ data, failed: false, notInPlan: false }),
       (error: unknown) =>
@@ -212,6 +219,7 @@ export default async function DomainPage({
   const ownerFeature = featureOf(entitlements, "senders.owners");
   const hostedFeature = featureOf(entitlements, "dns.hosted");
   const managedSpfFeature = featureOf(entitlements, "dns.managedSpf");
+  const hostedBimiFeature = featureOf(entitlements, "dns.hostedBimi");
   const canEditDomain = role === null || ["owner", "admin", "analyst"].includes(role);
   const latestSpfScan = scanHistory.rows.find((row) => row.result?.spf) ?? null;
   const currentSpf = latestSpfScan?.result?.spf
@@ -456,6 +464,8 @@ export default async function DomainPage({
                       hasHostedFeature={hostedFeature}
                       managedSpf={managedSpf}
                       hasManagedSpfFeature={managedSpfFeature}
+                      hostedBimi={hostedBimi}
+                      hasHostedBimiFeature={hostedBimiFeature}
                       spfServices={serviceMeta?.spfServices ?? []}
                       currentSpf={currentSpf}
                       canEdit={canEditDomain}
@@ -763,6 +773,8 @@ function SetupPanel({
   hasHostedFeature,
   managedSpf,
   hasManagedSpfFeature,
+  hostedBimi,
+  hasHostedBimiFeature,
   spfServices,
   currentSpf,
   canEdit,
@@ -777,6 +789,8 @@ function SetupPanel({
   hasHostedFeature: boolean | null;
   managedSpf: { data: ManagedSpfView | null; failed: boolean };
   hasManagedSpfFeature: boolean | null;
+  hostedBimi: { data: HostedBimiView | null; failed: boolean };
+  hasHostedBimiFeature: boolean | null;
   spfServices: Array<{ id: string; name: string; include: string }>;
   currentSpf: { record: string | null; lookupCount: number | null } | null;
   canEdit: boolean;
@@ -803,6 +817,15 @@ function SetupPanel({
         hasFeature={hasManagedSpfFeature}
         spfServices={spfServices}
         currentSpf={currentSpf}
+      />
+      <HostedBimi
+        organizationId={organizationId}
+        domainId={domainId}
+        domainName={domainName}
+        view={hostedBimi.data}
+        failed={hostedBimi.failed}
+        canEdit={canEdit}
+        hasFeature={hasHostedBimiFeature}
       />
       <div className="grid gap-8 lg:grid-cols-2">
       <div>

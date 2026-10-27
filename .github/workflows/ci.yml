@@ -9,8 +9,13 @@ name: ci
 
 on:
   push:
-    branches: [master]
+    # Feature branches too: the full integration suite takes most of an hour on a
+    # development machine and about seven minutes here, so every pushed feature
+    # branch is verified here instead of locally.
+    branches: [master, 'feat/**']
   pull_request:
+  # Re-run a branch by hand (gh workflow run ci --ref <branch>) without pushing.
+  workflow_dispatch:
 
 concurrency:
   # A newer push makes an in-flight run for the same branch irrelevant. Without this a

@@ -22,6 +22,8 @@ import { slackRouter } from './routes/slack.routes.js';
 import { dnsAutomationRouter } from './routes/dns-automation.routes.js';
 import { hostedDmarcRouter } from './routes/hosted-dmarc.routes.js';
 import { managedSpfRouter } from './routes/managed-spf.routes.js';
+import { hostedBimiRouter } from './routes/hosted-bimi.routes.js';
+import { hostedBimiPublicRouter } from './routes/hosted-bimi-public.routes.js';
 import { dpaRouter, wellKnownRouter } from './routes/dpa.routes.js';
 import { ssoRouter } from './routes/sso.routes.js';
 import { billingRouter } from './routes/billing.routes.js';
@@ -242,6 +244,7 @@ export function createApp(): express.Express {
   app.use('/api', dnsAutomationRouter);
   app.use('/api', hostedDmarcRouter);
   app.use('/api', managedSpfRouter);
+  app.use('/api', hostedBimiRouter);
 
   // Deliberately not through the guard above: this is the route that records the
   // acceptance, and it has to stay reachable for someone stuck on the old one.
@@ -249,6 +252,15 @@ export function createApp(): express.Express {
 // RFC 9116 requires this at the host root, and a header-only document should not
 // depend on a JavaScript runtime starting up to be found.
 app.use(wellKnownRouter);
+  /**
+   * The bytes a published BIMI record points at, at the host root.
+   *
+   * Mounted here, beside the well-known document, because the URL is written
+   * into a customer's DNS and must not sit under /api. It is above the /api 404
+   * catch-all and above the error handler, so nothing in the workspace routes
+   * can shadow it. The route reads no session and sets no cookie.
+   */
+  app.use(hostedBimiPublicRouter);
   app.use('/api', ssoRouter);
   app.use(portalErrorHandler);
   app.use('/api/v1', apiV1Router);

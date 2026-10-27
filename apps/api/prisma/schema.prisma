@@ -226,6 +226,7 @@ model Organization {
   dnsPublications       DnsPublication[]
   hostedDmarcRecords    HostedDmarcRecord[]
   hostedSpfRecords      HostedSpfRecord[]
+  hostedBimiRecords     HostedBimiRecord[]
 
   @@unique([slug])
   /// Reads the document version rather than the column being null, so the sweep
@@ -392,6 +393,7 @@ model Domain {
   dnsPublications        DnsPublication[]
   hostedDmarc            HostedDmarcRecord?
   hostedSpf              HostedSpfRecord?
+  hostedBimi             HostedBimiRecord?
   tlsReports             TlsReport[]
 
   /// The per client constraint is gone. Global uniqueness on `name` above
@@ -1600,6 +1602,101 @@ model HostedSpfChange {
   @@map("hosted_spf_change")
 }
 
+enum HostedBimiStatus {
+  PENDING
+  ACTIVE
+  RELEASING
+  RELEASED
+}
+
+enum HostedBimiAssetKind {
+  LOGO
+  CERTIFICATE
+}
+
+/// One domain whose BIMI record this service publishes from its own zone.
+///
+/// The customer publishes a CNAME at `default._bimi.<domain>` pointing at the
+/// token name and uploads the logo (and, for Gmail and Apple Mail, the mark
+/// certificate) here. The TXT we publish names the URLs of the bytes in
+/// HostedBimiAsset, so replacing either is an upload rather than a DNS change.
+model HostedBimiRecord {
+  id                   String             @id @default(cuid())
+  organizationId       String
+  organization         Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  domainId             String             @unique
+  domain               Domain             @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  token                String             @unique
+  status               HostedBimiStatus   @default(PENDING)
+  providerRecordId     String?
+  /// The TXT that was published at default._bimi before we took over, kept so
+  /// the release view can hand it back.
+  previousValue        String?
+  lastSyncedAt         DateTime?
+  lastSyncError        String?
+  /// Facts from the leaf certificate, for display and for the expiry warning.
+  certificateExpiresAt DateTime?
+  certificateIssuer    String?
+  certificateSubject   String?
+  delegated            Boolean            @default(false)
+  delegationCheckedAt  DateTime?
+  activatedAt          DateTime?
+  releaseRequestedAt   DateTime?
+  releasedAt           DateTime?
+  createdById          String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  assets               HostedBimiAsset[]
+  changes              HostedBimiChange[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@map("hosted_bimi_record")
+}
+
+/// The logo or certificate bytes, in Postgres.
+///
+/// Not S3: LOGO_BUCKET is optional in this product and hosted BIMI must not
+/// depend on it. A logo is at most 32,768 bytes and a certificate a few KB.
+///
+/// `retiredAt` is a grace period rather than a delete. Mailbox providers cache
+/// the URLs a TXT named, so an old logo URL keeps working for a while after it
+/// is replaced; a retired asset is served until the reconciler purges it after
+/// seven days.
+model HostedBimiAsset {
+  id          String             @id @default(cuid())
+  recordId    String
+  record      HostedBimiRecord   @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  kind        HostedBimiAssetKind
+  sha256      String
+  bytes       Bytes
+  contentType String
+  createdAt   DateTime           @default(now())
+  retiredAt   DateTime?
+
+  @@unique([recordId, kind, sha256])
+  @@index([recordId, kind, retiredAt])
+  @@map("hosted_bimi_asset")
+}
+
+model HostedBimiChange {
+  id              String           @id @default(cuid())
+  recordId        String
+  record          HostedBimiRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  organizationId  String
+  /// 'created' | 'logo' | 'certificate' | 'certificate-removed' | 'released'
+  reason          String
+  previousLogoSha String?
+  newLogoSha      String?
+  previousCertSha String?
+  newCertSha      String?
+  actorUserId     String?
+  createdAt       DateTime         @default(now())
+
+  @@index([recordId, createdAt])
+  @@map("hosted_bimi_change")
+}
+
 /// A signed compliance pack issued for one client.
 ///
 /// The PDF is not stored. Its SHA-256 is, because the hash is the claim and the
@@ -2064,6 +2161,11 @@ enum AuditAction {
   MANAGED_SPF_UPDATED
   MANAGED_SPF_RELEASE_REQUESTED
   MANAGED_SPF_RELEASED
+  HOSTED_BIMI_CREATED
+  HOSTED_BIMI_LOGO_UPDATED
+  HOSTED_BIMI_CERTIFICATE_UPDATED
+  HOSTED_BIMI_CERTIFICATE_REMOVED
+  HOSTED_BIMI_RELEASED
 }
 
 enum AuditOutcome {

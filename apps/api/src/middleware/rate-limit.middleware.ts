@@ -444,3 +444,26 @@ export function createPublicReportRateLimiter(
     },
   });
 }
+
+/**
+ * The public BIMI logo and certificate bytes.
+ *
+ * Keyed on the address because there is no credential on the route at all: a
+ * mailbox provider fetches a logo once and caches it, so the traffic that
+ * reaches here is small, and a scraper walking tokens must not be able to turn
+ * this into a free file host. 120 a minute is far above what any provider or
+ * mail client does and far below what a walker needs.
+ */
+export const bimiPublicRateLimiter = rateLimit({
+  ...SHARED_LIMITER_OPTIONS,
+  windowMs: 60_000,
+  limit: 120,
+  store: rateLimitStoreFor('bimi-public'),
+  keyGenerator: clientKey,
+  message: {
+    error: {
+      code: 'RATE_LIMITED',
+      message: 'Too many requests. Try again shortly.',
+    },
+  },
+});

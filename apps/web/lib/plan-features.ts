@@ -27,6 +27,7 @@ const FEATURES: Array<[key: string, label: string]> = [
   ["dns.automation", "Publish DNS records through Cloudflare"],
   ["dns.hosted", "Hosted DMARC record"],
   ["dns.managedSpf", "Managed SPF"],
+  ["dns.hostedBimi", "Logo in the inbox (BIMI)"],
   ["reports.forensic", "Forensic reports, recipients unnamed"],
   ["sharing.links", "Report share links"],
   ["reports.forensicNamed", "Named forensic evidence"],

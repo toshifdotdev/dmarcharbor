@@ -13,6 +13,24 @@ const optionalSecret = z.preprocess(
   (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
   z.string().trim().min(1).optional(),
 );
+
+/**
+ * True when a value is a bare origin: a scheme, a host and optionally a port,
+ * and nothing else. `new URL` turns `https://example.com` into a pathname of
+ * `/`, so that one trailing slash is the only path shape accepted; anything
+ * else means the operator wrote a URL and the URLs we build from it would be
+ * `https://example.com/path/bimi/...`, which serves nothing.
+ */
+export function isOriginOnly(value: string): boolean {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+    if (url.username || url.password || url.search || url.hash) return false;
+    return url.pathname === '/';
+  } catch {
+    return false;
+  }
+}
 const envSchema = z.object({
   /**
    * Fails closed on anything unrecognised, including absent.
@@ -254,6 +272,19 @@ const envSchema = z.object({
     .optional(),
   /** Cloudflare Free holds 200 records; Pro and Business hold 3,500. */
   HOSTED_DNS_RECORD_LIMIT: z.coerce.number().int().min(1).max(1_000_000).default(200),
+  /**
+   * Where hosted BIMI logos and certificates are served from.
+   *
+   * An https origin with no path, query or fragment. Deliberately not APP_URL:
+   * the web app runs a proxy on every path that rewrites headers, and an SVG
+   * must not be served from the origin that holds the session cookie. Hosted
+   * BIMI is available only when this is set and the hosted zone is configured.
+   */
+  HOSTED_BIMI_ORIGIN: z
+    .string()
+    .trim()
+    .refine(isOriginOnly, 'HOSTED_BIMI_ORIGIN must be an origin such as https://bimi.example.com, with no path, query or fragment.')
+    .optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -444,6 +475,27 @@ if (parsed.data.NODE_ENV === 'production') {
    */
   if (parsed.data.EMAIL_FROM === developmentEmailFrom) {
     throw new Error('EMAIL_FROM must be set in production.');
+  }
+
+  /**
+   * Where BIMI logos and certificates are served from.
+   *
+   * https because a BIMI logo URL must be https and mailbox providers refuse
+   * anything else, so a plain-http origin publishes a record nobody can use.
+   * A different origin from APP_URL because the web app's proxy runs on every
+   * path and rewrites headers; serving an SVG from the origin that holds the
+   * session cookie is a decision that cannot be undone quietly.
+   */
+  if (parsed.data.HOSTED_BIMI_ORIGIN) {
+    const bimiOrigin = new URL(parsed.data.HOSTED_BIMI_ORIGIN);
+    if (bimiOrigin.protocol !== 'https:') {
+      throw new Error('HOSTED_BIMI_ORIGIN must be an https URL in production.');
+    }
+    if (bimiOrigin.origin === new URL(parsed.data.APP_URL).origin) {
+      throw new Error(
+        'HOSTED_BIMI_ORIGIN must be a different origin from APP_URL in production: the web app rewrites headers on every path, and an SVG must not be served from the origin that holds the session cookie.',
+      );
+    }
   }
 
   /**

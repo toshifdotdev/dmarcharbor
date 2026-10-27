@@ -172,13 +172,30 @@ async function resolveHost(host: string): Promise<CacheEntry> {
  */
 function contentSecurityPolicy(nonce: string): string {
   const isDev = process.env.NODE_ENV !== "production";
+  /**
+   * Hosted BIMI logos are served from their own origin, so `img-src` has to
+   * name it or the panel's `<img>` is blocked. Only `img-src`, and only when
+   * the deployment sets it: the bytes are images, and nothing else on the page
+   * should be able to load from that host. Parsed as a URL so a malformed
+   * value cannot inject a directive into the header.
+   */
+  const bimiOrigin = (() => {
+    const raw = process.env.HOSTED_BIMI_ORIGIN?.trim();
+    if (!raw) return null;
+    try {
+      const url = new URL(raw);
+      return url.protocol === "https:" || url.protocol === "http:" ? url.origin : null;
+    } catch {
+      return null;
+    }
+  })();
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ""}`,
     // This build serves its own domain and every agency's custom domain from the
     // same output, so connect-src cannot be pinned to one origin.
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob:",
+    `img-src 'self' data: blob:${bimiOrigin ? ` ${bimiOrigin}` : ""}`,
     "font-src 'self' data:",
     "connect-src 'self'",
     "object-src 'none'",

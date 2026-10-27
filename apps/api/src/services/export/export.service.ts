@@ -183,7 +183,7 @@ export async function buildExportPayload(input: {
           ...(input.scope === 'CLIENT' && input.targetId ? { clientId: input.targetId } : {}),
         };
 
-  const [organization, clients, domains, users, members, sessions, reports, forensics, alertRules, alertEvents, shares, digests, monthlyReports, senderReviews, dnsConnections, dnsPublications, hostedDmarcRecords, hostedSpfRecords, tlsReports, auditLog] =
+  const [organization, clients, domains, users, members, sessions, reports, forensics, alertRules, alertEvents, shares, digests, monthlyReports, senderReviews, dnsConnections, dnsPublications, hostedDmarcRecords, hostedSpfRecords, hostedBimiRecords, tlsReports, auditLog] =
     await Promise.all([
       prisma.organization.findUnique({
         where: { id: org },
@@ -529,6 +529,64 @@ export async function buildExportPayload(input: {
         orderBy: { createdAt: 'asc' },
         take: exportTableLimit,
       }),
+      /**
+       * The rows, not the bytes.
+       *
+       * A logo and a certificate are the customer's assets, but an export is a
+       * JSON document about what the service holds; embedding a 32KB SVG per
+       * domain would bloat it and, worse, put file contents in a payload that
+       * gets emailed and cached. The SHA-256 is the identity of the asset and
+       * the URLs are reproducible from the token, so the hash is what travels.
+       */
+      prisma.hostedBimiRecord.findMany({
+        where: {
+          organizationId: org,
+          ...(input.scope === 'CLIENT' && input.targetId
+            ? { domain: { clientId: input.targetId } }
+            : {}),
+          ...(input.scope === 'DOMAIN' && input.targetId ? { domainId: input.targetId } : {}),
+        },
+        select: {
+          id: true,
+          token: true,
+          status: true,
+          previousValue: true,
+          delegated: true,
+          delegationCheckedAt: true,
+          activatedAt: true,
+          releaseRequestedAt: true,
+          releasedAt: true,
+          lastSyncedAt: true,
+          lastSyncError: true,
+          certificateExpiresAt: true,
+          certificateIssuer: true,
+          certificateSubject: true,
+          createdAt: true,
+          updatedAt: true,
+          domain: { select: { name: true } },
+          assets: {
+            select: { kind: true, sha256: true, contentType: true, createdAt: true, retiredAt: true },
+            orderBy: { createdAt: 'asc' },
+            take: exportTableLimit,
+          },
+          changes: {
+            select: {
+              id: true,
+              reason: true,
+              previousLogoSha: true,
+              newLogoSha: true,
+              previousCertSha: true,
+              newCertSha: true,
+              actorUserId: true,
+              createdAt: true,
+            },
+            orderBy: { createdAt: 'asc' },
+            take: exportTableLimit,
+          },
+        },
+        orderBy: { createdAt: 'asc' },
+        take: exportTableLimit,
+      }),
       prisma.tlsReport.findMany({
         where: { domain: domainFilter },
         select: {
@@ -740,6 +798,27 @@ export async function buildExportPayload(input: {
         releasedAt: row.releasedAt,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
+        changes: row.changes,
+      })),
+      hostedBimiRecords: hostedBimiRecords.map((row) => ({
+        domainName: row.domain.name,
+        token: row.token,
+        status: row.status,
+        previousValue: row.previousValue,
+        delegated: row.delegated,
+        delegationCheckedAt: row.delegationCheckedAt,
+        activatedAt: row.activatedAt,
+        releaseRequestedAt: row.releaseRequestedAt,
+        releasedAt: row.releasedAt,
+        lastSyncedAt: row.lastSyncedAt,
+        lastSyncError: row.lastSyncError,
+        certificateExpiresAt: row.certificateExpiresAt,
+        certificateIssuer: row.certificateIssuer,
+        certificateSubject: row.certificateSubject,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        // SHA-256 and content type only: the bytes are never exported.
+        assets: row.assets,
         changes: row.changes,
       })),
       tlsReports: tlsReports.map((row) => ({

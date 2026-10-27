@@ -856,6 +856,37 @@ check(
   }),
 );
 
+// 4b-6. Hosted BIMI panel, in the same setup tab. Retry the tab click inside the
+//       poll as above; this deployment has no hosted zone and no BIMI origin, so
+//       the panel must say so rather than disappear or offer a button that
+//       cannot work.
+const bimiTabAudit = await waitForEval(
+  `(() => {
+    const tab = [...document.querySelectorAll('[role="tab"]')].find((t) => t.textContent.includes('Reporting and setup'));
+    if (!tab) return { tab: false, visible: false, text: '' };
+    const panelId = tab.getAttribute('aria-controls');
+    const panel = panelId ? document.getElementById(panelId) : null;
+    const visible = !!panel && !panel.hidden;
+    if (!visible) tab.click();
+    return { tab: true, visible, text: panel ? panel.textContent : '' };
+  })()`,
+  (a) => a && a.tab && a.visible,
+  45000,
+);
+const bimiPanelText = bimiTabAudit?.text ?? '';
+check(
+  "hosted BIMI panel renders on Reporting and setup",
+  Boolean(
+    bimiTabAudit?.visible &&
+      bimiPanelText.includes("Logo in the inbox (BIMI)") &&
+      bimiPanelText.includes("not set up on this deployment"),
+  ),
+  JSON.stringify({
+    visible: bimiTabAudit?.visible ?? false,
+    unavailable: bimiPanelText.includes("not set up on this deployment"),
+  }),
+);
+
 
 // 4c. the stale-feed domain: blackout band + hatched chart gap, no pass.
 // Read the row id from the PORTFOLIO (the detail page's tables have no such

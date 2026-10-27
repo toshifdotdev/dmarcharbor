@@ -245,6 +245,49 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-11-03 — Hosted BIMI
+
+A domain can now have its BIMI record published by DMARC Harbor. The customer
+publishes one CNAME — `default._bimi.<domain>` → `<token>.bimi.<zone>` — uploads
+the logo SVG and, for Gmail and Apple Mail, the PEM certificate their certificate
+authority issued, and never touches DNS again. Replacing either is an upload.
+
+The TXT we publish is `v=BIMI1; l=<logo URL>; a=<certificate URL or empty>` at
+`<token>.bimi.<zone>`. Nothing is published until a logo exists, so a new record
+stays `PENDING` with no record at all rather than pointing at a URL that 404s.
+`a=` is published empty when there is no certificate and when it has expired.
+
+Browser routes, all requiring `domain:read` or `domain:update` as noted:
+
+- `GET /api/workspaces/{id}/domains/{domainId}/hosted-bimi` — availability, the
+  CNAME, the value, the logo and certificate, the DMARC qualification from the
+  latest completed scan, delegation state and the last 20 changes.
+- `POST …/hosted-bimi` (`dns.hostedBimi`) — start hosting. Verified domain and a
+  free slot in the hosted zone required.
+- `PUT …/hosted-bimi/logo` (`dns.hostedBimi`) — the SVG as the raw body,
+  `image/svg+xml`. Every check the scanner applies is applied here, so an upload
+  can never be accepted by the API and rejected by the next scan. Bytes are
+  stored exactly as received.
+- `PUT …/hosted-bimi/certificate` (`dns.hostedBimi`) — a PEM chain as the raw
+  body. A private key is refused and never stored.
+- `DELETE …/hosted-bimi/certificate` (`dns.hostedBimi`) — publish `a=` empty.
+- `POST …/hosted-bimi/check` — read the CNAME. A failed lookup changes nothing.
+- `POST …/hosted-bimi/release` — `{ "removeNow": true }` releases immediately,
+  because removing BIMI affects the logo and never mail delivery.
+
+The files are served from `HOSTED_BIMI_ORIGIN`, a separate origin from `APP_URL`,
+at `GET /bimi/{token}/{sha12}.svg` and `.pem`. That route is public, reads no
+session, sets no cookie, answers the same 404 for every reason, supports HEAD and
+is limited to 120 requests a minute per client address. Retired files keep being
+served for seven days so cached mailbox lookups still resolve, then a six-hourly
+pass purges them.
+
+`dns.hostedBimi` starts at Harbor. On a downgrade the record and its files keep
+being served; uploads and removals answer 402, and reading, checking and
+releasing stay available. Five new audit actions carry SHA-256 prefixes and
+certificate expiry, never bytes. Export includes the rows (token, status, logo
+hash, certificate expiry and issuer) and never the bytes. `/api/v1` is unchanged.
+
 ## 2026-10-27 — TLS-RPT reports
 
 Verified domains now receive and store daily TLS-RPT reports (RFC 8460) from

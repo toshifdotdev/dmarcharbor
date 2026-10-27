@@ -148,6 +148,54 @@ export interface HostedDmarcView {
   capacity: { full: boolean };
 }
 
+// ─── Hosted BIMI ─────────────────────────────────────────────────────────────
+
+export type HostedBimiStatus = "PENDING" | "ACTIVE" | "RELEASING" | "RELEASED";
+
+export interface HostedBimiChangeView {
+  id: string;
+  reason: string;
+  previousLogoSha: string | null;
+  newLogoSha: string | null;
+  previousCertSha: string | null;
+  newCertSha: string | null;
+  actor: { id: string; name: string } | null;
+  createdAt: string;
+}
+
+export interface HostedBimiCertificateView {
+  sha256: string;
+  url: string;
+  expiresAt: string;
+  issuer: string | null;
+  subject: string | null;
+  /** The leaf carries the 1.3.6.1.5.5.7.3.31 extended key usage. */
+  isMarkCertificate: boolean;
+  expiresSoon: boolean;
+  expired: boolean;
+}
+
+export interface HostedBimiView {
+  available: boolean;
+  capacity: { full: boolean };
+  hosted: null | {
+    status: HostedBimiStatus;
+    paused: boolean;
+    cname: { host: string; type: "CNAME"; target: string };
+    /** Null until a logo is uploaded: no TXT is published without one. */
+    value: string | null;
+    logo: { sha256: string; url: string; bytes: number; uploadedAt: string } | null;
+    certificate: HostedBimiCertificateView | null;
+    dmarc: { qualifies: boolean; reasons: string[]; dependsOnParent?: true } | null;
+    delegated: boolean;
+    delegationCheckedAt: string | null;
+    lastSyncedAt: string | null;
+    lastSyncError: string | null;
+    republish: { host: string; type: "TXT"; value: string; note: string } | null;
+    changes: HostedBimiChangeView[];
+  };
+}
+
 // ─── Managed SPF ─────────────────────────────────────────────────────────────
 
 export type ManagedSpfStatus = "PENDING" | "ACTIVE" | "RELEASING" | "RELEASED";
@@ -1028,7 +1076,8 @@ export type EntitlementKey =
   | "senders.owners"
   | "dns.automation"
   | "dns.hosted"
-  | "dns.managedSpf";
+  | "dns.managedSpf"
+  | "dns.hostedBimi";
 
 export type QuotaKey = "client" | "activeDomain" | "member";
 
@@ -1291,7 +1340,12 @@ export type AuditAction =
   | "MANAGED_SPF_CREATED"
   | "MANAGED_SPF_UPDATED"
   | "MANAGED_SPF_RELEASE_REQUESTED"
-  | "MANAGED_SPF_RELEASED";
+  | "MANAGED_SPF_RELEASED"
+  | "HOSTED_BIMI_CREATED"
+  | "HOSTED_BIMI_LOGO_UPDATED"
+  | "HOSTED_BIMI_CERTIFICATE_UPDATED"
+  | "HOSTED_BIMI_CERTIFICATE_REMOVED"
+  | "HOSTED_BIMI_RELEASED";
 
 /**
  * AuditOutcome is SUCCESS or DENIED. There is no FAILED value: the trail records
@@ -2168,6 +2222,12 @@ export interface ApiErrorBody {
     errors?: string[];
     lookupCount?: number;
     partCount?: number;
+    /**
+     * A 400 from hosted BIMI: the labels of every check the upload failed, in
+     * plain words. A list rather than a sentence because the person's next
+     * action is to fix one of them in the file.
+     */
+    failed?: string[];
     /**
      * set on the 400 the identity route answers when a named-recipient purge
      * was asked for without `confirmNamePurge`. The flag is what tells the UI

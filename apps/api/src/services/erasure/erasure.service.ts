@@ -17,6 +17,10 @@ import {
   managedSpfSnapshotsForDomainIds,
   removeManagedSpfForDeletion,
 } from '../hosted-dns/managed-spf.service.js';
+import {
+  hostedBimiSnapshotsForDomainIds,
+  removeHostedBimiForDeletion,
+} from '../hosted-dns/hosted-bimi.service.js';
 
 export const erasureGraceDays = 7;
 export const erasureCertificateRetentionDays = 1095;
@@ -414,9 +418,10 @@ export async function executeErasure(
   const domainIds = (
     await prisma.domain.findMany({ where: domainFilter, select: { id: true } })
   ).map((domain) => domain.id);
-  const [hosted, spf] = await Promise.all([
+  const [hosted, spf, bimi] = await Promise.all([
     hostedSnapshotsForDomainIds(domainIds),
     managedSpfSnapshotsForDomainIds(domainIds),
+    hostedBimiSnapshotsForDomainIds(domainIds),
   ]);
 
   const counts = {
@@ -510,6 +515,7 @@ export async function executeErasure(
 
   await removeHostedForDeletion(hosted);
   await removeManagedSpfForDeletion(spf);
+  await removeHostedBimiForDeletion(bimi);
 
   await prisma.erasureRequest.update({
     where: { id: request.id },

@@ -2526,6 +2526,173 @@ export const openApiDocument = {
         responses: { 200: { description: 'The updated view, with republish when releasing.' }, ...standardErrors },
       },
     },
+    '/workspaces/{organizationId}/domains/{domainId}/hosted-bimi': {
+      get: {
+        tags: ['Clients and domains'],
+        summary: 'Read a domain hosted BIMI record',
+        description: [
+          'Returns whether this deployment serves hosted BIMI, the CNAME the customer must publish at default._bimi, the TXT value we publish, the current logo and certificate, the DMARC qualification from the latest completed scan, delegation state and the last 20 changes.',
+          'value is null until a logo is uploaded, because no TXT is published without one. paused is true when the plan no longer grants dns.hostedBimi; the record and its files keep being served. capacity never exposes raw counts.',
+          'Requires domain read permission.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: {
+          200: { description: 'Availability, the hosted record if any, and capacity.' },
+          ...standardErrors,
+        },
+      },
+      post: {
+        tags: ['Clients and domains'],
+        summary: 'Start hosting a BIMI record',
+        description: [
+          'Creates the row and a fresh token; no TXT is published until a logo is uploaded, so the record stays PENDING. A TXT already at default._bimi is kept as previousValue so a release can hand it back.',
+          'Requires a verified domain, domain update permission and dns.hostedBimi.',
+          'Answers 503 HOSTED_BIMI_UNAVAILABLE when the deployment has no hosted zone or no HOSTED_BIMI_ORIGIN, 503 HOSTED_DNS_FULL at capacity, and 409 DOMAIN_NOT_VERIFIED or ALREADY_HOSTED.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: {
+          ...standardErrors,
+          201: { description: 'Hosting started; the CNAME to publish.' },
+          402: { description: 'The plan does not include hosted BIMI.' },
+          409: { description: 'DOMAIN_NOT_VERIFIED or ALREADY_HOSTED.' },
+          503: { description: 'Hosting is unavailable or full.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/domains/{domainId}/hosted-bimi/logo': {
+      put: {
+        tags: ['Clients and domains'],
+        summary: 'Upload or replace the BIMI logo',
+        description: [
+          'The body is the SVG file itself, sent as image/svg+xml with no multipart envelope. The bytes are stored exactly as received: a certificate authority validated them, and rewriting the document would break that match.',
+          'The file must pass all seven checks the scanner applies (svg root, baseProfile="tiny-ps", version="1.2", a non-empty title, no forbidden elements or event attributes, no external references, at most 32,768 bytes), be valid UTF-8 and contain no DOCTYPE or ENTITY declaration. A refusal answers 400 BIMI_LOGO_INVALID with failed, the plain-word labels of every check that did not pass.',
+          'The same bytes as the current logo answer { action: "unchanged" } with no new asset and no history row. Replacing a logo retires the old one, which keeps being served for seven days so cached mailbox lookups still work. Requires domain update permission and dns.hostedBimi.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        requestBody: {
+          required: true,
+          content: {
+            'image/svg+xml': { schema: { type: 'string', format: 'binary' } },
+          },
+        },
+        responses: {
+          ...standardErrors,
+          200: { description: 'The updated view, or { action: "unchanged" }.' },
+          400: { description: 'BIMI_LOGO_INVALID, with the failed checks in failed.' },
+          402: { description: 'The plan does not include hosted BIMI.' },
+          409: { description: 'NOT_HOSTED or HOSTED_BIMI_RELEASING.' },
+          503: { description: 'Hosting is unavailable.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/domains/{domainId}/hosted-bimi/certificate': {
+      put: {
+        tags: ['Clients and domains'],
+        summary: 'Upload or replace the BIMI certificate',
+        description: [
+          'The body is a PEM file: one or more -----BEGIN CERTIFICATE----- blocks and nothing else but whitespace. The first certificate is the leaf. It must be currently valid and its subject alternative names must include the domain or, for a subdomain, its organisational domain.',
+          'The record stores certificateExpiresAt, the issuer CN or O and the subject O, each cut to 120 characters. isMarkCertificate is true when the leaf carries the 1.3.6.1.5.5.7.3.31 extended key usage; DMARC Harbor does not distinguish a VMC from a CMC and does not check that the logo matches the one in the certificate.',
+          'A file containing a private key is refused with 400 BIMI_CERT_HAS_PRIVATE_KEY and is never stored. Requires domain update permission and dns.hostedBimi.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        requestBody: {
+          required: true,
+          content: {
+            'application/x-pem-file': { schema: { type: 'string', format: 'binary' } },
+            'application/pem-certificate-chain': { schema: { type: 'string', format: 'binary' } },
+            'text/plain': { schema: { type: 'string', format: 'binary' } },
+          },
+        },
+        responses: {
+          ...standardErrors,
+          200: { description: 'The updated view, or { action: "unchanged" }.' },
+          400: {
+            description:
+              'BIMI_CERT_INVALID, BIMI_CERT_HAS_PRIVATE_KEY, BIMI_CERT_EXPIRED, BIMI_CERT_NOT_YET_VALID or BIMI_CERT_WRONG_DOMAIN.',
+          },
+          402: { description: 'The plan does not include hosted BIMI.' },
+          409: { description: 'NOT_HOSTED or HOSTED_BIMI_RELEASING.' },
+          503: { description: 'Hosting is unavailable.' },
+        },
+      },
+      delete: {
+        tags: ['Clients and domains'],
+        summary: 'Remove the BIMI certificate',
+        description: [
+          'Retires the certificate and publishes a= empty, which stops Gmail and Apple Mail showing the logo; clients that do not require a mark certificate keep showing it. The retired file is served for seven days so cached lookups still resolve.',
+          'Answers { action: "unchanged" } when there is no certificate. Requires domain update permission and dns.hostedBimi.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: {
+          ...standardErrors,
+          200: { description: 'The updated view, or { action: "unchanged" }.' },
+          402: { description: 'The plan does not include hosted BIMI.' },
+          409: { description: 'NOT_HOSTED or HOSTED_BIMI_RELEASING.' },
+          503: { description: 'Hosting is unavailable.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/domains/{domainId}/hosted-bimi/check': {
+      post: {
+        tags: ['Clients and domains'],
+        summary: 'Check the hosted BIMI delegation now',
+        description: [
+          'Reads the CNAME at default._bimi. A PENDING row becomes ACTIVE when it points at this token. A CNAME that is missing while ACTIVE leaves the row ACTIVE with delegated false: a BIMI record that stops resolving only stops the logo, so it is never released on that alone.',
+          'A lookup that errors changes nothing at all, so a resolver blip can never release a record the CNAME still points at. A RELEASING row becomes RELEASED only when the lookup reports the name missing.',
+          'Requires domain read permission.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: { 200: { description: 'The updated view.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/domains/{domainId}/hosted-bimi/release': {
+      post: {
+        tags: ['Clients and domains'],
+        summary: 'Stop hosting a BIMI record',
+        description: [
+          'A PENDING record is removed and released at once. An ACTIVE record becomes RELEASING and the view carries the TXT to republish, which only works while DMARC Harbor still serves the files; the customer must host the SVG and certificate themselves to keep the logo. It becomes RELEASED when a check sees the CNAME gone.',
+          'removeNow: true releases immediately, because removing BIMI never affects mail delivery, only the logo. On release the TXT is removed and every asset is retired.',
+          'Allowed on every plan, so a downgraded workspace can always leave. Requires domain update permission.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: { removeNow: { type: 'boolean' } },
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: 'The updated view, with republish when releasing.' },
+          502: { description: 'The DNS provider refused the removal.' },
+          ...standardErrors,
+        },
+      },
+    },
+    '/bimi/{token}/{file}': {
+      get: {
+        tags: ['Public'],
+        summary: 'Fetch a hosted BIMI logo or certificate',
+        description: [
+          'The bytes a published BIMI record points at, served from HOSTED_BIMI_ORIGIN at the host root rather than under /api. file is a 12-character SHA-256 prefix and an extension: .svg for the logo, .pem for the certificate chain.',
+          'An unknown token, a released record, an unknown prefix and an asset past its seven-day retirement grace all answer the same 404 with a plain "Not found." body, so the endpoint cannot be used to test whether a token was real. HEAD is supported. No session is read and no cookie is set.',
+          'Rate limited per client address to 120 requests a minute. Responses carry an explicit content type, nosniff, a CSP of default-src none with inline styles allowed, public max-age=3600 and cross-origin resource policy.',
+        ].join(' '),
+        parameters: [
+          { name: 'token', in: 'path', required: true, description: 'The hosted record token.', schema: { type: 'string', pattern: '^[a-z2-7]{16}$' } },
+          { name: 'file', in: 'path', required: true, description: '12 hex characters and .svg or .pem.', schema: { type: 'string', pattern: '^[0-9a-f]{12}\\.(svg|pem)$' } },
+        ],
+        responses: {
+          200: { description: 'The logo as image/svg+xml, or the chain as application/pem-certificate-chain.' },
+          404: { description: 'Not found.' },
+          429: { description: 'Rate limit exceeded.' },
+        },
+      },
+    },
     '/workspaces/{organizationId}/domains/{domainId}/tls-reports': {
       get: {
         tags: ['Reports'],

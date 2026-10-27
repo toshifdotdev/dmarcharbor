@@ -27,6 +27,7 @@ import type {
   ErasureCreated,
   ErasurePreview,
   ExportJob,
+  HostedBimiView,
   HostedDmarcView,
   IssuedApiKey,
   ManagedSpfOutcomeView,
@@ -171,7 +172,10 @@ function errorPreview(raw: string): Pick<ApiErrorBody["error"], "preview"> {
 /** A hosted-DMARC or managed-SPF 409 carries the current state at the top level. */
 function conflictDetails(
   raw: string,
-): Pick<ApiErrorBody["error"], "blockers" | "view" | "outcomes" | "errors" | "lookupCount" | "partCount"> {
+): Pick<
+  ApiErrorBody["error"],
+  "blockers" | "view" | "outcomes" | "errors" | "lookupCount" | "partCount" | "failed"
+> {
   try {
     const body = JSON.parse(raw) as {
       blockers?: unknown;
@@ -180,6 +184,7 @@ function conflictDetails(
       errors?: unknown;
       lookupCount?: unknown;
       partCount?: unknown;
+      failed?: unknown;
     };
     return {
       ...(Array.isArray(body.blockers)
@@ -196,6 +201,9 @@ function conflictDetails(
         : {}),
       ...(typeof body.lookupCount === "number" ? { lookupCount: body.lookupCount } : {}),
       ...(typeof body.partCount === "number" ? { partCount: body.partCount } : {}),
+      ...(Array.isArray(body.failed)
+        ? { failed: body.failed.filter((entry): entry is string => typeof entry === "string") }
+        : {}),
     };
   } catch {
     return {};
@@ -1223,3 +1231,111 @@ export const releaseManagedSpf = (orgId: string, domainId: string) =>
 
 export const getTlsReportDetail = (orgId: string, reportId: string) =>
   call<TlsReportDetail>(wsPath(orgId, `/tls-reports/${reportId}`));
+
+// ─── hosted BIMI ────────────────────────────────────────────────────────────
+
+const bimiPath = (orgId: string, domainId: string) =>
+  wsPath(orgId, `/domains/${domainId}/hosted-bimi`);
+
+export const startHostedBimi = (orgId: string, domainId: string) =>
+  call<HostedBimiView>(bimiPath(orgId, domainId), { method: "POST" });
+
+/**
+ * The logo, as the raw body.
+ *
+ * The bytes go to our own origin with their own content type, exactly like the
+ * branding logo: the API reads the body with `express.raw`, so there is no
+ * multipart envelope to carry a filename or a type. Size and format are checked
+ * here first so the person learns immediately, but the API is the authority —
+ * it runs the same seven SVG checks the scanner does.
+ */
+export async function uploadHostedBimiLogo(
+  orgId: string,
+  domainId: string,
+  file: File,
+): Promise<OpsResult<HostedBimiView & { action: "updated" | "unchanged" }>> {
+  const looksLikeSvg = file.type === "image/svg+xml" || /\.svg$/i.test(file.name);
+  if (!looksLikeSvg) {
+    return {
+      ok: false,
+      status: 400,
+      error: { message: "A BIMI logo must be an SVG file." },
+    };
+  }
+  if (file.size > 32_768) {
+    return {
+      ok: false,
+      status: 400,
+      error: {
+        message: "A BIMI logo must be 32,768 bytes or smaller.",
+        failed: ["Within 32,768 bytes"],
+      },
+    };
+  }
+
+  try {
+    return await call<HostedBimiView & { action: "updated" | "unchanged" }>(
+      `${bimiPath(orgId, domainId)}/logo`,
+      {
+        method: "PUT",
+        body: file,
+        headers: { "content-type": "image/svg+xml" },
+      },
+    );
+  } catch {
+    return {
+      ok: false,
+      status: 0,
+      error: { code: "NETWORK", message: "The upload could not be sent. Nothing changed." },
+    };
+  }
+}
+
+export async function uploadHostedBimiCertificate(
+  orgId: string,
+  domainId: string,
+  file: File,
+): Promise<OpsResult<HostedBimiView & { action: "updated" | "unchanged" }>> {
+  const looksLikePem =
+    ["application/x-pem-file", "application/pem-certificate-chain", "text/plain"].includes(file.type) ||
+    /\.(pem|crt|cer|txt)$/i.test(file.name);
+  if (!looksLikePem) {
+    return {
+      ok: false,
+      status: 400,
+      error: { message: "Upload the .pem file your certificate authority sent." },
+    };
+  }
+
+  try {
+    return await call<HostedBimiView & { action: "updated" | "unchanged" }>(
+      `${bimiPath(orgId, domainId)}/certificate`,
+      {
+        method: "PUT",
+        body: file,
+        headers: { "content-type": "application/x-pem-file" },
+      },
+    );
+  } catch {
+    return {
+      ok: false,
+      status: 0,
+      error: { code: "NETWORK", message: "The upload could not be sent. Nothing changed." },
+    };
+  }
+}
+
+export const removeHostedBimiCertificate = (orgId: string, domainId: string) =>
+  call<HostedBimiView & { action: "removed" | "unchanged" }>(
+    `${bimiPath(orgId, domainId)}/certificate`,
+    { method: "DELETE" },
+  );
+
+export const checkHostedBimi = (orgId: string, domainId: string) =>
+  call<HostedBimiView>(`${bimiPath(orgId, domainId)}/check`, { method: "POST" });
+
+export const releaseHostedBimi = (orgId: string, domainId: string, removeNow = false) =>
+  call<HostedBimiView>(`${bimiPath(orgId, domainId)}/release`, {
+    method: "POST",
+    body: JSON.stringify({ removeNow }),
+  });
