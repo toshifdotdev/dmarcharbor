@@ -448,6 +448,20 @@ function TransportDetails({
   );
 }
 
+function spfRedirectsToHostedZone(record: string, zone: string): boolean {
+  const suffix = `.spf.${zone.toLowerCase()}`;
+  for (const term of record.trim().split(/\s+/)) {
+    if (!term.toLowerCase().startsWith("redirect=")) {
+      continue;
+    }
+    const target = term.slice("redirect=".length).toLowerCase().replace(/\.+$/, "");
+    if (target.endsWith(suffix)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function ScanDetail({ scan, hostedZone }: { scan: ScanRow; hostedZone?: string | null }) {
   const r = scan.result;
   if (!r) {
@@ -459,6 +473,9 @@ function ScanDetail({ scan, hostedZone }: { scan: ScanRow; hostedZone?: string |
       hostedZone &&
       /^[a-z2-7]{16}\./.test(delegatedTo) &&
       delegatedTo.endsWith(`.${hostedZone.toLowerCase()}`),
+  );
+  const spfManaged = Boolean(
+    r.spf.record && hostedZone && spfRedirectsToHostedZone(r.spf.record, hostedZone),
   );
   const facts: Array<[string, string]> = [
     ["Measured at", instantLabel(r.scannedAt)],
@@ -474,14 +491,16 @@ function ScanDetail({ scan, hostedZone }: { scan: ScanRow; hostedZone?: string |
     ],
     [
       "SPF",
-      r.spf.status === "found"
-        ? `${r.spf.valid ? "valid" : "found but invalid"}, ${r.spf.lookupCount} of 10 lookups${
-            // Scans stored before includes were followed counted the top level only.
-            r.spf.lookupTree === undefined ? " (top level only: this scan predates counting through includes; scan again for the full count)" : r.spf.lookupsComplete === false ? " (at least: some includes could not be read)" : ""
-          }`
-        : r.spf.status === "error"
-          ? "lookup failed"
-          : "no record found",
+      `${
+        r.spf.status === "found"
+          ? `${r.spf.valid ? "valid" : "found but invalid"}, ${r.spf.lookupCount} of 10 lookups${
+              // Scans stored before includes were followed counted the top level only.
+              r.spf.lookupTree === undefined ? " (top level only: this scan predates counting through includes; scan again for the full count)" : r.spf.lookupsComplete === false ? " (at least: some includes could not be read)" : ""
+            }`
+          : r.spf.status === "error"
+            ? "lookup failed"
+            : "no record found"
+      }${spfManaged ? " (managed by DMARC Harbor)" : ""}`,
     ],
     [
       "DKIM",

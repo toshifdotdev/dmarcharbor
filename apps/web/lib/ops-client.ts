@@ -29,6 +29,10 @@ import type {
   ExportJob,
   HostedDmarcView,
   IssuedApiKey,
+  ManagedSpfOutcomeView,
+  ManagedSpfPreview,
+  ManagedSpfSource,
+  ManagedSpfView,
   MonthlyReportSchedule,
   PlanOverageRow,
   SenderReviewResult,
@@ -163,15 +167,34 @@ function errorPreview(raw: string): Pick<ApiErrorBody["error"], "preview"> {
   }
 }
 
-/** A hosted-DMARC 409 carries blockers or the current view at the top level. */
-function conflictDetails(raw: string): Pick<ApiErrorBody["error"], "blockers" | "view"> {
+/** A hosted-DMARC or managed-SPF 409 carries the current state at the top level. */
+function conflictDetails(
+  raw: string,
+): Pick<ApiErrorBody["error"], "blockers" | "view" | "outcomes" | "errors" | "lookupCount" | "partCount"> {
   try {
-    const body = JSON.parse(raw) as { blockers?: unknown; view?: unknown };
+    const body = JSON.parse(raw) as {
+      blockers?: unknown;
+      view?: unknown;
+      outcomes?: unknown;
+      errors?: unknown;
+      lookupCount?: unknown;
+      partCount?: unknown;
+    };
     return {
       ...(Array.isArray(body.blockers)
         ? { blockers: body.blockers.filter((entry): entry is string => typeof entry === "string") }
         : {}),
-      ...(body.view && typeof body.view === "object" ? { view: body.view as HostedDmarcView } : {}),
+      ...(body.view && typeof body.view === "object"
+        ? { view: body.view as HostedDmarcView | ManagedSpfView }
+        : {}),
+      ...(Array.isArray(body.outcomes)
+        ? { outcomes: body.outcomes as ManagedSpfOutcomeView[] }
+        : {}),
+      ...(Array.isArray(body.errors)
+        ? { errors: body.errors.filter((entry): entry is string => typeof entry === "string") }
+        : {}),
+      ...(typeof body.lookupCount === "number" ? { lookupCount: body.lookupCount } : {}),
+      ...(typeof body.partCount === "number" ? { partCount: body.partCount } : {}),
     };
   } catch {
     return {};
@@ -1062,10 +1085,17 @@ export interface HostedDeletionPreview {
   republish: { host: string; type: "TXT"; value: string };
 }
 
+export interface ManagedSpfDeletionPreview {
+  domain: string;
+  republish: { host: string; type: "TXT"; value: string };
+}
+
 export const previewWorkspaceDeletion = (orgId: string, clientId?: string) =>
-  call<{ summary: DeletionSummary; hostedDmarc: HostedDeletionPreview[] }>(
-    wsPath(orgId, `/deletion-preview${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`),
-  );
+  call<{
+    summary: DeletionSummary;
+    hostedDmarc: HostedDeletionPreview[];
+    managedSpf: ManagedSpfDeletionPreview[];
+  }>(wsPath(orgId, `/deletion-preview${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`));
 
 export const deleteDomain = (orgId: string, domainId: string) =>
   call<DeletionResult>(wsPath(orgId, `/domains/${domainId}`), { method: "DELETE" });
@@ -1153,3 +1183,39 @@ export const restoreHostedDmarc = (
 
 export const releaseHostedDmarc = (orgId: string, domainId: string) =>
   call<HostedDmarcView>(`${hostedPath(orgId, domainId)}/release`, { method: "POST" });
+
+const spfPath = (orgId: string, domainId: string) =>
+  wsPath(orgId, `/domains/${domainId}/managed-spf`);
+
+export const startManagedSpf = (orgId: string, domainId: string) =>
+  call<ManagedSpfView>(spfPath(orgId, domainId), { method: "POST" });
+
+export const previewManagedSpf = (
+  orgId: string,
+  domainId: string,
+  body: { sources: ManagedSpfSource[]; allQualifier: "-all" | "~all" },
+) =>
+  call<ManagedSpfPreview>(`${spfPath(orgId, domainId)}/preview`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const updateManagedSpf = (
+  orgId: string,
+  domainId: string,
+  body: {
+    expectedVersion: number;
+    sources: ManagedSpfSource[];
+    allQualifier: "-all" | "~all";
+  },
+) =>
+  call<ManagedSpfView & { action: "updated" | "unchanged" }>(spfPath(orgId, domainId), {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+
+export const checkManagedSpf = (orgId: string, domainId: string) =>
+  call<ManagedSpfView>(`${spfPath(orgId, domainId)}/check`, { method: "POST" });
+
+export const releaseManagedSpf = (orgId: string, domainId: string) =>
+  call<ManagedSpfView>(`${spfPath(orgId, domainId)}/release`, { method: "POST" });

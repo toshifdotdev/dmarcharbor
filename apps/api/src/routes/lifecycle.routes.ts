@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { deleteClient, deleteDomain, deleteWorkspace, summariseWorkspace } from '../services/lifecycle-deletion.service.js';
 import { prisma } from '../database/prisma.js';
+import { managedSpfRepublish } from '../services/hosted-dns/managed-spf.service.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
 import { requireSession } from '../middleware/auth.middleware.js';
 
@@ -86,7 +87,7 @@ lifecycleRouter.get(
   async (request: Request, response: Response) => {
     const organizationIdValue = organizationId(request);
     const clientId = typeof request.query.clientId === 'string' ? request.query.clientId : null;
-    const [summary, hosted] = await Promise.all([
+    const [summary, hosted, spf] = await Promise.all([
       summariseWorkspace(organizationIdValue),
       prisma.hostedDmarcRecord.findMany({
         where: {
@@ -97,12 +98,33 @@ lifecycleRouter.get(
         select: { value: true, domain: { select: { name: true } } },
         orderBy: { domain: { name: 'asc' } },
       }),
+      prisma.hostedSpfRecord.findMany({
+        where: {
+          organizationId: organizationIdValue,
+          status: { not: 'RELEASED' },
+          ...(clientId ? { domain: { clientId } } : {}),
+        },
+        select: { sources: true, allQualifier: true, domain: { select: { name: true } } },
+        orderBy: { domain: { name: 'asc' } },
+      }),
     ]);
     response.json({
       summary,
       hostedDmarc: hosted.map((row) => ({
         domain: row.domain.name,
         republish: { host: `_dmarc.${row.domain.name}`, type: 'TXT', value: row.value },
+      })),
+      managedSpf: spf.map((row) => ({
+        domain: row.domain.name,
+        republish: {
+          host: row.domain.name,
+          type: 'TXT',
+          value: managedSpfRepublish({
+            sources: row.sources,
+            allQualifier: row.allQualifier,
+            domain: row.domain.name,
+          }),
+        },
       })),
     });
   },

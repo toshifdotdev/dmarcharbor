@@ -42,6 +42,7 @@ import type {
   HostedDmarcView,
   IssuedApiKey,
   MailboxComplianceView,
+  ManagedSpfView,
   MonthlyReportRow,
   MonthlyReportSchedule,
   MySecurity,
@@ -151,6 +152,16 @@ export function getHostedDmarc(
 ): Promise<HostedDmarcView> {
   return opsFetch<HostedDmarcView>(
     `/api/workspaces/${organizationId}/domains/${domainId}/hosted-dmarc`,
+  );
+}
+
+/** GET /managed-spf — availability, sources and what we publish. */
+export function getManagedSpf(
+  organizationId: string,
+  domainId: string,
+): Promise<ManagedSpfView> {
+  return opsFetch<ManagedSpfView>(
+    `/api/workspaces/${organizationId}/domains/${domainId}/managed-spf`,
   );
 }
 

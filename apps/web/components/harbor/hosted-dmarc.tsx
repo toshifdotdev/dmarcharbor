@@ -11,7 +11,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { instantLabel } from "@/lib/instant";
-import type { HostedDmarcView } from "@/lib/types";
+import type { ApiErrorBody, HostedDmarcView } from "@/lib/types";
 import {
   checkHostedDmarc,
   releaseHostedDmarc,
@@ -77,11 +77,11 @@ export function HostedDmarc({
     }
   }
 
-  function failedResult(res: { status: number; error: { code?: string; message?: string; blockers?: string[]; view?: HostedDmarcView } }): void {
+  function failedResult(res: { status: number; error: ApiErrorBody["error"] }): void {
     setError(res.error.message ?? "That did not go through. Nothing changed.");
     if (res.error.blockers) setBlockers(res.error.blockers);
     if (res.error.code === "VERSION_CHANGED") {
-      if (res.error.view) sync(res.error.view);
+      if (res.error.view && "hosted" in res.error.view) sync(res.error.view);
       router.refresh();
     }
   }

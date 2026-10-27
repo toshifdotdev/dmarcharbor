@@ -827,6 +827,35 @@ check(
   }),
 );
 
+// 4b-5. Managed SPF panel, in the same setup tab. Retry the tab click inside the
+//       poll as above; this deployment has no hosted zone, so the panel says so.
+const spfTabAudit = await waitForEval(
+  `(() => {
+    const tab = [...document.querySelectorAll('[role="tab"]')].find((t) => t.textContent.includes('Reporting and setup'));
+    if (!tab) return { tab: false, visible: false, text: '' };
+    const panelId = tab.getAttribute('aria-controls');
+    const panel = panelId ? document.getElementById(panelId) : null;
+    const visible = !!panel && !panel.hidden;
+    if (!visible) tab.click();
+    return { tab: true, visible, text: panel ? panel.textContent : '' };
+  })()`,
+  (a) => a && a.tab && a.visible,
+  45000,
+);
+const spfPanelText = spfTabAudit?.text ?? '';
+check(
+  "managed SPF panel renders on Reporting and setup",
+  Boolean(
+    spfTabAudit?.visible &&
+      spfPanelText.includes("Managed SPF") &&
+      spfPanelText.includes("not set up on this deployment"),
+  ),
+  JSON.stringify({
+    visible: spfTabAudit?.visible ?? false,
+    unavailable: spfPanelText.includes("not set up on this deployment"),
+  }),
+);
+
 
 // 4c. the stale-feed domain: blackout band + hatched chart gap, no pass.
 // Read the row id from the PORTFOLIO (the detail page's tables have no such

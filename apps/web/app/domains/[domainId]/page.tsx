@@ -14,6 +14,7 @@ import {
   getDnsConnections,
   getDomainSwitch,
   getHostedDmarc,
+  getManagedSpf,
   getMailboxCompliance,
   getPlanCatalog,
   getWorkspaceEntitlements,
@@ -33,6 +34,7 @@ import type {
   DomainInsights,
   DomainSwitchView,
   HostedDmarcView,
+  ManagedSpfView,
   MailboxComplianceView,
   OnboardingState,
   ReportRow,
@@ -43,6 +45,7 @@ import { AppShell } from "@/components/harbor/app-shell";
 import { DnsChangesPanel } from "@/components/harbor/dns-changes";
 import { DomainSwitchPanel } from "@/components/harbor/domain-switch";
 import { HostedDmarc } from "@/components/harbor/hosted-dmarc";
+import { ManagedSpf } from "@/components/harbor/managed-spf";
 import { MailboxCompliance } from "@/components/harbor/mailbox-compliance";
 import { ScanHistory, toScanHistoryRow } from "@/components/harbor/scan-history";
 import { SendersTable } from "@/components/harbor/senders-table";
@@ -150,7 +153,7 @@ export default async function DomainPage({
 
   // A scan history is a different claim from the report evidence, so it fails
   // on its own and renders as a failure, never as an empty history.
-  const [scanHistory, switchState, dnsChanges, serviceMeta, members, me, entitlements, catalog, dnsConnections, mailboxCompliance, hostedDmarc] = await Promise.all([
+  const [scanHistory, switchState, dnsChanges, serviceMeta, members, me, entitlements, catalog, dnsConnections, mailboxCompliance, hostedDmarc, managedSpf] = await Promise.all([
     listDomainScans(active.id, id).then(
       (page) => ({ rows: page.rows, nextCursor: page.nextCursor, failed: false }),
       () => ({ rows: [] as ScanRow[], nextCursor: null as string | null, failed: true }),
@@ -177,6 +180,10 @@ export default async function DomainPage({
       (data: HostedDmarcView) => ({ data, failed: false }),
       () => ({ data: null as HostedDmarcView | null, failed: true }),
     ),
+    getManagedSpf(active.id, id).then(
+      (data: ManagedSpfView) => ({ data, failed: false }),
+      () => ({ data: null as ManagedSpfView | null, failed: true }),
+    ),
   ]);
 
   const role =
@@ -184,7 +191,15 @@ export default async function DomainPage({
   const canAcknowledgeDnsChanges = role === null || ["owner", "admin", "analyst"].includes(role);
   const ownerFeature = featureOf(entitlements, "senders.owners");
   const hostedFeature = featureOf(entitlements, "dns.hosted");
+  const managedSpfFeature = featureOf(entitlements, "dns.managedSpf");
   const canEditDomain = role === null || ["owner", "admin", "analyst"].includes(role);
+  const latestSpfScan = scanHistory.rows.find((row) => row.result?.spf) ?? null;
+  const currentSpf = latestSpfScan?.result?.spf
+    ? {
+        record: latestSpfScan.result.spf.record ?? null,
+        lookupCount: latestSpfScan.result.spf.lookupCount ?? null,
+      }
+    : null;
   const ownersPlanLabel =
     catalog?.order
       .map((tier) => catalog.plans.find((plan) => plan.tier === tier))
@@ -392,6 +407,10 @@ export default async function DomainPage({
                       domainName={insights.domain.name}
                       hosted={hostedDmarc}
                       hasHostedFeature={hostedFeature}
+                      managedSpf={managedSpf}
+                      hasManagedSpfFeature={managedSpfFeature}
+                      spfServices={serviceMeta?.spfServices ?? []}
+                      currentSpf={currentSpf}
                       canEdit={canEditDomain}
                     />
                   ),
@@ -695,6 +714,10 @@ function SetupPanel({
   domainName,
   hosted,
   hasHostedFeature,
+  managedSpf,
+  hasManagedSpfFeature,
+  spfServices,
+  currentSpf,
   canEdit,
 }: {
   onboarding: OnboardingState;
@@ -705,6 +728,10 @@ function SetupPanel({
   domainName: string;
   hosted: { data: HostedDmarcView | null; failed: boolean };
   hasHostedFeature: boolean | null;
+  managedSpf: { data: ManagedSpfView | null; failed: boolean };
+  hasManagedSpfFeature: boolean | null;
+  spfServices: Array<{ id: string; name: string; include: string }>;
+  currentSpf: { record: string | null; lookupCount: number | null } | null;
   canEdit: boolean;
 }) {
   const rep = insights.reporting;
@@ -718,6 +745,17 @@ function SetupPanel({
         failed={hosted.failed}
         canEdit={canEdit}
         hasFeature={hasHostedFeature}
+      />
+      <ManagedSpf
+        organizationId={organizationId}
+        domainId={domainId}
+        domainName={domainName}
+        view={managedSpf.data}
+        failed={managedSpf.failed}
+        canEdit={canEdit}
+        hasFeature={hasManagedSpfFeature}
+        spfServices={spfServices}
+        currentSpf={currentSpf}
       />
       <div className="grid gap-8 lg:grid-cols-2">
       <div>

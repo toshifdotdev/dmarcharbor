@@ -1,4 +1,5 @@
 import { isOurAddress } from '../report-address.service.js';
+import { spfAllQualifier } from '../hosted-dns/spf/terms.js';
 import type { DmarcResult, ScanResult } from '../../scanner/types.js';
 
 export type DnsChangeKind =
@@ -97,17 +98,6 @@ function list(values: string[]): string {
   if (values.length === 0) return 'none';
   if (values.length === 1) return values[0]!;
   return `${values.slice(0, -1).join(', ')} and ${values[values.length - 1]}`;
-}
-
-function spfAllQualifier(record: string): string {
-  for (const mechanism of record.trim().split(/\s+/).slice(1)) {
-    const match = /^([+\-~?])?all$/i.exec(mechanism);
-    if (match) {
-      return `${match[1] ?? '+'}all`;
-    }
-  }
-  // A missing all is the neutral default.
-  return '?all';
 }
 
 const ALL_PERMISSIVENESS: Record<string, number> = { '-all': 0, '~all': 1, '?all': 2, '+all': 3 };

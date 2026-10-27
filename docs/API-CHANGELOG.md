@@ -243,6 +243,44 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-10-26 — Managed SPF
+
+A Harbor workspace can replace a domain's SPF record once with
+`v=spf1 redirect=<token>.spf.<zone>` and let DMARC Harbor flatten the sending
+services into address ranges in its own zone. Sources whose trees cannot be
+flattened safely stay as includes, the lookup count stays under the receiver
+limit, and every source is re-resolved every six hours so a provider changing
+its ranges does not break mail.
+
+Browser routes:
+
+- `GET /api/workspaces/{id}/domains/{domainId}/managed-spf` returns
+  availability, the apex redirect, sources, the last flatten outcome per
+  source, the published parts, lookup count, delegate state, the last 20
+  changes and capacity. `paused` is true when the plan no longer grants
+  `dns.managedSpf`.
+- `POST …/managed-spf` imports the apex SPF record, refuses unusable sources on
+  the first flatten, publishes the parts and returns the apex redirect.
+- `POST …/managed-spf/preview` runs the same flatten and chain without saving
+  and returns the lookup count, part count and range counts.
+- `PUT …/managed-spf` changes the source list and `-all`/`~all` with
+  `expectedVersion`; a provider failure rolls sources and parts back. An
+  existing source that fails keeps its last good addresses and records
+  `failingSince`; a new failing source refuses the save.
+- `POST …/managed-spf/check` re-reads the apex TXT. An error never changes the
+  delegation or releases. Release needs exactly one SPF record that no longer
+  references DMARC Harbor.
+- `POST …/managed-spf/release` stops managing; it is allowed on every plan and
+  returns the unflattened record with its real lookup count and over-limit flag.
+
+Capacity now counts hosted DMARC rows plus every published SPF part through
+the shared `usedHostedRecords()`. An SPF refresh that would need more parts
+than are free keeps the last published parts and sets `capacityBlocked`.
+Deletion previews list the unflattened SPF record next to hosted DMARC, data
+export includes `hostedSpfRecords`, and scan results keep their existing SPF
+fields; the scan history labels a redirect into our zone. `/api/v1` is
+unchanged.
+
 ## 2026-10-26 — Hosted DMARC records
 
 A workspace on Fairway or above can serve a domain's DMARC record from DMARC

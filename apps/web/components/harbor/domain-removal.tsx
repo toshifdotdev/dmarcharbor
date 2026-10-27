@@ -26,12 +26,15 @@ export function DomainRemoval({
   domainId,
   domainName,
   hosted,
+  managedSpf,
 }: {
   organizationId: string;
   domainId: string;
   domainName: string;
   /** The TXT DMARC Harbor serves for this domain, when it is hosted here. */
   hosted: { value: string } | null;
+  /** The unflattened SPF record to republish, when SPF is managed here. */
+  managedSpf: { value: string } | null;
 }) {
   const router = useRouter();
   const id = useId();
@@ -121,6 +124,15 @@ export function DomainRemoval({
                 CNAME first, or the domain will have no DMARC record once it is deleted here.
               </p>
               <DnsRecord type="TXT" host={`_dmarc.${domainName}`} zone={domainName} value={hosted.value} />
+            </div>
+          ) : null}
+          {managedSpf ? (
+            <div className="border border-warn/40 bg-paper-2 p-3">
+              <p className="font-semibold text-fg">
+                This domain&rsquo;s SPF record is managed by DMARC Harbor. Publish this TXT at your DNS host and remove
+                the redirect to DMARC Harbor first, or the domain will lose its SPF record once it is deleted here.
+              </p>
+              <DnsRecord type="TXT" host={domainName} zone={domainName} value={managedSpf.value} />
             </div>
           ) : null}
           <label htmlFor={`${id}-confirm`} className="text-meta font-semibold text-fg-2">

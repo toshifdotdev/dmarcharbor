@@ -2,6 +2,10 @@ import { prisma } from '../database/prisma.js';
 import { recordAuditEvent } from './audit.service.js';
 import { domainRef } from './domain-ref.js';
 import { hostedSnapshotsForDomainIds, removeHostedForDeletion } from './hosted-dns/hosted-dmarc.service.js';
+import {
+  managedSpfSnapshotsForDomainIds,
+  removeManagedSpfForDeletion,
+} from './hosted-dns/managed-spf.service.js';
 
 /**
  * lifecycle-deletion.ts — removing a domain, a client, or a whole workspace.
@@ -138,6 +142,7 @@ export async function deleteDomain(
 
   const summary: DeletionSummary = merge({ ...EMPTY, domains: 1 }, { ...rows, reportShares });
   const hosted = await hostedSnapshotsForDomainIds([domain.id]);
+  const spf = await managedSpfSnapshotsForDomainIds([domain.id]);
 
   await prisma.$transaction(async (transaction) => {
     await transaction.domain.delete({ where: { id: domain.id } });
@@ -154,6 +159,7 @@ export async function deleteDomain(
   });
 
   await removeHostedForDeletion(hosted);
+  await removeManagedSpfForDeletion(spf);
   return { ok: true, name: domain.name, summary };
 }
 
@@ -219,7 +225,11 @@ export async function deleteClient(
   }
 
   const summary = await summariseClient(client.id);
-  const hosted = await hostedSnapshotsForDomainIds((await domainIdsFor(client.id)).map((domain) => domain.id));
+  const domainIds = (await domainIdsFor(client.id)).map((domain) => domain.id);
+  const [hosted, spf] = await Promise.all([
+    hostedSnapshotsForDomainIds(domainIds),
+    managedSpfSnapshotsForDomainIds(domainIds),
+  ]);
 
   await prisma.$transaction(async (transaction) => {
     await transaction.client.delete({ where: { id: client.id } });
@@ -234,6 +244,7 @@ export async function deleteClient(
   });
 
   await removeHostedForDeletion(hosted);
+  await removeManagedSpfForDeletion(spf);
 
   // No trust-link revocation here. `trustSlug` is a column on Client, so the
   // delete above already withdrew the Trust Center address with the row. The old
@@ -313,11 +324,13 @@ export async function deleteWorkspace(
   }
 
   const summary = await summariseWorkspace(organization.id);
-  const hosted = await hostedSnapshotsForDomainIds(
-    (await prisma.domain.findMany({ where: { client: { organizationId } }, select: { id: true } })).map(
-      (domain) => domain.id,
-    ),
-  );
+  const domainIds = (
+    await prisma.domain.findMany({ where: { client: { organizationId } }, select: { id: true } })
+  ).map((domain) => domain.id);
+  const [hosted, spf] = await Promise.all([
+    hostedSnapshotsForDomainIds(domainIds),
+    managedSpfSnapshotsForDomainIds(domainIds),
+  ]);
 
   await prisma.$transaction(async (transaction) => {
     // Audit FIRST, on this transaction's own client, and only then delete.
@@ -347,5 +360,6 @@ export async function deleteWorkspace(
   });
 
   await removeHostedForDeletion(hosted);
+  await removeManagedSpfForDeletion(spf);
   return { ok: true, name: organization.name, summary };
 }

@@ -11,6 +11,7 @@ import { confirmDnsRemovals } from './monitoring/dns-removal-confirmation.js';
 import { changeJson, emitDnsWebhooks } from './monitoring/dns-webhook.service.js';
 import { diffScans } from './monitoring/dns-diff.js';
 import { checkDelegation } from './hosted-dns/hosted-dmarc.service.js';
+import { checkSpfDelegation } from './hosted-dns/managed-spf.service.js';
 
 const scanInclude = {
   domain: {
@@ -297,6 +298,24 @@ export async function runDomainScan(input: RunDomainScanInput): Promise<RunDomai
     } catch (error) {
       console.warn(
         `[hosted-dmarc] delegation check during a scan failed for ${domain.name}: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+    }
+
+    try {
+      const spf = await prisma.hostedSpfRecord.findUnique({
+        where: { domainId: domain.id },
+        select: { status: true },
+      });
+      if (spf && spf.status !== 'RELEASED') {
+        await checkSpfDelegation({
+          organizationId: domain.client.organizationId,
+          domainId: domain.id,
+          reader,
+        });
+      }
+    } catch (error) {
+      console.warn(
+        `[hosted-spf] delegation check during a scan failed for ${domain.name}: ${error instanceof Error ? error.message : 'unknown error'}`,
       );
     }
 

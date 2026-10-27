@@ -11,6 +11,7 @@ import { sendError } from '../utils/api-error.js';
 import { openApiDocument } from '../openapi.js';
 import { capabilities } from '../services/capabilities.service.js';
 import { schedulerStatus } from '../scheduler/heartbeat.js';
+import { serviceCatalogue } from '../services/senders/service-catalogue.js';
 
 export const systemRouter = Router();
 
@@ -124,6 +125,9 @@ systemRouter.get('/meta', (_request, response) => {
       enabled: env.DNS_MONITOR_ENABLED,
     },
     hostedZone: env.HOSTED_DNS_ENABLED ? env.HOSTED_DNS_ZONE ?? null : null,
+    spfServices: serviceCatalogue
+      .filter((entry) => entry.spfInclude)
+      .map((entry) => ({ id: entry.id, name: entry.name, include: entry.spfInclude })),
     schedulerDisabled: env.ALERT_SCHEDULER_DISABLED,
     plans: planCatalogResponse(),
     entitlements: {

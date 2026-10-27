@@ -111,6 +111,11 @@ describe('quota enforcement under concurrency', () => {
     const blocker = new PrismaClient();
 
     try {
+      // Warm the second engine before the lock test. On a cold start its first
+      // transaction can take longer than the 300 ms this test allows, and the
+      // measurement then reflects engine startup rather than the lock.
+      await blocker.$queryRaw`SELECT 1`;
+
       const holding = blocker.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT id FROM "organization" WHERE id = ${organizationId} FOR UPDATE`;
         // Holds the transaction, and therefore the lock, for two seconds. Cast

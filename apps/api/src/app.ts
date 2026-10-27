@@ -21,6 +21,7 @@ import { reportInboxRouter } from './routes/report-inbox.routes.js';
 import { slackRouter } from './routes/slack.routes.js';
 import { dnsAutomationRouter } from './routes/dns-automation.routes.js';
 import { hostedDmarcRouter } from './routes/hosted-dmarc.routes.js';
+import { managedSpfRouter } from './routes/managed-spf.routes.js';
 import { dpaRouter, wellKnownRouter } from './routes/dpa.routes.js';
 import { ssoRouter } from './routes/sso.routes.js';
 import { billingRouter } from './routes/billing.routes.js';
@@ -238,6 +239,7 @@ export function createApp(): express.Express {
   app.use('/api', slackRouter);
   app.use('/api', dnsAutomationRouter);
   app.use('/api', hostedDmarcRouter);
+  app.use('/api', managedSpfRouter);
 
   // Deliberately not through the guard above: this is the route that records the
   // acceptance, and it has to stay reachable for someone stuck on the old one.

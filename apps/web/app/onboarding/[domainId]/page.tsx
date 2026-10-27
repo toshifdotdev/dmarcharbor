@@ -3,11 +3,11 @@ import { notFound, redirect, unstable_rethrow } from "next/navigation";
 import type { CSSProperties } from "react";
 import { clsx } from "clsx";
 import { ApiError, getOnboardingState, getSessionUserId, listClients } from "@/lib/api";
-import { getDnsConnections, getHostedDmarc, listReportShares, listWorkspaceMembers, OpsError } from "@/lib/api-ops";
+import { getDnsConnections, getHostedDmarc, getManagedSpf, listReportShares, listWorkspaceMembers, OpsError } from "@/lib/api-ops";
 import { domainHref } from "@/lib/route-hrefs";
 import { resolveActiveWorkspace } from "@/lib/session";
 import { strongestRole } from "@/lib/settings-map";
-import type { DomainRow, HostedDmarcView, OnboardingState, ReportShareRow } from "@/lib/types";
+import type { DomainRow, HostedDmarcView, ManagedSpfView, OnboardingState, ReportShareRow } from "@/lib/types";
 import { AppShell } from "@/components/harbor/app-shell";
 import { DomainRecords } from "@/components/harbor/domain-records";
 import { DomainRemoval } from "@/components/harbor/domain-removal";
@@ -137,6 +137,26 @@ export default async function OnboardingPage({ params }: { params: Promise<{ dom
   } catch {
     hosted = null;
   }
+  let managedSpf: ManagedSpfView | null;
+  try {
+    managedSpf = await getManagedSpf(active.id, domain.id);
+  } catch {
+    managedSpf = null;
+  }
+  const spfRepublish =
+    managedSpf?.managed && managedSpf.managed.status !== "RELEASED"
+      ? {
+          value: [
+            "v=spf1",
+            ...managedSpf.managed.sources.map((source) =>
+              source.value.startsWith("/")
+                ? `${source.kind}:${domain.name}${source.value}`
+                : `${source.kind}:${source.value}`,
+            ),
+            managedSpf.managed.allQualifier === "-all" ? "-all" : "~all",
+          ].join(" "),
+        }
+      : null;
 
   const trail = [
     { label: "Clients", href: "/clients" },
@@ -338,6 +358,7 @@ export default async function OnboardingPage({ params }: { params: Promise<{ dom
             domainId={domain.id}
             domainName={domain.name}
             hosted={hosted?.hosted && hosted.hosted.status !== "RELEASED" ? { value: hosted.hosted.value } : null}
+            managedSpf={spfRepublish}
           />
         </div>
       </div>

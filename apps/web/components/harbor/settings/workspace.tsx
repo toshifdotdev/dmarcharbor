@@ -19,6 +19,7 @@ import {
   previewWorkspaceDeletion,
   type DeletionSummary,
   type HostedDeletionPreview,
+  type ManagedSpfDeletionPreview,
 } from "@/lib/ops-client";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { DnsRecord } from "@/components/ui/copy";
@@ -55,6 +56,7 @@ export function WorkspaceDeletion({
   const [open, setOpen] = useState(false);
   const [summary, setSummary] = useState<DeletionSummary | null>(null);
   const [hosted, setHosted] = useState<HostedDeletionPreview[]>([]);
+  const [managedSpf, setManagedSpf] = useState<ManagedSpfDeletionPreview[]>([]);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [typed, setTyped] = useState("");
@@ -68,6 +70,7 @@ export function WorkspaceDeletion({
     setPreviewError(null);
     setLoading(true);
     setHosted([]);
+    setManagedSpf([]);
     const res = await previewWorkspaceDeletion(organizationId);
     setLoading(false);
     if (!res.ok) {
@@ -76,6 +79,7 @@ export function WorkspaceDeletion({
     }
     setSummary(res.data.summary);
     setHosted(res.data.hostedDmarc ?? []);
+    setManagedSpf(res.data.managedSpf ?? []);
   }
 
   async function confirm() {
@@ -180,6 +184,28 @@ export function WorkspaceDeletion({
                       type="TXT"
                       host={record.republish.host}
                       zone={record.republish.host.replace(/^_dmarc\./, "")}
+                      value={record.republish.value}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {managedSpf.length > 0 ? (
+            <div className="border border-warn/40 bg-paper-2 p-3">
+              <p className="font-semibold text-fg">These domains&rsquo; SPF records are managed by DMARC Harbor.</p>
+              <p className="mt-1 max-w-[72ch] text-meta text-fg-2">
+                Publish this TXT at your DNS host and remove the redirect to DMARC Harbor first, or the domain will lose
+                its SPF record once it is deleted here.
+              </p>
+              <div className="mt-3 flex flex-col gap-3">
+                {managedSpf.map((record) => (
+                  <div key={record.domain}>
+                    <p className="mb-1 text-meta font-semibold text-fg">{record.domain}</p>
+                    <DnsRecord
+                      type="TXT"
+                      host={record.republish.host}
+                      zone={record.republish.host}
                       value={record.republish.value}
                     />
                   </div>

@@ -32,6 +32,8 @@ export interface CatalogueEntry {
   dkimDomains: string[];
   /** Domains that appear as the SPF-authenticated envelope-from domain. */
   spfDomains: string[];
+  /** The SPF include named in the vendor's own documentation, when it names one. */
+  spfInclude?: string;
   /** Confirmed PTR suffixes owned by the service. */
   ptrSuffixes: string[];
   /** ASNs that are specific enough to name the service, when a second signal agrees. */
@@ -46,6 +48,8 @@ export const serviceCatalogue: readonly CatalogueEntry[] = [
     category: 'mailbox',
     dkimDomains: ['google.com'],
     spfDomains: ['_spf.google.com', 'google.com'],
+    // Include named at the source above (Google's SPF setup page).
+    spfInclude: '_spf.google.com',
     // Not googleusercontent.com: that is the reverse DNS of every Google Cloud
     // customer VM, so anyone renting one would be named Google Workspace.
     ptrSuffixes: ['google.com', '1e100.net'],
@@ -58,6 +62,8 @@ export const serviceCatalogue: readonly CatalogueEntry[] = [
     category: 'mailbox',
     dkimDomains: ['onmicrosoft.com', 'microsoft.com'],
     spfDomains: ['spf.protection.outlook.com', 'outlook.com', 'microsoft.com'],
+    // SPF include: https://learn.microsoft.com/en-us/defender-office-365/email-authentication-spf-configure
+    spfInclude: 'spf.protection.outlook.com',
     ptrSuffixes: ['outlook.com', 'protection.outlook.com', 'microsoft.com'],
     asns: [8075],
     source: 'https://learn.microsoft.com/en-us/defender-office-365/email-authentication-dkim-configure',
@@ -68,6 +74,8 @@ export const serviceCatalogue: readonly CatalogueEntry[] = [
     category: 'transactional',
     dkimDomains: ['amazonses.com'],
     spfDomains: ['amazonses.com'],
+    // SPF include: https://docs.aws.amazon.com/ses/latest/dg/send-email-authentication-spf.html
+    spfInclude: 'amazonses.com',
     ptrSuffixes: ['amazonses.com'],
     asns: [16509, 14618],
     source: 'https://docs.aws.amazon.com/ses/latest/dg/send-email-authentication-dkim.html',
@@ -78,6 +86,8 @@ export const serviceCatalogue: readonly CatalogueEntry[] = [
     category: 'transactional',
     dkimDomains: ['sendgrid.net'],
     spfDomains: ['sendgrid.net'],
+    // Include named at the source above (SendGrid domain authentication).
+    spfInclude: 'sendgrid.net',
     ptrSuffixes: ['sendgrid.net'],
     asns: [11377],
     source: 'https://docs.sendgrid.com/ui/account-and-settings/how-to-set-up-domain-authentication',
@@ -98,6 +108,8 @@ export const serviceCatalogue: readonly CatalogueEntry[] = [
     category: 'transactional',
     dkimDomains: ['mailgun.org', 'mailgun.net'],
     spfDomains: ['mailgun.org', 'mailgun.net'],
+    // Include named at the source above (Mailgun sending setup).
+    spfInclude: 'mailgun.org',
     ptrSuffixes: ['mailgun.org', 'mailgun.net'],
     asns: [],
     source: 'https://documentation.mailgun.com/docs/mailgun/user-manual/sending-setup/',
@@ -108,6 +120,8 @@ export const serviceCatalogue: readonly CatalogueEntry[] = [
     category: 'transactional',
     dkimDomains: ['postmarkapp.com', 'mtasv.net'],
     spfDomains: ['postmarkapp.com', 'mtasv.net'],
+    // Include named at the source above (Postmark domain authentication).
+    spfInclude: 'spf.mtasv.net',
     ptrSuffixes: ['postmarkapp.com', 'mtasv.net'],
     asns: [],
     source: 'https://postmarkapp.com/support/article/1046-how-do-i-set-up-dkim-for-postmark',
@@ -158,6 +172,8 @@ export const serviceCatalogue: readonly CatalogueEntry[] = [
     category: 'marketing',
     dkimDomains: ['exacttarget.com', 'salesforce.com'],
     spfDomains: ['exacttarget.com', 'salesforce.com'],
+    // Include named at the source above (Salesforce email authentication).
+    spfInclude: '_spf.salesforce.com',
     ptrSuffixes: ['exacttarget.com', 'salesforce.com'],
     asns: [],
     source: 'https://help.salesforce.com/s/articleView?id=000382473&type=1',
@@ -188,6 +204,8 @@ export const serviceCatalogue: readonly CatalogueEntry[] = [
     category: 'support',
     dkimDomains: ['zendesk.com', 'zendeskmail.com'],
     spfDomains: ['zendesk.com', 'zendeskmail.com'],
+    // Include named at the source above (Zendesk email authentication).
+    spfInclude: 'mail.zendesk.com',
     ptrSuffixes: ['zendesk.com', 'zendeskmail.com'],
     asns: [],
     source: 'https://support.zendesk.com/hc/en-us/articles/4408832572314',

@@ -223,8 +223,24 @@ async function domainFor(organizationId: string, domainRefOrId: string) {
   return domain;
 }
 
-async function nonReleasedCount(): Promise<number> {
-  return prisma.hostedDmarcRecord.count({ where: { status: { not: 'RELEASED' } } });
+/**
+ * The zone's capacity in records, not customers: a hosted DMARC row is one
+ * TXT, and a managed SPF row may be an entry plus up to eight continuations.
+ * Both features share the same Cloudflare limit, so both must count the same
+ * way.
+ */
+export async function usedHostedRecords(): Promise<number> {
+  const [dmarc, spf] = await Promise.all([
+    prisma.hostedDmarcRecord.count({ where: { status: { not: 'RELEASED' } } }),
+    prisma.hostedSpfRecord.findMany({
+      where: { status: { not: 'RELEASED' } },
+      select: { parts: true },
+    }),
+  ]);
+  return (
+    dmarc +
+    spf.reduce((total, row) => total + (Array.isArray(row.parts) ? row.parts.length : 0), 0)
+  );
 }
 
 function capacityWarning(count: number): void {
@@ -242,7 +258,7 @@ async function viewFor(
   releaseBlocked: 'no_record_published' | null = null,
 ): Promise<HostedDmarcView> {
   const provider = hostedDnsProvider();
-  const count = await nonReleasedCount();
+  const count = await usedHostedRecords();
   const capacity = { full: count >= env.HOSTED_DNS_RECORD_LIMIT };
 
   if (!provider) {
@@ -441,7 +457,7 @@ export async function startHosting(input: {
     );
   }
 
-  const count = await nonReleasedCount();
+  const count = await usedHostedRecords();
   if (count >= env.HOSTED_DNS_RECORD_LIMIT) {
     throw new HostedDmarcError(
       'Hosting is full on this deployment right now. Publish the TXT record yourself.',
@@ -1126,7 +1142,7 @@ export async function reconcileHostedDns(): Promise<ReconcileSummary> {
     }
   }
 
-  const count = await nonReleasedCount();
+  const count = await usedHostedRecords();
   capacityWarning(count);
   return summary;
 }

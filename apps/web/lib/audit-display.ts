@@ -121,6 +121,10 @@ const ACTION_SENTENCES: Record<AuditAction, string> = {
   HOSTED_DMARC_RESTORED: "Hosted DMARC policy restored",
   HOSTED_DMARC_RELEASE_REQUESTED: "Hosted DMARC release requested",
   HOSTED_DMARC_RELEASED: "Hosted DMARC record released",
+  MANAGED_SPF_CREATED: "Managed SPF record created",
+  MANAGED_SPF_UPDATED: "Managed SPF sources changed",
+  MANAGED_SPF_RELEASE_REQUESTED: "Managed SPF release requested",
+  MANAGED_SPF_RELEASED: "Managed SPF record released",
 };
 
 /**

@@ -3,6 +3,7 @@ import { withJobLease } from './job-lease.service.js';
 import { recordJobFailure, recordJobSuccess } from './heartbeat.js';
 import { hostedDnsProvider } from '../services/hosted-dns/provider.js';
 import { reconcileHostedDns } from '../services/hosted-dns/hosted-dmarc.service.js';
+import { reconcileManagedSpf } from '../services/hosted-dns/managed-spf.service.js';
 
 let timer: NodeJS.Timeout | undefined;
 let running = false;
@@ -21,12 +22,22 @@ export async function runHostedDnsReconcileOnce(): Promise<void> {
 
   running = true;
   try {
-    const summary = await withJobLease('hosted-dns-reconcile', () => reconcileHostedDns());
+    const summary = await withJobLease('hosted-dns-reconcile', async () => {
+      const dmarc = await reconcileHostedDns();
+      const spf = await reconcileManagedSpf();
+      return { dmarc, spf };
+    });
     if (summary !== undefined) {
       recordJobSuccess('hosted-dns-reconcile');
-      if (summary.synced > 0 || summary.removed > 0 || summary.failed > 0) {
+      const { dmarc, spf } = summary;
+      if (dmarc.synced > 0 || dmarc.removed > 0 || dmarc.failed > 0) {
         console.info(
-          `[hosted-dns] synced ${summary.synced}, removed ${summary.removed}, failed ${summary.failed}`,
+          `[hosted-dns] synced ${dmarc.synced}, removed ${dmarc.removed}, failed ${dmarc.failed}`,
+        );
+      }
+      if (spf.refreshed > 0 || spf.removed > 0 || spf.failed > 0) {
+        console.info(
+          `[hosted-spf] refreshed ${spf.refreshed}, removed ${spf.removed}, failed ${spf.failed}`,
         );
       }
     }

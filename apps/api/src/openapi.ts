@@ -2385,6 +2385,147 @@ export const openApiDocument = {
         responses: { 200: { description: 'The updated view, with republish when releasing.' }, ...standardErrors },
       },
     },
+    '/workspaces/{organizationId}/domains/{domainId}/managed-spf': {
+      get: {
+        tags: ['Clients and domains'],
+        summary: 'Read a domain managed SPF record',
+        description: [
+          'Returns availability, the apex redirect the customer publishes, the stored sources, the last flatten outcome per source, the published parts, the lookup count and the last 20 changes.',
+          'paused is true when the plan no longer grants dns.managedSpf; the addresses keep being refreshed. capacity never exposes raw counts.',
+          'Requires domain read permission.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: { 200: { description: 'Availability, the managed record if any, and capacity.' }, ...standardErrors },
+      },
+      post: {
+        tags: ['Clients and domains'],
+        summary: 'Start managing a domain SPF record',
+        description: [
+          'Imports the apex SPF record into sources, flattens each source into addresses where that is safe, builds one or more TXT parts in the hosted zone and returns the apex redirect the customer must publish.',
+          'An unresolvable source on this first flatten refuses the start, because there is no last good set. Requires domain update permission and dns.managedSpf.',
+          'Answers 503 HOSTED_DNS_UNAVAILABLE when the deployment has no hosted zone, 503 HOSTED_DNS_FULL at capacity, 409 DOMAIN_NOT_VERIFIED, ALREADY_MANAGED or MULTIPLE_SPF_RECORDS, and 409 SOURCE_NOT_USABLE when the imported sources cannot be flattened.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: {
+          ...standardErrors,
+          201: { description: 'Managing started; the apex redirect and the served parts.' },
+          402: { description: 'The plan does not include managed SPF.' },
+          409: { description: 'The record cannot be managed: unusable sources, too many lookups or too many parts.' },
+          502: { description: 'The DNS provider refused; nothing was kept.' },
+          503: { description: 'Hosting is unavailable, full, or DNS could not be read.' },
+        },
+      },
+      put: {
+        tags: ['Clients and domains'],
+        summary: 'Change the sources of a managed SPF record',
+        description: [
+          'Flattens the new source list, refuses a new source that cannot be resolved, and keeps the last good addresses for an existing source that fails. Rewrites the continuation records and rolls the sources and parts back if the provider refuses.',
+          'expectedVersion must be the version that was read. A mismatch answers 409 VERSION_CHANGED with the current view. Requires domain update permission and dns.managedSpf.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['expectedVersion', 'sources', 'allQualifier'],
+                properties: {
+                  expectedVersion: { type: 'integer', minimum: 1 },
+                  allQualifier: { type: 'string', enum: ['-all', '~all'] },
+                  sources: {
+                    type: 'array',
+                    maxItems: 30,
+                    items: {
+                      type: 'object',
+                      required: ['kind', 'value'],
+                      properties: {
+                        kind: { type: 'string', enum: ['include', 'ip4', 'ip6', 'a', 'mx'] },
+                        value: { type: 'string' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          ...standardErrors,
+          200: { description: 'The updated view, or { action: "unchanged" }.' },
+          402: { description: 'The plan does not include managed SPF.' },
+          409: { description: 'VERSION_CHANGED, SPF_RELEASING, SOURCE_NOT_USABLE, TOO_MANY_LOOKUPS or TOO_MANY_PARTS.' },
+          502: { description: 'The DNS provider refused; the sources and parts were rolled back.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/domains/{domainId}/managed-spf/preview': {
+      post: {
+        tags: ['Clients and domains'],
+        summary: 'Preview a managed SPF flatten without saving',
+        description: [
+          'Runs the same flatten and chain steps as a save and returns the outcomes, the parts, the lookup count and the IPv4 and IPv6 range counts. Nothing is written.',
+          'Requires domain update permission and dns.managedSpf; preview does DNS work, so it has its own rate limit.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['sources', 'allQualifier'],
+                properties: {
+                  allQualifier: { type: 'string', enum: ['-all', '~all'] },
+                  sources: {
+                    type: 'array',
+                    maxItems: 30,
+                    items: {
+                      type: 'object',
+                      required: ['kind', 'value'],
+                      properties: {
+                        kind: { type: 'string', enum: ['include', 'ip4', 'ip6', 'a', 'mx'] },
+                        value: { type: 'string' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          ...standardErrors,
+          200: { description: 'Outcomes, parts, lookup count and range counts.' },
+          402: { description: 'The plan does not include managed SPF.' },
+          503: { description: 'Hosting is unavailable or DNS could not be read.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/domains/{domainId}/managed-spf/check': {
+      post: {
+        tags: ['Clients and domains'],
+        summary: 'Check the managed SPF delegation now',
+        description: [
+          'Reads the apex TXT. A PENDING row becomes ACTIVE when exactly one SPF record redirects to this token. A RELEASING row is released only when the lookup succeeded, exactly one SPF record is published and it no longer references our names; an error never releases.',
+          'Requires domain read permission.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: { 200: { description: 'The updated view.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/domains/{domainId}/managed-spf/release': {
+      post: {
+        tags: ['Clients and domains'],
+        summary: 'Stop managing a SPF record',
+        description: [
+          'A PENDING record is removed and released at once. An ACTIVE record becomes RELEASING: we keep serving and refreshing the flattened addresses until the apex no longer references us and a check sees exactly one SPF record. The view carries the unflattened record, its lookup count and whether it exceeds the receiver limit.',
+          'Allowed on every plan, so a downgraded workspace can always leave. Requires domain update permission.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: { 200: { description: 'The updated view, with republish when releasing.' }, ...standardErrors },
+      },
+    },
     '/workspaces/{organizationId}/domains/{domainId}/scans': {
       post: {
         tags: ['Scanning'],

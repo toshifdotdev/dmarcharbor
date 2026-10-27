@@ -76,6 +76,8 @@ export interface ServiceMeta {
   };
   /** The zone hosted DMARC records are served from, when the feature is on. */
   hostedZone?: string | null;
+  /** Services whose vendor documentation names an SPF include. */
+  spfServices?: Array<{ id: string; name: string; include: string }>;
 }
 
 /**

@@ -225,6 +225,7 @@ model Organization {
   dnsConnections        DnsProviderConnection[]
   dnsPublications       DnsPublication[]
   hostedDmarcRecords    HostedDmarcRecord[]
+  hostedSpfRecords      HostedSpfRecord[]
 
   @@unique([slug])
   /// Reads the document version rather than the column being null, so the sweep
@@ -390,6 +391,7 @@ model Domain {
   senderReviews          SenderReview[]
   dnsPublications        DnsPublication[]
   hostedDmarc            HostedDmarcRecord?
+  hostedSpf              HostedSpfRecord?
 
   /// The per client constraint is gone. Global uniqueness on `name` above
   /// subsumes it: two rows in one client with the same name would violate the
@@ -1422,6 +1424,13 @@ enum HostedDmarcStatus {
   RELEASED
 }
 
+enum HostedSpfStatus {
+  PENDING
+  ACTIVE
+  RELEASING
+  RELEASED
+}
+
 /// One domain whose DMARC record this service serves from its own zone.
 ///
 /// The customer publishes a CNAME at `_dmarc.<domain>` pointing at the token
@@ -1472,6 +1481,64 @@ model HostedDmarcChange {
 
   @@index([recordId, createdAt])
   @@map("hosted_dmarc_change")
+}
+
+/// One domain whose SPF record this service flattens into its own zone.
+///
+/// The customer's apex says `v=spf1 redirect=<token>.spf.<zone>`, so our zone
+/// carries the addresses and the all qualifier. `parts` is what is published;
+/// `sourceState` keeps the last good networks so a provider's DNS failure never
+/// removes an address that was working.
+model HostedSpfRecord {
+  id                  String          @id @default(cuid())
+  organizationId      String
+  organization        Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  domainId            String          @unique
+  domain              Domain          @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  token               String          @unique
+  status              HostedSpfStatus @default(PENDING)
+  version             Int             @default(1)
+  sources             Json
+  allQualifier        String
+  /// Last good networks and failure state per source, keyed by `${kind}:${value}`.
+  sourceState         Json
+  /// What is published: [{ name, content, providerRecordId }].
+  parts               Json
+  lookupCount         Int
+  lastFlattenedAt     DateTime?
+  lastFlattenError    String?
+  capacityBlocked     Boolean         @default(false)
+  delegated           Boolean         @default(false)
+  delegationCheckedAt DateTime?
+  activatedAt         DateTime?
+  releaseRequestedAt  DateTime?
+  releasedAt          DateTime?
+  createdById         String?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  changes             HostedSpfChange[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@map("hosted_spf_record")
+}
+
+model HostedSpfChange {
+  id              String          @id @default(cuid())
+  recordId        String
+  record          HostedSpfRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  organizationId  String
+  /// 'created' | 'sources' | 'refresh'
+  reason          String
+  previousSources Json?
+  newSources      Json
+  previousParts   Json?
+  newParts        Json
+  actorUserId     String?
+  createdAt       DateTime        @default(now())
+
+  @@index([recordId, createdAt])
+  @@map("hosted_spf_change")
 }
 
 /// A signed compliance pack issued for one client.
@@ -1934,6 +2001,10 @@ enum AuditAction {
   HOSTED_DMARC_RESTORED
   HOSTED_DMARC_RELEASE_REQUESTED
   HOSTED_DMARC_RELEASED
+  MANAGED_SPF_CREATED
+  MANAGED_SPF_UPDATED
+  MANAGED_SPF_RELEASE_REQUESTED
+  MANAGED_SPF_RELEASED
 }
 
 enum AuditOutcome {

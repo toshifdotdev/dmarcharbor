@@ -26,6 +26,7 @@ const FEATURES: Array<[key: string, label: string]> = [
   ["integrations.webhooks", "Webhooks"],
   ["dns.automation", "Publish DNS records through Cloudflare"],
   ["dns.hosted", "Hosted DMARC record"],
+  ["dns.managedSpf", "Managed SPF"],
   ["reports.forensic", "Forensic reports, recipients unnamed"],
   ["sharing.links", "Report share links"],
   ["reports.forensicNamed", "Named forensic evidence"],

@@ -25,7 +25,8 @@ export type EntitlementKey =
   | 'integrations.webhooks'
   | 'senders.owners'
   | 'dns.automation'
-  | 'dns.hosted';
+  | 'dns.hosted'
+  | 'dns.managedSpf';
 
 export type QuotaKey = 'client' | 'activeDomain' | 'member';
 
@@ -58,6 +59,7 @@ export const entitlementLabels: Record<EntitlementKey, string> = {
   'senders.owners': 'Sender owners',
   'dns.automation': 'Publish DNS records through Cloudflare',
   'dns.hosted': 'Hosted DMARC record',
+  'dns.managedSpf': 'Managed SPF',
 };
 
 /**
@@ -152,6 +154,7 @@ const allFeatures = (overrides: Partial<Record<EntitlementKey, boolean>> = {}): 
   'senders.owners': true,
   'dns.automation': true,
   'dns.hosted': true,
+  'dns.managedSpf': true,
   ...overrides,
 });
 
@@ -272,6 +275,13 @@ const noDnsAutomation = { 'dns.automation': false } as const;
 const noDnsHosted = { 'dns.hosted': false } as const;
 
 /**
+ * Managed SPF starts at Harbor. The addresses keep being refreshed on a
+ * downgrade, so a provider changing its ranges cannot break mail; only editing
+ * the source list pauses.
+ */
+const noManagedSpf = { 'dns.managedSpf': false } as const;
+
+/**
  * Harbor's feature set, shared by FLEET rather than copied.
  *
  * FLEET is Harbor's features for a much larger portfolio. A copy would drift
@@ -294,7 +304,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
       maxMembers: 1,
       maxWorkspaces: 1,
     activeDomainWindowDays: 30,
-    features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noIntegrations, ...noDnsAutomation, ...noDnsHosted, ...off }),
+    features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noIntegrations, ...noDnsAutomation, ...noDnsHosted, ...noManagedSpf, ...off }),
   },
   FAIRWAY: {
     tier: 'FAIRWAY',
@@ -309,7 +319,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
       maxMembers: 3,
       maxWorkspaces: 2,
     activeDomainWindowDays: 365,
-    features: allFeatures({ ...noNamedForensic, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noDigests }),
+    features: allFeatures({ ...noNamedForensic, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noDigests, ...noManagedSpf }),
   },
   HARBOR: {
     tier: 'HARBOR',

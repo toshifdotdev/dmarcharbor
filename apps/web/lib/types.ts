@@ -148,6 +148,77 @@ export interface HostedDmarcView {
   capacity: { full: boolean };
 }
 
+// ─── Managed SPF ─────────────────────────────────────────────────────────────
+
+export type ManagedSpfStatus = "PENDING" | "ACTIVE" | "RELEASING" | "RELEASED";
+
+export type ManagedSpfSource =
+  | { kind: "include"; value: string }
+  | { kind: "ip4" | "ip6"; value: string }
+  | { kind: "a" | "mx"; value: string };
+
+export interface ManagedSpfOutcomeView {
+  source: ManagedSpfSource;
+  mode: "flattened" | "passthrough" | "refused" | "error";
+  networks: string[];
+  lookups: number;
+  reason: string | null;
+  failingSince: string | null;
+}
+
+export interface ManagedSpfChangeView {
+  id: string;
+  reason: string;
+  actor: { id: string; name: string } | null;
+  createdAt: string;
+  added: string[];
+  removed: string[];
+}
+
+export interface ManagedSpfView {
+  available: boolean;
+  managed: null | {
+    status: ManagedSpfStatus;
+    paused: boolean;
+    apex: { host: string; type: "TXT"; value: string };
+    sources: ManagedSpfSource[];
+    allQualifier: string;
+    version: number;
+    outcomes: ManagedSpfOutcomeView[];
+    parts: Array<{ name: string; content: string }>;
+    lookupCount: number;
+    lastFlattenedAt: string | null;
+    lastFlattenError: string | null;
+    capacityBlocked: boolean;
+    delegated: boolean;
+    delegationCheckedAt: string | null;
+    republish: {
+      host: string;
+      type: "TXT";
+      value: string;
+      lookupCount: number;
+      overLimit: boolean;
+    } | null;
+    changes: ManagedSpfChangeView[];
+  };
+  capacity: { full: boolean };
+}
+
+export interface ManagedSpfPreview {
+  outcomes: ManagedSpfOutcomeView[];
+  parts: Array<{ name: string; content: string }>;
+  lookupCount: number;
+  ip4Count: number;
+  ip6Count: number;
+  errors: string[];
+}
+
+export interface SpfServiceOption {
+  id: string;
+  name: string;
+  include: string;
+}
+
 // ─── DNS publishing through Cloudflare ───────────────────────────────────────
 
 export interface DnsConnectionRow {
@@ -884,7 +955,8 @@ export type EntitlementKey =
   | "integrations.webhooks"
   | "senders.owners"
   | "dns.automation"
-  | "dns.hosted";
+  | "dns.hosted"
+  | "dns.managedSpf";
 
 export type QuotaKey = "client" | "activeDomain" | "member";
 
@@ -1143,7 +1215,11 @@ export type AuditAction =
   | "HOSTED_DMARC_UPDATED"
   | "HOSTED_DMARC_RESTORED"
   | "HOSTED_DMARC_RELEASE_REQUESTED"
-  | "HOSTED_DMARC_RELEASED";
+  | "HOSTED_DMARC_RELEASED"
+  | "MANAGED_SPF_CREATED"
+  | "MANAGED_SPF_UPDATED"
+  | "MANAGED_SPF_RELEASE_REQUESTED"
+  | "MANAGED_SPF_RELEASED";
 
 /**
  * AuditOutcome is SUCCESS or DENIED. There is no FAILED value: the trail records
@@ -2014,7 +2090,12 @@ export interface ApiErrorBody {
     preview?: DnsPublishPreview;
     /** A 409 from hosted DMARC: the blockers, or the current view on a version conflict. */
     blockers?: string[];
-    view?: HostedDmarcView;
+    view?: HostedDmarcView | ManagedSpfView;
+    /** A 409 from managed SPF: per-source outcomes and why the record is not usable. */
+    outcomes?: ManagedSpfOutcomeView[];
+    errors?: string[];
+    lookupCount?: number;
+    partCount?: number;
     /**
      * set on the 400 the identity route answers when a named-recipient purge
      * was asked for without `confirmNamePurge`. The flag is what tells the UI
