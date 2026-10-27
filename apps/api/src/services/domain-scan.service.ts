@@ -13,6 +13,7 @@ import { diffScans } from './monitoring/dns-diff.js';
 import { checkDelegation } from './hosted-dns/hosted-dmarc.service.js';
 import { checkSpfDelegation } from './hosted-dns/managed-spf.service.js';
 import { checkBimiDelegation } from './hosted-dns/hosted-bimi.service.js';
+import { checkMtaStsDelegation } from './hosted-dns/hosted-mta-sts.service.js';
 
 const scanInclude = {
   domain: {
@@ -335,6 +336,33 @@ export async function runDomainScan(input: RunDomainScanInput): Promise<RunDomai
     } catch (error) {
       console.warn(
         `[hosted-bimi] delegation check during a scan failed for ${domain.name}: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+    }
+
+    /**
+     * MTA-STS is the one hosted feature whose correctness depends on what the
+     * MX lookup says: an enforcing policy that misses a mail server refuses
+     * delivery to it. The scan is where that becomes visible, and the check is
+     * given the scan id so it can raise the critical change through the same
+     * notification path a DNS change uses.
+     */
+    try {
+      const mtaSts = await prisma.hostedMtaStsRecord.findUnique({
+        where: { domainId: domain.id },
+        select: { status: true },
+      });
+      if (mtaSts && mtaSts.status !== 'RELEASED') {
+        await checkMtaStsDelegation({
+          organizationId: domain.client.organizationId,
+          domainId: domain.id,
+          reader,
+          scanId: scan.id,
+          previousScanId: persisted.previousScanId,
+        });
+      }
+    } catch (error) {
+      console.warn(
+        `[hosted-mta-sts] check during a scan failed for ${domain.name}: ${error instanceof Error ? error.message : 'unknown error'}`,
       );
     }
 

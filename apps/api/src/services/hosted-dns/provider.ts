@@ -24,6 +24,29 @@ export interface HostedDnsProvider {
   listAll(): AsyncIterable<HostedTxt>;
 }
 
+/**
+ * Cloudflare for SaaS custom hostnames, kept separate from the TXT provider.
+ *
+ * The two need different API permissions (SSL and Certificates versus DNS) and
+ * have different failure modes, so a caller that only publishes records should
+ * not have to be able to touch certificates. Custom hostnames also carry no
+ * comment on non-Enterprise plans, which is why nothing here lists them: a
+ * hostname can only ever be acted on through the id a row stored.
+ */
+export interface HostedCustomHostname {
+  id: string;
+  hostname: string;
+  status: string | null;
+  sslStatus: string | null;
+  sslError: string | null;
+}
+
+export interface HostedCustomHostnameClient {
+  create(hostname: string): Promise<HostedCustomHostname>;
+  get(id: string): Promise<HostedCustomHostname>;
+  remove(id: string): Promise<void>;
+}
+
 function toHosted(record: CloudflareTxtRecord): HostedTxt {
   return {
     id: record.id,
@@ -113,4 +136,43 @@ export function setHostedDnsProviderForTests(provider: HostedDnsProvider | null)
 /** Restores the deployment-derived provider. Test-only. */
 export function resetHostedDnsProviderForTests(): void {
   testOverride = undefined;
+}
+
+let customHostnameOverride: HostedCustomHostnameClient | null | undefined;
+
+/**
+ * The custom-hostname client, or null when this deployment cannot issue
+ * certificates. Same override semantics as the TXT provider: undefined means
+ * "derive it", null means a test has deliberately turned it off.
+ */
+export function hostedCustomHostnameClient(): HostedCustomHostnameClient | null {
+  if (customHostnameOverride !== undefined) {
+    return customHostnameOverride;
+  }
+  if (
+    !env.HOSTED_DNS_ENABLED ||
+    !env.HOSTED_DNS_ZONE ||
+    !env.HOSTED_DNS_CLOUDFLARE_TOKEN ||
+    !env.HOSTED_DNS_CLOUDFLARE_ZONE_ID
+  ) {
+    return null;
+  }
+
+  const zoneId = env.HOSTED_DNS_CLOUDFLARE_ZONE_ID;
+  const client = createCloudflareClient({ token: env.HOSTED_DNS_CLOUDFLARE_TOKEN });
+  return {
+    create: (hostname) => client.createCustomHostname(zoneId, hostname),
+    get: (id) => client.getCustomHostname(zoneId, id),
+    remove: (id) => client.deleteCustomHostname(zoneId, id),
+  };
+}
+
+export function setHostedCustomHostnameClientForTests(
+  client: HostedCustomHostnameClient | null,
+): void {
+  customHostnameOverride = client;
+}
+
+export function resetHostedCustomHostnameClientForTests(): void {
+  customHostnameOverride = undefined;
 }

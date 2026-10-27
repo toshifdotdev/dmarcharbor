@@ -41,6 +41,7 @@ import type {
   ForensicReportRow,
   HostedBimiView,
   HostedDmarcView,
+  HostedMtaStsView,
   IssuedApiKey,
   MailboxComplianceView,
   ManagedSpfView,
@@ -175,6 +176,16 @@ export function getHostedBimi(
 ): Promise<HostedBimiView> {
   return opsFetch<HostedBimiView>(
     `/api/workspaces/${organizationId}/domains/${domainId}/hosted-bimi`,
+  );
+}
+
+/** GET /hosted-mta-sts — the two CNAMEs, the policy we serve and its readiness. */
+export function getHostedMtaSts(
+  organizationId: string,
+  domainId: string,
+): Promise<HostedMtaStsView> {
+  return opsFetch<HostedMtaStsView>(
+    `/api/workspaces/${organizationId}/domains/${domainId}/hosted-mta-sts`,
   );
 }
 

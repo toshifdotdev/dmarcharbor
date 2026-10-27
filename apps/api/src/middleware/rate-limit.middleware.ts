@@ -467,3 +467,25 @@ export const bimiPublicRateLimiter = rateLimit({
     },
   },
 });
+
+/**
+ * The public MTA-STS policy.
+ *
+ * Deliberately far more generous than the BIMI bytes: the caller is Cloudflare
+ * fetching a policy on a customer's behalf, and senders re-fetch on their own
+ * schedule, so this is a brake on abuse rather than a budget. 600 a minute is
+ * still far below what a walker needs to be useful.
+ */
+export const mtaStsPublicRateLimiter = rateLimit({
+  ...SHARED_LIMITER_OPTIONS,
+  windowMs: 60_000,
+  limit: 600,
+  store: rateLimitStoreFor('mta-sts-public'),
+  keyGenerator: clientKey,
+  message: {
+    error: {
+      code: 'RATE_LIMITED',
+      message: 'Too many requests. Try again shortly.',
+    },
+  },
+});

@@ -887,6 +887,37 @@ check(
   }),
 );
 
+// 4b-7. Hosted MTA-STS panel, in the same setup tab. Retry the tab click inside
+//       the poll as above; this deployment has no hosted zone and no MTA-STS
+//       target, so the panel must say so rather than offer a button that cannot
+//       work.
+const mtaStsTabAudit = await waitForEval(
+  `(() => {
+    const tab = [...document.querySelectorAll('[role="tab"]')].find((t) => t.textContent.includes('Reporting and setup'));
+    if (!tab) return { tab: false, visible: false, text: '' };
+    const panelId = tab.getAttribute('aria-controls');
+    const panel = panelId ? document.getElementById(panelId) : null;
+    const visible = !!panel && !panel.hidden;
+    if (!visible) tab.click();
+    return { tab: true, visible, text: panel ? panel.textContent : '' };
+  })()`,
+  (a) => a && a.tab && a.visible,
+  45000,
+);
+const mtaStsPanelText = mtaStsTabAudit?.text ?? '';
+check(
+  "hosted MTA-STS panel renders on Reporting and setup",
+  Boolean(
+    mtaStsTabAudit?.visible &&
+      mtaStsPanelText.includes("MTA-STS") &&
+      mtaStsPanelText.includes("not set up on this deployment"),
+  ),
+  JSON.stringify({
+    visible: mtaStsTabAudit?.visible ?? false,
+    unavailable: mtaStsPanelText.includes("not set up on this deployment"),
+  }),
+);
+
 
 // 4c. the stale-feed domain: blackout band + hatched chart gap, no pass.
 // Read the row id from the PORTFOLIO (the detail page's tables have no such

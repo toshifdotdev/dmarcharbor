@@ -225,13 +225,13 @@ async function domainFor(organizationId: string, domainRefOrId: string) {
 
 /**
  * The zone's capacity in records, not customers: a hosted DMARC row is one
- * TXT, a managed SPF row may be an entry plus up to eight continuations, and a
- * hosted BIMI row is one TXT once it has a logo (before that it publishes
- * nothing). All three features share the same Cloudflare limit, so all three
- * must count the same way.
+ * TXT, a managed SPF row may be an entry plus up to eight continuations, a
+ * hosted BIMI row is one TXT once it has a logo, and a hosted MTA-STS row is
+ * one TXT from the moment it starts. All four features share the same
+ * Cloudflare limit, so all four must count the same way.
  */
 export async function usedHostedRecords(): Promise<number> {
-  const [dmarc, spf, bimi] = await Promise.all([
+  const [dmarc, spf, bimi, mtaSts] = await Promise.all([
     prisma.hostedDmarcRecord.count({ where: { status: { not: 'RELEASED' } } }),
     prisma.hostedSpfRecord.findMany({
       where: { status: { not: 'RELEASED' } },
@@ -240,11 +240,13 @@ export async function usedHostedRecords(): Promise<number> {
     prisma.hostedBimiRecord.count({
       where: { status: { not: 'RELEASED' }, assets: { some: { kind: 'LOGO' } } },
     }),
+    prisma.hostedMtaStsRecord.count({ where: { status: { not: 'RELEASED' } } }),
   ]);
   return (
     dmarc +
     spf.reduce((total, row) => total + (Array.isArray(row.parts) ? row.parts.length : 0), 0) +
-    bimi
+    bimi +
+    mtaSts
   );
 }
 

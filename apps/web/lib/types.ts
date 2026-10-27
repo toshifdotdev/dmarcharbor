@@ -148,6 +148,72 @@ export interface HostedDmarcView {
   capacity: { full: boolean };
 }
 
+// ─── Hosted MTA-STS ─────────────────────────────────────────────────────────
+
+export type HostedMtaStsStatus = "PENDING" | "ACTIVE" | "RELEASING" | "RELEASED";
+
+export type MtaStsCnameState = "found" | "missing" | "elsewhere";
+
+export interface HostedMtaStsBlocker {
+  code: string;
+  message: string;
+}
+
+export interface HostedMtaStsChangeView {
+  id: string;
+  reason: string;
+  previousMode: string | null;
+  newMode: string;
+  previousMx: string[];
+  newMx: string[];
+  previousMaxAge: number | null;
+  newMaxAge: number;
+  previousPolicyId: string | null;
+  newPolicyId: string;
+  readinessOverride: boolean;
+  actor: { id: string; name: string } | null;
+  createdAt: string;
+}
+
+export interface HostedMtaStsView {
+  available: boolean;
+  capacity: { full: boolean; used: number; limit: number };
+  hosted: null | {
+    status: HostedMtaStsStatus;
+    paused: boolean;
+    version: number;
+    mode: string;
+    mx: string[];
+    maxAge: number;
+    policyId: string;
+    /** The exact body served at /.well-known/mta-sts.txt. */
+    policy: string;
+    policyUrl: string;
+    cname: { host: string; type: "CNAME"; target: string };
+    txtCname: { host: string; type: "CNAME"; target: string };
+    mtaCnameState: MtaStsCnameState | null;
+    txtCnameState: MtaStsCnameState | null;
+    delegated: boolean;
+    delegationCheckedAt: string | null;
+    certificate: {
+      hostnameStatus: string | null;
+      sslStatus: string | null;
+      error: string | null;
+      ready: boolean;
+    };
+    uncoveredMx: string[];
+    uncoveredCheckedAt: string | null;
+    readiness: { ready: boolean; blockers: HostedMtaStsBlocker[] };
+    lastSyncedAt: string | null;
+    lastSyncError: string | null;
+    enforcedAt: string | null;
+    releaseServeUntil: string | null;
+    releasedAt: string | null;
+    previousTxt: string | null;
+    changes: HostedMtaStsChangeView[];
+  };
+}
+
 // ─── Hosted BIMI ─────────────────────────────────────────────────────────────
 
 export type HostedBimiStatus = "PENDING" | "ACTIVE" | "RELEASING" | "RELEASED";
@@ -1077,7 +1143,8 @@ export type EntitlementKey =
   | "dns.automation"
   | "dns.hosted"
   | "dns.managedSpf"
-  | "dns.hostedBimi";
+  | "dns.hostedBimi"
+  | "dns.hostedMtaSts";
 
 export type QuotaKey = "client" | "activeDomain" | "member";
 
@@ -1345,7 +1412,11 @@ export type AuditAction =
   | "HOSTED_BIMI_LOGO_UPDATED"
   | "HOSTED_BIMI_CERTIFICATE_UPDATED"
   | "HOSTED_BIMI_CERTIFICATE_REMOVED"
-  | "HOSTED_BIMI_RELEASED";
+  | "HOSTED_BIMI_RELEASED"
+  | "HOSTED_MTA_STS_CREATED"
+  | "HOSTED_MTA_STS_UPDATED"
+  | "HOSTED_MTA_STS_RELEASE_REQUESTED"
+  | "HOSTED_MTA_STS_RELEASED";
 
 /**
  * AuditOutcome is SUCCESS or DENIED. There is no FAILED value: the trail records

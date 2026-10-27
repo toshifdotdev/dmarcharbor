@@ -273,6 +273,32 @@ const envSchema = z.object({
   /** Cloudflare Free holds 200 records; Pro and Business hold 3,500. */
   HOSTED_DNS_RECORD_LIMIT: z.coerce.number().int().min(1).max(1_000_000).default(200),
   /**
+   * The hostname every customer's `mta-sts.<domain>` CNAME points at.
+   *
+   * Must live inside HOSTED_DNS_ZONE, because that is the zone whose Cloudflare
+   * for SaaS subscription issues the certificates. Hosted MTA-STS is available
+   * only when this is set and the hosted zone is configured.
+   */
+  HOSTED_MTA_STS_CNAME_TARGET: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .refine(
+      (value) =>
+        /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(value) &&
+        !value.endsWith('.'),
+      'HOSTED_MTA_STS_CNAME_TARGET must be a lowercase hostname with at least two labels and no trailing dot.',
+    )
+    .optional(),
+  /**
+   * How many custom hostnames this deployment will hold.
+   *
+   * Cloudflare for SaaS includes 100 free and charges $0.10 per hostname per
+   * month after that, so the default stops an operator paying by accident. The
+   * hard ceiling is Cloudflare's own 50,000.
+   */
+  HOSTED_MTA_STS_HOSTNAME_LIMIT: z.coerce.number().int().min(1).max(50_000).default(100),
+  /**
    * Where hosted BIMI logos and certificates are served from.
    *
    * An https origin with no path, query or fragment. Deliberately not APP_URL:
@@ -353,6 +379,26 @@ assertHostedDnsConfig({
   token: parsed.data.HOSTED_DNS_CLOUDFLARE_TOKEN,
   zoneId: parsed.data.HOSTED_DNS_CLOUDFLARE_ZONE_ID,
 });
+
+/**
+ * The MTA-STS CNAME target has to be inside the hosted zone.
+ *
+ * Cloudflare for SaaS issues the certificate for a custom hostname from the
+ * zone's own subscription, and the fallback origin is a record in that zone. A
+ * target in some other zone would accept the CNAME and then never serve the
+ * policy, which reads as "MTA-STS is broken" rather than "this deployment is
+ * misconfigured". Refused at boot, in every environment.
+ */
+if (parsed.data.HOSTED_MTA_STS_CNAME_TARGET) {
+  const target = parsed.data.HOSTED_MTA_STS_CNAME_TARGET;
+  const zone = parsed.data.HOSTED_DNS_ZONE;
+  if (!zone) {
+    throw new Error('HOSTED_MTA_STS_CNAME_TARGET requires HOSTED_DNS_ZONE to be configured.');
+  }
+  if (target !== zone && !target.endsWith(`.${zone}`)) {
+    throw new Error('HOSTED_MTA_STS_CNAME_TARGET must be a hostname inside HOSTED_DNS_ZONE.');
+  }
+}
 const hostedDnsConfigured = [
   parsed.data.HOSTED_DNS_ZONE,
   parsed.data.HOSTED_DNS_CLOUDFLARE_TOKEN,

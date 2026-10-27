@@ -245,6 +245,61 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-11-04 — Hosted MTA-STS
+
+A domain can now have its MTA-STS policy (RFC 8461) served by DMARC Harbor. The
+customer publishes two CNAMEs once:
+
+| Record | Type | Value |
+|---|---|---|
+| `mta-sts.<domain>` | CNAME | `HOSTED_MTA_STS_CNAME_TARGET` (one shared target) |
+| `_mta-sts.<domain>` | CNAME | `<token>._mta-sts.<HOSTED_DNS_ZONE>` |
+
+The certificate for `mta-sts.<domain>` is issued and renewed by Cloudflare for
+SaaS on the hosted zone; DMARC Harbor never handles a certificate file. The TXT
+we publish is `v=STSv1; id=<id>` and the id changes on every policy change, so a
+sender re-fetches.
+
+**Operator setup, not automated.** On the hosted zone: enable Cloudflare for
+SaaS, create a proxied fallback origin record that reaches **this API** (not the
+web app — the policy is served by the API at the host root), and create the
+proxied CNAME `HOSTED_MTA_STS_CNAME_TARGET` pointing at that fallback origin.
+The existing `HOSTED_DNS_CLOUDFLARE_TOKEN` now also needs
+**Zone → SSL and Certificates → Edit** on that zone, in addition to DNS Edit.
+`HOSTED_MTA_STS_HOSTNAME_LIMIT` (default 100) caps how many custom hostnames
+this deployment will hold, because Cloudflare for SaaS includes 100 and charges
+per hostname after that.
+
+Browser routes:
+
+- `GET /api/workspaces/{id}/domains/{domainId}/hosted-mta-sts` — availability,
+  the two CNAMEs, the policy served, the published id, per-name CNAME state,
+  certificate state, uncovered MX hosts, readiness blockers and the last 20
+  changes.
+- `POST …/hosted-mta-sts` (`dns.hostedMtaSts`) — start hosting. An existing
+  valid policy is imported unchanged; otherwise the policy starts at `testing`
+  with `max_age` 86400 and the domain's current MX hosts. A failed MX lookup
+  refuses rather than guessing.
+- `PUT …/hosted-mta-sts` (`dns.hostedMtaSts`) — publish a new policy. Moving to
+  `enforce` is checked against MX coverage, 14 days of testing, the presence of
+  TLS reports and a failure share of at most 1%; blockers answer 409
+  `POLICY_NOT_READY` unless `override: true`. Moving back to `testing` is always
+  allowed.
+- `POST …/hosted-mta-sts/check` — read both CNAMEs and Cloudflare's status. A
+  failed lookup changes nothing.
+- `POST …/hosted-mta-sts/release` — publish `mode: none` with a new id and keep
+  serving it until the longest previously served `max_age` could have expired.
+
+The policy is served at `GET /.well-known/mta-sts.txt` on the API host root,
+identified by the `Host` header, with `Cache-Control: no-store` and no cookies.
+
+`dns.hostedMtaSts` starts at Harbor. On a downgrade the policy keeps being
+served and refreshed; edits answer 402, and reading, checking and releasing stay
+available. The TXT counts toward `HOSTED_DNS_RECORD_LIMIT`, and the custom
+hostname toward `HOSTED_MTA_STS_HOSTNAME_LIMIT`. Four new audit actions carry
+mode, MX list, `max_age` and the policy id, never a secret. Export includes the
+rows and their changes. `/api/v1` is unchanged.
+
 ## 2026-11-03 — Hosted BIMI
 
 A domain can now have its BIMI record published by DMARC Harbor. The customer

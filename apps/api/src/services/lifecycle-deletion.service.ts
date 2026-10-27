@@ -10,6 +10,10 @@ import {
   hostedBimiSnapshotsForDomainIds,
   removeHostedBimiForDeletion,
 } from './hosted-dns/hosted-bimi.service.js';
+import {
+  hostedMtaStsSnapshotsForDomainIds,
+  removeHostedMtaStsForDeletion,
+} from './hosted-dns/hosted-mta-sts.service.js';
 
 /**
  * lifecycle-deletion.ts — removing a domain, a client, or a whole workspace.
@@ -148,6 +152,7 @@ export async function deleteDomain(
   const hosted = await hostedSnapshotsForDomainIds([domain.id]);
   const spf = await managedSpfSnapshotsForDomainIds([domain.id]);
   const bimi = await hostedBimiSnapshotsForDomainIds([domain.id]);
+  const mtaSts = await hostedMtaStsSnapshotsForDomainIds([domain.id]);
 
   await prisma.$transaction(async (transaction) => {
     await transaction.domain.delete({ where: { id: domain.id } });
@@ -166,6 +171,7 @@ export async function deleteDomain(
   await removeHostedForDeletion(hosted);
   await removeManagedSpfForDeletion(spf);
   await removeHostedBimiForDeletion(bimi);
+  await removeHostedMtaStsForDeletion(mtaSts);
   return { ok: true, name: domain.name, summary };
 }
 
@@ -232,10 +238,11 @@ export async function deleteClient(
 
   const summary = await summariseClient(client.id);
   const domainIds = (await domainIdsFor(client.id)).map((domain) => domain.id);
-  const [hosted, spf, bimi] = await Promise.all([
+  const [hosted, spf, bimi, mtaSts] = await Promise.all([
     hostedSnapshotsForDomainIds(domainIds),
     managedSpfSnapshotsForDomainIds(domainIds),
     hostedBimiSnapshotsForDomainIds(domainIds),
+    hostedMtaStsSnapshotsForDomainIds(domainIds),
   ]);
 
   await prisma.$transaction(async (transaction) => {
@@ -253,6 +260,7 @@ export async function deleteClient(
   await removeHostedForDeletion(hosted);
   await removeManagedSpfForDeletion(spf);
   await removeHostedBimiForDeletion(bimi);
+  await removeHostedMtaStsForDeletion(mtaSts);
 
   // No trust-link revocation here. `trustSlug` is a column on Client, so the
   // delete above already withdrew the Trust Center address with the row. The old
@@ -335,10 +343,11 @@ export async function deleteWorkspace(
   const domainIds = (
     await prisma.domain.findMany({ where: { client: { organizationId } }, select: { id: true } })
   ).map((domain) => domain.id);
-  const [hosted, spf, bimi] = await Promise.all([
+  const [hosted, spf, bimi, mtaSts] = await Promise.all([
     hostedSnapshotsForDomainIds(domainIds),
     managedSpfSnapshotsForDomainIds(domainIds),
     hostedBimiSnapshotsForDomainIds(domainIds),
+    hostedMtaStsSnapshotsForDomainIds(domainIds),
   ]);
 
   await prisma.$transaction(async (transaction) => {
@@ -371,5 +380,6 @@ export async function deleteWorkspace(
   await removeHostedForDeletion(hosted);
   await removeManagedSpfForDeletion(spf);
   await removeHostedBimiForDeletion(bimi);
+  await removeHostedMtaStsForDeletion(mtaSts);
   return { ok: true, name: organization.name, summary };
 }

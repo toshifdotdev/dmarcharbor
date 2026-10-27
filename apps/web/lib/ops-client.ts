@@ -29,6 +29,7 @@ import type {
   ExportJob,
   HostedBimiView,
   HostedDmarcView,
+  HostedMtaStsView,
   IssuedApiKey,
   ManagedSpfOutcomeView,
   ManagedSpfPreview,
@@ -1339,3 +1340,33 @@ export const releaseHostedBimi = (orgId: string, domainId: string, removeNow = f
     method: "POST",
     body: JSON.stringify({ removeNow }),
   });
+
+// ─── hosted MTA-STS ─────────────────────────────────────────────────────────
+
+const mtaStsPath = (orgId: string, domainId: string) =>
+  wsPath(orgId, `/domains/${domainId}/hosted-mta-sts`);
+
+export const startHostedMtaSts = (orgId: string, domainId: string) =>
+  call<HostedMtaStsView>(mtaStsPath(orgId, domainId), { method: "POST" });
+
+export const updateHostedMtaSts = (
+  orgId: string,
+  domainId: string,
+  body: {
+    expectedVersion: number;
+    mode: "testing" | "enforce";
+    mx: string[];
+    maxAge: number;
+    override?: boolean;
+  },
+) =>
+  call<HostedMtaStsView & { action: "updated" | "unchanged" }>(mtaStsPath(orgId, domainId), {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+
+export const checkHostedMtaSts = (orgId: string, domainId: string) =>
+  call<HostedMtaStsView>(`${mtaStsPath(orgId, domainId)}/check`, { method: "POST" });
+
+export const releaseHostedMtaSts = (orgId: string, domainId: string) =>
+  call<HostedMtaStsView>(`${mtaStsPath(orgId, domainId)}/release`, { method: "POST" });

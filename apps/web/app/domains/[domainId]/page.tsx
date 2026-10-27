@@ -15,6 +15,7 @@ import {
   getDomainSwitch,
   getHostedBimi,
   getHostedDmarc,
+  getHostedMtaSts,
   getManagedSpf,
   getMailboxCompliance,
   getPlanCatalog,
@@ -39,6 +40,7 @@ import type {
   DomainSwitchView,
   HostedBimiView,
   HostedDmarcView,
+  HostedMtaStsView,
   ManagedSpfView,
   MailboxComplianceView,
   OnboardingState,
@@ -53,6 +55,7 @@ import { DnsChangesPanel } from "@/components/harbor/dns-changes";
 import { DomainSwitchPanel } from "@/components/harbor/domain-switch";
 import { HostedBimi } from "@/components/harbor/hosted-bimi";
 import { HostedDmarc } from "@/components/harbor/hosted-dmarc";
+import { HostedMtaSts } from "@/components/harbor/hosted-mta-sts";
 import { ManagedSpf } from "@/components/harbor/managed-spf";
 import { MailboxCompliance } from "@/components/harbor/mailbox-compliance";
 import { ScanHistory, toScanHistoryRow } from "@/components/harbor/scan-history";
@@ -162,7 +165,7 @@ export default async function DomainPage({
 
   // A scan history is a different claim from the report evidence, so it fails
   // on its own and renders as a failure, never as an empty history.
-  const [scanHistory, switchState, dnsChanges, serviceMeta, members, me, entitlements, catalog, dnsConnections, mailboxCompliance, hostedDmarc, managedSpf, hostedBimi, tlsSummary, tlsReports] = await Promise.all([
+  const [scanHistory, switchState, dnsChanges, serviceMeta, members, me, entitlements, catalog, dnsConnections, mailboxCompliance, hostedDmarc, managedSpf, hostedBimi, hostedMtaSts, tlsSummary, tlsReports] = await Promise.all([
     listDomainScans(active.id, id).then(
       (page) => ({ rows: page.rows, nextCursor: page.nextCursor, failed: false }),
       () => ({ rows: [] as ScanRow[], nextCursor: null as string | null, failed: true }),
@@ -197,6 +200,10 @@ export default async function DomainPage({
       (data: HostedBimiView) => ({ data, failed: false }),
       () => ({ data: null as HostedBimiView | null, failed: true }),
     ),
+    getHostedMtaSts(active.id, id).then(
+      (data: HostedMtaStsView) => ({ data, failed: false }),
+      () => ({ data: null as HostedMtaStsView | null, failed: true }),
+    ),
     getTlsReportSummary(active.id, id).then(
       (data: TlsReportSummary) => ({ data, failed: false, notInPlan: false }),
       (error: unknown) =>
@@ -220,6 +227,7 @@ export default async function DomainPage({
   const hostedFeature = featureOf(entitlements, "dns.hosted");
   const managedSpfFeature = featureOf(entitlements, "dns.managedSpf");
   const hostedBimiFeature = featureOf(entitlements, "dns.hostedBimi");
+  const hostedMtaStsFeature = featureOf(entitlements, "dns.hostedMtaSts");
   const canEditDomain = role === null || ["owner", "admin", "analyst"].includes(role);
   const latestSpfScan = scanHistory.rows.find((row) => row.result?.spf) ?? null;
   const currentSpf = latestSpfScan?.result?.spf
@@ -466,6 +474,8 @@ export default async function DomainPage({
                       hasManagedSpfFeature={managedSpfFeature}
                       hostedBimi={hostedBimi}
                       hasHostedBimiFeature={hostedBimiFeature}
+                      hostedMtaSts={hostedMtaSts}
+                      hasHostedMtaStsFeature={hostedMtaStsFeature}
                       spfServices={serviceMeta?.spfServices ?? []}
                       currentSpf={currentSpf}
                       canEdit={canEditDomain}
@@ -775,6 +785,8 @@ function SetupPanel({
   hasManagedSpfFeature,
   hostedBimi,
   hasHostedBimiFeature,
+  hostedMtaSts,
+  hasHostedMtaStsFeature,
   spfServices,
   currentSpf,
   canEdit,
@@ -791,6 +803,8 @@ function SetupPanel({
   hasManagedSpfFeature: boolean | null;
   hostedBimi: { data: HostedBimiView | null; failed: boolean };
   hasHostedBimiFeature: boolean | null;
+  hostedMtaSts: { data: HostedMtaStsView | null; failed: boolean };
+  hasHostedMtaStsFeature: boolean | null;
   spfServices: Array<{ id: string; name: string; include: string }>;
   currentSpf: { record: string | null; lookupCount: number | null } | null;
   canEdit: boolean;
@@ -826,6 +840,15 @@ function SetupPanel({
         failed={hostedBimi.failed}
         canEdit={canEdit}
         hasFeature={hasHostedBimiFeature}
+      />
+      <HostedMtaSts
+        organizationId={organizationId}
+        domainId={domainId}
+        domainName={domainName}
+        view={hostedMtaSts.data}
+        failed={hostedMtaSts.failed}
+        canEdit={canEdit}
+        hasFeature={hasHostedMtaStsFeature}
       />
       <div className="grid gap-8 lg:grid-cols-2">
       <div>

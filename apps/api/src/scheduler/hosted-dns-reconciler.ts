@@ -5,6 +5,7 @@ import { hostedDnsProvider } from '../services/hosted-dns/provider.js';
 import { reconcileHostedDns } from '../services/hosted-dns/hosted-dmarc.service.js';
 import { reconcileManagedSpf } from '../services/hosted-dns/managed-spf.service.js';
 import { reconcileHostedBimi } from '../services/hosted-dns/hosted-bimi.service.js';
+import { reconcileHostedMtaSts } from '../services/hosted-dns/hosted-mta-sts.service.js';
 
 let timer: NodeJS.Timeout | undefined;
 let running = false;
@@ -31,11 +32,12 @@ export async function runHostedDnsReconcileOnce(): Promise<void> {
       const dmarc = await reconcileHostedDns();
       const spf = await reconcileManagedSpf();
       const bimi = await reconcileHostedBimi();
-      return { dmarc, spf, bimi };
+      const mtaSts = await reconcileHostedMtaSts();
+      return { dmarc, spf, bimi, mtaSts };
     });
     if (summary !== undefined) {
       recordJobSuccess('hosted-dns-reconcile');
-      const { dmarc, spf, bimi } = summary;
+      const { dmarc, spf, bimi, mtaSts } = summary;
       if (dmarc.synced > 0 || dmarc.removed > 0 || dmarc.failed > 0) {
         console.info(
           `[hosted-dns] synced ${dmarc.synced}, removed ${dmarc.removed}, failed ${dmarc.failed}`,
@@ -49,6 +51,11 @@ export async function runHostedDnsReconcileOnce(): Promise<void> {
       if (bimi.synced > 0 || bimi.removed > 0 || bimi.failed > 0 || bimi.purged > 0) {
         console.info(
           `[hosted-bimi] synced ${bimi.synced}, removed ${bimi.removed}, failed ${bimi.failed}, purged ${bimi.purged}`,
+        );
+      }
+      if (mtaSts.synced > 0 || mtaSts.removed > 0 || mtaSts.failed > 0 || mtaSts.released > 0) {
+        console.info(
+          `[hosted-mta-sts] synced ${mtaSts.synced}, removed ${mtaSts.removed}, failed ${mtaSts.failed}, released ${mtaSts.released}`,
         );
       }
     }

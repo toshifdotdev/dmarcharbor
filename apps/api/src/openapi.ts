@@ -2693,6 +2693,127 @@ export const openApiDocument = {
         },
       },
     },
+    '/workspaces/{organizationId}/domains/{domainId}/hosted-mta-sts': {
+      get: {
+        tags: ['Clients and domains'],
+        summary: 'Read a domain hosted MTA-STS policy',
+        description: [
+          'Returns whether this deployment serves hosted MTA-STS, the two CNAMEs the customer publishes, the policy text we serve, the id published in the TXT, what the last check saw at each name, Cloudflare\'s certificate state, the MX hosts the policy does not cover, the readiness blockers for enforce and the last 20 changes.',
+          'paused is true when the plan no longer grants dns.hostedMtaSts; the policy keeps being served and refreshed. capacity reports used and limit for Cloudflare for SaaS custom hostnames.',
+          'Requires domain read permission.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: {
+          200: { description: 'Availability, the hosted policy if any, and hostname capacity.' },
+          ...standardErrors,
+        },
+      },
+      post: {
+        tags: ['Clients and domains'],
+        summary: 'Start hosting an MTA-STS policy',
+        description: [
+          'Creates the record, the Cloudflare for SaaS custom hostname for mta-sts.<domain> and the TXT at <token>._mta-sts.<zone>. An existing valid policy is imported so starting changes nothing a sender sees; otherwise the policy starts at mode testing, max_age 86400, with the domain\'s current MX hosts.',
+          'Requires a verified domain, domain update permission and dns.hostedMtaSts.',
+          'Answers 503 HOSTED_MTA_STS_UNAVAILABLE when the deployment has no hosted zone or no HOSTED_MTA_STS_CNAME_TARGET, 503 HOSTED_MTA_STS_FULL at the custom-hostname limit, 503 HOSTED_DNS_FULL at the record limit, 503 DNS_LOOKUP_FAILED when the MX lookup fails (nothing is created), 409 DOMAIN_NOT_VERIFIED or ALREADY_HOSTED, and 502 HOSTED_MTA_STS_PROVIDER_FAILED when Cloudflare refuses, with its message.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: {
+          ...standardErrors,
+          201: { description: 'Hosting started; the two CNAMEs and the policy served.' },
+          402: { description: 'The plan does not include hosted MTA-STS.' },
+          409: { description: 'DOMAIN_NOT_VERIFIED or ALREADY_HOSTED.' },
+          502: { description: 'Cloudflare refused the custom hostname or the TXT; nothing was kept.' },
+          503: { description: 'Hosting is unavailable, full, or DNS could not be read.' },
+        },
+      },
+      put: {
+        tags: ['Clients and domains'],
+        summary: 'Change the hosted MTA-STS policy',
+        description: [
+          'Publishes a new policy with a new id, so senders re-fetch. mx takes 1 to 10 exact hostnames or wildcards; max_age is 86400 to 31557600 seconds and at least 604800 when the mode is enforce.',
+          'Moving to enforce runs the readiness checks: every current MX host covered, at least 14 days in testing, a TLS report in the last 14 days, and a failure share at or below 1%. Blockers answer 409 POLICY_NOT_READY unless override is true, which publishes anyway and records the override. Moving back to testing is always allowed.',
+          'expectedVersion must be the version that was read; a mismatch answers 409 VERSION_CHANGED with the current view. A TXT write failure rolls the policy back and answers 502. Requires domain update permission and dns.hostedMtaSts.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['expectedVersion', 'mode', 'mx', 'maxAge'],
+                properties: {
+                  expectedVersion: { type: 'integer', minimum: 1 },
+                  mode: { type: 'string', enum: ['testing', 'enforce'] },
+                  mx: {
+                    type: 'array',
+                    minItems: 1,
+                    maxItems: 10,
+                    items: { type: 'string', maxLength: 253 },
+                  },
+                  maxAge: { type: 'integer', minimum: 86400, maximum: 31557600 },
+                  override: { type: 'boolean' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          ...standardErrors,
+          200: { description: 'The updated view, or { action: "unchanged" }.' },
+          400: { description: 'INVALID_POLICY or INVALID_REQUEST.' },
+          402: { description: 'The plan does not include hosted MTA-STS.' },
+          409: { description: 'VERSION_CHANGED, POLICY_NOT_READY with blockers, or HOSTED_MTA_STS_RELEASING.' },
+          502: { description: 'The DNS provider refused; the policy was rolled back.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/domains/{domainId}/hosted-mta-sts/check': {
+      post: {
+        tags: ['Clients and domains'],
+        summary: 'Check the hosted MTA-STS delegation now',
+        description: [
+          'Reads both CNAMEs and Cloudflare\'s custom hostname status. A PENDING row becomes ACTIVE when both names point here and both the hostname and the certificate are active. A lookup or Cloudflare read that fails changes nothing, so a resolver blip can never release a policy senders still apply.',
+          'A RELEASING row completes early when its serve window has passed, or when the customer publishes their own valid policy at _mta-sts and mta-sts. Also records the MX hosts the policy does not cover and raises a critical DNS change for them while enforcing.',
+          'Requires domain read permission.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: { 200: { description: 'The updated view.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/domains/{domainId}/hosted-mta-sts/release': {
+      post: {
+        tags: ['Clients and domains'],
+        summary: 'Stop hosting an MTA-STS policy',
+        description: [
+          'Publishes mode: none with max_age 86400 and a new id, and keeps serving it until every previously served policy could have expired: the largest max_age served in the last 365 days plus one day. The view carries that date.',
+          'A PENDING row releases immediately, because nothing was ever published for a sender to cache. Allowed on every plan, so a downgraded workspace can always leave. Requires domain update permission.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: {
+          200: { description: 'The updated view, with releaseServeUntil when releasing.' },
+          402: { description: 'The plan does not include hosted MTA-STS.' },
+          502: { description: 'The DNS provider refused the change.' },
+          ...standardErrors,
+        },
+      },
+    },
+    '/.well-known/mta-sts.txt': {
+      get: {
+        tags: ['Public'],
+        summary: 'Fetch a hosted MTA-STS policy',
+        description: [
+          'The policy a customer\'s mta-sts.<domain> resolves to, served at the host root. The domain comes from the Host header, which must be exactly mta-sts.<domain> for a hosted record; nothing is read from the path.',
+          'The body is version, mode, one mx line per pattern and max_age, with CRLF line endings. An unknown host, a released record, a pending record whose certificate is not active and a releasing record past its serve window all answer the same plain-text 404. No session is read, no cookie is set, no redirect is ever issued, and Cache-Control is no-store because RFC 8461 §3.3 forbids HTTP caching of the policy.',
+          'Rate limited per client address to 600 requests a minute.',
+        ].join(' '),
+        responses: {
+          200: { description: 'The policy as text/plain; charset=utf-8.' },
+          404: { description: 'Not found.' },
+          429: { description: 'Rate limit exceeded.' },
+        },
+      },
+    },
     '/workspaces/{organizationId}/domains/{domainId}/tls-reports': {
       get: {
         tags: ['Reports'],

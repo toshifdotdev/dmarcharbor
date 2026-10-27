@@ -45,6 +45,22 @@ export interface CloudflareZone {
   accountName: string | null;
 }
 
+/**
+ * A Cloudflare for SaaS custom hostname.
+ *
+ * `status` is the hostname's own state and `sslStatus` the certificate's; a
+ * hostname is only ready when both are `active`, which is why both are stored
+ * separately rather than collapsed into one boolean.
+ */
+export interface CloudflareCustomHostname {
+  id: string;
+  hostname: string;
+  status: string | null;
+  sslStatus: string | null;
+  /** Cloudflare's own words when validation failed, for the operator to read. */
+  sslError: string | null;
+}
+
 export interface CloudflareClient {
   verifyToken(): Promise<{ status: string }>;
   findZone(domainName: string): Promise<CloudflareZone>;
@@ -66,6 +82,10 @@ export interface CloudflareClient {
     content: string,
   ): Promise<CloudflareTxtRecord>;
   deleteTxtRecord(zoneId: string, recordId: string): Promise<void>;
+  /** Cloudflare for SaaS. Needs Zone → SSL and Certificates → Edit. */
+  createCustomHostname(zoneId: string, hostname: string): Promise<CloudflareCustomHostname>;
+  getCustomHostname(zoneId: string, id: string): Promise<CloudflareCustomHostname>;
+  deleteCustomHostname(zoneId: string, id: string): Promise<void>;
 }
 
 interface CloudflareEnvelope<T> {
@@ -90,6 +110,16 @@ interface RawZone {
   account?: { name?: unknown };
 }
 
+interface RawCustomHostname {
+  id?: unknown;
+  hostname?: unknown;
+  status?: unknown;
+  ssl?: {
+    status?: unknown;
+    validation_errors?: Array<{ message?: unknown }>;
+  };
+}
+
 function stringValue(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
 }
@@ -111,6 +141,31 @@ function toTxtRecord(value: RawTxtRecord): CloudflareTxtRecord | null {
     content,
     ttl: numberValue(value.ttl) ?? 1,
     comment: stringValue(value.comment),
+  };
+}
+
+/**
+ * A custom hostname, from whichever shape Cloudflare returned.
+ *
+ * The create response may carry no validation details at all — HTTP validation
+ * needs nothing from the customer beyond the CNAME — so both statuses are
+ * allowed to be absent and the caller treats "not active" as not ready.
+ */
+function toCustomHostname(value: RawCustomHostname): CloudflareCustomHostname | null {
+  const id = stringValue(value.id);
+  const hostname = stringValue(value.hostname);
+  if (!id || !hostname) {
+    return null;
+  }
+  const errors = (value.ssl?.validation_errors ?? [])
+    .map((error) => stringValue(error.message))
+    .filter((message): message is string => Boolean(message));
+  return {
+    id,
+    hostname,
+    status: stringValue(value.status),
+    sslStatus: stringValue(value.ssl?.status),
+    sslError: errors.length > 0 ? errors.join(' ').slice(0, 500) : null,
   };
 }
 
@@ -191,6 +246,23 @@ export function zoneCandidates(domainName: string): string[] {
   return candidates;
 }
 
+/**
+ * Custom hostnames need a different permission from DNS records, and the
+ * generic refusal names only the DNS one. An operator who reads "Zone → DNS →
+ * Edit" and already has it has no way to know what is missing, so this path
+ * names the permission Cloudflare actually checks.
+ */
+function customHostnameFailure(error: unknown): never {
+  if (error instanceof DnsAutomationError && error.code === 'MISSING_PERMISSION') {
+    throw new DnsAutomationError(
+      'The Cloudflare token cannot manage custom hostnames. It needs Zone → SSL and Certificates → Edit on the hosted zone, as well as Zone → DNS → Edit.',
+      'MISSING_PERMISSION',
+      403,
+    );
+  }
+  throw error;
+}
+
 let defaultFetch: typeof fetch = fetch;
 
 /**
@@ -207,8 +279,7 @@ export function setCloudflareFetchForTests(impl: typeof fetch | null): void {
 export function createCloudflareClient(input: {
   token: string;
   fetchImpl?: typeof fetch;
-}): CloudflareClient {
-  const fetchImpl = input.fetchImpl ?? defaultFetch;
+}): CloudflareClient {  const fetchImpl = input.fetchImpl ?? defaultFetch;
   const token = input.token.trim();
 
   async function requestEnvelope<T>(path: string, init: RequestInit = {}): Promise<CloudflareEnvelope<T>> {
@@ -370,6 +441,66 @@ export function createCloudflareClient(input: {
         `/zones/${encodeURIComponent(zoneId)}/dns_records/${encodeURIComponent(recordId)}`,
         { method: 'DELETE' },
       );
+    },
+
+    async createCustomHostname(zoneId, hostname) {
+      try {
+        const result = await request<RawCustomHostname>(
+          `/zones/${encodeURIComponent(zoneId)}/custom_hostnames`,
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              hostname,
+              // HTTP validation: Cloudflare serves the challenge token itself
+              // once the customer's CNAME resolves here, so the customer never
+              // has to publish a second record.
+              ssl: { method: 'http', type: 'dv' },
+            }),
+          },
+        );
+        const created = result ? toCustomHostname(result) : null;
+        if (!created) {
+          throw new DnsAutomationError(
+            'Cloudflare accepted the custom hostname but did not return it. Check the zone before starting again.',
+            'PROVIDER_UNAVAILABLE',
+            502,
+          );
+        }
+        return created;
+      } catch (error) {
+        customHostnameFailure(error);
+      }
+    },
+
+    async getCustomHostname(zoneId, id) {
+      try {
+        const result = await request<RawCustomHostname>(
+          `/zones/${encodeURIComponent(zoneId)}/custom_hostnames/${encodeURIComponent(id)}`,
+          { method: 'GET' },
+        );
+        const found = result ? toCustomHostname(result) : null;
+        if (!found) {
+          throw new DnsAutomationError(
+            'Cloudflare did not return that custom hostname.',
+            'PROVIDER_ERROR',
+            502,
+          );
+        }
+        return found;
+      } catch (error) {
+        customHostnameFailure(error);
+      }
+    },
+
+    async deleteCustomHostname(zoneId, id) {
+      try {
+        await request<unknown>(
+          `/zones/${encodeURIComponent(zoneId)}/custom_hostnames/${encodeURIComponent(id)}`,
+          { method: 'DELETE' },
+        );
+      } catch (error) {
+        customHostnameFailure(error);
+      }
     },
   };
 }

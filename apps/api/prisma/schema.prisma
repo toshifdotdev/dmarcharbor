@@ -227,6 +227,7 @@ model Organization {
   hostedDmarcRecords    HostedDmarcRecord[]
   hostedSpfRecords      HostedSpfRecord[]
   hostedBimiRecords     HostedBimiRecord[]
+  hostedMtaStsRecords   HostedMtaStsRecord[]
 
   @@unique([slug])
   /// Reads the document version rather than the column being null, so the sweep
@@ -394,6 +395,7 @@ model Domain {
   hostedDmarc            HostedDmarcRecord?
   hostedSpf              HostedSpfRecord?
   hostedBimi             HostedBimiRecord?
+  hostedMtaSts           HostedMtaStsRecord?
   tlsReports             TlsReport[]
 
   /// The per client constraint is gone. Global uniqueness on `name` above
@@ -1697,6 +1699,101 @@ model HostedBimiChange {
   @@map("hosted_bimi_change")
 }
 
+enum HostedMtaStsStatus {
+  PENDING
+  ACTIVE
+  RELEASING
+  RELEASED
+}
+
+enum HostedMtaStsMode {
+  testing
+  enforce
+  none
+}
+
+/// One domain whose MTA-STS policy this service serves.
+///
+/// The customer publishes two CNAMEs once: `mta-sts.<domain>` at the shared
+/// Cloudflare for SaaS target, and `_mta-sts.<domain>` at the token name. The
+/// certificate is issued by Cloudflare for that custom hostname, so no
+/// certificate file is ever handled here.
+model HostedMtaStsRecord {
+  id                  String            @id @default(cuid())
+  organizationId      String
+  organization        Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  domainId            String            @unique
+  domain              Domain            @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  token               String            @unique
+  status              HostedMtaStsStatus @default(PENDING)
+  mode                HostedMtaStsMode   @default(testing)
+  /// The policy's mx patterns: exact hostnames, or `*.` plus a hostname.
+  mx                  String[]
+  /// Seconds, 86400 to 31557600.
+  maxAge              Int               @default(86400)
+  /// The id published in `v=STSv1; id=`. Changes on every policy change.
+  policyId            String
+  /// Incremented on every policy change; a change must name the version it read.
+  version             Int               @default(1)
+  /// Cloudflare's custom hostname, and the last statuses it reported.
+  customHostnameId    String?
+  hostnameStatus      String?
+  sslStatus           String?
+  /// Cloudflare's own reason when validation failed, shown verbatim.
+  sslError            String?
+  txtRecordId         String?
+  /// Both CNAMEs point at us.
+  delegated           Boolean           @default(false)
+  /// What the last check saw at each name: found | missing | elsewhere.
+  mtaCnameState       String?
+  txtCnameState       String?
+  delegationCheckedAt DateTime?
+  lastSyncedAt        DateTime?
+  lastSyncError       String?
+  /// The MX hosts the policy does not cover, recorded by the last scan.
+  uncoveredMx         String[]          @default([])
+  uncoveredCheckedAt  DateTime?
+  enforcedAt          DateTime?
+  releaseRequestedAt  DateTime?
+  /// While set, we keep serving a `none` policy so cached policies expire.
+  releaseServeUntil   DateTime?
+  releasedAt          DateTime?
+  /// What the customer published before we started, for a hand-back.
+  previousTxt         String?
+  previousPolicy      String?
+  createdById         String?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  changes             HostedMtaStsChange[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@map("hosted_mta_sts_record")
+}
+
+model HostedMtaStsChange {
+  id                String             @id @default(cuid())
+  recordId          String
+  record            HostedMtaStsRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  organizationId    String
+  /// 'created' | 'policy' | 'released'
+  reason            String
+  previousMode      String?
+  newMode           String
+  previousMx        String[]
+  newMx             String[]
+  previousMaxAge    Int?
+  newMaxAge         Int
+  previousPolicyId  String?
+  newPolicyId       String
+  readinessOverride Boolean            @default(false)
+  actorUserId       String?
+  createdAt         DateTime           @default(now())
+
+  @@index([recordId, createdAt])
+  @@map("hosted_mta_sts_change")
+}
+
 /// A signed compliance pack issued for one client.
 ///
 /// The PDF is not stored. Its SHA-256 is, because the hash is the claim and the
@@ -2166,6 +2263,10 @@ enum AuditAction {
   HOSTED_BIMI_CERTIFICATE_UPDATED
   HOSTED_BIMI_CERTIFICATE_REMOVED
   HOSTED_BIMI_RELEASED
+  HOSTED_MTA_STS_CREATED
+  HOSTED_MTA_STS_UPDATED
+  HOSTED_MTA_STS_RELEASE_REQUESTED
+  HOSTED_MTA_STS_RELEASED
 }
 
 enum AuditOutcome {

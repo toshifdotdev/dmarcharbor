@@ -28,6 +28,7 @@ const FEATURES: Array<[key: string, label: string]> = [
   ["dns.hosted", "Hosted DMARC record"],
   ["dns.managedSpf", "Managed SPF"],
   ["dns.hostedBimi", "Logo in the inbox (BIMI)"],
+  ["dns.hostedMtaSts", "Hosted MTA-STS policy"],
   ["reports.forensic", "Forensic reports, recipients unnamed"],
   ["sharing.links", "Report share links"],
   ["reports.forensicNamed", "Named forensic evidence"],

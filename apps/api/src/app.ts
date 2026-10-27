@@ -24,6 +24,8 @@ import { hostedDmarcRouter } from './routes/hosted-dmarc.routes.js';
 import { managedSpfRouter } from './routes/managed-spf.routes.js';
 import { hostedBimiRouter } from './routes/hosted-bimi.routes.js';
 import { hostedBimiPublicRouter } from './routes/hosted-bimi-public.routes.js';
+import { hostedMtaStsRouter } from './routes/hosted-mta-sts.routes.js';
+import { hostedMtaStsPublicRouter } from './routes/hosted-mta-sts-public.routes.js';
 import { dpaRouter, wellKnownRouter } from './routes/dpa.routes.js';
 import { ssoRouter } from './routes/sso.routes.js';
 import { billingRouter } from './routes/billing.routes.js';
@@ -245,6 +247,7 @@ export function createApp(): express.Express {
   app.use('/api', hostedDmarcRouter);
   app.use('/api', managedSpfRouter);
   app.use('/api', hostedBimiRouter);
+  app.use('/api', hostedMtaStsRouter);
 
   // Deliberately not through the guard above: this is the route that records the
   // acceptance, and it has to stay reachable for someone stuck on the old one.
@@ -261,6 +264,14 @@ app.use(wellKnownRouter);
    * can shadow it. The route reads no session and sets no cookie.
    */
   app.use(hostedBimiPublicRouter);
+  /**
+   * The MTA-STS policy, at the path RFC 8461 §3.3 fixes.
+   *
+   * Also at the host root, for the same reason: the URL is written into a
+   * customer's DNS. The domain is taken from the Host header, so the route can
+   * only answer for a hostname that already points at us.
+   */
+  app.use(hostedMtaStsPublicRouter);
   app.use('/api', ssoRouter);
   app.use(portalErrorHandler);
   app.use('/api/v1', apiV1Router);

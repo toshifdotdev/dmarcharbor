@@ -61,7 +61,16 @@ export interface ParsedMtaStsPolicy {
   text: string;
 }
 
-const hostnamePattern = /^(?:\*\.)?[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/;
+/**
+ * The hostname rule MTA-STS mx patterns must satisfy.
+ *
+ * Exported so the hosted policy editor accepts exactly what this parser will
+ * accept: a validator that is stricter or looser than the reader would either
+ * refuse a policy a sender accepts, or accept one it silently drops.
+ */
+export const mtaStsHostnamePattern =
+  /^(?:\*\.)?[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/;
+const hostnamePattern = mtaStsHostnamePattern;
 
 export function parseMtaStsPolicy(text: string, contentType: string | null = 'text/plain'): ParsedMtaStsPolicy {
   const mediaType = (contentType ?? '').split(';')[0]?.trim().toLowerCase() ?? '';

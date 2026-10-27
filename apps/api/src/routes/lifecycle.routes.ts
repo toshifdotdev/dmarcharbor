@@ -87,7 +87,7 @@ lifecycleRouter.get(
   async (request: Request, response: Response) => {
     const organizationIdValue = organizationId(request);
     const clientId = typeof request.query.clientId === 'string' ? request.query.clientId : null;
-    const [summary, hosted, spf, bimi] = await Promise.all([
+    const [summary, hosted, spf, bimi, mtaSts] = await Promise.all([
       summariseWorkspace(organizationIdValue),
       prisma.hostedDmarcRecord.findMany({
         where: {
@@ -114,6 +114,15 @@ lifecycleRouter.get(
           ...(clientId ? { domain: { clientId } } : {}),
         },
         select: { status: true, domain: { select: { name: true } } },
+        orderBy: { domain: { name: 'asc' } },
+      }),
+      prisma.hostedMtaStsRecord.findMany({
+        where: {
+          organizationId: organizationIdValue,
+          status: { not: 'RELEASED' },
+          ...(clientId ? { domain: { clientId } } : {}),
+        },
+        select: { status: true, mode: true, maxAge: true, domain: { select: { name: true } } },
         orderBy: { domain: { name: 'asc' } },
       }),
     ]);
@@ -145,6 +154,23 @@ lifecycleRouter.get(
         domain: row.domain.name,
         status: row.status,
         note: 'The logo stops showing beside this domain’s mail. Delivery is unaffected, and the DMARC record is separate.',
+      })),
+      /**
+       * MTA-STS is the one record whose removal can outlive the deletion: a
+       * sender that cached an enforcing policy keeps applying it until its
+       * max_age expires, and then refuses mail to MX hosts the policy does not
+       * cover. The note names the actual number rather than a vague warning.
+       */
+      hostedMtaSts: mtaSts.map((row) => ({
+        domain: row.domain.name,
+        status: row.status,
+        mode: row.mode,
+        maxAge: row.maxAge,
+        note:
+          'MTA-STS stops being served. ' +
+          (row.mode === 'enforce'
+            ? `Senders that cached this enforcing policy keep applying it for up to ${row.maxAge} seconds; switch it to testing first if you are moving.`
+            : 'The policy is not enforcing, so senders apply nothing beyond what they already fetched.'),
       })),
     });
   },

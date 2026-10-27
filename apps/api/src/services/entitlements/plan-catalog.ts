@@ -28,7 +28,8 @@ export type EntitlementKey =
   | 'dns.automation'
   | 'dns.hosted'
   | 'dns.managedSpf'
-  | 'dns.hostedBimi';
+  | 'dns.hostedBimi'
+  | 'dns.hostedMtaSts';
 
 export type QuotaKey = 'client' | 'activeDomain' | 'member';
 
@@ -64,6 +65,7 @@ export const entitlementLabels: Record<EntitlementKey, string> = {
   'dns.hosted': 'Hosted DMARC record',
   'dns.managedSpf': 'Managed SPF',
   'dns.hostedBimi': 'Logo in the inbox (BIMI)',
+  'dns.hostedMtaSts': 'Hosted MTA-STS policy',
 };
 
 /**
@@ -161,6 +163,7 @@ const allFeatures = (overrides: Partial<Record<EntitlementKey, boolean>> = {}): 
   'dns.hosted': true,
   'dns.managedSpf': true,
   'dns.hostedBimi': true,
+  'dns.hostedMtaSts': true,
   ...overrides,
 });
 
@@ -299,6 +302,16 @@ const noManagedSpf = { 'dns.managedSpf': false } as const;
  */
 const noHostedBimi = { 'dns.hostedBimi': false } as const;
 
+/**
+ * Hosted MTA-STS starts at Harbor with the other hosted records.
+ *
+ * It costs a Cloudflare for SaaS custom hostname and a certificate per domain,
+ * which is the most expensive thing in the group to hold. On a downgrade the
+ * policy keeps being served and keeps being refreshed; only edits pause, because
+ * a policy that vanished would make senders that cached enforce refuse delivery.
+ */
+const noHostedMtaSts = { 'dns.hostedMtaSts': false } as const;
+
 /** TLS-RPT viewing starts at Fairway; collection happens on every plan. */
 const noTlsRpt = { 'reports.tlsrpt': false } as const;
 
@@ -325,7 +338,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
       maxMembers: 1,
       maxWorkspaces: 1,
     activeDomainWindowDays: 30,
-    features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noIntegrations, ...noDnsAutomation, ...noDnsHosted, ...noManagedSpf, ...noHostedBimi, ...noTlsRpt, ...off }),
+    features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noIntegrations, ...noDnsAutomation, ...noDnsHosted, ...noManagedSpf, ...noHostedBimi, ...noHostedMtaSts, ...noTlsRpt, ...off }),
   },
   FAIRWAY: {
     tier: 'FAIRWAY',
@@ -340,7 +353,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
       maxMembers: 3,
       maxWorkspaces: 2,
     activeDomainWindowDays: 365,
-    features: allFeatures({ ...noNamedForensic, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noDigests, ...noManagedSpf, ...noHostedBimi }),
+    features: allFeatures({ ...noNamedForensic, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noDigests, ...noManagedSpf, ...noHostedBimi, ...noHostedMtaSts }),
   },
   HARBOR: {
     tier: 'HARBOR',

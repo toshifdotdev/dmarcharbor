@@ -130,6 +130,10 @@ const ACTION_SENTENCES: Record<AuditAction, string> = {
   HOSTED_BIMI_CERTIFICATE_UPDATED: "BIMI certificate uploaded",
   HOSTED_BIMI_CERTIFICATE_REMOVED: "BIMI certificate removed",
   HOSTED_BIMI_RELEASED: "Hosted BIMI record released",
+  HOSTED_MTA_STS_CREATED: "Hosted MTA-STS policy created",
+  HOSTED_MTA_STS_UPDATED: "Hosted MTA-STS policy changed",
+  HOSTED_MTA_STS_RELEASE_REQUESTED: "Hosted MTA-STS release requested",
+  HOSTED_MTA_STS_RELEASED: "Hosted MTA-STS policy released",
 };
 
 /**
