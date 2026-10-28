@@ -44,20 +44,22 @@ export const entitlementLabels: Record<EntitlementKey, string> = {
   'reports.aggregate': 'Aggregate DMARC reporting',
   'reports.forensic': 'Forensic reporting',
   'reports.forensicNamed': 'Named forensic evidence',
-  'alerts.email': 'Email alerts',
+  // One key gates every alert channel (email, Slack, Teams) and the DNS-change
+  // and domain-expiry warnings, so the label names what it unlocks.
+  'alerts.email': 'Alerts by email, Slack and Teams',
   'alerts.spoofing': 'Spoofing alerts',
   'rollout.canary': 'Staged policy rollout',
   'sharing.links': 'Report share links',
   digests: 'Scheduled report digests',
   'audit.trail': 'The audit trail',
-  'portal.client': 'The client portal',
+  'portal.client': 'The client portal and client approvals',
   'branding.whitelabel': 'White label',
   'api.access': 'API access',
   'auth.sso': 'Single sign-on',
   'data.export': 'Data export',
   'data.erase': 'Data erasure',
   'trust.center': 'The Trust Center',
-  'reports.compliancePack': 'The compliance pack',
+  'reports.compliancePack': 'The compliance pack and monthly client reports',
   'reports.inbox': 'Report collection from your own mailbox',
   'reports.tlsrpt': 'TLS reports',
   'branding.logoUpload': 'Logo upload',
@@ -379,7 +381,10 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
   FAIRWAY: {
     tier: 'FAIRWAY',
     label: 'Fairway',
-    descriptor: 'Quarantine without rejection. Run a small client book.',
+    // Every plan can publish any policy, reject included; plans differ in what is
+    // around the policy. This said "Quarantine without rejection", which nothing
+    // enforced and no customer could have relied on.
+    descriptor: 'Alerts, forensic evidence and hosted DMARC for a small client book.',
     prices: { USD: { monthlyMinor: 2900, annualMinor: 29000 }, INR: { monthlyMinor: 249900, annualMinor: 2499000 } },
     pricing: 'flat',
     intervals: ['monthly', 'annual'],
@@ -395,7 +400,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
   HARBOR: {
     tier: 'HARBOR',
     label: 'Harbor',
-    descriptor: 'Full enforcement with named forensic evidence, client portal and API.',
+    descriptor: 'Client portal and approvals, named forensic evidence, API and PSA for a full client book.',
     prices: { USD: { monthlyMinor: 14900, annualMinor: 149000 }, INR: { monthlyMinor: 1249900, annualMinor: 12499000 } },
     pricing: 'flat',
     intervals: ['monthly', 'annual'],

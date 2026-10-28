@@ -51,7 +51,7 @@ export function softwareApplicationJsonLd(origin: string): Record<string, unknow
     applicationSubCategory: "Email authentication monitoring",
     operatingSystem: "Web",
     description:
-      "Per-domain DMARC posture from real report data, compliance packs with a published SHA-256 fingerprint, and a client portal in your own brand. It measures and proves; it never edits anyone's DNS.",
+      "Per-domain DMARC posture from real report data, compliance packs with a published SHA-256 fingerprint, and a client portal in your own brand. It measures and proves, and changes DNS only when you ask.",
     offers: {
       "@type": "Offer",
       price: "0",

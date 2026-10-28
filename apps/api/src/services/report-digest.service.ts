@@ -4,6 +4,7 @@ import { canCollectAggregateReports, hasAggregateReporting, readDmarcRecord } fr
 import { getDomainInsights } from './report-intelligence.service.js';
 import { assessPolicyReadiness } from './onboarding.service.js';
 import { domainRef } from './domain-ref.js';
+import { resolveEntitlements } from './entitlements/entitlement.service.js';
 import { resolveLimit } from '../utils/pagination.js';
 
 const maximumRecipients = 20;
@@ -337,8 +338,29 @@ export async function runReportDigests(
   });
 
   const results: DigestRunResult[] = [];
+  // Read once per workspace per pass. A workspace whose plan cannot be read is
+  // skipped this pass rather than sent to.
+  const entitled = new Map<string, Promise<boolean>>();
+  const hasDigests = (organizationId: string): Promise<boolean> => {
+    let answer = entitled.get(organizationId);
+    if (!answer) {
+      answer = resolveEntitlements(organizationId).then(
+        (entitlements) => entitlements.features.digests === true,
+        () => false,
+      );
+      entitled.set(organizationId, answer);
+    }
+    return answer;
+  };
 
   for (const digest of digests) {
+    // The catalog's promise for a downgrade: the digest rows are kept and simply
+    // stop being sent. Only creation used to be gated, so they kept going out.
+    if (!(await hasDigests(digest.organizationId))) {
+      results.push({ digestId: digest.id, sent: false, recipients: 0 });
+      continue;
+    }
+
     if (!isDigestDue(digest, now)) {
       results.push({ digestId: digest.id, sent: false, recipients: 0 });
       continue;

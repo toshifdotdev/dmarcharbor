@@ -5,6 +5,7 @@ import { app } from '../src/index.js';
 import { completeSamlSignIn, samlEntryPoint } from '../src/services/sso/sso-flow.service.js';
 import { SsoError, createSsoConnection } from '../src/services/sso/sso.service.js';
 import { completeSignIn } from '../src/services/sso/sso-flow.service.js';
+import { grantPlan } from './helpers/plan.js';
 
 /**
  * Data protection and sign-in integrity.
@@ -281,6 +282,9 @@ describe('SSO just in time provisioning', () => {
 
   async function jitConnection(label: string, provisioning: 'JIT' | 'DISABLED' = 'JIT') {
     const owner = await agency(label);
+    // SSO is an Admiralty feature, and provisioning a second person needs a
+    // seat. The free plan has one, which the owner already occupies.
+    await grantPlan(owner.organizationId, 'ADMIRALTY');
     const connection = await createSsoConnection({
       organizationId: owner.organizationId,
       label: 'Okta',

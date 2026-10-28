@@ -70,13 +70,21 @@ export const subProcessors: { name: string; purpose: string; data: string }[] = 
     data: 'Recipient email addresses',
   },
   {
+    // Reports pass through its email routing on the way in, and the records an
+    // agency delegates to us (hosted DMARC, SPF, BIMI, MTA-STS) are served from
+    // a zone it hosts. It was missing here while both depended on it.
+    name: 'Cloudflare',
+    purpose: 'Inbound report routing, and serving the DNS records and MTA-STS policies a workspace delegates to us',
+    data: 'Report messages in transit; public DNS values and policy files',
+  },
+  {
     name: 'Razorpay',
     purpose: 'Subscription billing in Indian rupees',
     data: 'Workspace name, billing contact, transaction reference',
   },
   {
     name: 'Paddle',
-    purpose: 'Subscription billing in other currencies, once enabled',
+    purpose: 'Subscription billing in US dollars, as merchant of record',
     data: 'Workspace name, billing contact, transaction reference',
   },
   {

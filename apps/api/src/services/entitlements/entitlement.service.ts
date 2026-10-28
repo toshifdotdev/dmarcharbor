@@ -279,6 +279,39 @@ export async function quotaUsage(
   return { used: await client.client.count({ where: { organizationId: { in: scope } } }), limit: definition.maxClients };
 }
 
+/**
+ * Room for one more person on a workspace's team: members plus invitations that
+ * are still open, against the plan's member limit.
+ *
+ * The limit was published on every plan and checked only on a downgrade, so a
+ * free workspace could invite a hundred people. Open invitations count, because
+ * each one becomes a member the moment it is accepted, and counting only members
+ * would let a workspace send twenty invitations against a three-person plan.
+ */
+export async function memberAllowance(
+  organizationId: string,
+  now = new Date(),
+): Promise<{ limit: number; members: number; pending: number; plan: PlanTier; planLabel: string }> {
+  const entitlements = await resolveEntitlements(organizationId, now);
+  const [members, pending] = await Promise.all([
+    prisma.member.count({ where: { organizationId } }),
+    prisma.invitation.count({ where: { organizationId, status: 'pending', expiresAt: { gt: now } } }),
+  ]);
+  return { limit: entitlements.maxMembers, members, pending, plan: entitlements.plan, planLabel: entitlements.label };
+}
+
+/** The sentence a refused invitation or sign-in shows. */
+export function memberLimitMessage(allowance: { limit: number; members: number; pending: number; plan: PlanTier; planLabel: string }): string {
+  const upgradeTo = nextTier(allowance.plan);
+  const waiting = allowance.pending > 0 ? ` and ${allowance.pending} open invitation${allowance.pending === 1 ? '' : 's'}` : '';
+  return (
+    `${allowance.planLabel} includes ${allowance.limit} team member${allowance.limit === 1 ? '' : 's'} and this workspace has ${allowance.members}${waiting}. ` +
+    (upgradeTo
+      ? `Remove someone or cancel an invitation, or upgrade to ${planCatalog[upgradeTo].label} for ${planCatalog[upgradeTo].maxMembers}.`
+      : 'Remove someone or cancel an invitation, or contact us to add more.')
+  );
+}
+
 /** The first rung of the ladder that grants a feature, or null when none does. */
 export function requiredPlanFor(feature: EntitlementKey): PlanTier | null {
   // Ladder order, not price order. A per-domain unit price is not a rung and

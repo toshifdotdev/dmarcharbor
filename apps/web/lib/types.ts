@@ -1412,6 +1412,8 @@ export interface PlanDefinition {
    * limits so the number a customer is buying is the number they can see.
    */
   maxWorkspaces: number;
+  /** Prospect risk reports a workspace may create per calendar month. 0 where the feature is off. */
+  maxProspectReportsPerMonth?: number;
   /** How long a domain keeps counting toward the active-domain limit after
    *  its last report. A quota rule, not a retention period: never show it as one. */
   activeDomainWindowDays: number;

@@ -33,6 +33,25 @@ export async function generateMetadata(): Promise<Metadata> {
 
 const CURRENCIES = ["INR", "USD"] as const;
 
+/**
+ * What every plan does that has no entitlement key, so the catalog cannot list
+ * it. Each is a route with no plan gate in apps/api: DNS scans and the change
+ * history (domain-scan.routes), the mailbox-provider checks
+ * (mailbox-compliance.routes), the registration expiry date
+ * (domain-registration.routes), sender review (onboarding.routes,
+ * senders/review), the switch kit (switch.routes) and two-step verification
+ * (mfa.routes). Warnings about DNS changes and expiry are alerts, and are not
+ * claimed here.
+ */
+const UNGATED_CAPABILITIES = [
+  "DNS monitoring and change history",
+  "Gmail, Yahoo and Microsoft sender requirement checks",
+  "Domain registration expiry dates",
+  "Sender review: mark each source as yours or not",
+  "Switch kit for moving from another DMARC service",
+  "Two-step verification",
+];
+
 /** The currencies a checkout can complete on this deployment: provider
  *  readiness from GET /api/capabilities, never inferred from the catalog. */
 function chargeableCurrencies(caps: DeploymentCapabilities | null): PricingCurrency[] {
@@ -185,12 +204,19 @@ export default async function PricingPage({
                       never sells them as an upgrade.
                     </p>
                   ) : null}
+                  <p className="mt-2 max-w-[56ch] text-body text-fg-2">
+                    Every plan also watches each domain&rsquo;s DNS and runs the checks listed here. Retention is the same
+                    on every plan, so a downgrade never deletes history.
+                  </p>
                 </div>
-                <ul className="flex flex-col gap-2 self-center text-ui text-fg">
-                  {[...baseline, ...(rightsOnEveryPlan ? ["data.export", "data.erase"] : [])].map((k) => (
-                    <li key={k} className="flex items-baseline gap-2 border-b border-rule pb-2">
+                <ul className="flex flex-col gap-2 self-center text-ui text-fg" data-testid="pricing-every-plan">
+                  {[
+                    ...[...baseline, ...(rightsOnEveryPlan ? ["data.export", "data.erase"] : [])].map(planFeatureLabel),
+                    ...UNGATED_CAPABILITIES,
+                  ].map((label) => (
+                    <li key={label} className="flex items-baseline gap-2 border-b border-rule pb-2">
                       <span aria-hidden className="block size-1.5 shrink-0 translate-y-[-2px] bg-ok" />
-                      {planFeatureLabel(k)}
+                      {label}
                     </li>
                   ))}
                 </ul>

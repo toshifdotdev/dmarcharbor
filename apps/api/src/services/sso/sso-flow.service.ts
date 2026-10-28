@@ -18,6 +18,7 @@ import { decryptSensitive, encryptSensitive } from '../privacy.service.js';
 import { recordAuditEvent } from '../audit.service.js';
 import { auth } from '../../auth/auth.config.js';
 import { SsoError, assertMayProvision, normalizeEmailDomain } from './sso.service.js';
+import { memberAllowance, memberLimitMessage } from '../entitlements/entitlement.service.js';
 
 /**
  * The two sign in flows.
@@ -213,6 +214,14 @@ export async function completeSignIn(
 
       const role = provisionableRole(connection.defaultRole);
 
+      // Provisioning creates a member directly, so the plan's team size is
+      // checked here as well as on invitations: an identity provider is not a
+      // way past the limit.
+      const allowance = await memberAllowance(connection.organizationId);
+      if (allowance.members + allowance.pending >= allowance.limit) {
+        throw new SsoError(memberLimitMessage(allowance), 'SSO_MEMBER_LIMIT', 403);
+      }
+
     const user = await prisma.user.create({
       data: {
         // The user table predates our own conventions and has no generated id,
@@ -269,6 +278,13 @@ export async function completeSignIn(
           'SSO_NOT_PROVISIONABLE',
           403,
         );
+      }
+
+      // The invitation already holds a seat, so only the members are compared:
+      // after a downgrade there can be more invitations than room.
+      const allowance = await memberAllowance(connection.organizationId);
+      if (allowance.members >= allowance.limit) {
+        throw new SsoError(memberLimitMessage(allowance), 'SSO_MEMBER_LIMIT', 403);
       }
 
       await prisma.member.create({

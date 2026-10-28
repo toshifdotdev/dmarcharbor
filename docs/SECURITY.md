@@ -56,6 +56,11 @@ is paying for.
   on the server. You cannot turn it off, and a direct API call cannot skip it, so a
   stolen password cannot outlive a password change
 - Setting your new password to your old one is rejected
+- **Two-step verification** with an authenticator app and one-time backup codes, on
+  every plan. A workspace owner can require it for every member, and a session that
+  signed in without it is refused there
+- **Single sign-on** with SAML or OIDC on Admiralty. Just-in-time provisioning admits
+  only the email domains a workspace allows, and never grants the owner role
 
 ## Tenant isolation
 
@@ -69,6 +74,18 @@ something we would not erase, or to fail to erase something we told a customer w
 hold.
 
 Cross-workspace access attempts are covered by automated tests.
+
+## Credentials you give us
+
+Cloudflare tokens, PSA credentials, report mailbox passwords, single sign-on client
+secrets, webhook signing secrets, and the Slack and Teams addresses alerts post to
+are encrypted at rest with AES-256-GCM. None is ever shown again in full, and none
+is included in a data export.
+
+Outbound calls to addresses you supply (webhooks, your PSA, your mailbox host, a
+logo URL) are refused when they resolve to a private or reserved network address.
+Webhook, PSA and logo requests then connect only to the address that was checked,
+so a DNS answer that changes between the check and the call cannot redirect them.
 
 ## Data intake
 
@@ -91,7 +108,13 @@ Every privileged action is recorded in an append-only log:
 - Plan changes and entitlement overrides
 - Forensic data purges and identity toggles
 - Report share link creation and revocation
-- Session revocations
+- Session revocations, two-step verification changes and single sign-on events
+- Every DNS change made for you: records published through Cloudflare, and every
+  change to a hosted DMARC, SPF, BIMI or MTA-STS record, each with the value it
+  replaced
+- Policy approval requests, and the client's approval or decline under their own
+  account
+- API keys, webhooks, PSA, Slack and Teams connections created, changed or removed
 - Data exports requested, downloaded and revoked
 - Data erasures requested, cancelled and completed
 
@@ -133,8 +156,8 @@ why**, so it can never be mistaken for a complete copy of storage.
 ## Engineering practice
 
 - Type checking, linting and a build step gate every change
-- **Over 300 automated tests** covering authorisation, tenant isolation, crypto,
-  input limits, and every destructive operation's scope
+- **Over 1,000 automated tests**, run on every change, covering authorisation,
+  tenant isolation, crypto, input limits, and every destructive operation's scope
 - Dependency audit currently reports **zero known vulnerabilities**
 - The database schema is version controlled with reviewed migrations
 - Secrets live in environment configuration, never in source. The service
@@ -152,7 +175,6 @@ is not worth reading:
 | **Penetration test** | Not yet commissioned |
 | **Hosting platform, backup schedule, recovery objectives** | Not finalised |
 | **ISO 27001** | Not started |
-| **Payment processor** | Not yet selected |
 
 ## Reporting a vulnerability
 

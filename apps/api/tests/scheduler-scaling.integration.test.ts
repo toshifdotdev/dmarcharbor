@@ -164,6 +164,9 @@ describe('scheduled client digests under two instances', () => {
 
   it('sends one digest, not one per instance', async () => {
     const { organizationId, domainId } = await setup();
+    // Digests are a Harbor feature and the scheduler now honours that, so a
+    // free workspace would send nothing and the assertion would be vacuous.
+    await grantPlan(organizationId, 'HARBOR');
 
     await prisma.reportDigest.create({
       data: {
@@ -477,6 +480,8 @@ describe('owner rollups under two instances', () => {
 
   async function outstandingEvent() {
     const { organizationId, domainId, userId } = await setup();
+    // Rollups chase owners only on a plan with alerts.
+    await grantPlan(organizationId, 'HARBOR');
 
     const rule = await prisma.alertRule.create({
       data: {
@@ -586,6 +591,8 @@ describe('inbox scheduler under two instances', () => {
 
   it('does not open two connections to the same mailbox', async () => {
     const { organizationId } = await setup();
+    // Mailbox collection is a Harbor feature, and the poller skips a plan without it.
+    await grantPlan(organizationId, 'HARBOR');
 
     await prisma.reportInbox.create({
       data: {

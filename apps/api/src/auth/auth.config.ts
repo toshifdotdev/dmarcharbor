@@ -5,6 +5,7 @@ import { createAuthMiddleware, APIError } from 'better-auth/api';
 import { env } from '../config/env.js';
 import { prisma } from '../database/prisma.js';
 import { recordAuditEvent } from '../services/audit.service.js';
+import { memberAllowance, memberLimitMessage, resolveEntitlements } from '../services/entitlements/entitlement.service.js';
 import { accessControl, organizationRoles } from './permissions.js';
 import { queueAuthEmail, queueEmail } from '../email/email.service.js';
 import { workspaceInvitationEmail } from '../email/templates.js';
@@ -249,6 +250,16 @@ export const auth = betterAuth({
   secret: env.BETTER_AUTH_SECRET,
   database: prismaAdapter(prisma, { provider: 'postgresql' }),
   trustedOrigins: env.CORS_ORIGINS,
+  /**
+   * Workspaces are created through POST /api/workspaces only.
+   *
+   * That route checks the plan's workspace allowance and records the DPA and
+   * Terms acceptance in the same request. The plugin's own HTTP endpoint did
+   * neither, so a direct call to /api/auth/organization/create made unlimited
+   * workspaces with no acceptance on record. The server-side call our route
+   * makes (auth.api.createOrganization) is not an HTTP request and still works.
+   */
+  disabledPaths: ['/organization/create'],
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,
@@ -379,6 +390,24 @@ export const auth = betterAuth({
       roles: organizationRoles,
       allowUserToCreateOrganization: () => true,
       requireEmailVerificationOnInvitation: true,
+      /**
+       * The plan's team size, enforced where people join.
+       *
+       * Published on every plan and never checked: the plugin's default of 100
+       * applied everywhere, so a free workspace could hold a hundred members.
+       * The limit applies when an invitation is accepted; the hook below refuses
+       * the invitation itself, counting open ones, so nobody is invited into a
+       * seat that does not exist.
+       */
+      membershipLimit: async (_user, organization) => (await resolveEntitlements(organization.id)).maxMembers,
+      organizationHooks: {
+        beforeCreateInvitation: async ({ organization }) => {
+          const allowance = await memberAllowance(organization.id);
+          if (allowance.members + allowance.pending >= allowance.limit) {
+            throw new APIError('FORBIDDEN', { message: memberLimitMessage(allowance), code: 'PLAN_LIMIT_REACHED' });
+          }
+        },
+      },
       // Without this the plugin sent nothing, and an invited person never
       // learned they had been invited. The link opens the web app's /welcome,
       // which lists invitations waiting for the signed-in address.

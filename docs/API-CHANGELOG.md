@@ -249,6 +249,54 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-11-28 — Plan limits enforced where they apply
+
+**Team size.** Each plan's member limit (Mooring 1, Fairway 3, Harbor 10,
+Admiralty 25, Fleet 25) is now checked. Before this, the organization plugin's
+default of 100 applied on every plan.
+
+- `POST /api/auth/organization/invite-member` returns
+  `403 { code: "PLAN_LIMIT_REACHED", message }` when members plus open
+  invitations already fill the plan. Open invitations count, because each one
+  becomes a member when it is accepted.
+- `POST /api/auth/organization/accept-invitation` returns 403 when the
+  workspace has no free seat, for example after a downgrade.
+- SSO sign-in that would provision a new member returns 403 `SSO_MEMBER_LIMIT`
+  when the plan is full. A person who is already a member is not affected.
+
+**Workspace creation.** `POST /api/auth/organization/create` now returns 404.
+Create workspaces with `POST /api/workspaces`, which checks the plan's
+workspace allowance and records the Terms and DPA acceptance. The plugin route
+did neither.
+
+**Client allowance.** `POST /api/workspaces/{id}/clients` counts and inserts
+under the workspace lock, as domain creation already did. Two requests sent
+together can no longer both take the last free client slot. The second gets
+`402 PLAN_LIMIT_REACHED`.
+
+**After a downgrade.** Rows made on a higher plan are kept, so nothing has to
+be set up again after an upgrade, but the features the lower plan lacks stop
+running:
+
+- Alert rules are not evaluated without `alerts.email`, and spoofing rules
+  (`NEW_UNAUTHENTICATED_SOURCE`) not without `alerts.spoofing`. No email,
+  Slack, Teams or PSA ticket is sent. Open alerts stay listed and are not
+  chased by the owner rollup.
+- Scheduled digests are not sent without `digests`.
+  `POST /api/workspaces/{id}/report-digests/{digestId}/send` and
+  `POST /api/workspaces/{id}/report-digests/run` return
+  `402 FEATURE_NOT_IN_PLAN`. Listing, editing and deleting a digest still work.
+- The agency's own report mailbox is not polled without `reports.inbox`. The
+  stored settings are kept.
+
+**Wording.** The `alerts.email` label is now "Alerts by email, Slack and
+Teams", `portal.client` is "The client portal and client approvals", and
+`reports.compliancePack` is "The compliance pack and monthly client reports".
+These are the features each key already gated. The Fairway and Harbor
+descriptors in `GET /api/plans` now describe what those plans include.
+
+`/api/v1` is unchanged.
+
 ## 2026-11-27 — Client-approved enforcement
 
 An agency can ask a client to approve a stricter DMARC policy for one of their

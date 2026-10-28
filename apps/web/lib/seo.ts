@@ -31,12 +31,12 @@ export const SITE_NAME = "DMARC Harbor";
 
 /** The fallback description: used wherever a page has nothing more specific. */
 export const SITE_DESCRIPTION =
-  "DMARC email-authentication monitoring for MSPs and IT agencies: posture per client domain, evidence you can hand over, and a client portal in your brand. Measurement and evidence, never control.";
+  "DMARC email-authentication monitoring for MSPs and IT agencies: posture per client domain, evidence you can hand over, and a client portal in your brand. Measurement first; DNS changes only when you ask.";
 
 /** The product's own social summary: shorter than SITE_DESCRIPTION because a
  *  card is read at a glance and a listing at length. */
 export const SITE_OG_DESCRIPTION =
-  "Per-domain DMARC posture, compliance packs with a published fingerprint, and a client portal in your brand. It measures and proves. It never edits anyone's DNS.";
+  "Per-domain DMARC posture, compliance packs with a published fingerprint, and a client portal in your brand. It measures and proves, and changes DNS only when you ask.";
 
 /**
  * Routes a crawler should read. The legal set is derived rather than repeated
@@ -69,7 +69,7 @@ const OG_IMAGE = {
   url: "/opengraph-image",
   width: 1200,
   height: 630,
-  alt: "DMARC Harbor — measurement and evidence, never control",
+  alt: "DMARC Harbor — measurement first, changes only when you ask",
 } as const;
 
 /** The social-object fields a public route shares, image included. */
@@ -100,6 +100,7 @@ export const LEGAL_ROUTE_PRIORITY: Record<string, number> = {
   "/verify": 0.6,
   "/support": 0.5,
   "/faq": 0.7,
+  "/guide": 0.7,
   "/terms": 0.5,
   "/privacy": 0.5,
   "/dpa": 0.4,
@@ -195,6 +196,7 @@ const LEGAL_SUMMARIES: Record<string, string> = {
   security: "How DMARC Harbor is built and run: controls, reporting and disclosure.",
   "sub-processors": "Every third party that handles data on our behalf, and what each one does.",
   faq: "What the product does, what it costs, and how the measurements are derived.",
+  guide: "Every step from a new account to a client domain at p=reject, and the plan each step needs.",
   complaints: "How to raise a complaint, and the answers you can expect.",
   cookies: "Which cookies we set and why. There is no advertising or analytics cookie.",
 };

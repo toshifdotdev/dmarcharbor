@@ -51,8 +51,10 @@ owner explicitly turns this on**, which requires confirming a legal basis. When
 enabled, those values are encrypted with AES-256-GCM before storage.
 
 ### Payment data
-**TBD**: we do not store card numbers. Payment is handled by a payment
-processor acting as the merchant of record. See the Sub-processors list.
+We do not store card numbers. Rupee payments are processed by Razorpay as our
+payment gateway, and US dollar payments by Paddle as merchant of record. We keep
+the plan, the billing period and the provider's customer reference. See the
+Sub-processors list.
 
 ## 3. Why we collect it
 
@@ -71,16 +73,16 @@ processor acting as the merchant of record. See the Sub-processors list.
 - **We do not use your DMARC data to train anything.**
 - **We do not send your reports to any third party** for their own purposes.
 - **We do not read your email.** We only receive the authentication reports that mailbox providers generate about your domains.
-- **We do not modify your DNS.** DMARC Harbor only reads published records. You make every DNS change.
+- **We do not change your DNS unless you ask.** DMARC Harbor reads published records. It writes only through a Cloudflare connection you add, or to records you have delegated to it (hosted DMARC, SPF, BIMI and MTA-STS), and every change is recorded.
 
 ## 5. How long we keep things
 
 | Data | Retention |
 |---|---|
-| Aggregate DMARC reports and per source rows | **400 days** (default, configurable per plan) |
-| Forensic report evidence | **30 days** (default, configurable per plan) |
+| Aggregate DMARC reports and per source rows | **400 days**, the same on every plan |
+| Forensic report evidence | **30 days**, the same on every plan |
 | **Named** recipient addresses and subject lines, when enabled | **7 days** |
-| Audit trail | 30 days to 10 years, depending on plan |
+| Audit trail | Until a deletion request removes it, on every plan |
 | Sessions | Until sign out, revocation, or expiry (7 days default) |
 | Export job records | 7 days |
 | Erasure certificates | 3 years |
@@ -169,7 +171,6 @@ Privacy questions: privacy@dmarcharbor.com
 ## Items that must be completed before publication
 
 1. Hosting region and international transfer mechanism
-2. Payment processor, once selected
-3. Effective date and company legal name
-4. Supervisory authority, if one applies
-5. Legal review
+2. Effective date and company legal name
+3. Supervisory authority, if one applies
+4. Legal review

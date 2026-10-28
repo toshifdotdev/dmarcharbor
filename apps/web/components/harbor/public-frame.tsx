@@ -39,6 +39,9 @@ export function PublicHeader({ brand, current }: { brand: HostBrand; current?: "
             >
               Pricing
             </Link>
+            <Link href="/guide" className="text-fg-2 hover:text-fg">
+              Setup guide
+            </Link>
             <Link href="/verify" className="text-fg-2 hover:text-fg">
               Verify a pack
             </Link>
@@ -75,8 +78,8 @@ export function PublicFooter({ brand }: { brand: HostBrand }) {
             <span className="wide text-body font-bold text-fg">{name}</span>
           </Link>
           <p className="mt-3 max-w-[40ch] text-ui text-fg-2">
-            Measurement and evidence about email authentication, for agencies and MSPs. It reads reports; it never
-            edits DNS or sends mail as anyone.
+            Measurement and evidence about email authentication, for agencies and MSPs. It reads reports, never sends
+            mail as anyone, and changes DNS only when you ask.
           </p>
         </div>
         <nav aria-label="Product" className="flex flex-col gap-2 text-ui">

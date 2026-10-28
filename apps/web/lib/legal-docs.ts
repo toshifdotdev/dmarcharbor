@@ -167,6 +167,11 @@ export const LEGAL_DOCS: LegalDoc[] = [
     sourceFile: "SUB-PROCESSORS.md",
   },
   {
+    slug: "guide",
+    title: "Setup guide",
+    sourceFile: "GUIDE.md",
+  },
+  {
     slug: "faq",
     title: "Frequently Asked Questions",
     sourceFile: "FAQ.md",

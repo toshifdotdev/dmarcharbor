@@ -1,6 +1,7 @@
 import { env } from '../config/env.js';
 import { prisma } from '../database/prisma.js';
 import { pollInbox, recordInboxFailure } from '../services/report/imap-inbox.service.js';
+import { resolveEntitlements } from '../services/entitlements/entitlement.service.js';
 import { withJobLease } from './job-lease.service.js';
 import { recordJobFailure, recordJobSuccess } from './heartbeat.js';
 
@@ -60,6 +61,17 @@ export async function runInboxPollOnce(): Promise<{ polled: number; accepted: nu
     });
 
     for (const inbox of inboxes) {
+      // Collection from the agency's own mailbox is a Harbor feature. The
+      // mailbox and its stored credential are kept after a downgrade, so it can
+      // be switched back on, but nothing logs in to it while the plan lacks it.
+      const entitled = await resolveEntitlements(inbox.organizationId).then(
+        (entitlements) => entitlements.features['reports.inbox'] === true,
+        () => false,
+      );
+      if (!entitled) {
+        continue;
+      }
+
       try {
         const outcome = await pollInbox(inbox.organizationId);
         summary.polled += 1;

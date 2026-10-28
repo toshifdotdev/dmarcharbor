@@ -91,7 +91,7 @@ export default function OpengraphImage() {
               maxWidth: 900,
             }}
           >
-            Measurement and evidence, never control.
+            Measurement first. Changes only when you ask.
           </div>
           <div
             style={{

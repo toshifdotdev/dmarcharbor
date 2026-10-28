@@ -16,6 +16,7 @@ import { deliverSlackAlert, hasEnabledSlackDestination } from './slack.service.j
 import { deliverTeamsAlert, hasEnabledTeamsDestination } from './teams.service.js';
 import { domainRef } from './domain-ref.js';
 import { enqueueAlertClosed, enqueueAlertNote, enqueueAlertOpened } from './psa/psa-queue.service.js';
+import { resolveEntitlements } from './entitlements/entitlement.service.js';
 import { resolveLimit } from '../utils/pagination.js';
 
 const riskByMetric: Record<AlertMetric, 'high' | 'medium'> = {
@@ -911,7 +912,8 @@ async function deliverToUser(
 
 export interface RuleEvaluationResult {
   ruleId: string;
-  outcome: 'triggered' | 'escalated' | 'unchanged' | 'resolved' | 'no_data';
+  /** `not_in_plan`: the workspace's plan no longer includes this kind of alert, so the rule is kept and not evaluated. */
+  outcome: 'triggered' | 'escalated' | 'unchanged' | 'resolved' | 'no_data' | 'not_in_plan';
   observed: number | null;
   eventId?: string;
   reminderLevel?: number;
@@ -937,6 +939,24 @@ function escalationNote(reminderLevel: number): string {
   return 'This alert has been unacknowledged across multiple reminders. Escalate to whoever owns this domain.';
 }
 
+/** Reads each workspace's features once per pass, however many rules it has. */
+function planFeatureReader(): (organizationId: string) => Promise<Record<string, boolean>> {
+  const cache = new Map<string, Promise<Record<string, boolean>>>();
+  return (organizationId) => {
+    let features = cache.get(organizationId);
+    if (!features) {
+      features = resolveEntitlements(organizationId).then(
+        (entitlements) => entitlements.features as Record<string, boolean>,
+        // A workspace whose plan cannot be read is treated as not entitled for
+        // this pass, never as entitled: the next pass reads it again.
+        () => ({}),
+      );
+      cache.set(organizationId, features);
+    }
+    return features;
+  };
+}
+
 export async function evaluateAlertRules(now = new Date()): Promise<RuleEvaluationResult[]> {
   const rules = await prisma.alertRule.findMany({
     where: { enabled: true, domain: { status: 'VERIFIED' } },
@@ -945,8 +965,23 @@ export async function evaluateAlertRules(now = new Date()): Promise<RuleEvaluati
   });
 
   const results: RuleEvaluationResult[] = [];
+  const featuresFor = planFeatureReader();
 
   for (const rule of rules) {
+    /**
+     * The plan is read when the rule runs, not only when it was created.
+     *
+     * A rule made on a paid plan kept emailing, posting to Slack and Teams and
+     * opening tickets after the workspace dropped to a plan without alerts. The
+     * rule is kept, so nothing has to be set up again after an upgrade; it just
+     * does not run. Spoofing rules need the spoofing alert on top.
+     */
+    const features = await featuresFor(rule.organizationId);
+    if (!features['alerts.email'] || (rule.metric === 'NEW_UNAUTHENTICATED_SOURCE' && !features['alerts.spoofing'])) {
+      results.push({ ruleId: rule.id, outcome: 'not_in_plan', observed: null });
+      continue;
+    }
+
     const snapshot = await buildDomainSnapshot(rule.domainId, rule.windowMinutes, now);
     const observed = observedFor(snapshot, rule.metric);
 
@@ -1301,8 +1336,16 @@ export async function runAlertRollups(now = new Date()): Promise<RollupResult[]>
   }
 
   const results: RollupResult[] = [];
+  const featuresFor = planFeatureReader();
 
   for (const [organizationId, events] of byOrganization) {
+    // A workspace whose plan no longer includes alerts is not chased about the
+    // ones still open from before; they stay listed, unacknowledged, in the app.
+    if (!(await featuresFor(organizationId))['alerts.email']) {
+      results.push({ organizationId, notified: false, eventCount: events.length, markedStale: markedStaleFor(organizationId) });
+      continue;
+    }
+
     const exhausted = events.filter((event) => event.reminderLevel >= event.rule.maxReminderLevel);
     const outstanding = exhausted.length ? exhausted : events;
 

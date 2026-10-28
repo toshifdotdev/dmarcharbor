@@ -113,6 +113,8 @@ describe('a workspace scoped route cannot sweep another tenant', () => {
   it('evaluates only the digests belonging to the workspace named in the route', async () => {
     const first = await workspace('digest-scope-a');
     const second = await workspace('digest-scope-b');
+    await grantPlan(first.organizationId, 'HARBOR');
+    await grantPlan(second.organizationId, 'HARBOR');
 
     const [firstClient, secondClient] = await Promise.all([
       prisma.client.create({ data: { organizationId: first.organizationId, name: 'Alpha', slug: 'alpha' } }),

@@ -76,7 +76,7 @@ export async function generateMetadata(): Promise<Metadata> {
           url: "/opengraph-image",
           width: 1200,
           height: 630,
-          alt: "DMARC Harbor — measurement and evidence, never control",
+          alt: "DMARC Harbor — measurement first, changes only when you ask",
         },
       ],
     },

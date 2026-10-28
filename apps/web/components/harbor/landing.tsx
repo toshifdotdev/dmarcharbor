@@ -57,7 +57,7 @@ export async function Landing() {
                 {[
                   ["Reads", "the aggregate and forensic reports receivers send about each domain."],
                   ["Shows", "who passes, who fails, and who is impersonating, client by client."],
-                  ["Never", "edits anyone's DNS or sends mail as your clients."],
+                  ["Never", "sends mail as your clients, or changes DNS you did not ask it to."],
                 ].map(([k, v]) => (
                   <li key={k} className="grid grid-cols-[64px_minmax(0,1fr)] gap-3 border-b border-rule py-2.5 text-ui">
                     <span className="font-bold text-fg">{k}</span>
@@ -116,7 +116,11 @@ export async function Landing() {
               ["Senders", "Who sends as each domain, by source address and authenticating domain, with the share of their mail that fails."],
               ["Evidence", "Revocable share links, compliance packs with a published SHA-256 fingerprint, and a public trust page any auditor can open."],
               ["Client portal", "Your clients see their own domains under your name and colours, on your own domain, on plans that carry it."],
-              ["Alerts", "Spoofing and volume-spike rules to email or Slack, scheduled digests, and delivery failures surfaced rather than swallowed."],
+              ["Alerts", "Spoofing and volume-spike rules to email, Slack or Microsoft Teams, warnings when DNS changes or a registration nears expiry, scheduled digests, and delivery failures surfaced rather than swallowed."],
+              ["DNS records", "Publish records through your Cloudflare connection, or host DMARC, SPF, BIMI and MTA-STS so a policy change needs no DNS edit. Every change can be put back."],
+              ["Client approval", "Ask a client to approve a stricter policy in their portal. The decision is recorded under their name before anything changes."],
+              ["Integrations", "Tickets in HaloPSA, ConnectWise or Autotask, signed webhooks, and an API for your own tooling."],
+              ["Prospects", "A plain-language email security report for a company you want to win, sent under your name."],
               [
                 "Forensic data",
                 // The deployment's own window (FORENSIC_PII_RETENTION_DAYS via
@@ -164,11 +168,12 @@ export async function Landing() {
           <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
             <div>
               <h2 id="start-head" className="display text-[28px] leading-[1.05]">
-                Measurement and evidence, not control.
+                Measurement first. Changes only when you ask.
               </h2>
               <p className="mt-4 max-w-[52ch] text-body text-fg-2">
-                We never edit anyone&rsquo;s DNS and never send mail as your clients. One account holds as many
-                workspaces as your plan allows; each workspace holds your clients and their client domains.
+                We never send mail as your clients. DNS changes only through a Cloudflare connection you add or a record
+                you delegate to us, and only when you or your client approve it. One account holds as many workspaces as
+                your plan allows; each workspace holds your clients and their client domains.
               </p>
               <div className="mt-6 flex flex-wrap items-center gap-4">
                 <ButtonLink href="/sign-up" variant="primary" size="lg">

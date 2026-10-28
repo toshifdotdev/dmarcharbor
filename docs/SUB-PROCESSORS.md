@@ -15,10 +15,26 @@ work in good faith to resolve it, including discussing alternatives.
 | Provider | What it does | Data it touches | Region |
 |---|---|---|---|
 | **Resend** | Transactional and alert email | Your users' email addresses, names, and notification content. Alert content may include domain names, sender sources and counts | **TBD**: confirm before publication |
-| **Cloudflare** | Email routing and the report ingress Worker | Raw DMARC report messages in transit only. The Worker forwards them and does not store them | Global edge |
+| **Cloudflare** | Email routing and the report ingress Worker; the DNS zone that serves records you delegate to us (hosted DMARC, SPF and BIMI); Cloudflare for SaaS, which serves hosted MTA-STS policy files | Raw DMARC report messages in transit only, which the Worker forwards and does not store. Public DNS values and policy files | Global edge |
+| **Amazon Web Services** | Object storage for workspace logos (S3) | The logo files you upload | **TBD**: region set at launch |
 | **Managed PostgreSQL provider** | Primary database | All stored data | **TBD**: hosting not finalised |
-| **Google and Microsoft** (optional sign-in) | Federated sign-in | Name, email address, and provider identifier. Only if you enable social sign-in | Provider's region |
-| **Payment processor** | Subscription billing | Your company name, billing contact email, plan and amount. **Not your DMARC data** | **TBD**: not yet selected |
+| **Migadu** | Hosted mailbox that receives aggregate and forensic reports | Inbound report messages, which may contain recipient email addresses | **TBD**: confirm before publication |
+| **Razorpay** | Subscription billing in Indian rupees, as payment gateway | Company name, billing contact email, plan and amount. **Not your DMARC data** | India |
+| **Paddle** | Subscription billing in US dollars, as merchant of record | Company name, billing contact email, plan and amount. **Not your DMARC data** | Provider's region |
+| **Google and Microsoft** (optional sign-in) | Federated sign-in | Name, email address, and provider identifier. Only if you use social sign-in | Provider's region |
+
+## Services you connect
+
+These are not our sub-processors. They are services you choose and connect, under
+your own agreement with each provider, and we send them only what you configure:
+
+- **Slack and Microsoft Teams**, for alert messages to a channel you choose
+- **HaloPSA, ConnectWise Manage and Autotask**, for tickets about your alerts
+- **Your Cloudflare account**, when you add a connection to publish records in your
+  own DNS zones
+- **Your webhook endpoints**, for the events you subscribe to
+- **Your own report mailbox**, when you collect reports from a mailbox you run
+- **Your identity provider**, when you set up single sign-on
 
 ## Not a sub-processor
 
@@ -26,6 +42,9 @@ work in good faith to resolve it, including discussing alternatives.
 
 There is no Google Analytics, no advertising pixel, and no third-party tracking of
 any kind in the product. Workspace activity is not profiled for marketing.
+
+Public lookups are not processing on your behalf: DNS queries, and registration
+lookups to each domain's registry over RDAP, send only the domain name.
 
 ## Our responsibilities for sub-processors
 
@@ -42,16 +61,16 @@ any kind in the product. Workspace activity is not profiled for marketing.
 
 | Data | Why not shared |
 |---|---|
-| Named recipient addresses and subject lines | Access is deliberately narrow. Sub-processors receive no forensic report content |
+| Named recipient addresses and subject lines | Access is deliberately narrow. Sub-processors receive no forensic report content once it is stored |
 | Raw DMARC report bodies | Parsed and stored by us; the raw message is not forwarded to a processor for storage |
 | Pseudonymised recipient identifiers | Never leave our database |
 | Passwords and session tokens | Never transmitted to any third party |
 
 ## Before launch
 
-The three **TBD** items are genuine open decisions, not oversights. The privacy
-policy and the DPA both reference them, and all three must be resolved before
-either document is published or signed.
+The **TBD** items are genuine open decisions, not oversights. The privacy policy and
+the DPA both reference them, and they must be resolved before either document is
+published or signed.
 
 **Recommendation:** resolving these is part of the domain and hosting decision, so
 it should not be done separately.

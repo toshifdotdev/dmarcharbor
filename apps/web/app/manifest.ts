@@ -31,7 +31,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "DMARC Harbor",
     short_name: "DMARC",
     description:
-      "Per-domain DMARC posture, compliance packs with a published fingerprint, and a client portal in your brand. Measurement and evidence, never control.",
+      "Per-domain DMARC posture, compliance packs with a published fingerprint, and a client portal in your brand. Measurement first; DNS changes only when you ask.",
     // The marketing route, not /sign-in. An install opens the product and finds
     // its own way to a session, the same way a browser does.
     start_url: "/",

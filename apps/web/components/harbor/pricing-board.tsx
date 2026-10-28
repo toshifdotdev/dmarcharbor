@@ -138,7 +138,14 @@ export function PricingBoard({
       return k === "trust.center" ? label : label.charAt(0).toLowerCase() + label.slice(1);
     });
     if (reasons.length === 0) return null;
-    const list = reasons.length === 1 ? reasons[0] : `${reasons.slice(0, -1).join(", ")} and ${reasons[reasons.length - 1]}`;
+    // Serial comma: some labels carry their own "and" ("client portal and client
+    // approvals"), so the last item needs the comma to read as a separate item.
+    const list =
+      reasons.length === 1
+        ? reasons[0]
+        : reasons.length === 2
+          ? `${reasons[0]}, and ${reasons[1]}`
+          : `${reasons.slice(0, -1).join(", ")}, and ${reasons[reasons.length - 1]}`;
     return { label: ladderPlans[at].label, reasons: list };
   })();
 
@@ -308,14 +315,7 @@ export function PricingBoard({
               </div>
 
               <dl className="mt-6 grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 border-t border-rule pt-3 text-ui">
-                {(
-                  [
-                    ["Clients", plan.maxClients],
-                    ["Active domains", plan.maxActiveDomains],
-                    ["Team members", plan.maxMembers],
-                    ["Workspaces", plan.maxWorkspaces],
-                  ] as const
-                ).map(([k, v]) => (
+                {limitRows(plan).map(([k, v]) => (
                   <div key={k} className="col-span-2 grid grid-cols-subgrid py-0.5">
                     <dt className="text-fg-2">{k}</dt>
                     <dd className="tnum text-right font-semibold text-fg">{v}</dd>
@@ -382,7 +382,9 @@ export function PricingBoard({
           </h2>
           <p className="mt-1 text-ui text-fg-2">
             Every limit and every feature, on the four plans above. Fleet is priced per active domain and has the same
-            features as Harbor. Prices in {currency}, {interval === "monthly" ? "per month" : "per year"}.
+            features as Harbor; its limits are on its card. Clients and active domains are counted across every workspace
+            an account owns; team members are counted per workspace. Prices in {currency},{" "}
+            {interval === "monthly" ? "per month" : "per year"}.
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -414,21 +416,14 @@ export function PricingBoard({
                 ))}
               </tr>
               <GroupRow label="Limits" span={ladderPlans.length + 1} />
-              {(
-                [
-                  ["Clients", (p: PlanDefinition) => p.maxClients],
-                  ["Active domains", (p: PlanDefinition) => p.maxActiveDomains],
-                  ["Team members", (p: PlanDefinition) => p.maxMembers],
-                  ["Workspaces per account", (p: PlanDefinition) => p.maxWorkspaces],
-                ] as const
-              ).map(([label, read]) => (
+              {limitRows(ladderPlans[0] ?? null, "table").map(([label], row) => (
                 <tr key={label} className="border-b border-rule">
                   <th scope="row" className={ROW_HEAD}>
                     {label}
                   </th>
                   {ladderPlans.map((p) => (
                     <td key={p.tier} className="tnum px-3 py-2.5 text-fg">
-                      {read(p)}
+                      {limitRows(p, "table")[row]?.[1]}
                     </td>
                   ))}
                 </tr>
@@ -465,6 +460,25 @@ export function PricingBoard({
       </section>
     </div>
   );
+}
+
+/**
+ * A plan's limits as label and value, in one order for the cards, the table and
+ * the Fleet card. The prospect allowance is a monthly limit like the others and
+ * was published nowhere; a plan without the feature reads as a dash, not 0.
+ */
+function limitRows(plan: PlanDefinition | null, where: "card" | "table" = "card"): Array<[string, string]> {
+  if (!plan) return [];
+  const prospects = plan.maxProspectReportsPerMonth;
+  return [
+    ["Clients", plan.maxClients.toLocaleString("en-GB")],
+    ["Active domains", plan.maxActiveDomains.toLocaleString("en-GB")],
+    ["Team members", plan.maxMembers.toLocaleString("en-GB")],
+    [where === "table" ? "Workspaces per account" : "Workspaces", plan.maxWorkspaces.toLocaleString("en-GB")],
+    ...(typeof prospects === "number"
+      ? ([["Prospect reports a month", prospects > 0 ? prospects.toLocaleString("en-GB") : "–"]] as Array<[string, string]>)
+      : []),
+  ];
 }
 
 function GroupRow({ label, span }: { label: string; span: number }) {
@@ -522,6 +536,15 @@ function FleetCard({
         </div>
         <p className="mt-1.5 max-w-[56ch] text-ui text-fg-2">{plan.descriptor}</p>
         <p className="mt-2 text-meta text-fg-3">Everything in {baseLabel}.</p>
+        {/* Fleet's limits were in the catalog and nowhere on the page. */}
+        <dl data-testid="fleet-limits" className="mt-3 grid max-w-[22rem] grid-cols-[minmax(0,1fr)_auto] gap-x-3 text-meta">
+          {limitRows(plan).map(([k, v]) => (
+            <div key={k} className="col-span-2 grid grid-cols-subgrid py-0.5">
+              <dt className="text-fg-2">{k}</dt>
+              <dd className="tnum text-right font-semibold text-fg">{v}</dd>
+            </div>
+          ))}
+        </dl>
       </header>
 
       <div className="flex flex-col gap-1">

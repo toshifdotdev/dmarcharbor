@@ -46,13 +46,18 @@ export async function getClientReportAddress(organizationId: string, clientId: s
 }
 
 export async function createClient(organizationId: string, input: CreateClientRequest) {
-  return prisma.client.create({
-    data: {
-      organizationId,
-      name: input.name,
-      slug: input.slug,
-    },
-  });
+  // Counted and inserted under the workspace lock, as domains are. The route's
+  // own check is a separate read, so two requests sent together could both see
+  // the last free client slot and both take it.
+  return withQuota(organizationId, 'client', (tx) =>
+    tx.client.create({
+      data: {
+        organizationId,
+        name: input.name,
+        slug: input.slug,
+      },
+    }),
+  );
 }
 
 export async function listDomains(organizationId: string, clientId?: string) {
