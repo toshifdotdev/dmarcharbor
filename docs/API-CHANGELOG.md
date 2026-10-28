@@ -249,6 +249,60 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-11-27 — Client-approved enforcement
+
+An agency can ask a client to approve a stricter DMARC policy for one of their
+domains, and the client answers in the portal. The request says in plain words
+what happens to fake mail, what the risk is to the client's own mail, and the
+evidence the agency is relying on. The decision is recorded under the client
+contact's own account.
+
+A request must tighten the policy along the rollout ladder (none, quarantine on
+trial, quarantine, reject on trial, reject). The domain must be verified,
+publish a DMARC record and have at least one active portal contact. Readiness
+is checked for the step asked for. If there are open points, the agency can
+still send the request, and the client sees those points before deciding. The
+record, the evidence and the open points are frozen in the request. A new
+request replaces an open one, every active contact of the client is emailed
+under the agency's brand, and the request expires after 14 days. The first
+answer stands.
+
+On approval, a record hosted by DMARC Harbor changes at once. Readiness is
+overridden only for the points the client was shown. A record that is already
+stricter is never loosened. If the change cannot go through (a provider
+failure, a concurrent edit, or evidence that turned after a request sent with
+no open points), the approval stands, the reason is shown, and the agency can
+retry. Any other record is handed back to the agency with the exact value to
+publish, and it shows as published once a scan reads it. The agency is told by
+in-app notice (kind `POLICY_APPROVAL`) and email. Proposing needs the client
+portal (Harbor and up). Reading and withdrawing work on every plan.
+
+Browser routes:
+
+- `GET /api/workspaces/{id}/domains/{domainId}/policy-proposals` returns
+  `{ proposals, contacts, applyVia }`.
+- `POST` to the same path takes `policy` (`quarantine` or `reject`),
+  `testing`, an optional `note` (600) and `acceptBlockers`. It returns
+  `201 { proposal }`. It returns 409 with `DOMAIN_NOT_VERIFIED`,
+  `NO_PORTAL_CONTACTS`, `NO_DMARC_RECORD` or `NOT_STRICTER`, or with
+  `POLICY_NOT_READY` and `blockers`.
+- `POST /api/workspaces/{id}/policy-proposals/{proposalId}/withdraw` and
+  `.../retry`.
+- `GET /api/portal/policy-proposals` and
+  `GET /api/portal/domains/{domainId}/policy-proposals` (client contact).
+- `POST /api/portal/policy-proposals/{proposalId}/approve` and `.../decline`,
+  which takes an optional `reason` (600). Both return 409
+  `PROPOSAL_NOT_PENDING` or `PROPOSAL_EXPIRED`.
+
+Policy readiness gains `blockersByLevel` (`quarantine`, `reject`), the open
+points for each level separately. This also fixes the hosted DMARC policy
+change: a jump from none straight to reject used to pass without a warning
+when only quarantine was ready, because it was checked against the next step
+the evidence supported. It is now checked against reject.
+
+`/api/v1`: `GET /api/v1/domains/{domain}/policy-readiness` gains
+`blockersByLevel`. The change is additive and nothing else changes.
+
 ## 2026-11-26 — Prospect risk reports
 
 A workspace can check a domain it does not manage yet, such as a company it is

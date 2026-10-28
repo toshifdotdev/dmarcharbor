@@ -68,6 +68,7 @@ import type {
   DomainRegistrationView,
   ProspectReportRow,
   ProspectUsage,
+  DomainPolicyProposals,
   TrustSlugStatus,
   VerifyDomainResult,
   WebhookDeliveryRow,
@@ -238,6 +239,13 @@ export function listProspectReports(
 ): Promise<{ reports: ProspectReportRow[]; usage: ProspectUsage }> {
   return opsFetch<{ reports: ProspectReportRow[]; usage: ProspectUsage }>(
     `/api/workspaces/${organizationId}/prospect-reports`,
+  );
+}
+
+/** GET /policy-proposals — requests for the client to approve a stricter policy. */
+export function getPolicyProposals(organizationId: string, domainId: string): Promise<DomainPolicyProposals> {
+  return opsFetch<DomainPolicyProposals>(
+    `/api/workspaces/${organizationId}/domains/${domainId}/policy-proposals`,
   );
 }
 

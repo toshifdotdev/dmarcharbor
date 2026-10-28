@@ -147,6 +147,10 @@ const ACTION_SENTENCES: Record<AuditAction, string> = {
   PROSPECT_REPORT_CREATED: "Prospect risk report created",
   PROSPECT_REPORT_REVOKED: "Prospect risk report link revoked",
   PROSPECT_REPORT_DELETED: "Revoked prospect risk report removed",
+  POLICY_PROPOSAL_CREATED: "Stricter DMARC policy sent to the client for approval",
+  POLICY_PROPOSAL_WITHDRAWN: "Approval request withdrawn",
+  POLICY_PROPOSAL_APPROVED: "Client approved a stricter DMARC policy",
+  POLICY_PROPOSAL_DECLINED: "Client declined a stricter DMARC policy",
 };
 
 /**
@@ -193,6 +197,7 @@ const TARGET_SENTENCES: Record<string, string> = {
   client_portal_access: "Client portal access",
   report_share: "Report share",
   prospect_report: "Prospect risk report",
+  policy_proposal: "Policy approval request",
   report_digest: "Report digest",
   alert_rule: "Alert rule",
   alert_event: "Alert event",

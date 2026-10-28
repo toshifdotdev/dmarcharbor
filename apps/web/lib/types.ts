@@ -545,6 +545,8 @@ export interface PolicyReadiness {
   level: "none" | "quarantine" | "reject";
   ready: boolean;
   currentPolicy: "none" | "quarantine" | "reject" | "unknown";
+  /** t=y is published, so the current policy is applied one level softer. */
+  testing?: boolean;
   daysObserved: number;
   messagesObserved: number;
   /** DMARC pass rate: either aligned check passed. */
@@ -554,6 +556,8 @@ export interface PolicyReadiness {
   failingSenders: number;
   observedSenders: number;
   blockers: string[];
+  /** What blocks each enforcing level separately; a request is checked against its own. */
+  blockersByLevel?: { quarantine: string[]; reject: string[] };
 }
 
 export interface OnboardingState {
@@ -656,6 +660,68 @@ export interface TlsReportFailure {
 
 export interface TlsReportDetail extends TlsReportListItem {
   policies: Array<TlsReportPolicySummary & { failures: TlsReportFailure[] }>;
+}
+
+export type PolicyProposalState = "pending" | "expired" | "approved" | "declined" | "withdrawn" | "superseded";
+
+export interface PolicyProposalEvidence {
+  daysObserved: number;
+  daysAtCurrentPolicy: number;
+  messagesObserved: number;
+  passRatePercent: number | null;
+  dkimPassRatePercent: number | null;
+  failingSenders: number;
+  observedSenders: number;
+}
+
+/** A stricter DMARC policy put to the client, as the agency sees it. */
+export interface PolicyProposalRow {
+  id: string;
+  state: PolicyProposalState;
+  domain: { id: string; slug: string; name: string };
+  from: { policy: string; testing: boolean; label: string };
+  to: { policy: string; testing: boolean; np: string | null; label: string };
+  recordValue: string;
+  applyVia: "hosted" | "manual";
+  note: string | null;
+  evidence: PolicyProposalEvidence;
+  blockers: string[];
+  createdBy: { id: string; name: string } | null;
+  createdAt: string;
+  expiresAt: string;
+  decidedAt: string | null;
+  decidedByEmail: string | null;
+  declineReason: string | null;
+  appliedAt: string | null;
+  applyError: string | null;
+  /** For an approved proposal: is it what the domain publishes now. */
+  published: boolean | null;
+}
+
+/** GET /workspaces/:id/domains/:domainId/policy-proposals */
+export interface DomainPolicyProposals {
+  proposals: PolicyProposalRow[];
+  /** Active portal contacts for the client: who can answer. */
+  contacts: number;
+  applyVia: "hosted" | "manual";
+}
+
+/** The same request as the client contact reads it. */
+export interface PortalPolicyProposal {
+  id: string;
+  state: PolicyProposalState;
+  domain: { id: string; name: string };
+  clientName: string;
+  agencyName: string;
+  words: { headline: string; effect: string; trial: string | null; risk: string; evidence: string | null };
+  note: string | null;
+  blockers: string[];
+  recordValue: string;
+  createdAt: string;
+  expiresAt: string;
+  decidedAt: string | null;
+  decidedByEmail: string | null;
+  declineReason: string | null;
 }
 
 /** One prospect risk report, as the workspace lists it. */
@@ -1600,7 +1666,11 @@ export type AuditAction =
   | "TEAMS_DESTINATION_REMOVED"
   | "PROSPECT_REPORT_CREATED"
   | "PROSPECT_REPORT_REVOKED"
-  | "PROSPECT_REPORT_DELETED";
+  | "PROSPECT_REPORT_DELETED"
+  | "POLICY_PROPOSAL_CREATED"
+  | "POLICY_PROPOSAL_WITHDRAWN"
+  | "POLICY_PROPOSAL_APPROVED"
+  | "POLICY_PROPOSAL_DECLINED";
 
 /**
  * AuditOutcome is SUCCESS or DENIED. There is no FAILED value: the trail records

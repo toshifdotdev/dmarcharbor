@@ -63,6 +63,7 @@ const KIND: Record<string, string> = {
   DNS_CHANGE: "DNS change",
   PSA: "PSA",
   DOMAIN_EXPIRY: "Domain expiry",
+  POLICY_APPROVAL: "Client approval",
 };
 
 export function Inbox() {

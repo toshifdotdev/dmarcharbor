@@ -1,6 +1,12 @@
 import { API_BASE, apiFetch } from "./api-fetch";
 import { cookies } from "next/headers";
-import type { PortalBranding, PortalOverview, PortalDomainDetail, PortalMonthlyReports } from "./types";
+import type {
+  PortalBranding,
+  PortalOverview,
+  PortalDomainDetail,
+  PortalMonthlyReports,
+  PortalPolicyProposal,
+} from "./types";
 
 /**
  * api-portal.ts — the client contact's reads. A contact sees their own
@@ -86,6 +92,21 @@ export async function getPortalOverview(org?: string | null): Promise<PortalOver
 
 export function getPortalDomain(domainId: string, org?: string | null): Promise<PortalDomainDetail> {
   return portalFetch<PortalDomainDetail>(withOrg(`/api/portal/domains/${domainId}`, org));
+}
+
+/** Open requests to approve a stricter policy, across the contact's clients. */
+export function getPortalProposals(org?: string | null): Promise<{ proposals: PortalPolicyProposal[] }> {
+  return portalFetch<{ proposals: PortalPolicyProposal[] }>(withOrg("/api/portal/policy-proposals", org));
+}
+
+/** The open request and the last few answered ones for one domain. */
+export function getPortalDomainProposals(
+  domainId: string,
+  org?: string | null,
+): Promise<{ proposals: PortalPolicyProposal[] }> {
+  return portalFetch<{ proposals: PortalPolicyProposal[] }>(
+    withOrg(`/api/portal/domains/${domainId}/policy-proposals`, org),
+  );
 }
 
 export function getPortalBranding(org?: string | null): Promise<PortalBranding> {

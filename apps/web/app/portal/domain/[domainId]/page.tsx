@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import { getSessionUser } from "@/lib/api";
-import { getPortalBranding, getPortalDomain, PortalError } from "@/lib/api-portal";
+import { getPortalBranding, getPortalDomain, getPortalDomainProposals, PortalError } from "@/lib/api-portal";
 import { dayLabel, policyPlain, senderName, senderPlain, summaryText, verdictFor } from "@/lib/portal-verdict";
 import { portalHref } from "@/lib/route-hrefs";
 import { signInRedirect } from "@/lib/session";
-import type { PortalBranding, PortalDomainDetail } from "@/lib/types";
+import type { PortalBranding, PortalDomainDetail, PortalPolicyProposal } from "@/lib/types";
 import { ForwardReport } from "@/components/harbor/portal-client";
+import { PortalProposal } from "@/components/harbor/portal-proposal";
 import { PortalFrame, PortalNotice, PortalPaused } from "@/components/harbor/portal-frame";
 import { Badge } from "@/components/ui/badge";
 import { CopyValue } from "@/components/ui/copy";
@@ -34,13 +35,19 @@ export default async function PortalDomainPage({
   const { domainId } = await params;
   // The provider, for a contact invited by more than one.
   const { org } = await searchParams;
-  const [detailResult, brand, user] = await Promise.all([
+  const [detailResult, brand, user, proposals] = await Promise.all([
     getPortalDomain(domainId, org).then(
       (d) => ({ ok: true as const, d }),
       (e: unknown) => ({ ok: false as const, e }),
     ),
     getPortalBranding(org).catch(() => null as PortalBranding | null),
     getSessionUser().catch(() => null),
+    // A failed read shows no request rather than blocking the report; the
+    // request is also in the email that announced it.
+    getPortalDomainProposals(domainId, org).then(
+      (result) => result.proposals,
+      () => [] as PortalPolicyProposal[],
+    ),
   ]);
   const email = user?.email ?? null;
 
@@ -108,6 +115,12 @@ export default async function PortalDomainPage({
             <ForwardReport subject={`Email protection report: ${detail.domain.name}`} text={summaryText(detail, verdict, agency)} />
           </div>
         </header>
+
+        {/* The open request, else the latest answered one, so a contact who
+            approved can see that it was recorded. */}
+        {(proposals.find((p) => p.state === "pending") ?? proposals[0]) ? (
+          <PortalProposal proposal={(proposals.find((p) => p.state === "pending") ?? proposals[0])!} org={org} />
+        ) : null}
 
         {detail.possibleSpoofingSources.length > 0 ? (
           <section aria-labelledby="spoof-head" className="flex flex-col gap-2 rounded-ctl border border-fail/35 bg-fail-wash/60 px-4 py-4">

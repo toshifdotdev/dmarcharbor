@@ -15,6 +15,7 @@ import {
   getDomainSwitch,
   getHostedBimi,
   getHostedDmarc,
+  getPolicyProposals,
   getHostedMtaSts,
   getManagedSpf,
   getMailboxCompliance,
@@ -38,6 +39,7 @@ import { resolveActiveWorkspace } from "@/lib/session";
 import type {
   DnsChangePage,
   DomainInsights,
+  DomainPolicyProposals,
   DomainRegistrationView,
   DomainSwitchView,
   HostedBimiView,
@@ -58,6 +60,7 @@ import { DomainSwitchPanel } from "@/components/harbor/domain-switch";
 import { HostedBimi } from "@/components/harbor/hosted-bimi";
 import { HostedDmarc } from "@/components/harbor/hosted-dmarc";
 import { HostedMtaSts } from "@/components/harbor/hosted-mta-sts";
+import { PolicyProposals } from "@/components/harbor/policy-proposals";
 import { ManagedSpf } from "@/components/harbor/managed-spf";
 import { MailboxCompliance } from "@/components/harbor/mailbox-compliance";
 import { ScanHistory, toScanHistoryRow } from "@/components/harbor/scan-history";
@@ -167,7 +170,7 @@ export default async function DomainPage({
 
   // A scan history is a different claim from the report evidence, so it fails
   // on its own and renders as a failure, never as an empty history.
-  const [scanHistory, switchState, dnsChanges, serviceMeta, members, me, entitlements, catalog, dnsConnections, mailboxCompliance, hostedDmarc, managedSpf, hostedBimi, hostedMtaSts, tlsSummary, tlsReports, registration] = await Promise.all([
+  const [scanHistory, switchState, dnsChanges, serviceMeta, members, me, entitlements, catalog, dnsConnections, mailboxCompliance, hostedDmarc, managedSpf, hostedBimi, hostedMtaSts, tlsSummary, tlsReports, registration, policyProposals] = await Promise.all([
     listDomainScans(active.id, id).then(
       (page) => ({ rows: page.rows, nextCursor: page.nextCursor, failed: false }),
       () => ({ rows: [] as ScanRow[], nextCursor: null as string | null, failed: true }),
@@ -226,6 +229,8 @@ export default async function DomainPage({
       (data) => data.registration,
       () => undefined,
     ),
+    // null when the read failed: the panel then says so, never "none sent".
+    getPolicyProposals(active.id, id).catch(() => null as DomainPolicyProposals | null),
   ]);
 
   const role =
@@ -233,6 +238,7 @@ export default async function DomainPage({
   const canAcknowledgeDnsChanges = role === null || ["owner", "admin", "analyst"].includes(role);
   const ownerFeature = featureOf(entitlements, "senders.owners");
   const hostedFeature = featureOf(entitlements, "dns.hosted");
+  const portalFeature = featureOf(entitlements, "portal.client");
   const managedSpfFeature = featureOf(entitlements, "dns.managedSpf");
   const hostedBimiFeature = featureOf(entitlements, "dns.hostedBimi");
   const hostedMtaStsFeature = featureOf(entitlements, "dns.hostedMtaSts");
@@ -369,7 +375,17 @@ export default async function DomainPage({
               domainName={insights.domain.name}
             />
           </section>
-          <PolicyPanel onboarding={onboarding} observedPolicy={observedPolicy} />
+          <PolicyPanel onboarding={onboarding} observedPolicy={observedPolicy}>
+            <PolicyProposals
+              organizationId={active.id}
+              domainId={id}
+              domainName={insights.domain.name}
+              data={policyProposals}
+              readiness={onboarding.readiness}
+              canEdit={canEditDomain}
+              hasPortal={portalFeature}
+            />
+          </PolicyPanel>
         </div>
 
         <DomainSwitchPanel
@@ -765,9 +781,12 @@ function PanelNote({ children }: { children: React.ReactNode }) {
 function PolicyPanel({
   onboarding,
   observedPolicy,
+  children,
 }: {
   onboarding: OnboardingState;
   observedPolicy: string;
+  /** The client-approval control, under the evidence it rests on. */
+  children?: React.ReactNode;
 }) {
   const r = onboarding.readiness;
   const observed = observedPolicy.toLowerCase();
@@ -835,6 +854,7 @@ function PolicyPanel({
           ))}
         </ul>
       ) : null}
+      {children}
     </aside>
   );
 }

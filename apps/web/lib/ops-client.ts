@@ -30,6 +30,8 @@ import type {
   HostedBimiView,
   HostedDmarcView,
   HostedMtaStsView,
+  PolicyProposalRow,
+  PortalPolicyProposal,
   ProspectReportRow,
   IssuedApiKey,
   ManagedSpfOutcomeView,
@@ -188,7 +190,7 @@ function conflictDetails(
   "blockers" | "view" | "outcomes" | "errors" | "lookupCount" | "partCount" | "failed"
 > {
   try {
-    const body = JSON.parse(raw) as {
+    const parsed = JSON.parse(raw) as {
       blockers?: unknown;
       view?: unknown;
       outcomes?: unknown;
@@ -196,6 +198,12 @@ function conflictDetails(
       lookupCount?: unknown;
       partCount?: unknown;
       failed?: unknown;
+      error?: { blockers?: unknown };
+    };
+    // Policy proposals send their blockers inside `error`, beside the code.
+    const body = {
+      ...parsed,
+      blockers: Array.isArray(parsed.blockers) ? parsed.blockers : parsed.error?.blockers,
     };
     return {
       // Hosted DMARC sends sentences; hosted MTA-STS sends `{ code, message }`.
@@ -790,6 +798,36 @@ export const revokeProspectReport = (orgId: string, reportId: string) =>
 
 export const deleteProspectReport = (orgId: string, reportId: string) =>
   call<void>(wsPath(orgId, `/prospect-reports/${reportId}`), { method: "DELETE" });
+
+// ─── client-approved enforcement ─────────────────────────────────────────────
+
+export const createPolicyProposal = (
+  orgId: string,
+  domainId: string,
+  body: { policy: "quarantine" | "reject"; testing: boolean; note?: string; acceptBlockers?: boolean },
+) =>
+  call<{ proposal: PolicyProposalRow }>(wsPath(orgId, `/domains/${domainId}/policy-proposals`), {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const withdrawPolicyProposal = (orgId: string, proposalId: string) =>
+  call<{ proposal: PolicyProposalRow }>(wsPath(orgId, `/policy-proposals/${proposalId}/withdraw`), { method: "POST" });
+
+export const retryPolicyProposal = (orgId: string, proposalId: string) =>
+  call<{ proposal: PolicyProposalRow }>(wsPath(orgId, `/policy-proposals/${proposalId}/retry`), { method: "POST" });
+
+/** The client contact's answer. `org` names the provider for a contact invited by more than one. */
+export const decidePolicyProposal = (
+  proposalId: string,
+  decision: "approve" | "decline",
+  org?: string | null,
+  reason?: string,
+) =>
+  call<{ proposal: PortalPolicyProposal }>(
+    `/api/portal/policy-proposals/${proposalId}/${decision}${org ? `?organizationId=${encodeURIComponent(org)}` : ""}`,
+    { method: "POST", body: JSON.stringify(reason ? { reason } : {}) },
+  );
 
 // ─── settings: Slack (Phase 6) ───────────────────────────────────────────────
 

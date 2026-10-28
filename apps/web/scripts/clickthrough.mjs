@@ -685,6 +685,18 @@ const detail = await waitForEval(
       hasReadiness: t.includes('Policy posture'),
       hasDnsChanges: !!document.querySelector('[data-testid="dns-changes"]'),
       registration: document.querySelector('[data-testid="domain-registration"]')?.textContent.trim() ?? null,
+      approval: (() => {
+        const panel = document.querySelector('[data-testid="policy-proposals"]');
+        if (!panel) return null;
+        return {
+          form: Boolean(panel.querySelector('[data-testid="proposal-form"]')),
+          noContacts: Boolean(panel.querySelector('[data-testid="proposal-no-contacts"]')),
+          upgrade: Boolean(panel.querySelector('[data-feature="portal.client"]')),
+          latest: panel.querySelector('[data-testid="proposal-latest"]')?.getAttribute('data-state') ?? null,
+          atReject: /no stricter step|no request has been sent/i.test(panel.textContent),
+          readFailed: /could not be read/i.test(panel.textContent),
+        };
+      })(),
       headings: [...document.querySelectorAll('h1,h2')].map(h => h.textContent.trim()).slice(0, 8),
     };
   })()`,
@@ -711,6 +723,18 @@ check(
       !/^[a-z_]+$/.test(detail.registration),
   ),
   JSON.stringify({ registration: detail?.registration }),
+);
+// Client approval sits under the policy ladder and always says where it
+// stands: a form, why there is none (no contact, not on the plan, already at
+// reject), or the latest request. Never empty, never a failed read.
+check(
+  "domain detail shows the client-approval control in a definite state",
+  Boolean(
+    detail?.approval &&
+      !detail.approval.readFailed &&
+      (detail.approval.form || detail.approval.noContacts || detail.approval.upgrade || detail.approval.atReject || detail.approval.latest),
+  ),
+  JSON.stringify({ approval: detail?.approval }),
 );
 const shotDetail = await shot("03-domain-detail.png");
 

@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getSessionUser } from "@/lib/api";
-import { getPortalDomain, getPortalMonthlyReports, getPortalOverview, PortalError } from "@/lib/api-portal";
+import { getPortalDomain, getPortalMonthlyReports, getPortalOverview, getPortalProposals, PortalError } from "@/lib/api-portal";
 import { dayLabel, verdictFor, type Verdict } from "@/lib/portal-verdict";
 import { portalDomainHref, portalHref } from "@/lib/route-hrefs";
 import { signInRedirect } from "@/lib/session";
-import type { PortalDomainDetail, PortalOverview } from "@/lib/types";
+import type { PortalDomainDetail, PortalOverview, PortalPolicyProposal } from "@/lib/types";
 import { PortalFrame, PortalNotice, PortalPaused } from "@/components/harbor/portal-frame";
 import { Badge } from "@/components/ui/badge";
 import { ArrowRight } from "@/components/ui/icons";
@@ -101,7 +101,7 @@ export default async function PortalPage({ searchParams }: { searchParams: Promi
   const now = Date.now();
 
   const domains = overview.clients.flatMap((c) => c.domains.map((d) => ({ ...d, clientName: c.name })));
-  const [details, monthlyByClient] = await Promise.all([
+  const [details, monthlyByClient, proposals] = await Promise.all([
     Promise.all(domains.map((d) => getPortalDomain(d.id, org).catch(() => null as PortalDomainDetail | null))),
     Promise.all(
       overview.clients.map(async (client) => ({
@@ -110,6 +110,10 @@ export default async function PortalPage({ searchParams }: { searchParams: Promi
           .then((result) => result.reports)
           .catch(() => null),
       })),
+    ),
+    getPortalProposals(org).then(
+      (result) => result.proposals,
+      () => [] as PortalPolicyProposal[],
     ),
   ]);
   const rows = domains
@@ -148,6 +152,28 @@ export default async function PortalPage({ searchParams }: { searchParams: Promi
             </p>
           ) : null}
         </header>
+
+        {proposals.length > 0 ? (
+          <section
+            aria-labelledby="approvals-head"
+            className="flex flex-col gap-2 rounded-ctl border border-rule-2 bg-paper-2 px-4 py-4"
+            data-testid="portal-approvals"
+          >
+            <h2 id="approvals-head" className="text-h3 font-bold text-fg">
+              {proposals.length === 1 ? `${agency} asks your approval` : `${agency} asks your approval on ${proposals.length} changes`}
+            </h2>
+            <ul className="flex flex-col gap-1">
+              {proposals.map((proposal) => (
+                <li key={proposal.id}>
+                  <Link href={portalDomainHref(proposal.domain.id, org)} className="link text-ui font-semibold">
+                    {proposal.words.headline}
+                  </Link>
+                  <span className="text-meta text-fg-3"> · open until {dayLabel(proposal.expiresAt)}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
 
         {rows.length > 0 ? (
           <ol className="hb-stagger flex flex-col border-y border-fg">
