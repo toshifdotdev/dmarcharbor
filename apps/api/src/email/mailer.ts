@@ -10,6 +10,8 @@ import {
   exportReadyEmail,
   paymentFailedEmail,
   planChangedEmail,
+  policyApprovalRequestedEmail,
+  policyProposalDecidedEmail,
   portalAccessGranted,
   subscriptionCancelledEmail,
   type BrandLook,
@@ -114,6 +116,73 @@ export async function sendPortalAccessGrantedEmailImpl(input: {
     }),
     input.contactEmail,
   );
+}
+
+/**
+ * Asks every active portal contact of the domain's client to approve a stricter
+ * policy. Any one of them can answer; the first answer stands.
+ */
+async function sendPolicyApprovalRequestedEmailImpl(input: { proposalId: string }): Promise<void> {
+  const { proposalForEmail } = await import('../services/policy-proposal/policy-proposal.service.js');
+  const found = await proposalForEmail(input.proposalId);
+  if (!found || found.portal.state !== 'pending') {
+    return;
+  }
+  const [contacts, brand] = await Promise.all([
+    prisma.clientPortalAccess.findMany({
+      where: { organizationId: found.organizationId, clientId: found.clientId, revokedAt: null },
+      select: { email: true },
+    }),
+    resolveBranding(found.organizationId).catch(() => null),
+  ]);
+  const look: BrandLook = {
+    workspaceName: brand?.workspaceName ?? found.portal.agencyName,
+    logoUrl: brand?.logoUrl ?? null,
+    primaryColor: brand?.primaryColor ?? null,
+    accentColor: brand?.accentColor ?? null,
+  };
+  const { portal } = found;
+  const rendered = policyApprovalRequestedEmail({
+    brand: look,
+    agencyName: look.workspaceName,
+    clientName: portal.clientName,
+    domainName: portal.domain.name,
+    headline: portal.words.headline,
+    effect: portal.words.effect,
+    trial: portal.words.trial,
+    risk: portal.words.risk,
+    evidence: portal.words.evidence,
+    note: portal.note,
+    openPoints: portal.blockers,
+    expiresAt: portal.expiresAt,
+    url: appUrl(`/portal/domain/${portal.domain.id}?org=${encodeURIComponent(found.organizationId)}`),
+  });
+  for (const contact of contacts) {
+    queueEmail(rendered, contact.email, `policy-proposal:${portal.id}:${contact.email}`);
+  }
+}
+
+/** Tells the proposer (or, if they have left, the owners and admins) what the client decided. */
+async function sendPolicyProposalDecidedEmailImpl(input: { proposalId: string }): Promise<void> {
+  const { agencyNotice, proposalForEmail } = await import('../services/policy-proposal/policy-proposal.service.js');
+  const found = await proposalForEmail(input.proposalId);
+  if (!found || (found.view.state !== 'approved' && found.view.state !== 'declined')) {
+    return;
+  }
+  const proposerIsMember = found.view.createdBy
+    ? (await prisma.member.count({ where: { organizationId: found.organizationId, userId: found.view.createdBy.id } })) > 0
+    : false;
+  const recipients = proposerIsMember && found.createdByEmail ? [found.createdByEmail] : await ownersOf(found.organizationId);
+  const notice = agencyNotice(found.view);
+  const rendered = policyProposalDecidedEmail({
+    workspaceName: await workspaceName(found.organizationId),
+    title: notice.title,
+    body: notice.body,
+    url: appUrl(`/domains/${found.view.domain.slug}`),
+  });
+  for (const email of new Set(recipients)) {
+    queueEmail(rendered, email, `policy-proposal-decided:${found.view.id}:${email}`);
+  }
 }
 
 async function sendDomainVerificationEmailImpl(input: {
@@ -281,6 +350,14 @@ async function sendErasureCompletedEmailImpl(input: {
  */
 export function sendPortalAccessGrantedEmail(input: Parameters<typeof sendPortalAccessGrantedEmailImpl>[0]): void {
   fireAndForget(sendPortalAccessGrantedEmailImpl(input), 'sendPortalAccessGrantedEmail');
+}
+
+export function sendPolicyApprovalRequestedEmail(input: Parameters<typeof sendPolicyApprovalRequestedEmailImpl>[0]): void {
+  fireAndForget(sendPolicyApprovalRequestedEmailImpl(input), 'sendPolicyApprovalRequestedEmail');
+}
+
+export function sendPolicyProposalDecidedEmail(input: Parameters<typeof sendPolicyProposalDecidedEmailImpl>[0]): void {
+  fireAndForget(sendPolicyProposalDecidedEmailImpl(input), 'sendPolicyProposalDecidedEmail');
 }
 
 export function sendDomainVerificationEmail(input: Parameters<typeof sendDomainVerificationEmailImpl>[0]): void {

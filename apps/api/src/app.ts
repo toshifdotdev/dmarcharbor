@@ -41,6 +41,7 @@ import { domainScanRouter } from './routes/domain-scan.routes.js';
 import { mailboxComplianceRouter } from './routes/mailbox-compliance.routes.js';
 import { domainRegistrationRouter } from './routes/domain-registration.routes.js';
 import { prospectRouter, publicProspectRouter } from './routes/prospect.routes.js';
+import { policyProposalRouter } from './routes/policy-proposal.routes.js';
 import { forensicRouter } from './routes/forensic.routes.js';
 import { inboundReportRouter } from './routes/inbound-report.routes.js';
 import { notificationRouter } from './routes/notification.routes.js';
@@ -254,6 +255,7 @@ export function createApp(): express.Express {
   app.use('/api', prospectRouter);
   app.use('/api', dnsAutomationRouter);
   app.use('/api', hostedDmarcRouter);
+  app.use('/api', policyProposalRouter);
   app.use('/api', managedSpfRouter);
   app.use('/api', hostedBimiRouter);
   app.use('/api', hostedMtaStsRouter);

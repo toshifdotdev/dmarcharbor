@@ -121,6 +121,7 @@ function readiness(blockers: string[] = []): PolicyReadiness {
     failingSenders: 0,
     observedSenders: 0,
     blockers,
+    blockersByLevel: { quarantine: blockers, reject: blockers },
   };
 }
 

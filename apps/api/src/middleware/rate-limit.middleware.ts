@@ -386,6 +386,25 @@ export const dnsPublishRateLimiter = rateLimit({
 });
 
 /**
+ * Asking a client to approve a stricter policy, and retrying an approved hosted
+ * change. Each request emails every contact of the client, so the budget is per
+ * workspace and separate from DNS publishing.
+ */
+export const policyProposalRateLimiter = rateLimit({
+  ...SHARED_LIMITER_OPTIONS,
+  windowMs: 60 * 60 * 1000,
+  limit: 30,
+  store: rateLimitStoreFor('policy-proposal'),
+  keyGenerator: (request) => `org:${String(request.params.organizationId ?? clientKey(request))}`,
+  message: {
+    error: {
+      code: 'RATE_LIMITED',
+      message: 'That workspace has sent 30 approval requests this hour. Wait before sending another.',
+    },
+  },
+});
+
+/**
  * The emailed report link is public, so it gets its own budget, per link.
  *
  * Keyed on the token rather than the address. Recipients open the link through

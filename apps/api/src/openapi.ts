@@ -2829,6 +2829,90 @@ export const openApiDocument = {
         responses: { 200: { description: 'The updated view, with republish when releasing.' }, ...standardErrors },
       },
     },
+    '/workspaces/{organizationId}/domains/{domainId}/policy-proposals': {
+      get: {
+        tags: ['Clients and domains'],
+        summary: 'List requests for the client to approve a stricter DMARC policy',
+        description: [
+          'The 10 newest proposals for the domain, each with state (pending, expired, approved, declined, withdrawn, superseded), from and to policy, the record the client approves, the evidence and any open points it was proposed despite, who decided and when, and for an approved one whether it is published now.',
+          'Also returns contacts (active portal contacts for the client, who can answer) and applyVia: hosted when DMARC Harbor serves the record and changes it on approval, manual when the agency publishes it. Every plan. Requires domain read permission.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: { 200: { description: '{ proposals, contacts, applyVia }.' }, ...standardErrors },
+      },
+      post: {
+        tags: ['Clients and domains'],
+        summary: 'Ask the client to approve a stricter DMARC policy',
+        description: [
+          'Body: policy (quarantine or reject), testing (t=y, default false), optional note (600) and acceptBlockers. The proposal must tighten the policy as receivers apply it, and the domain must be verified, publish a DMARC record and have at least one active portal contact.',
+          'Readiness is checked for the requested level. With open points, 409 POLICY_NOT_READY lists them in blockers unless acceptBlockers is true, in which case the client sees them in the request. The record, evidence and open points are frozen in the proposal; np= is carried over.',
+          'Replaces any open proposal for the domain. Every active contact of the client is emailed, under the agency\'s brand. The request expires after 14 days. Requires domain update permission and portal.client.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: {
+          ...standardErrors,
+          201: { description: '{ proposal }.' },
+          402: { description: 'The plan does not include the client portal.' },
+          409: { description: 'DOMAIN_NOT_VERIFIED, NO_PORTAL_CONTACTS, NO_DMARC_RECORD, NOT_STRICTER or POLICY_NOT_READY.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/policy-proposals/{proposalId}/withdraw': {
+      post: {
+        tags: ['Clients and domains'],
+        summary: 'Withdraw a request before the client answers',
+        description: 'Only an open request; 409 PROPOSAL_NOT_PENDING once the client has answered. Every plan. Requires domain update permission.',
+        parameters: [orgParam, idParam('proposalId', 'Proposal identifier.')],
+        responses: { 200: { description: '{ proposal }.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/policy-proposals/{proposalId}/retry': {
+      post: {
+        tags: ['Clients and domains'],
+        summary: 'Retry an approved hosted change that did not go through',
+        description: 'For an approved proposal on a hosted record whose change was refused (provider failure, a concurrent edit, or evidence that turned after a proposal made without open points). The reason is in applyError. 409 NOTHING_TO_RETRY otherwise. Requires domain update permission.',
+        parameters: [orgParam, idParam('proposalId', 'Proposal identifier.')],
+        responses: { 200: { description: '{ proposal }, with appliedAt or a new applyError.' }, ...standardErrors },
+      },
+    },
+    '/portal/policy-proposals': {
+      get: {
+        tags: ['Client portal'],
+        summary: 'Open approval requests for a client contact',
+        description: 'Pending requests across the clients the contact can see, in plain language: words.headline, effect, trial, risk and evidence, with the agency\'s note and any open points. Scoped by the portal grant.',
+        responses: { 200: { description: '{ proposals }.' }, ...standardErrors },
+      },
+    },
+    '/portal/domains/{domainId}/policy-proposals': {
+      get: {
+        tags: ['Client portal'],
+        summary: 'Approval requests for one domain',
+        description: 'The open request and the last few answered ones for a domain the contact can see. A domain of another client returns an empty list.',
+        parameters: [idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: { 200: { description: '{ proposals }.' }, ...standardErrors },
+      },
+    },
+    '/portal/policy-proposals/{proposalId}/approve': {
+      post: {
+        tags: ['Client portal'],
+        summary: 'Approve a stricter DMARC policy',
+        description: [
+          'Recorded under the contact\'s own account and address. The first answer stands: a second answer, an expired request or a withdrawn one gets 409 (PROPOSAL_NOT_PENDING or PROPOSAL_EXPIRED).',
+          'A hosted record is changed at once, overriding readiness only for the open points the contact was shown. The agency is notified in the app and by email.',
+        ].join(' '),
+        parameters: [idParam('proposalId', 'Proposal identifier.')],
+        responses: { 200: { description: '{ proposal }.' }, ...standardErrors },
+      },
+    },
+    '/portal/policy-proposals/{proposalId}/decline': {
+      post: {
+        tags: ['Client portal'],
+        summary: 'Decline a stricter DMARC policy',
+        description: 'Body: optional reason (600), passed to the agency. Nothing is changed. Same rules as approving.',
+        parameters: [idParam('proposalId', 'Proposal identifier.')],
+        responses: { 200: { description: '{ proposal }.' }, ...standardErrors },
+      },
+    },
     '/workspaces/{organizationId}/domains/{domainId}/managed-spf': {
       get: {
         tags: ['Clients and domains'],

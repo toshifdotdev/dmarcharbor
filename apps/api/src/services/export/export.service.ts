@@ -183,7 +183,7 @@ export async function buildExportPayload(input: {
           ...(input.scope === 'CLIENT' && input.targetId ? { clientId: input.targetId } : {}),
         };
 
-  const [organization, clients, domains, users, members, sessions, reports, forensics, alertRules, alertEvents, shares, digests, monthlyReports, senderReviews, dnsConnections, dnsPublications, hostedDmarcRecords, hostedSpfRecords, hostedBimiRecords, hostedMtaStsRecords, psaConnection, psaMappings, psaTicketLinks, psaJobs, tlsReports, prospectReports, domainRegistrations, auditLog] =
+  const [organization, clients, domains, users, members, sessions, reports, forensics, alertRules, alertEvents, shares, digests, monthlyReports, senderReviews, dnsConnections, dnsPublications, hostedDmarcRecords, hostedSpfRecords, hostedBimiRecords, hostedMtaStsRecords, psaConnection, psaMappings, psaTicketLinks, psaJobs, tlsReports, prospectReports, domainRegistrations, policyProposals, auditLog] =
     await Promise.all([
       prisma.organization.findUnique({
         where: { id: org },
@@ -822,6 +822,35 @@ export async function buildExportPayload(input: {
         orderBy: { domainId: 'asc' },
         take: exportTableLimit,
       }),
+      prisma.policyProposal.findMany({
+        where: { organizationId: org, domain: domainFilter },
+        select: {
+          id: true,
+          domainId: true,
+          createdById: true,
+          fromPolicy: true,
+          fromTesting: true,
+          policy: true,
+          testing: true,
+          np: true,
+          recordValue: true,
+          applyVia: true,
+          note: true,
+          evidence: true,
+          blockers: true,
+          status: true,
+          expiresAt: true,
+          decidedAt: true,
+          decidedById: true,
+          decidedByEmail: true,
+          declineReason: true,
+          appliedAt: true,
+          applyError: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'asc' },
+        take: exportTableLimit,
+      }),
       prisma.auditLog.findMany({
         where: input.scope === 'DOMAIN' && input.targetId ? { domainId: input.targetId } : { organizationId: org },
         select: { id: true, action: true, targetType: true, targetId: true, createdAt: true },
@@ -1135,6 +1164,7 @@ export async function buildExportPayload(input: {
       // exported; everything the page showed is in `result`.
       prospectReports,
       domainRegistrations,
+      policyProposals,
       auditLog,
     },
   };

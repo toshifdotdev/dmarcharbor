@@ -128,7 +128,7 @@ async function removeOurRecords(
   }
 }
 
-function policyFromValue(value: string): HostedPolicyView {
+export function policyFromValue(value: string): HostedPolicyView {
   const tags = readDmarcRecord(value).tags;
   const p = (tags.p ?? 'none').toLowerCase();
   return {
@@ -797,7 +797,10 @@ export async function changePolicy(input: {
   let blockers: string[] = [];
   if (effectiveLevel(after) > effectiveLevel(before)) {
     const readiness = await readinessImplementation(input.organizationId, domain.id);
-    blockers = readiness.blockers;
+    // The blockers of the level asked for, not of the next one the evidence
+    // supports: with quarantine ready, a jump from none to reject used to pass
+    // with no warning, skipping the quarantine stage entirely.
+    blockers = effectiveLevel(after) >= 2 ? readiness.blockersByLevel.reject : readiness.blockersByLevel.quarantine;
     if (blockers.length > 0 && input.override !== true) {
       throw new HostedDmarcError(
         'This policy change is not ready: resolve the blockers or publish anyway.',

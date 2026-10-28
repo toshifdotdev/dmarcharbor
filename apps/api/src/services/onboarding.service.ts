@@ -107,6 +107,22 @@ export interface PolicyReadiness {
   failingSenders: number;
   observedSenders: number;
   blockers: string[];
+  /**
+   * What stands between the domain and each enforcing policy, separately.
+   *
+   * `blockers` describes the next step the evidence supports, which is not
+   * always the step someone asks for: a domain ready for quarantine has no
+   * `blockers`, yet a jump straight to reject skips the quarantine stage.
+   * A requested change is checked against its own level here.
+   */
+  blockersByLevel: { quarantine: string[]; reject: string[] };
+}
+
+/** The level whose blockers apply to a requested policy, as receivers apply it (t=y is one softer). */
+export function enforcementLevelOf(policy: ReadinessLevel, testing: boolean): ReadinessLevel {
+  if (policy === 'reject') return testing ? 'quarantine' : 'reject';
+  if (policy === 'quarantine') return testing ? 'none' : 'quarantine';
+  return 'none';
 }
 
 function daySpan(from: Date | null, to: Date): number {
@@ -362,6 +378,7 @@ export async function assessPolicyReadiness(
     failingSenders: failingSenders.length,
     observedSenders,
     blockers,
+    blockersByLevel: { quarantine: quarantineBlockers, reject: rejectBlockers },
   };
 }
 

@@ -207,6 +207,70 @@ export function portalAccessGranted(input: {
 }
 
 /**
+ * Asks a client contact to approve a stricter DMARC policy. Client facing, so
+ * it carries the agency's brand, and it says what changes in sentences: the
+ * reader is the person who carries the risk, not an email engineer.
+ */
+export function policyApprovalRequestedEmail(input: {
+  brand: BrandLook;
+  agencyName: string;
+  clientName: string;
+  domainName: string;
+  headline: string;
+  effect: string;
+  trial: string | null;
+  risk: string;
+  evidence: string | null;
+  note: string | null;
+  openPoints: string[];
+  expiresAt: string;
+  url: string;
+}): RenderedEmail {
+  return layout({
+    title: `${input.agencyName} asks your approval: ${input.headline}`,
+    preheader: `A change to how ${input.domainName} is protected, waiting for your decision.`,
+    heading: input.headline,
+    paragraphs: [
+      `${input.agencyName} looks after email security for ${input.clientName} and would like to tighten the protection on ${input.domainName}. They need your approval before making the change.`,
+      ...(input.note ? [`Their note: "${input.note}"`] : []),
+      `What changes: ${input.effect}`,
+      ...(input.trial ? [input.trial] : []),
+      ...(input.evidence ? [`Why now: ${input.evidence}`] : []),
+      `The risk: ${input.risk}`,
+      `Approve or decline in your report. The request stays open until ${readableDate(input.expiresAt)}.`,
+    ],
+    action: { label: 'Review the request', url: input.url },
+    aside:
+      input.openPoints.length > 0
+        ? {
+            heading: `Points ${input.agencyName} has noted`,
+            body: input.openPoints.join('\n'),
+          }
+        : null,
+    footer: 'This message was sent because an IT provider listed this address as a contact who can approve changes for this domain.',
+    brand: input.brand,
+    whiteLabel: true,
+  });
+}
+
+/** Tells the agency what the client decided. Agency facing, so DMARC Harbor's brand. */
+export function policyProposalDecidedEmail(input: {
+  workspaceName: string;
+  title: string;
+  body: string;
+  url: string;
+}): RenderedEmail {
+  return layout({
+    title: input.title,
+    preheader: input.body.slice(0, 140),
+    heading: input.title,
+    paragraphs: [input.body],
+    action: { label: 'Open the domain', url: input.url },
+    footer: `You are receiving this because you proposed this change, or own or administer ${input.workspaceName}.`,
+  });
+}
+
+/**
  * A digest of the DNS changes found in one monitoring pass.
  *
  * One email per workspace recipient per pass, rather than one per change: a

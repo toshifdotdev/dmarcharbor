@@ -86,6 +86,14 @@ export const dataClasses: DataClass[] = [
     erasure: 'delete',
   },
   {
+    key: 'policyProposal',
+    label: 'Policy approval requests',
+    description:
+      'Stricter DMARC policies put to a client for approval: the record and evidence, the agency’s note, and who at the client approved or declined, with their email address and any reason they gave.',
+    containsPersonalData: true,
+    erasure: 'delete',
+  },
+  {
     key: 'domainRegistration',
     label: 'Domain registration',
     description:

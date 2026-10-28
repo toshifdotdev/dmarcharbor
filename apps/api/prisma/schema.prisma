@@ -26,6 +26,8 @@ model User {
   createdReportShares     ReportShare[]           @relation("CreatedReportShares")
   createdReportDigests    ReportDigest[]          @relation("CreatedReportDigests")
   createdProspectReports  ProspectReport[]        @relation("CreatedProspectReports")
+  createdPolicyProposals  PolicyProposal[]        @relation("CreatedPolicyProposals")
+  decidedPolicyProposals  PolicyProposal[]        @relation("DecidedPolicyProposals")
   notifications           Notification[]
   auditEvents             AuditLog[]
   portalAccessGrants      ClientPortalAccess[]
@@ -235,6 +237,7 @@ model Organization {
   psaTicketLinks        PsaTicketLink[]
   psaTicketJobs         PsaTicketJob[]
   prospectReports       ProspectReport[]
+  policyProposals       PolicyProposal[]
 
   @@unique([slug])
   /// Reads the document version rather than the column being null, so the sweep
@@ -407,6 +410,7 @@ model Domain {
   psaTicketLinks         PsaTicketLink[]
   tlsReports             TlsReport[]
   registration           DomainRegistration?
+  policyProposals        PolicyProposal[]
 
   /// The per client constraint is gone. Global uniqueness on `name` above
   /// subsumes it: two rows in one client with the same name would violate the
@@ -817,6 +821,9 @@ model Notification {
   /// names the domain, and erasing a domain must not leave that behind.
   domainRegistrationId String?
   domainRegistration   DomainRegistration? @relation(fields: [domainRegistrationId], references: [id], onDelete: Cascade)
+  /// Set on a policy approval notice, for the same reason: it names the domain.
+  policyProposalId String?
+  policyProposal   PolicyProposal?     @relation(fields: [policyProposalId], references: [id], onDelete: Cascade)
   readAt         DateTime?
   createdAt      DateTime             @default(now())
 
@@ -827,7 +834,74 @@ model Notification {
   @@index([userId, readAt, createdAt])
   @@index([organizationId, createdAt])
   @@index([domainRegistrationId])
+  @@index([policyProposalId])
   @@map("notification")
+}
+
+/// A stricter DMARC policy the agency asks the client to approve.
+///
+/// Enforcement is the one change that can stop the client's own mail, so the
+/// person who carries that risk signs it off in the portal. The proposal is
+/// frozen when it is made: the record, the evidence and any open points the
+/// agency chose to go ahead with are what the client reads and approves, and
+/// what the audit trail shows later. A hosted record is changed the moment the
+/// client approves; any other record is handed back to the agency to publish.
+model PolicyProposal {
+  id              String               @id @default(cuid())
+  organizationId  String
+  organization    Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  domainId        String
+  domain          Domain               @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  createdById     String?
+  createdBy       User?                @relation("CreatedPolicyProposals", fields: [createdById], references: [id], onDelete: SetNull)
+  /// The policy published when the proposal was made: p and t=y.
+  fromPolicy      String
+  fromTesting     Boolean
+  /// What is proposed. np= is carried over from the record as it was.
+  policy          String
+  testing         Boolean
+  np              String?
+  /// The whole record the client approves.
+  recordValue     String
+  /// 'hosted' when DMARC Harbor serves the record and changes it on approval;
+  /// 'manual' when the agency publishes it.
+  applyVia        String
+  /// A short note from the agency, shown above the request.
+  note            String?
+  /// The readiness evidence at the time: days, messages, pass rates, senders.
+  evidence        Json
+  /// Open readiness points the agency chose to propose despite. Empty when the
+  /// evidence supported the step outright.
+  blockers        String[]
+  status          PolicyProposalStatus @default(PENDING)
+  expiresAt       DateTime
+  decidedAt       DateTime?
+  decidedById     String?
+  decidedBy       User?                @relation("DecidedPolicyProposals", fields: [decidedById], references: [id], onDelete: SetNull)
+  /// The contact's address at the time, kept so the record still says who
+  /// approved after their account is gone.
+  decidedByEmail  String?
+  declineReason   String?
+  /// When the hosted record was changed. Null for a manual record, and for a
+  /// hosted change that has not gone through yet (see applyError).
+  appliedAt       DateTime?
+  applyError      String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  notifications   Notification[]
+
+  @@index([domainId, createdAt])
+  @@index([organizationId, status])
+  @@map("policy_proposal")
+}
+
+enum PolicyProposalStatus {
+  PENDING
+  APPROVED
+  DECLINED
+  WITHDRAWN
+  /// A newer proposal for the same domain replaced it before anyone decided.
+  SUPERSEDED
 }
 
 /// A one-off scan of a domain the workspace does NOT manage, shared as a link.
@@ -999,6 +1073,8 @@ enum NotificationKind {
   PSA
   /// A domain's registration expires soon, or has expired.
   DOMAIN_EXPIRY
+  /// A client approved or declined a stricter DMARC policy.
+  POLICY_APPROVAL
 }
 
 enum NotificationSeverity {
@@ -2567,6 +2643,12 @@ enum AuditAction {
   PROSPECT_REPORT_CREATED
   PROSPECT_REPORT_REVOKED
   PROSPECT_REPORT_DELETED
+  /// A stricter DMARC policy was put to the client, withdrawn, approved or
+  /// declined. The decision is the client contact's, recorded under their account.
+  POLICY_PROPOSAL_CREATED
+  POLICY_PROPOSAL_WITHDRAWN
+  POLICY_PROPOSAL_APPROVED
+  POLICY_PROPOSAL_DECLINED
 }
 
 enum AuditOutcome {
