@@ -144,6 +144,9 @@ const ACTION_SENTENCES: Record<AuditAction, string> = {
   SLACK_DESTINATION_REMOVED: "Slack destination removed",
   TEAMS_DESTINATION_CONFIGURED: "Microsoft Teams destination configured",
   TEAMS_DESTINATION_REMOVED: "Microsoft Teams destination removed",
+  PROSPECT_REPORT_CREATED: "Prospect risk report created",
+  PROSPECT_REPORT_REVOKED: "Prospect risk report link revoked",
+  PROSPECT_REPORT_DELETED: "Revoked prospect risk report removed",
 };
 
 /**
@@ -189,6 +192,7 @@ const TARGET_SENTENCES: Record<string, string> = {
   client: "Client",
   client_portal_access: "Client portal access",
   report_share: "Report share",
+  prospect_report: "Prospect risk report",
   report_digest: "Report digest",
   alert_rule: "Alert rule",
   alert_event: "Alert event",

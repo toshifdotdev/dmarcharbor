@@ -2725,6 +2725,29 @@ if (shareToken?.token) {
   check("revoked share token says so plainly — never a stale render", false, "no share token minted");
 }
 
+// 7g. A prospect report link that does not exist (made up, revoked or expired
+//     all read the same) says so in words, signed out, with no console chrome.
+//     No real report is minted here: creating one runs a live DNS scan.
+await cdp("Network.clearBrowserCookies");
+await navigate(WEB + `/prospect/${"x".repeat(43)}`);
+const prospectGoneAudit = await waitForEval(
+  `(() => {
+    const t = document.body.textContent.toLowerCase();
+    return {
+      saysUnavailable: Boolean(document.querySelector('[data-testid="prospect-unavailable"]')),
+      plainLanguage: t.includes('no longer available'),
+      noConsoleChrome: !t.includes('sign out everywhere') && !t.includes('slack alerts'),
+    };
+  })()`,
+  (s) => s && s.saysUnavailable,
+  30000,
+);
+check(
+  "unknown prospect report link says it is unavailable, signed out",
+  Boolean(prospectGoneAudit && prospectGoneAudit.saysUnavailable && prospectGoneAudit.plainLanguage && prospectGoneAudit.noConsoleChrome),
+  JSON.stringify(prospectGoneAudit),
+);
+
 // 7f ends deliberately signed-out (its final read is a public one). Phase 8
 // drives the operator's app, so the session is re-established first — a
 // signed-out page silently answers every "why is this control missing"
@@ -2736,6 +2759,26 @@ await fillInput('input[type="email"]', "sam@example.test");
 await fillInput('input[type="password"]', "harbor-test-2026");
 await evalJs(`(() => { document.querySelector('button[type=submit]').click(); return 'submitted'; })()`);
 await waitForEval("document.querySelectorAll('tbody tr').length > 0", (v) => v === true, 60000);
+
+// 7h. /prospects: the month's allowance in words, and either the form (on the
+//     plan) or the upgrade notice naming the feature. Never both missing.
+await navigate(WEB + "/prospects");
+const prospectsAudit = await waitForEval(
+  `(() => ({
+    usage: document.querySelector('[data-testid="prospects-usage"]')?.textContent.trim() ?? null,
+    form: Boolean(document.querySelector('[data-testid="prospect-form"]')),
+    upgrade: Boolean(document.querySelector('[data-feature="prospects.reports"]')),
+    listed: Boolean(document.querySelector('[data-testid="prospects-list"], [data-testid="prospects-empty"]')),
+    failed: Boolean(document.querySelector('[data-testid="state-error"]')),
+  }))()`,
+  (s) => s && (s.form || s.upgrade || s.failed),
+  45000,
+);
+check(
+  "prospects page shows the allowance and the form or the upgrade notice",
+  Boolean(prospectsAudit && !prospectsAudit.failed && prospectsAudit.usage && prospectsAudit.listed && (prospectsAudit.form || prospectsAudit.upgrade)),
+  JSON.stringify(prospectsAudit),
+);
 
 // ─── 8. Phase 8: slow-connection states, keyboard/focus, console hygiene ─────
 

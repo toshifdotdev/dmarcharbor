@@ -30,6 +30,7 @@ import type {
   HostedBimiView,
   HostedDmarcView,
   HostedMtaStsView,
+  ProspectReportRow,
   IssuedApiKey,
   ManagedSpfOutcomeView,
   ManagedSpfPreview,
@@ -766,6 +767,29 @@ export const createReportShare = (
 
 export const revokeReportShare = (orgId: string, shareId: string) =>
   call<void>(wsPath(orgId, `/report-shares/${shareId}`), { method: "DELETE" });
+
+// ─── prospect risk reports ───────────────────────────────────────────────────
+
+export const createProspectReport = (
+  orgId: string,
+  body: {
+    domain: string;
+    prospectName?: string;
+    note?: string;
+    contactEmail?: string;
+    expiresInDays?: number;
+  },
+) =>
+  call<{ report: ProspectReportRow }>(wsPath(orgId, "/prospect-reports"), {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const revokeProspectReport = (orgId: string, reportId: string) =>
+  call<void>(wsPath(orgId, `/prospect-reports/${reportId}/revoke`), { method: "POST" });
+
+export const deleteProspectReport = (orgId: string, reportId: string) =>
+  call<void>(wsPath(orgId, `/prospect-reports/${reportId}`), { method: "DELETE" });
 
 // ─── settings: Slack (Phase 6) ───────────────────────────────────────────────
 

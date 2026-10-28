@@ -30,7 +30,8 @@ export type EntitlementKey =
   | 'dns.managedSpf'
   | 'dns.hostedBimi'
   | 'dns.hostedMtaSts'
-  | 'integrations.psa';
+  | 'integrations.psa'
+  | 'prospects.reports';
 
 export type QuotaKey = 'client' | 'activeDomain' | 'member';
 
@@ -68,6 +69,7 @@ export const entitlementLabels: Record<EntitlementKey, string> = {
   'dns.hostedBimi': 'Logo in the inbox (BIMI)',
   'dns.hostedMtaSts': 'Hosted MTA-STS policy',
   'integrations.psa': 'PSA ticketing',
+  'prospects.reports': 'Prospect risk reports',
 };
 
 /**
@@ -131,6 +133,14 @@ export interface PlanDefinition {
    * downgrade never deletes history.
    */
   activeDomainWindowDays: number;
+  /**
+   * Prospect risk reports a workspace may create per calendar month (UTC).
+   *
+   * Each one is a live scan of a domain nobody in the workspace has verified,
+   * so it is bounded per month rather than by stored rows: deleting old
+   * reports must not buy more scans. 0 where the feature is off.
+   */
+  maxProspectReportsPerMonth: number;
   features: Record<EntitlementKey, boolean>;
 }
 
@@ -167,6 +177,7 @@ const allFeatures = (overrides: Partial<Record<EntitlementKey, boolean>> = {}): 
   'dns.hostedBimi': true,
   'dns.hostedMtaSts': true,
   'integrations.psa': true,
+  'prospects.reports': true,
   ...overrides,
 });
 
@@ -326,6 +337,16 @@ const noHostedMtaSts = { 'dns.hostedMtaSts': false } as const;
  */
 const noPsa = { 'integrations.psa': false } as const;
 
+/**
+ * Prospect risk reports start at Fairway.
+ *
+ * They are a sales tool for an agency winning its next client, which is what
+ * a paying agency is doing; on the free plan they would be a free scanner with
+ * a share link. The monthly allowance grows with the plan because a bigger
+ * agency pitches more.
+ */
+const noProspects = { 'prospects.reports': false } as const;
+
 /** TLS-RPT viewing starts at Fairway; collection happens on every plan. */
 const noTlsRpt = { 'reports.tlsrpt': false } as const;
 
@@ -352,7 +373,8 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
       maxMembers: 1,
       maxWorkspaces: 1,
     activeDomainWindowDays: 30,
-    features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noIntegrations, ...noDnsAutomation, ...noDnsHosted, ...noManagedSpf, ...noHostedBimi, ...noHostedMtaSts, ...noPsa, ...noTlsRpt, ...off }),
+    maxProspectReportsPerMonth: 0,
+    features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noIntegrations, ...noDnsAutomation, ...noDnsHosted, ...noManagedSpf, ...noHostedBimi, ...noHostedMtaSts, ...noPsa, ...noProspects, ...noTlsRpt, ...off }),
   },
   FAIRWAY: {
     tier: 'FAIRWAY',
@@ -367,6 +389,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
       maxMembers: 3,
       maxWorkspaces: 2,
     activeDomainWindowDays: 365,
+    maxProspectReportsPerMonth: 10,
     features: allFeatures({ ...noNamedForensic, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noDigests, ...noManagedSpf, ...noHostedBimi, ...noHostedMtaSts, ...noPsa }),
   },
   HARBOR: {
@@ -382,6 +405,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
       maxMembers: 10,
       maxWorkspaces: 3,
     activeDomainWindowDays: 1095,
+    maxProspectReportsPerMonth: 50,
     features: harborFeatures,
   },
   ADMIRALTY: {
@@ -397,6 +421,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
       maxMembers: 25,
       maxWorkspaces: 5,
     activeDomainWindowDays: 3650,
+    maxProspectReportsPerMonth: 200,
     features: allFeatures(),
   },
   /**
@@ -419,6 +444,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     maxMembers: 25,
     maxWorkspaces: 5,
     activeDomainWindowDays: 30,
+    maxProspectReportsPerMonth: 200,
     features: harborFeatures,
   },
 };

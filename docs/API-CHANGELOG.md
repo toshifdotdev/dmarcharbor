@@ -249,6 +249,41 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-11-26 — Prospect risk reports
+
+A workspace can check a domain it does not manage yet, such as a company it is
+pitching, and send that company a link to a plain-language risk report under
+the workspace's own name. The page explains whether the domain can be
+impersonated by email, whether anyone is told when that happens, and whether
+mail is signed and encrypted, with an example of what a fake invoice from that
+domain would look like.
+
+The scan runs **once**, when the report is created, and the result is stored.
+Opening the link never scans again, so a shared link cannot be used to probe
+anyone's DNS. Creating a report needs the `prospects.reports` feature (Fairway
+and above) and counts against a monthly allowance: Fairway 10, Harbor 50,
+Admiralty and Fleet 200, per calendar month in UTC. Deleting old reports does
+not return allowance. A scan that fails is neither saved nor counted.
+
+The public page shows the workspace name on every plan; the logo and colours
+appear only with white label. It is `noindex`, never cached, and counts views.
+
+Browser routes:
+
+- `GET /api/workspaces/{id}/prospect-reports` — `{ reports, usage }`. Every
+  plan, so a downgraded workspace can still see and withdraw its links.
+- `POST /api/workspaces/{id}/prospect-reports` — `domain`, optional
+  `prospectName` (120), `note` (600), `contactEmail`, `expiresInDays` (1–90,
+  default 30). `201 { report }`; `402 PROSPECT_LIMIT_REACHED` with `used`,
+  `limit`, `resetsAt`; `502 SCAN_FAILED`.
+- `POST /api/workspaces/{id}/prospect-reports/{reportId}/revoke` — `204`.
+- `DELETE /api/workspaces/{id}/prospect-reports/{reportId}` — `204`; only once
+  revoked or expired, otherwise `409 PROSPECT_REPORT_STILL_ACTIVE`.
+- `GET /api/prospect-reports/{token}` — no session. The same `404` for a link
+  that never existed, was revoked or has expired.
+
+`/api/v1`: unchanged.
+
 ## 2026-11-25 — Domain-expiry alerts
 
 Each verified domain's registration expiry is read over RDAP about once a day,

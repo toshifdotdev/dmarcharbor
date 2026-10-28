@@ -50,6 +50,7 @@ const SCREENS: Array<[string, string, string?]> = [
   ["/clients", "Clients", "add client domain"],
   ["/alerts", "Alerts", "rules events"],
   ["/digests", "Digests", "scheduled report email"],
+  ["/prospects", "Prospects", "prospect risk report sales pitch new client scan"],
   ["/notifications", "Notifications", "inbox"],
   ["/settings", "Settings"],
   // The same sections and plain task phrases the settings index searches.

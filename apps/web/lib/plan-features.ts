@@ -30,6 +30,7 @@ const FEATURES: Array<[key: string, label: string]> = [
   ["dns.hostedBimi", "Logo in the inbox (BIMI)"],
   ["dns.hostedMtaSts", "Hosted MTA-STS policy"],
   ["integrations.psa", "PSA ticketing"],
+  ["prospects.reports", "Prospect risk reports"],
   ["reports.forensic", "Forensic reports, recipients unnamed"],
   ["sharing.links", "Report share links"],
   ["reports.forensicNamed", "Named forensic evidence"],

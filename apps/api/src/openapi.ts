@@ -3988,6 +3988,62 @@ export const openApiDocument = {
         responses: { 200: { description: 'Insights payload.' }, ...standardErrors },
       },
     },
+    '/workspaces/{organizationId}/prospect-reports': {
+      get: {
+        tags: ['Reports'],
+        summary: 'List prospect risk reports',
+        description:
+          'The 100 newest prospect reports with their public URL, state (active, expired, revoked), view count and the risk level, plus this month\'s usage against the plan allowance. Available on every plan, so a downgraded workspace can still see and withdraw its links. Requires report read permission.',
+        parameters: [orgParam],
+        responses: { 200: { description: '{ reports, usage: { used, limit, resetsAt } }.' }, ...standardErrors },
+      },
+      post: {
+        tags: ['Reports'],
+        summary: 'Create a prospect risk report',
+        description: [
+          'Scans any public domain (no verification: the prospect is not a client yet) and stores the result as a snapshot behind an expiring public link at APP_URL/prospect/{token}. Opening the link never scans again.',
+          'Body: domain, and optionally prospectName (120), note (600), contactEmail, expiresInDays (1-90, default 30).',
+          'Counts against the plan\'s monthly allowance (Fairway 10, Harbor 50, Admiralty and Fleet 200), checked under a lock so two requests cannot both take the last one. A scan that fails is not saved and not counted (502 SCAN_FAILED). Rate limited like the scanner. 402 PROSPECT_LIMIT_REACHED with used, limit and resetsAt at the allowance. Requires report update permission.',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: {
+          ...standardErrors,
+          201: { description: '{ report }, including its url.' },
+          402: { description: 'Not on this plan, or the monthly allowance is used.' },
+          502: { description: 'The domain\'s DNS could not be read; nothing was saved.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/prospect-reports/{reportId}/revoke': {
+      post: {
+        tags: ['Reports'],
+        summary: 'Revoke a prospect report link',
+        description: 'The link stops working at once and the row is kept so the workspace can see what was sent. Every plan. Requires report update permission.',
+        parameters: [orgParam, idParam('reportId', 'Prospect report identifier.')],
+        responses: { 204: { description: 'Revoked.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/prospect-reports/{reportId}': {
+      delete: {
+        tags: ['Reports'],
+        summary: 'Remove a revoked or expired prospect report',
+        description: 'Refused with 409 PROSPECT_REPORT_STILL_ACTIVE while the link still works, so a live link never disappears without its revocation being recorded. The view count is kept in the audit detail. Requires report delete permission.',
+        parameters: [orgParam, idParam('reportId', 'Prospect report identifier.')],
+        responses: { ...standardErrors, 204: { description: 'Removed.' }, 409: { description: 'Still active; revoke it first.' } },
+      },
+    },
+    '/prospect-reports/{token}': {
+      get: {
+        tags: ['Reports'],
+        summary: 'Read a prospect risk report (public)',
+        description: [
+          'No session. Returns the preparing workspace\'s name (and its logo and colours on white-label plans), the domain, the MSP\'s note and contact address if set, the score, an overall risk level with plain-language findings (status, headline, detail, fix), and the public DNS evidence they rest on.',
+          'A token that never existed, was revoked or has expired answers the same 404. Served from the stored scan; never scans. Each read is counted. Cache-Control: no-store, X-Robots-Tag: noindex.',
+        ].join(' '),
+        parameters: [{ name: 'token', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 200: { description: 'The report.' }, 404: { description: 'Not available.' }, 429: { description: 'Rate limited.' } },
+      },
+    },
     '/workspaces/{organizationId}/report-shares': {
       get: {
         tags: ['Onboarding and sharing'],

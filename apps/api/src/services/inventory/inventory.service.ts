@@ -114,6 +114,7 @@ export async function buildInventory(
     tlsPolicies,
     tlsFailures,
     domainRegistrations,
+    prospectReports,
     forensic,
     forensicNamed,
     alertRules,
@@ -170,6 +171,9 @@ export async function buildInventory(
     prisma.tlsReportFailure.count({ where: { policy: { report: { domain } } } }),
 
     prisma.domainRegistration.count({ where: { domain } }),
+
+    // Workspace-owned: a client or domain scope holds none.
+    scope.kind === 'ORGANIZATION' ? prisma.prospectReport.count({ where: { organizationId: org } }) : Promise.resolve(0),
 
     prisma.dmarcForensicReport.count({ where: named }),
 
@@ -234,6 +238,7 @@ export async function buildInventory(
     tlsReportPolicy: tlsPolicies,
     tlsReportFailure: tlsFailures,
     domainRegistration: domainRegistrations,
+    prospectReport: prospectReports,
     forensicEvidence: forensic,
     forensicPseudonym: forensic,
     forensicPersonalData: forensicNamed,

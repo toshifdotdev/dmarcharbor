@@ -78,6 +78,14 @@ export const dataClasses: DataClass[] = [
     erasure: 'delete',
   },
   {
+    key: 'prospectReport',
+    label: 'Prospect risk reports',
+    description:
+      'Scans of domains the workspace does not manage, shared as links: the domain, the prospect name and note the agency typed, an optional reply-to address, and the public DNS scan.',
+    containsPersonalData: true,
+    erasure: 'delete',
+  },
+  {
     key: 'domainRegistration',
     label: 'Domain registration',
     description:

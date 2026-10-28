@@ -25,6 +25,7 @@ const WATCH: Item[] = [
   { href: "/alerts", label: "Alerts", match: (p) => p.startsWith("/alerts") },
 ];
 const OUTWARD: Item[] = [
+  { href: "/prospects", label: "Prospects", match: (p) => p.startsWith("/prospects") },
   { href: "/digests", label: "Digests", match: (p) => p.startsWith("/digests") },
   { href: "/notifications", label: "Notifications", match: (p) => p.startsWith("/notifications") },
 ];

@@ -11,6 +11,7 @@
 
 import type { ReactNode } from "react";
 import { readHostBrand } from "@/lib/host-brand";
+import { chartBrandVars } from "@/lib/brand-vars";
 import { PierMark } from "@/components/mark";
 import { PrintButton } from "./legal-client";
 import { HostUnverifiedBanner } from "./shell-banners";
@@ -20,6 +21,7 @@ export async function ArtefactFrame({
   meta,
   children,
   testId,
+  publisher,
 }: {
   /** What this document is, e.g. "Shared report". */
   kind: string;
@@ -27,21 +29,40 @@ export async function ArtefactFrame({
   meta?: ReactNode;
   children: ReactNode;
   testId?: string;
+  /**
+   * The workspace that published the document, when the document says so
+   * itself (a prospect report names its agency on any host). Its name always
+   * heads the masthead; its logo and colours only when it is white-labelled.
+   * Without it the masthead follows the host, as before.
+   */
+  publisher?: {
+    workspaceName: string;
+    logoUrl: string | null;
+    primaryColor: string | null;
+    accentColor: string | null;
+    branded: boolean;
+  };
 }) {
   const brand = await readHostBrand();
-  const branded = brand.state === "verified";
+  const hostBranded = brand.state === "verified";
+  const name = publisher ? publisher.workspaceName : hostBranded ? brand.workspaceName : "DMARC Harbor";
+  const logo = publisher ? (publisher.branded ? publisher.logoUrl : null) : hostBranded ? brand.logoUrl : null;
+  // A document a workspace publishes under its own name carries that name, not
+  // ours: the product mark appears only where the host is ours and unbranded.
+  const showMark = !publisher && !hostBranded;
+  const vars = publisher?.branded ? chartBrandVars(publisher.primaryColor, publisher.accentColor) : undefined;
   return (
-    <div data-harbor data-host-brand={brand.state} data-testid={testId}>
+    <div data-harbor data-host-brand={brand.state} data-testid={testId} style={vars}>
       {brand.state === "unverified" ? <HostUnverifiedBanner /> : null}
       <header className="border-b border-rule">
         <div className="mx-auto flex min-h-14 w-full max-w-[1120px] flex-wrap items-center gap-x-4 gap-y-2 px-5 py-2 sm:px-8">
           <span className="flex items-center gap-2.5 text-act">
-            {branded && brand.logoUrl ? (
-              <img src={brand.logoUrl} alt="" height={24} className="h-6 w-auto" />
-            ) : branded ? null : (
+            {logo ? (
+              <img src={logo} alt="" height={24} className="h-6 w-auto" />
+            ) : showMark ? (
               <PierMark size={24} />
-            )}
-            <span className="wide text-body font-bold text-fg">{branded ? brand.workspaceName : "DMARC Harbor"}</span>
+            ) : null}
+            <span className="wide text-body font-bold text-fg">{name}</span>
           </span>
           <span aria-hidden className="h-5 w-px bg-rule-2" />
           <span className="legend text-fg-2!">{kind}</span>

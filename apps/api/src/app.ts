@@ -40,6 +40,7 @@ import { globalErrorHandler } from './middleware/global-error.middleware.js';
 import { domainScanRouter } from './routes/domain-scan.routes.js';
 import { mailboxComplianceRouter } from './routes/mailbox-compliance.routes.js';
 import { domainRegistrationRouter } from './routes/domain-registration.routes.js';
+import { prospectRouter, publicProspectRouter } from './routes/prospect.routes.js';
 import { forensicRouter } from './routes/forensic.routes.js';
 import { inboundReportRouter } from './routes/inbound-report.routes.js';
 import { notificationRouter } from './routes/notification.routes.js';
@@ -151,6 +152,8 @@ export function createApp(): express.Express {
   app.use('/api', onboardingRouter);
   app.use('/api', mailboxComplianceRouter);
   app.use('/api', domainRegistrationRouter);
+  // The prospect's page: no workspace in the path, so the guards above are inert.
+  app.use('/api', publicProspectRouter);
   app.use('/api', notificationRouter);
   /**
    * A larger body reader for one path, registered BEFORE the 10kb parser below.
@@ -248,6 +251,7 @@ export function createApp(): express.Express {
   app.use('/api', reportInboxRouter);
   app.use('/api', slackRouter);
   app.use('/api', teamsRouter);
+  app.use('/api', prospectRouter);
   app.use('/api', dnsAutomationRouter);
   app.use('/api', hostedDmarcRouter);
   app.use('/api', managedSpfRouter);

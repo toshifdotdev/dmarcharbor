@@ -183,7 +183,7 @@ export async function buildExportPayload(input: {
           ...(input.scope === 'CLIENT' && input.targetId ? { clientId: input.targetId } : {}),
         };
 
-  const [organization, clients, domains, users, members, sessions, reports, forensics, alertRules, alertEvents, shares, digests, monthlyReports, senderReviews, dnsConnections, dnsPublications, hostedDmarcRecords, hostedSpfRecords, hostedBimiRecords, hostedMtaStsRecords, psaConnection, psaMappings, psaTicketLinks, psaJobs, tlsReports, domainRegistrations, auditLog] =
+  const [organization, clients, domains, users, members, sessions, reports, forensics, alertRules, alertEvents, shares, digests, monthlyReports, senderReviews, dnsConnections, dnsPublications, hostedDmarcRecords, hostedSpfRecords, hostedBimiRecords, hostedMtaStsRecords, psaConnection, psaMappings, psaTicketLinks, psaJobs, tlsReports, prospectReports, domainRegistrations, auditLog] =
     await Promise.all([
       prisma.organization.findUnique({
         where: { id: org },
@@ -781,6 +781,31 @@ export async function buildExportPayload(input: {
         orderBy: { receivedAt: 'asc' },
         take: exportTableLimit,
       }),
+      // Workspace-level only: a prospect is by definition not one of the
+      // workspace's clients, so a client or domain export has none.
+      input.scope === 'ORGANIZATION'
+        ? prisma.prospectReport.findMany({
+            where: { organizationId: org },
+            select: {
+              id: true,
+              domain: true,
+              prospectName: true,
+              note: true,
+              contactEmail: true,
+              score: true,
+              scannedAt: true,
+              expiresAt: true,
+              revokedAt: true,
+              viewCount: true,
+              lastViewedAt: true,
+              createdAt: true,
+              createdById: true,
+              result: true,
+            },
+            orderBy: { createdAt: 'asc' },
+            take: exportTableLimit,
+          })
+        : Promise.resolve([]),
       prisma.domainRegistration.findMany({
         where: { domain: domainFilter },
         select: {
@@ -1106,6 +1131,9 @@ export async function buildExportPayload(input: {
           })),
         })),
       })),
+      // The share token is a credential (it opens the public page) and is not
+      // exported; everything the page showed is in `result`.
+      prospectReports,
       domainRegistrations,
       auditLog,
     },

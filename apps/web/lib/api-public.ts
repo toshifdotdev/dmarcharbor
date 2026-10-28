@@ -1,15 +1,15 @@
 /**
- * api-public.ts — the two public artefacts.
+ * api-public.ts — the public artefacts.
  *
- * PUBLIC AND STAYING PUBLIC: the Trust Center and the compliance verifier are
- * opened by an auditor with no account. Every call here deliberately sends NO
+ * PUBLIC AND STAYING PUBLIC: the Trust Center, the compliance verifier and a
+ * prospect risk report are opened by someone with no account. Every call here deliberately sends NO
  * session cookie and no credentials — an accidental auth dependency on either
  * surface would break the product's contract. There is no import of the
  * session helpers on purpose.
  */
 
 import { API_BASE, apiFetch } from "./api-fetch";
-import type { TrustCenterPayload, CompliancePackRecord } from "./types";
+import type { TrustCenterPayload, CompliancePackRecord, PublicProspectReport } from "./types";
 
 
 async function publicFetch<T>(path: string): Promise<T> {
@@ -44,6 +44,13 @@ export class PublicError extends Error {
  *  ever existed. */
 export function getTrustCenter(slug: string): Promise<TrustCenterPayload> {
   return publicFetch<TrustCenterPayload>(`/api/trust/${encodeURIComponent(slug)}`);
+}
+
+/** GET /api/prospect-reports/{token} — unauthenticated. A revoked, expired or
+ *  made-up token answers the same 404. Reading it never scans; it is the
+ *  snapshot taken when the report was created. */
+export function getProspectReport(token: string): Promise<PublicProspectReport> {
+  return publicFetch<PublicProspectReport>(`/api/prospect-reports/${encodeURIComponent(token)}`);
 }
 
 /** GET /api/compliance-packs/verify?reference= — unauthenticated. Returns the

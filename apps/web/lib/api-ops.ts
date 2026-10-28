@@ -66,6 +66,8 @@ import type {
   TlsReportPage,
   TlsReportSummary,
   DomainRegistrationView,
+  ProspectReportRow,
+  ProspectUsage,
   TrustSlugStatus,
   VerifyDomainResult,
   WebhookDeliveryRow,
@@ -227,6 +229,15 @@ export function getTlsReportSummary(
 ): Promise<TlsReportSummary> {
   return opsFetch<TlsReportSummary>(
     `/api/workspaces/${organizationId}/domains/${domainId}/tls-reports/summary?days=${days}`,
+  );
+}
+
+/** GET /prospect-reports — the workspace's prospect reports and this month's usage. */
+export function listProspectReports(
+  organizationId: string,
+): Promise<{ reports: ProspectReportRow[]; usage: ProspectUsage }> {
+  return opsFetch<{ reports: ProspectReportRow[]; usage: ProspectUsage }>(
+    `/api/workspaces/${organizationId}/prospect-reports`,
   );
 }
 

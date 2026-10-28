@@ -25,6 +25,7 @@ model User {
   createdAlertRules       AlertRule[]             @relation("CreatedAlertRules")
   createdReportShares     ReportShare[]           @relation("CreatedReportShares")
   createdReportDigests    ReportDigest[]          @relation("CreatedReportDigests")
+  createdProspectReports  ProspectReport[]        @relation("CreatedProspectReports")
   notifications           Notification[]
   auditEvents             AuditLog[]
   portalAccessGrants      ClientPortalAccess[]
@@ -233,6 +234,7 @@ model Organization {
   psaCompanyMappings    PsaCompanyMapping[]
   psaTicketLinks        PsaTicketLink[]
   psaTicketJobs         PsaTicketJob[]
+  prospectReports       ProspectReport[]
 
   @@unique([slug])
   /// Reads the document version rather than the column being null, so the sweep
@@ -826,6 +828,43 @@ model Notification {
   @@index([organizationId, createdAt])
   @@index([domainRegistrationId])
   @@map("notification")
+}
+
+/// A one-off scan of a domain the workspace does NOT manage, shared as a link.
+///
+/// An MSP sends it to a prospect to show what is missing before the prospect
+/// is a client. The scan result is stored as it was when it ran (a snapshot),
+/// so the page the prospect opens says the same thing the MSP read when they
+/// sent it, and opening it never triggers a fresh lookup of someone else's
+/// domain. Only public DNS is in it: no verification, no reports.
+model ProspectReport {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdById    String?
+  createdBy      User?        @relation("CreatedProspectReports", fields: [createdById], references: [id], onDelete: SetNull)
+  /// The scanned domain, normalised.
+  domain         String
+  /// Who the report is for, as the MSP typed it ("Acme Ltd"). Optional.
+  prospectName   String?
+  /// A short note from the MSP shown at the top of the report. Optional.
+  note           String?
+  /// Where the prospect should reply. Optional, and shown only if set.
+  contactEmail   String?
+  /// The public link's secret. 43 characters of base64url.
+  token          String       @unique
+  /// The scanner's result at the moment it ran.
+  result         Json
+  score          Int
+  scannedAt      DateTime
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  viewCount      Int          @default(0)
+  lastViewedAt   DateTime?
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, createdAt])
+  @@map("prospect_report")
 }
 
 /// What the domain's registry says about its registration, read over RDAP.
@@ -2524,6 +2563,10 @@ enum AuditAction {
   SLACK_DESTINATION_REMOVED
   TEAMS_DESTINATION_CONFIGURED
   TEAMS_DESTINATION_REMOVED
+  /// A prospect risk report was created, revoked or removed.
+  PROSPECT_REPORT_CREATED
+  PROSPECT_REPORT_REVOKED
+  PROSPECT_REPORT_DELETED
 }
 
 enum AuditOutcome {

@@ -658,6 +658,69 @@ export interface TlsReportDetail extends TlsReportListItem {
   policies: Array<TlsReportPolicySummary & { failures: TlsReportFailure[] }>;
 }
 
+/** One prospect risk report, as the workspace lists it. */
+export interface ProspectReportRow {
+  id: string;
+  domain: string;
+  prospectName: string | null;
+  score: number;
+  level: "high" | "medium" | "low";
+  url: string;
+  scannedAt: string;
+  createdAt: string;
+  expiresAt: string;
+  revokedAt: string | null;
+  viewCount: number;
+  lastViewedAt: string | null;
+  createdBy: { id: string; name: string } | null;
+  state: "active" | "expired" | "revoked";
+}
+
+export interface ProspectUsage {
+  used: number;
+  limit: number;
+  resetsAt: string;
+}
+
+export interface ProspectFinding {
+  key: string;
+  area: string;
+  status: "risk" | "warn" | "unknown" | "info" | "good";
+  headline: string;
+  detail: string;
+  fix: string | null;
+}
+
+/** GET /api/prospect-reports/:token — what the prospect's page renders. */
+export interface PublicProspectReport {
+  preparedBy: {
+    workspaceName: string;
+    logoUrl: string | null;
+    primaryColor: string | null;
+    accentColor: string | null;
+    branded: boolean;
+  };
+  domain: string;
+  prospectName: string | null;
+  note: string | null;
+  contactEmail: string | null;
+  scannedAt: string;
+  expiresAt: string;
+  score: number;
+  assessment: {
+    level: "high" | "medium" | "low";
+    headline: string;
+    summary: string;
+    findings: ProspectFinding[];
+  };
+  evidence: {
+    dmarcRecord: string | null;
+    spfRecord: string | null;
+    mailServers: string[];
+    dkimSelectors: string[];
+  };
+}
+
 /** GET /domains/:id/registration — the registry's expiry, read over RDAP. */
 export interface DomainRegistrationView {
   registrableDomain: string;
@@ -1251,7 +1314,8 @@ export type EntitlementKey =
   | "dns.managedSpf"
   | "dns.hostedBimi"
   | "dns.hostedMtaSts"
-  | "integrations.psa";
+  | "integrations.psa"
+  | "prospects.reports";
 
 export type QuotaKey = "client" | "activeDomain" | "member";
 
@@ -1533,7 +1597,10 @@ export type AuditAction =
   | "SLACK_DESTINATION_CONFIGURED"
   | "SLACK_DESTINATION_REMOVED"
   | "TEAMS_DESTINATION_CONFIGURED"
-  | "TEAMS_DESTINATION_REMOVED";
+  | "TEAMS_DESTINATION_REMOVED"
+  | "PROSPECT_REPORT_CREATED"
+  | "PROSPECT_REPORT_REVOKED"
+  | "PROSPECT_REPORT_DELETED";
 
 /**
  * AuditOutcome is SUCCESS or DENIED. There is no FAILED value: the trail records
