@@ -216,6 +216,7 @@ model Organization {
   billingEvents         BillingEvent[]
   reportInbox           ReportInbox?
   slackDestination      SlackDestination?
+  teamsDestination      TeamsDestination?
   ssoConnections        SsoConnection[]
   webhookEndpoints      WebhookEndpoint[]
   domainSwitches        DomainSwitch[]
@@ -901,6 +902,11 @@ enum AlertOperator {
 enum AlertChannel {
   EMAIL
   SLACK
+  /// A Microsoft Teams channel, through a Workflows webhook. A separate value
+  /// rather than a reuse of SLACK because the delivery row is what tells an
+  /// operator which destination was tried, and "Slack" naming a Teams post is a
+  /// lie in the one table used to answer "did anybody tell us".
+  TEAMS
 }
 
 enum AlertDeliveryKind {
@@ -1361,6 +1367,36 @@ model SlackDestination {
 
   @@index([enabled])
   @@map("slack_destination")
+}
+
+/// One Microsoft Teams channel that receives the same alerts as email.
+///
+/// Deliberately independent of `SlackDestination`: a workspace may have Slack,
+/// Teams, both or neither, and one of them failing must not stop the other. The
+/// two tables are identical in shape apart from `deliveryClaimedAt`, which only
+/// Slack ever used and which is not needed here.
+///
+/// The address is a Workflows webhook (`*.logic.azure.com/workflows/...` or
+/// `*.environment.api.powerplatform.com/powerautomate/...`). The old Office 365
+/// connector addresses were switched off by Microsoft in May 2026, so they are
+/// refused with their own message rather than a generic "invalid URL".
+model TeamsDestination {
+  id                  String    @id @default(cuid())
+  organizationId      String    @unique
+  organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// Channel name for display only, e.g. "Alerts". Teams resolves the
+  /// destination from the webhook URL, so this is never used to route anything.
+  channelLabel        String?
+  encryptedWebhookUrl String
+  enabled             Boolean   @default(true)
+  lastDeliveredAt     DateTime?
+  consecutiveFailures Int       @default(0)
+  lastError           String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([enabled])
+  @@map("teams_destination")
 }
 
 enum DnsProvider {
@@ -2441,6 +2477,13 @@ enum AuditAction {
   PSA_CONNECTION_PAUSED
   PSA_CONNECTION_RESUMED
   PSA_MAPPING_CHANGED
+  /// Slack had no audit trail at all: a destination could be replaced or removed
+  /// and nothing recorded who did it or when. Teams would have inherited that, so
+  /// both got one at the same time.
+  SLACK_DESTINATION_CONFIGURED
+  SLACK_DESTINATION_REMOVED
+  TEAMS_DESTINATION_CONFIGURED
+  TEAMS_DESTINATION_REMOVED
 }
 
 enum AuditOutcome {

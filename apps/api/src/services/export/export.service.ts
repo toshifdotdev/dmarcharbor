@@ -828,7 +828,9 @@ export async function buildExportPayload(input: {
     format: input.format,
     notice:
       'This export contains the data held for this scope. Passwords, session tokens and OAuth tokens are never included, ' +
-      'because they are credentials rather than data. Security records are included by action and time, with identifying fields withheld.',
+      'because they are credentials rather than data. Neither are the Slack and Microsoft Teams webhook addresses: each one ' +
+      'is the ability to post into that channel, so it is a credential in the same sense. ' +
+      'Security records are included by action and time, with identifying fields withheld.',
   };
 
   if (limited.length > 0) {

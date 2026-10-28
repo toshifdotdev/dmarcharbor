@@ -512,3 +512,26 @@ export const psaRateLimiter = rateLimit({
     },
   },
 });
+
+/**
+ * The Teams test button.
+ *
+ * Five a minute per workspace, because this is a button a person presses, not an
+ * integration: a Workflows address that is wrong is wrong on the first try, and
+ * the only reason to press it again is that somebody has just fixed the flow. It
+ * is also the one route in this file that makes Microsoft send something, so the
+ * budget is deliberately the tightest.
+ */
+export const teamsTestRateLimiter = rateLimit({
+  ...SHARED_LIMITER_OPTIONS,
+  windowMs: 60_000,
+  limit: 5,
+  store: rateLimitStoreFor('teams-test'),
+  keyGenerator: (request) => `org:${String(request.params.organizationId ?? clientKey(request))}`,
+  message: {
+    error: {
+      code: 'RATE_LIMITED',
+      message: 'That is five test messages in a minute. Wait a moment before sending another.',
+    },
+  },
+});

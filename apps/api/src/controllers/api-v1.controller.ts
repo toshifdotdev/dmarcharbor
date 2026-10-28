@@ -25,6 +25,26 @@ import { bulkImportClients, bulkImportDomains, bulkLimits, normaliseDomain } fro
 import { idempotencyKeyFrom } from '../middleware/api-auth.middleware.js';
 import { zodMessage } from '../utils/zod-messages.js';
 import { parsePagination } from '../utils/pagination.js';
+import { domainRef } from '../services/domain-ref.js';
+import { recordAuditEvent } from '../services/audit.service.js';
+import { resolveEntitlements } from '../services/entitlements/entitlement.service.js';
+import { listDomainScans, runDomainScan } from '../services/domain-scan.service.js';
+import { listDomainReports } from '../services/report.service.js';
+import { buildSenderBreakdown } from '../services/sender-breakdown.service.js';
+import { assessPolicyReadiness } from '../services/onboarding.service.js';
+import { getTlsReportSummary } from '../services/tls-report/tls-report-query.service.js';
+import { acknowledgeAlertEvent, listAlertEvents } from '../services/alert.service.js';
+import { acknowledgeDnsChange, listDnsChanges } from '../services/monitoring/dns-change.service.js';
+import {
+  serializeAlert,
+  serializeDnsChange,
+  serializeDomainDetail,
+  serializeMe,
+  serializeReport,
+  serializeScan,
+  serializeSender,
+  serializeTlsSummary,
+} from '../services/api-v1/serializers.js';
 
 /**
  * Trims a page from an over-fetched result, keeping the shape callers had before.
@@ -98,13 +118,24 @@ async function withIdempotency(
   }
 
   const result = await handler();
-  await saveIdempotentResult({
-    key,
-    organizationId,
-    requestHash: fingerprint,
-    statusCode: result.status,
-    responseBody: result.body,
-  });
+  /**
+   * A refusal is not a result.
+   *
+   * Only a success is stored. Saving a 402 or a 409 would make the key replay the
+   * refusal for 24 hours — so a caller who fixed their plan or their name and
+   * retried with the same key would keep getting the old answer, which is worse
+   * than having no idempotency at all. A failed request is safe to repeat: it
+   * changed nothing.
+   */
+  if (result.status < 400) {
+    await saveIdempotentResult({
+      key,
+      organizationId,
+      requestHash: fingerprint,
+      statusCode: result.status,
+      responseBody: result.body,
+    });
+  }
   response.status(result.status).json(result.body);
 }
 
@@ -245,23 +276,27 @@ export async function createApiClientController(request: Request, response: Resp
   }
 
   try {
-    const result = await bulkImportClients({
-      organizationId,
-      actorUserId: null,
-      clients: [{ name, ...(slug ? { slug } : {}), domains: domains as string[] }],
-    });
-
-    if (result.created.length === 0) {
-      response.status(result.planBlocked.length > 0 ? 402 : 409).json({
-        error: {
-          code: result.planBlocked.length > 0 ? 'PLAN_LIMIT_REACHED' : 'CONFLICT',
-          message: result.planBlocked[0]?.reason ?? result.failed[0]?.reason ?? 'That client could not be created.',
-        },
+    await withIdempotency(request, response, async () => {
+      const result = await bulkImportClients({
+        organizationId,
+        actorUserId: null,
+        clients: [{ name, ...(slug ? { slug } : {}), domains: domains as string[] }],
       });
-      return;
-    }
 
-    response.status(201).json(result.created[0]);
+      if (result.created.length === 0) {
+        return {
+          status: result.planBlocked.length > 0 ? 402 : 409,
+          body: {
+            error: {
+              code: result.planBlocked.length > 0 ? 'PLAN_LIMIT_REACHED' : 'CONFLICT',
+              message: result.planBlocked[0]?.reason ?? result.failed[0]?.reason ?? 'That client could not be created.',
+            },
+          },
+        };
+      }
+
+      return { status: 201, body: result.created[0] };
+    });
   } catch (error) {
     sendError(response, error);
   }
@@ -285,19 +320,23 @@ export async function createApiDomainController(request: Request, response: Resp
   }
 
   try {
-    const result = await bulkImportDomains({ organizationId, actorUserId: null, clientId, domains: [name] });
+    await withIdempotency(request, response, async () => {
+      const result = await bulkImportDomains({ organizationId, actorUserId: null, clientId, domains: [name] });
 
-    if (result.created.length === 0) {
-      response.status(result.planBlocked.length > 0 ? 402 : 409).json({
-        error: {
-          code: result.planBlocked.length > 0 ? 'PLAN_LIMIT_REACHED' : 'CONFLICT',
-          message: result.planBlocked[0]?.reason ?? result.failed[0]?.reason ?? 'That domain could not be added.',
-        },
-      });
-      return;
-    }
+      if (result.created.length === 0) {
+        return {
+          status: result.planBlocked.length > 0 ? 402 : 409,
+          body: {
+            error: {
+              code: result.planBlocked.length > 0 ? 'PLAN_LIMIT_REACHED' : 'CONFLICT',
+              message: result.planBlocked[0]?.reason ?? result.failed[0]?.reason ?? 'That domain could not be added.',
+            },
+          },
+        };
+      }
 
-    response.status(201).json(result.created[0]);
+      return { status: 201, body: result.created[0] };
+    });
   } catch (error) {
     sendError(response, error);
   }
@@ -312,18 +351,37 @@ export async function verifyApiDomainController(request: Request, response: Resp
     return;
   }
 
-  const { verifyDomain } = await import('../services/client.service.js');
-  const outcome = await verifyDomain(organizationId, domainId.data);
+  try {
+    /**
+     * A key on verify replays the answer that was already given.
+     *
+     * That is what the header promises, and it is what makes a retry after a
+     * timeout safe: the caller gets the same verdict rather than a second,
+     * possibly different one that arrives while the TXT record is still
+     * propagating. A caller who wants a fresh read simply omits the key.
+     */
+    await withIdempotency(request, response, async () => {
+      const { verifyDomain } = await import('../services/client.service.js');
+      const outcome = await verifyDomain(organizationId, domainId.data);
 
-  if (!outcome) {
-    response.status(404).json({ error: { code: 'NOT_FOUND', message: 'Domain not found in this workspace.' } });
-    return;
+      if (!outcome) {
+        return {
+          status: 404,
+          body: { error: { code: 'NOT_FOUND', message: 'Domain not found in this workspace.' } },
+        };
+      }
+
+      return {
+        status: 200,
+        body: {
+          domain: { id: outcome.domain.id, name: outcome.domain.name, status: outcome.domain.status },
+          verification: outcome.verification,
+        },
+      };
+    });
+  } catch (error) {
+    sendError(response, error);
   }
-
-  response.json({
-    domain: { id: outcome.domain.id, name: outcome.domain.name, status: outcome.domain.status },
-    verification: outcome.verification,
-  });
 }
 
 export async function listApiDomainsController(request: Request, response: Response): Promise<void> {
@@ -451,4 +509,496 @@ export async function deleteAllRevokedApiKeysController(_request: Request, respo
     response.locals.session?.user?.id,
   );
   response.json({ removed });
+}
+
+// ─── The wider v1 surface (Item 16) ──────────────────────────────────────────
+//
+// Everything below is additive: no existing path, field, status code or shape
+// changes. Each route resolves its resource **within the key's workspace**, so
+// "not yours" and "does not exist" are the same 404 — a caller cannot use the
+// difference to enumerate another tenant's domains, alerts or changes.
+
+/**
+ * Resolves a domain by id or slug inside the key's workspace.
+ *
+ * `domainRef` is the same helper the browser routes use, which is what keeps the
+ * two from disagreeing about whether a slug is a valid identifier.
+ */
+async function resolveApiDomain(organizationId: string, reference: string) {
+  return prisma.domain.findFirst({
+    where: { client: { organizationId }, ...domainRef(reference) },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      status: true,
+      dmarcPolicy: true,
+      dmarcRecord: true,
+      verifiedAt: true,
+      score: true,
+      collectForensicReports: true,
+      lastScanAt: true,
+      spfRecord: true,
+      mxRecords: true,
+      dkimSelectors: true,
+      client: { select: { id: true, name: true, slug: true } },
+    },
+  });
+}
+
+function notFound(response: Response, what: string): void {
+  response.status(404).json({
+    error: { code: 'NOT_FOUND', message: `That ${what} is not in this workspace.` },
+  });
+}
+
+function invalid(response: Response, message: string): void {
+  response.status(400).json({ error: { code: 'INVALID_REQUEST', message } });
+}
+
+/**
+ * GET /v1/me
+ *
+ * The one route an integration should call first: it says which workspace the
+ * key belongs to, what the plan carries, and what the key itself may do. Without
+ * it every caller hard-codes the plan tiers, and a plan change becomes their
+ * outage.
+ */
+export async function apiMeController(_request: Request, response: Response): Promise<void> {
+  const organizationId = response.locals.organizationId as string;
+  const keyId = response.locals.apiKeyId as string;
+
+  try {
+    const [organization, entitlements, key] = await Promise.all([
+      prisma.organization.findUniqueOrThrow({
+        where: { id: organizationId },
+        select: { id: true, name: true, slug: true },
+      }),
+      resolveEntitlements(organizationId),
+      prisma.apiKey.findUniqueOrThrow({
+        where: { id: keyId },
+        select: { id: true, name: true, scopes: true, expiresAt: true },
+      }),
+    ]);
+
+    response.json(
+      serializeMe({
+        organization,
+        entitlements,
+        key: { id: key.id, name: key.name, scopes: key.scopes, expiresAt: key.expiresAt },
+      }),
+    );
+  } catch (error) {
+    sendError(response, error);
+  }
+}
+
+export async function apiGetDomainController(request: Request, response: Response): Promise<void> {
+  const domain = await resolveApiDomain(
+    response.locals.organizationId,
+    String(request.params.domain ?? ''),
+  );
+
+  if (!domain) {
+    notFound(response, 'domain');
+    return;
+  }
+
+  response.json({ domain: serializeDomainDetail(domain) });
+}
+
+export async function apiListDomainScansController(request: Request, response: Response): Promise<void> {
+  const page = parsePagination(request, response);
+  if (!page.ok) return;
+
+  const domain = await resolveApiDomain(
+    response.locals.organizationId,
+    String(request.params.domain ?? ''),
+  );
+  if (!domain) {
+    notFound(response, 'domain');
+    return;
+  }
+
+  const { rows, nextCursor } = await listDomainScans(response.locals.organizationId, domain.id, {
+    limit: page.limit,
+    cursor: page.cursor,
+  });
+
+  response.json({ scans: rows.map(serializeScan), nextCursor });
+}
+
+/**
+ * POST /v1/domains/{domain}/scans
+ *
+ * 202, because the scan is work the server does on the caller's behalf and the
+ * row is the receipt. The id is returned either way: a scan that failed still
+ * exists, and its `status` and `error` are how a caller finds out why.
+ */
+export async function apiCreateDomainScanController(request: Request, response: Response): Promise<void> {
+  const organizationId = response.locals.organizationId;
+
+  try {
+    await withIdempotency(request, response, async () => {
+      const domain = await resolveApiDomain(organizationId, String(request.params.domain ?? ''));
+      if (!domain) {
+        return {
+          status: 404,
+          body: { error: { code: 'NOT_FOUND', message: 'That domain is not in this workspace.' } },
+        };
+      }
+
+      const outcome = await runDomainScan({
+        organizationId,
+        domainId: domain.id,
+        // No user: the key is the actor, and inventing a member would put a name
+        // in the scan history that did not ask for the scan.
+        requestedById: null,
+      });
+
+      if (outcome.status === 'not_found') {
+        return {
+          status: 404,
+          body: { error: { code: 'NOT_FOUND', message: 'That domain is not in this workspace.' } },
+        };
+      }
+
+      if (outcome.status === 'not_verified') {
+        return {
+          status: 409,
+          body: {
+            error: {
+              code: 'CONFLICT',
+              message: 'Verify the domain before running an authenticated scan.',
+            },
+          },
+        };
+      }
+
+      return {
+        status: 202,
+        body: {
+          scan: serializeScan({
+            id: outcome.scan.id,
+            status: outcome.scan.status,
+            trigger: outcome.scan.trigger,
+            score: outcome.scan.score,
+            error: outcome.scan.error,
+            startedAt: outcome.scan.startedAt,
+            completedAt: outcome.scan.completedAt,
+          }),
+        },
+      };
+    });
+  } catch (error) {
+    sendError(response, error);
+  }
+}
+
+export async function apiListDomainReportsController(request: Request, response: Response): Promise<void> {
+  const page = parsePagination(request, response);
+  if (!page.ok) return;
+
+  const domain = await resolveApiDomain(
+    response.locals.organizationId,
+    String(request.params.domain ?? ''),
+  );
+  if (!domain) {
+    notFound(response, 'domain');
+    return;
+  }
+
+  const { rows, limit } = await listDomainReports(response.locals.organizationId, domain.id, {
+    limit: page.limit,
+    cursor: page.cursor,
+  });
+
+  const hasMore = rows.length > limit;
+  const items = hasMore ? rows.slice(0, limit) : rows;
+  const last = items[items.length - 1];
+
+  response.json({ reports: items.map(serializeReport), nextCursor: hasMore && last ? last.id : null });
+}
+
+export async function apiListDomainSendersController(request: Request, response: Response): Promise<void> {
+  const domain = await resolveApiDomain(
+    response.locals.organizationId,
+    String(request.params.domain ?? ''),
+  );
+  if (!domain) {
+    notFound(response, 'domain');
+    return;
+  }
+
+  const rows = await buildSenderBreakdown(response.locals.organizationId, domain.id);
+
+  /**
+   * Not paged, and that is not an oversight.
+   *
+   * `buildSenderBreakdown` already bounds its own work — the 25 senders it
+   * considers and the 50,000 records it reads are the limit — so the response has
+   * a ceiling of 25 rows that does not grow with the customer's traffic. Adding a
+   * cursor here would suggest a page size the service does not have.
+   */
+  response.json({ senders: rows.map(serializeSender) });
+}
+
+export async function apiPolicyReadinessController(request: Request, response: Response): Promise<void> {
+  const domain = await resolveApiDomain(
+    response.locals.organizationId,
+    String(request.params.domain ?? ''),
+  );
+  if (!domain) {
+    notFound(response, 'domain');
+    return;
+  }
+
+  try {
+    response.json(await assessPolicyReadiness(response.locals.organizationId, domain.id));
+  } catch (error) {
+    sendError(response, error);
+  }
+}
+
+export async function apiTlsSummaryController(request: Request, response: Response): Promise<void> {
+  const organizationId = response.locals.organizationId;
+
+  try {
+    await assertFeature(organizationId, 'reports.tlsrpt');
+
+    const domain = await resolveApiDomain(organizationId, String(request.params.domain ?? ''));
+    if (!domain) {
+      notFound(response, 'domain');
+      return;
+    }
+
+    const rawDays = Number(request.query.days ?? 30);
+    // Same window and same bounds as the browser summary, so two readers of the
+    // same domain cannot be told different failure shares.
+    const days = Number.isFinite(rawDays) ? Math.min(Math.max(Math.trunc(rawDays), 1), 365) : 30;
+
+    const summary = await getTlsReportSummary(organizationId, domain.id, days);
+    if (!summary) {
+      notFound(response, 'domain');
+      return;
+    }
+
+    response.json(serializeTlsSummary(summary));
+  } catch (error) {
+    sendError(response, error);
+  }
+}
+
+export async function apiListAlertsController(request: Request, response: Response): Promise<void> {
+  const organizationId = response.locals.organizationId;
+  const page = parsePagination(request, response);
+  if (!page.ok) return;
+
+  try {
+    await assertFeature(organizationId, 'alerts.email');
+
+    const stateParam = request.query.state;
+    const state =
+      stateParam === 'open' || stateParam === 'acknowledged' || stateParam === 'resolved'
+        ? stateParam
+        : undefined;
+
+    if (stateParam !== undefined && state === undefined) {
+      invalid(response, 'state must be open, acknowledged or resolved.');
+      return;
+    }
+
+    const domainParam = typeof request.query.domain === 'string' ? request.query.domain : undefined;
+
+    const { rows, limit } = await listAlertEvents(organizationId, {
+      domainId: domainParam,
+      limit: page.limit,
+      cursor: page.cursor,
+      state,
+    });
+
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+    const last = items[items.length - 1];
+
+    response.json({
+      alerts: items.map((row) =>
+        serializeAlert({
+          id: row.id,
+          ruleId: row.ruleId,
+          metric: row.metric,
+          operator: row.operator,
+          observedValue: row.observedValue,
+          threshold: row.threshold,
+          windowMinutes: row.windowMinutes,
+          summary: row.summary,
+          reminderLevel: row.reminderLevel,
+          triggeredAt: row.triggeredAt,
+          acknowledgedAt: row.acknowledgedAt,
+          resolvedAt: row.resolvedAt,
+          domain: row.domain,
+          rule: row.rule,
+        }),
+      ),
+      nextCursor: hasMore && last ? last.id : null,
+    });
+  } catch (error) {
+    sendError(response, error);
+  }
+}
+
+export async function apiAcknowledgeAlertController(request: Request, response: Response): Promise<void> {
+  const organizationId = response.locals.organizationId;
+  const apiKeyId = response.locals.apiKeyId as string;
+
+  try {
+    await assertFeature(organizationId, 'alerts.email');
+
+    const alertId = String(request.params.alertId ?? '');
+    if (!alertId) {
+      invalid(response, 'A valid alert identifier is required.');
+      return;
+    }
+
+    const outcome = await acknowledgeAlertEvent(organizationId, alertId, undefined, { apiKeyId });
+
+    if (outcome === 'not_found') {
+      notFound(response, 'alert');
+      return;
+    }
+
+    if (outcome === 'already_handled') {
+      response.status(409).json({
+        error: {
+          code: 'CONFLICT',
+          message: 'That alert has already been acknowledged or resolved.',
+        },
+      });
+      return;
+    }
+
+    /**
+     * The audit row is written here rather than in the service, exactly as the
+     * browser controller does it, so both paths record the same action. The key
+     * is the actor when there is no person: a key can be revoked, "nobody"
+     * cannot.
+     */
+    await recordAuditEvent({
+      organizationId,
+      action: 'ALERT_ACKNOWLEDGED',
+      targetType: 'alert_event',
+      targetId: alertId,
+      detail: { apiKeyId },
+    });
+
+    // Re-read the row for the response body, so the acknowledge response and the
+    // list are built by the same serializer and cannot drift apart.
+    const event = await prisma.alertEvent.findFirst({
+      where: { id: alertId, organizationId },
+      include: {
+        domain: { select: { id: true, name: true, slug: true } },
+        rule: { select: { id: true, name: true } },
+      },
+    });
+
+    if (!event) {
+      notFound(response, 'alert');
+      return;
+    }
+
+    response.json({
+      alert: serializeAlert({
+        id: event.id,
+        ruleId: event.ruleId,
+        metric: event.metric,
+        operator: event.operator,
+        observedValue: event.observedValue,
+        threshold: event.threshold,
+        windowMinutes: event.windowMinutes,
+        summary: event.summary,
+        reminderLevel: event.reminderLevel,
+        triggeredAt: event.triggeredAt,
+        acknowledgedAt: event.acknowledgedAt,
+        resolvedAt: event.resolvedAt,
+        domain: event.domain,
+        rule: event.rule,
+      }),
+    });
+  } catch (error) {
+    sendError(response, error);
+  }
+}
+
+export async function apiListDnsChangesController(request: Request, response: Response): Promise<void> {
+  const organizationId = response.locals.organizationId;
+  const page = parsePagination(request, response);
+  if (!page.ok) return;
+
+  const domainParam = typeof request.query.domain === 'string' ? request.query.domain : null;
+
+  const severityParam = request.query.severity;
+  const severities =
+    typeof severityParam === 'string'
+      ? severityParam
+          .split(',')
+          .map((value) => value.trim().toUpperCase())
+          .filter((value): value is 'INFO' | 'WARNING' | 'CRITICAL' =>
+            value === 'INFO' || value === 'WARNING' || value === 'CRITICAL',
+          )
+      : undefined;
+
+  if (severityParam !== undefined && (severities === undefined || severities.length === 0)) {
+    invalid(response, 'severity must be one of INFO, WARNING or CRITICAL.');
+    return;
+  }
+
+  const acknowledgedParam = request.query.acknowledged;
+  const acknowledged =
+    acknowledgedParam === 'true' ? true : acknowledgedParam === 'false' ? false : undefined;
+
+  if (acknowledgedParam !== undefined && acknowledged === undefined) {
+    invalid(response, 'acknowledged must be true or false.');
+    return;
+  }
+
+  const result = await listDnsChanges(organizationId, domainParam, {
+    limit: page.limit,
+    cursor: page.cursor,
+    severity: severities,
+    acknowledged,
+  });
+
+  if (!result) {
+    notFound(response, 'domain');
+    return;
+  }
+
+  response.json({ changes: result.rows.map(serializeDnsChange), nextCursor: result.nextCursor });
+}
+
+export async function apiAcknowledgeDnsChangeController(request: Request, response: Response): Promise<void> {
+  const organizationId = response.locals.organizationId;
+  const apiKeyId = response.locals.apiKeyId as string;
+  const changeId = String(request.params.changeId ?? '');
+
+  if (!changeId) {
+    invalid(response, 'A valid DNS change identifier is required.');
+    return;
+  }
+
+  const updated = await acknowledgeDnsChange({
+    organizationId,
+    changeId,
+    // No user id: the key is the actor. The service records `detail.apiKeyId`
+    // and tells the PSA ticket that the acknowledgement came through the API.
+    actorUserId: null,
+    actor: { apiKeyId },
+  });
+
+  if (!updated) {
+    notFound(response, 'DNS change');
+    return;
+  }
+
+  response.json({ change: serializeDnsChange(updated) });
 }

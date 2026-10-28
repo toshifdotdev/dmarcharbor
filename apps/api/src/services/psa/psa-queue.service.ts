@@ -337,6 +337,8 @@ export async function enqueueDnsChangeAcknowledged(input: {
   changeId: string;
   changeSummary: string;
   actorName: string | null;
+  /** True when the acknowledgement came through a public API key, not a person. */
+  viaApi?: boolean;
 }): Promise<void> {
   const connection = await connectionForEnqueue(input.organizationId);
   if (!connection) return;
@@ -378,7 +380,9 @@ export async function enqueueDnsChangeAcknowledged(input: {
     dedupeKey: `dns:${link.reference}:note:ack:${input.changeId}`,
     linkReference: link.reference,
     payload: {
-      text: `Acknowledged in DMARC Harbor${input.actorName ? ` by ${input.actorName}` : ''}: ${input.changeSummary}`,
+      text: input.viaApi
+        ? `Acknowledged in DMARC Harbor through the API: ${input.changeSummary}`
+        : `Acknowledged in DMARC Harbor${input.actorName ? ` by ${input.actorName}` : ''}: ${input.changeSummary}`,
     },
   });
 

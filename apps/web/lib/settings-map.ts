@@ -27,6 +27,7 @@ export type SettingsKey =
   | "branding"
   | "compliance"
   | "slack"
+  | "teams"
   | "webhooks"
   | "psa"
   | "dns"
@@ -147,6 +148,19 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
         label: "Slack alerts",
         does: "One Slack channel that receives the alerts your rules raise.",
         tasks: ["send alerts to slack", "slack channel", "incoming webhook", "chat notifications"],
+        who: "admin",
+      }),
+      s({
+        key: "teams",
+        label: "Microsoft Teams",
+        does: "One Teams channel that receives the same alerts, through a Workflows webhook.",
+        tasks: [
+          "send alerts to teams",
+          "microsoft",
+          "teams channel",
+          "workflows webhook",
+          "chat notifications",
+        ],
         who: "admin",
       }),
       s({

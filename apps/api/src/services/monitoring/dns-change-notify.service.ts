@@ -6,6 +6,7 @@ import { queueEmail } from '../../email/email.service.js';
 import { isWithinQuietHours } from '../alert.service.js';
 import { resolveEntitlements } from '../entitlements/entitlement.service.js';
 import { deliverSlackAlert, hasEnabledSlackDestination } from '../slack.service.js';
+import { deliverTeamsAlert, hasEnabledTeamsDestination } from '../teams.service.js';
 import { enqueueDnsChangesOpened } from '../psa/psa-queue.service.js';
 
 export interface DnsChangeDeliveryOutcome {
@@ -13,6 +14,8 @@ export interface DnsChangeDeliveryOutcome {
   notifications: number;
   emails: number;
   slack: number;
+  /** Teams posts for this pass. Separate from `slack` so the log says which. */
+  teams: number;
 }
 
 interface Recipient {
@@ -60,7 +63,7 @@ export async function deliverDnsChangeNotifications(
     ]);
   }
 
-  const outcome: DnsChangeDeliveryOutcome = { claimed: 0, notifications: 0, emails: 0, slack: 0 };
+  const outcome: DnsChangeDeliveryOutcome = { claimed: 0, notifications: 0, emails: 0, slack: 0, teams: 0 };
 
   for (const [organizationId] of byOrganization) {
     /**
@@ -273,6 +276,42 @@ export async function deliverDnsChangeNotifications(
     } catch (error) {
       console.error(
         `[dns-monitor] Slack delivery failed for ${organizationId}: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+    }
+
+    /**
+     * Teams, in its own try/catch and with its own summary.
+     *
+     * The same message the Slack post carries — one summary per workspace per
+     * pass, not one per change — but posted independently. A workspace with both
+     * channels configured gets both; one of them being broken does not suppress
+     * the other, and the count is reported separately so the scheduler log says
+     * which channel carried it.
+     */
+    try {
+      if (await hasEnabledTeamsDestination(organizationId)) {
+        const listed = changes
+          .slice(0, 10)
+          .map((change) => `${change.domain.name}: ${change.summary}`);
+        const more = changes.length > 10 ? [`and ${changes.length - 10} more`] : [];
+        const result = await deliverTeamsAlert({
+          organizationId,
+          message: {
+            subject: `DNS changed on ${new Set(changes.map((change) => change.domain.name)).size} domain(s) in ${workspaceName}`,
+            body: [...listed, ...more].join('\n'),
+            domainName: changes[0]?.domain.name ?? 'your domains',
+            workspaceName,
+            risk: changes.some((change) => change.severity === 'CRITICAL') ? 'high' : 'medium',
+            linkPath: changes[0] ? `/domains/${changes[0].domain.slug}` : '/alerts',
+          },
+        });
+        if (result.delivered) {
+          outcome.teams += 1;
+        }
+      }
+    } catch (error) {
+      console.error(
+        `[dns-monitor] Teams delivery failed for ${organizationId}: ${error instanceof Error ? error.message : 'unknown error'}`,
       );
     }
   }

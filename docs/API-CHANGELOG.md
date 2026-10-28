@@ -101,8 +101,12 @@ of the batch.**
 
 ### Rate limits
 
-`300 requests per minute` per key, with a standard `429` and
-`Retry-After` header.
+`API_RATE_LIMIT_PER_MINUTE` requests per minute per key (300 by default), with a
+standard `429` and `Retry-After` header. Separately, an unauthenticated budget of
+300 requests per minute per client address runs before the key is checked, so an
+attacker with no key cannot drive key lookups; the per-key budget is the one that
+matters to an integration. Both answer with `RateLimit` and `RateLimit-Policy`
+headers.
 
 ### Domain verification
 
@@ -242,6 +246,83 @@ for 24 hours rather than retried forever.
 response code and last error, so a failing integration is diagnosable without
 waiting for a customer complaint. `POST .../webhook-deliveries/{id}/replay`
 requeues a failed delivery with a fresh signature.
+
+---
+
+## 2026-11-18 — Microsoft Teams alerts and API v1 additions
+
+**Teams is a second chat destination, independent of Slack.** A workspace can
+have Slack, Teams, both or neither, and one of them failing does not stop the
+other. The same events post there: an alert when it opens and on each reminder,
+and one summary per workspace for a pass of critical DNS changes.
+
+Microsoft retired the Office 365 connector's "Incoming Webhook" in May 2026, so
+addresses on `outlook.office.com`, `outlook.office365.com` and
+`*.webhook.office.com` no longer work. Only Workflows addresses are accepted:
+
+| Accepted | Path must start with |
+|---|---|
+| `https://<name>.logic.azure.com/...` | `/workflows/` |
+| `https://<name>.environment.api.powerplatform.com/...` | `/powerautomate/` |
+
+The host suffix is compared on a label boundary, so a lookalike such as
+`evillogic.azure.com.attacker.net` is refused. A retired connector address gets
+its own message saying what happened and how to create the new one.
+
+The address is a credential: it is stored encrypted, returned masked to the host
+and four characters of the path, never logged, and never exported.
+
+Browser routes, all under `/api/workspaces/{id}/teams-destination`:
+
+- `GET` — the destination, masked, or null.
+- `PUT` — connect or replace. Validated before anything is stored.
+- `PATCH` — `{ enabled }` to pause and resume, keeping the address.
+- `DELETE` — remove it. The flow stays in Teams until it is deleted there.
+- `POST /test` — one fixed test message, five a minute per workspace. A
+  Workflows setup fails silently, so this is how an MSP finds out before an
+  incident rather than during one.
+
+Slack and Teams configuration are now both in the audit trail
+(`SLACK_DESTINATION_CONFIGURED`, `SLACK_DESTINATION_REMOVED`,
+`TEAMS_DESTINATION_CONFIGURED`, `TEAMS_DESTINATION_REMOVED`), with the channel
+label and the host only — never the address.
+
+**`/api/v1` gains 12 routes; existing routes are unchanged.**
+
+| Method | Path | Scope | Purpose |
+|---|---|---|---|
+| `GET` | `/api/v1/me` | read | Workspace, plan, feature flags, limits and this key |
+| `GET` | `/api/v1/domains/{domain}` | read | One domain, with its last scan, SPF, MX and DKIM selectors |
+| `GET` | `/api/v1/domains/{domain}/scans` | read | Scan history, paged |
+| `POST` | `/api/v1/domains/{domain}/scans` | write | Run a scan now; 202 with the scan id |
+| `GET` | `/api/v1/domains/{domain}/reports` | read | Report headers with message and pass/fail counts |
+| `GET` | `/api/v1/domains/{domain}/senders` | read | Sending services, counts and review state |
+| `GET` | `/api/v1/domains/{domain}/policy-readiness` | read | What blocks a stricter policy |
+| `GET` | `/api/v1/domains/{domain}/tls-reports/summary` | read | TLS-RPT summary (`reports.tlsrpt`) |
+| `GET` | `/api/v1/alerts` | read | Alerts, with `?state=open` and `?domain=` (`alerts.email`) |
+| `POST` | `/api/v1/alerts/{alertId}/acknowledge` | write | Acknowledge as the key (`alerts.email`) |
+| `GET` | `/api/v1/dns-changes` | read | DNS changes, with `?severity=`, `?acknowledged=` and `?domain=` |
+| `POST` | `/api/v1/dns-changes/{changeId}/acknowledge` | write | Acknowledge as the key |
+
+`{domain}` accepts the id or the slug. Every one of these resolves the resource
+inside the key's workspace, so another workspace's domain, alert or change is
+the same 404 as one that does not exist.
+
+**Acknowledgements made through a key are attributed to the key.** The audit row
+carries `apiKeyId` and no user, and the PSA ticket gets a note saying the change
+was acknowledged through the API rather than naming a member who did not do it.
+
+**Idempotency now covers every write.** `Idempotency-Key` applies to
+`POST /clients`, `POST /domains`, `POST /domains/{id}/verify` and every new
+write route, with the same rules as the bulk imports: a replay returns the
+original response with `Idempotency-Replayed: true`, and reusing a key with a
+different body is `409 IDEMPOTENCY_KEY_REUSED`. A refusal is never stored, so a
+caller who fixes the problem and retries with the same key gets a fresh answer.
+
+**Rate limit wording corrected.** The per-key budget is
+`API_RATE_LIMIT_PER_MINUTE` (300 by default), not a fixed 300. The 300 is the
+separate per-address limiter that runs before the key is checked. Both send
+`RateLimit` and `RateLimit-Policy` headers.
 
 ---
 
@@ -647,13 +728,10 @@ webhook event was added. `/api/v1` is unchanged.
 
 | Planned | Notes |
 |---|---|
-| `GET /api/v1/domains/{id}/senders` | Per sending service breakdown |
 | `GET /api/v1/domains/{id}/insights` | Trends, spikes, disposition |
 | `GET /api/v1/domains/{id}/dmarc-record` | Generated record and `pct` guidance |
-| `GET /api/v1/domains/{id}/policy-readiness` | Blockers and staged policy advice |
-| `GET /api/v1/reports`, `/senders`, `/alerts` | Read endpoints for the remaining data |
-| `GET /api/v1/me` | Plan and entitlements, so an integration can check its own limits |
-| Cursor pagination | Read endpoints currently return the full set, capped by the plan |
+| `GET /api/v1/reports`, `/senders` | Workspace-wide reads; today these are per domain |
+| Hosted DNS, webhooks and forensic reports through `v1` | Read-only or absent; these stay browser-only for now |
 
 ---
 

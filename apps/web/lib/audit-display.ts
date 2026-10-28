@@ -140,6 +140,10 @@ const ACTION_SENTENCES: Record<AuditAction, string> = {
   PSA_CONNECTION_PAUSED: "PSA ticketing paused",
   PSA_CONNECTION_RESUMED: "PSA ticketing resumed",
   PSA_MAPPING_CHANGED: "Client to PSA company mapping changed",
+  SLACK_DESTINATION_CONFIGURED: "Slack destination configured",
+  SLACK_DESTINATION_REMOVED: "Slack destination removed",
+  TEAMS_DESTINATION_CONFIGURED: "Microsoft Teams destination configured",
+  TEAMS_DESTINATION_REMOVED: "Microsoft Teams destination removed",
 };
 
 /**

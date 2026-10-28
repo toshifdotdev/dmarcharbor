@@ -17,6 +17,14 @@ export interface DnsChangeRow {
   scanId: string;
   acknowledgedAt: Date | null;
   acknowledgedBy: { id: string; name: string } | null;
+  /**
+   * The domain this change belongs to.
+   *
+   * Added for the workspace-wide list the public API needs: a row without a
+   * domain name says "SPF record changed" and nothing about where. The browser
+   * list is per domain and ignores it, so this is additive there too.
+   */
+  domain: { id: string; name: string; slug: string };
 }
 
 function publicRow(row: {
@@ -31,6 +39,7 @@ function publicRow(row: {
   scanId: string;
   acknowledgedAt: Date | null;
   acknowledgedBy: { id: string; name: string } | null;
+  domain: { id: string; name: string; slug: string };
 }): DnsChangeRow {
   return {
     id: row.id,
@@ -44,20 +53,36 @@ function publicRow(row: {
     scanId: row.scanId,
     acknowledgedAt: row.acknowledgedAt,
     acknowledgedBy: row.acknowledgedBy,
+    domain: row.domain,
   };
 }
 
 export async function listDnsChanges(
   organizationId: string,
-  domainIdOrSlug: string,
-  options: { limit?: number; cursor?: string; severity?: DnsChangeSeverityName[] } = {},
+  /**
+   * A domain id or slug, or `null` for the whole workspace.
+   *
+   * The browser route always names a domain. The public API's `GET /dns-changes`
+   * is workspace-wide with an optional `?domain=` filter, and one function that
+   * can do both keeps the two callers from drifting into two different answers
+   * about what a change row is.
+   */
+  domainIdOrSlug: string | null,
+  options: {
+    limit?: number;
+    cursor?: string;
+    severity?: DnsChangeSeverityName[];
+    acknowledged?: boolean;
+  } = {},
 ): Promise<{ rows: DnsChangeRow[]; nextCursor: string | null } | null> {
-  const domain = await prisma.domain.findFirst({
-    where: { client: { organizationId }, ...domainRef(domainIdOrSlug) },
-    select: { id: true },
-  });
+  const domain = domainIdOrSlug
+    ? await prisma.domain.findFirst({
+        where: { client: { organizationId }, ...domainRef(domainIdOrSlug) },
+        select: { id: true },
+      })
+    : null;
 
-  if (!domain) {
+  if (domainIdOrSlug && !domain) {
     return null;
   }
 
@@ -65,10 +90,15 @@ export async function listDnsChanges(
   const rows = await prisma.dnsChange.findMany({
     where: {
       organizationId,
-      domainId: domain.id,
+      ...(domain ? { domainId: domain.id } : {}),
       ...(options.severity && options.severity.length > 0
         ? { severity: { in: options.severity } }
         : {}),
+      ...(options.acknowledged === undefined
+        ? {}
+        : options.acknowledged
+          ? { acknowledgedAt: { not: null } }
+          : { acknowledgedAt: null }),
     },
     select: {
       id: true,
@@ -82,6 +112,7 @@ export async function listDnsChanges(
       scanId: true,
       acknowledgedAt: true,
       acknowledgedBy: { select: { id: true, name: true } },
+      domain: { select: { id: true, name: true, slug: true } },
     },
     orderBy: [{ detectedAt: 'desc' }, { id: 'desc' }],
     take: limit + 1,
@@ -99,16 +130,31 @@ export async function listDnsChanges(
 
 export async function acknowledgeDnsChange(input: {
   organizationId: string;
-  domainIdOrSlug: string;
+  /** A domain id or slug, or `null`/omitted for the workspace-wide API route. */
+  domainIdOrSlug?: string | null;
   changeId: string;
   actorUserId?: string | null;
+  /**
+   * Set when the caller is a public API key rather than a person. It changes the
+   * PSA note from "by <name>" to "through the API", because "by a workspace
+   * member" would be a guess and the technician reading the ticket deserves to
+   * know which one it was.
+   */
+  actor?: { apiKeyId: string };
   now?: Date;
 }): Promise<DnsChangeRow | null> {
   const change = await prisma.dnsChange.findFirst({
     where: {
       id: input.changeId,
       organizationId: input.organizationId,
-      domain: { client: { organizationId: input.organizationId }, ...domainRef(input.domainIdOrSlug) },
+      ...(input.domainIdOrSlug
+        ? {
+            domain: {
+              client: { organizationId: input.organizationId },
+              ...domainRef(input.domainIdOrSlug),
+            },
+          }
+        : {}),
     },
     select: {
       id: true,
@@ -137,6 +183,10 @@ export async function acknowledgeDnsChange(input: {
       action: 'DNS_CHANGE_ACKNOWLEDGED',
       targetType: 'dns_change',
       targetId: change.id,
+      // The API key is the actor when there is no person. Recorded so the audit
+      // trail answers "who acknowledged this" with something a reader can act on
+      // — a key can be revoked; "nobody" cannot.
+      detail: input.actor ? { apiKeyId: input.actor.apiKeyId } : undefined,
     });
 
     /**
@@ -157,6 +207,7 @@ export async function acknowledgeDnsChange(input: {
         changeId: change.id,
         changeSummary: detail?.summary ?? 'DNS change acknowledged.',
         actorName: actor?.name ?? null,
+        viaApi: input.actor !== undefined,
       });
     } catch (error) {
       console.warn(
@@ -179,6 +230,7 @@ export async function acknowledgeDnsChange(input: {
       scanId: true,
       acknowledgedAt: true,
       acknowledgedBy: { select: { id: true, name: true } },
+      domain: { select: { id: true, name: true, slug: true } },
     },
   });
 

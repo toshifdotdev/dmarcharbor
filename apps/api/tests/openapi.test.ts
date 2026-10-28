@@ -113,11 +113,15 @@ describe('OpenAPI contract', () => {
     const codes = [...schema.properties.error.properties.code.enum].sort();
 
     expect(codes).toEqual([
+      'API_KEY_STILL_ACTIVE',
       'CONFLICT',
+      'FEATURE_NOT_IN_PLAN',
       'FORBIDDEN',
+      'IDEMPOTENCY_KEY_REUSED',
       'INTERNAL',
       'INVALID_REQUEST',
       'NOT_FOUND',
+      'PLAN_LIMIT_REACHED',
       'RATE_LIMITED',
       'UNAUTHORIZED',
     ]);

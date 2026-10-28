@@ -896,6 +896,24 @@ export interface SlackDestination {
   lastError: string | null;
 }
 
+/** GET /teams-destination — null before one is configured. Same rule as Slack:
+ *  the Workflows address never comes back, so maskedUrl is the host plus the
+ *  last four characters of the path, with no signature. */
+export interface TeamsDestination {
+  channelLabel: string | null;
+  enabled: boolean;
+  maskedUrl: string;
+  lastDeliveredAt: string | null;
+  consecutiveFailures: number;
+  lastError: string | null;
+}
+
+/** POST /teams-destination/test — the answer is the result, not a status code. */
+export interface TeamsTestResult {
+  delivered: boolean;
+  error?: string;
+}
+
 export interface ApiKeyRow {
   id: string;
   name: string;
@@ -1499,7 +1517,11 @@ export type AuditAction =
   | "PSA_CONNECTION_REMOVED"
   | "PSA_CONNECTION_PAUSED"
   | "PSA_CONNECTION_RESUMED"
-  | "PSA_MAPPING_CHANGED";
+  | "PSA_MAPPING_CHANGED"
+  | "SLACK_DESTINATION_CONFIGURED"
+  | "SLACK_DESTINATION_REMOVED"
+  | "TEAMS_DESTINATION_CONFIGURED"
+  | "TEAMS_DESTINATION_REMOVED";
 
 /**
  * AuditOutcome is SUCCESS or DENIED. There is no FAILED value: the trail records

@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import { recordAuditEvent } from '../services/audit.service.js';
 import {
   SlackError,
   configureSlackDestination,
@@ -9,6 +10,23 @@ import {
 
 function organizationId(request: Request): string {
   return request.params.organizationId as string;
+}
+
+/**
+ * The host, never the URL.
+ *
+ * Slack had no audit trail at all until Teams arrived: a webhook could be
+ * replaced or removed and nothing recorded who did it. Adding one for Teams and
+ * not for Slack would have left the older feature as the blind spot, so both got
+ * one at the same time. The detail is the channel label and the host only — the
+ * path of a Slack webhook is the credential.
+ */
+function hostOf(maskedUrl: string): string {
+  try {
+    return new URL(maskedUrl).host;
+  } catch {
+    return 'unknown';
+  }
 }
 
 function handle(error: unknown, response: Response): void {
@@ -50,6 +68,16 @@ export async function configureSlackDestinationController(request: Request, resp
       webhookUrl: typeof body.webhookUrl === 'string' ? body.webhookUrl : '',
       channelLabel,
     });
+
+    await recordAuditEvent({
+      organizationId: organizationId(request),
+      actorUserId: response.locals.session?.user?.id,
+      action: 'SLACK_DESTINATION_CONFIGURED',
+      targetType: 'slack_destination',
+      detail: { channelLabel: destination.channelLabel, host: hostOf(destination.maskedUrl) },
+      requestId: response.locals.requestId,
+    });
+
     response.json(destination);
   } catch (error) {
     handle(error, response);
@@ -76,7 +104,21 @@ export async function setSlackDestinationEnabledController(request: Request, res
 
 export async function deleteSlackDestinationController(request: Request, response: Response) {
   try {
-    await deleteSlackDestination(organizationId(request));
+    const organizationIdValue = organizationId(request);
+    const existing = await getSlackDestination(organizationIdValue);
+    await deleteSlackDestination(organizationIdValue);
+
+    if (existing) {
+      await recordAuditEvent({
+        organizationId: organizationIdValue,
+        actorUserId: response.locals.session?.user?.id,
+        action: 'SLACK_DESTINATION_REMOVED',
+        targetType: 'slack_destination',
+        detail: { channelLabel: existing.channelLabel, host: hostOf(existing.maskedUrl) },
+        requestId: response.locals.requestId,
+      });
+    }
+
     response.status(204).send();
   } catch (error) {
     handle(error, response);

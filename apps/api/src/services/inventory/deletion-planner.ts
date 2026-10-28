@@ -61,6 +61,7 @@ const ORGANISATION_ONLY = new Set([
   'ssoConnection',
   'ssoAuthRequest',
   'slackDestination',
+  'teamsDestination',
   'idempotencyRecord',
   'exportJob',
 ]);

@@ -13,6 +13,7 @@ import { passesDmarc } from './alignment.service.js';
 import { buildSenderBreakdown, possibleSpoofingSources } from './sender-breakdown.service.js';
 import { emitEvent } from './webhook.service.js';
 import { deliverSlackAlert, hasEnabledSlackDestination } from './slack.service.js';
+import { deliverTeamsAlert, hasEnabledTeamsDestination } from './teams.service.js';
 import { domainRef } from './domain-ref.js';
 import { enqueueAlertClosed, enqueueAlertNote, enqueueAlertOpened } from './psa/psa-queue.service.js';
 import { resolveLimit } from '../utils/pagination.js';
@@ -279,7 +280,19 @@ export async function deleteAlertRule(organizationId: string, ruleId: string): P
 
 export async function listAlertEvents(
   organizationId: string,
-  options: { domainId?: string; limit?: number; cursor?: string } = {},
+  options: {
+    domainId?: string;
+    limit?: number;
+    cursor?: string;
+    /**
+     * One-word state, for the public API's `?state=` filter.
+     *
+     * `open` is the useful one and the only reason this exists: "everything that
+     * still needs a human" cannot be expressed as a date range, and filtering it
+     * in JavaScript after the page was cut would return short pages for ever.
+     */
+    state?: 'open' | 'acknowledged' | 'resolved';
+  } = {},
 ): Promise<{
   rows: Prisma.AlertEventGetPayload<{
     include: { domain: { select: { id: true; name: true; slug: true } }; rule: { select: { id: true; name: true } } };
@@ -303,6 +316,13 @@ export async function listAlertEvents(
     where: {
       organizationId,
       domainId,
+      ...(options.state === 'open'
+        ? { acknowledgedAt: null, resolvedAt: null }
+        : options.state === 'acknowledged'
+          ? { acknowledgedAt: { not: null }, resolvedAt: null }
+          : options.state === 'resolved'
+            ? { resolvedAt: { not: null } }
+            : {}),
     },
     include: {
       domain: { select: { id: true, name: true, slug: true } },
@@ -542,6 +562,7 @@ async function deliverEvent(
   organizationId: string,
   organizationName: string,
   domainName: string,
+  domainSlug: string,
   subject: string,
   body: string,
   risk: 'high' | 'medium',
@@ -600,6 +621,27 @@ const users = await prisma.user.findMany({
     eventId,
     organizationId,
     domainName,
+    subject,
+    body,
+    risk,
+    kind: 'ALERT',
+    reminderLevel,
+  });
+
+  /**
+   * Teams is a second, independent channel.
+   *
+   * Deliberately a separate call rather than one "chat" function that tries both:
+   * a workspace can have either, both or neither, and a broken Teams flow must not
+   * stop the Slack post that follows it (or the reverse). Each records its own
+   * delivery row, so the history says which channel carried which alert.
+   */
+  await deliverToTeams({
+    eventId,
+    organizationId,
+    organizationName,
+    domainName,
+    domainSlug,
     subject,
     body,
     risk,
@@ -679,6 +721,93 @@ async function deliverToSlack(input: {
   if (!result.delivered) {
     // The row is still written when a destination exists but the post failed, so
     // the reminder level does not advance and re-send on the next tick.
+    await prisma.alertDelivery.update({
+      where: { id: delivery.id },
+      data: {
+        status: result.error ? 'FAILED' : 'SKIPPED_DISABLED',
+        attempts: 1,
+        lastError: result.error ?? null,
+      },
+    });
+    return;
+  }
+
+  await prisma.alertDelivery.update({
+    where: { id: delivery.id },
+    data: { status: 'SENT', attempts: 1, sentAt: new Date() },
+  });
+}
+
+/**
+ * Posts to the workspace Teams channel, if one is configured.
+ *
+ * The same shape as `deliverToSlack`, deliberately, including the owner-attributed
+ * delivery row: `AlertDelivery` has no nullable user, and the row exists to record
+ * and deduplicate an attempt rather than to say who read it. The channel column is
+ * what keeps the two independent — the unique key includes it, so a Teams row and
+ * a Slack row for the same alert and reminder level are two rows, not a conflict.
+ */
+async function deliverToTeams(input: {
+  eventId: string;
+  organizationId: string;
+  organizationName: string;
+  domainName: string;
+  domainSlug: string;
+  subject: string;
+  body: string;
+  risk: 'high' | 'medium';
+  kind: AlertDeliveryKind;
+  reminderLevel: number;
+}): Promise<void> {
+  // No channel means no delivery and no row, checked first for the same reason as
+  // Slack: otherwise a workspace that never configured Teams accumulates a row
+  // per alert forever.
+  if (!(await hasEnabledTeamsDestination(input.organizationId))) {
+    return;
+  }
+
+  const owner = await prisma.member.findFirst({
+    where: { organizationId: input.organizationId, role: 'owner' },
+    select: { userId: true },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  if (!owner?.userId) {
+    return;
+  }
+
+  const created = await prisma.alertDelivery.createManyAndReturn({
+    data: [
+      {
+        eventId: input.eventId,
+        userId: owner.userId,
+        channel: 'TEAMS',
+        kind: input.kind,
+        status: 'PENDING',
+        reminderLevel: input.reminderLevel,
+      },
+    ],
+    skipDuplicates: true,
+  });
+
+  const delivery = created[0];
+  if (!delivery) {
+    return;
+  }
+
+  const result = await deliverTeamsAlert({
+    organizationId: input.organizationId,
+    message: {
+      subject: input.subject,
+      body: input.body,
+      domainName: input.domainName,
+      workspaceName: input.organizationName,
+      risk: input.risk,
+      linkPath: `/domains/${input.domainSlug}`,
+    },
+  });
+
+  if (!result.delivered) {
     await prisma.alertDelivery.update({
       where: { id: delivery.id },
       data: {
@@ -1074,6 +1203,7 @@ async function notifyRecipients(
     rule.organizationId,
     rule.organization.name,
     rule.domain.name,
+    rule.domain.slug,
     escalationSubject(rule, reminderLevel),
     [
       `Workspace: ${rule.organization.name}`,
@@ -1290,6 +1420,11 @@ export async function acknowledgeAlertEvent(
   organizationId: string,
   eventId: string,
   userId: string | undefined,
+  /**
+   * Set when the caller is a public API key rather than a person. It changes the
+   * PSA note to "through the API" instead of naming a member who did not do it.
+   */
+  actor?: { apiKeyId: string },
 ): Promise<'acknowledged' | 'not_found' | 'already_handled'> {
   const event = await prisma.alertEvent.findFirst({
     where: { id: eventId, organizationId },
@@ -1316,13 +1451,15 @@ export async function acknowledgeAlertEvent(
    * "acknowledged by <name>" and a caller-supplied name could say anything.
    */
   try {
-    const actor = userId
+    const acknowledgedByUser = userId
       ? await prisma.user.findUnique({ where: { id: userId }, select: { name: true } })
       : null;
     await enqueueAlertNote({
       organizationId,
       eventId: event.id,
-      text: `Acknowledged in DMARC Harbor by ${actor?.name ?? 'a workspace member'}.`,
+      text: actor
+        ? 'Acknowledged in DMARC Harbor through the API.'
+        : `Acknowledged in DMARC Harbor by ${acknowledgedByUser?.name ?? 'a workspace member'}.`,
       suffix: 'ack',
     });
   } catch (error) {

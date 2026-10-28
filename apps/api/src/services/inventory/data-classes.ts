@@ -296,6 +296,14 @@ export const dataClasses: DataClass[] = [
     erasure: 'delete',
   },
   {
+    key: 'teamsDestination',
+    label: 'Microsoft Teams connection',
+    description:
+      'The Teams channel this agency posts alerts to, and the Workflows address that reaches it. That address is a credential: it is encrypted at rest and never exported.',
+    containsPersonalData: true,
+    erasure: 'delete',
+  },
+  {
     key: 'idempotencyRecord',
     label: 'Request replay records',
     description:

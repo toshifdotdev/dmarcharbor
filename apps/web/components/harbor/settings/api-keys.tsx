@@ -163,7 +163,8 @@ export function ApiKeysBoard({
           <p className="mt-1">
             Send it as <code className="data text-fg">Authorization: Bearer &lt;key&gt;</code> to the API under{" "}
             <code className="data text-fg">/api/v1</code>. It can {issued.scopes.includes("write") ? "read and change" : "read"} this
-            workspace&rsquo;s clients and domains until it is revoked or expires on {new Date(issued.expiresAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}.
+            workspace&rsquo;s clients and domains, and read their scans, reports, senders, policy readiness, TLS summaries,
+            alerts and DNS changes until it is revoked or expires on {new Date(issued.expiresAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}.
           </p>
         </OnceSecret>
       ) : null}
@@ -269,12 +270,12 @@ export function ApiKeysBoard({
             </Field>
             <fieldset className="flex flex-col gap-2">
               <legend className="mb-1 text-meta font-semibold text-fg-2">What it may do</legend>
-              <Checkbox checked={read} onChange={(e) => setRead(e.target.checked)} label="Read" hint="List clients and domains and read their measurements." />
+              <Checkbox checked={read} onChange={(e) => setRead(e.target.checked)} label="Read" hint="List clients and domains, read a domain's scans, reports, senders, policy readiness and TLS summary, and read alerts and DNS changes." />
               <Checkbox
                 checked={write}
                 onChange={(e) => setWrite(e.target.checked)}
                 label="Change"
-                hint="Create clients and domains. Give this only to a system that needs it: a leaked key that can write can add domains under your plan."
+                hint="Create clients and domains, run a scan, and acknowledge alerts and DNS changes. Give this only to a system that needs it: a leaked key that can write can add domains under your plan."
               />
               {scopes.length === 0 ? <p className="text-meta font-medium text-fail">Choose at least one.</p> : null}
             </fieldset>

@@ -325,6 +325,7 @@ const pageProblems = [];
 const excusedUrls = [];
 const EXPECTED_REQUEST_FAILURES = [
   /slack-destination/, // the deliberate invalid-webhook probe
+  /teams-destination/, // the deliberate retired-connector probe
   /reports\/share\/[A-Za-z0-9_-]{20,}$/, // the revoked-token probe (404 is correct)
   /api\/auth\/providers/, // discovery may 404 until the endpoint lands
   /api\/auth\/sign-in\/email/, // the deliberate wrong-password probe (9e)
@@ -2012,6 +2013,92 @@ check(
 );
 const shotSlack = await shot("17-settings-slack.png");
 
+// 6a-1b. Microsoft Teams: the Workflows address is accepted, only the mask is
+//        rendered, the signature never reaches the DOM, and the how-to names the
+//        Workflows template — because the old connector route is dead and a page
+//        that does not say so sends people to a screen Microsoft removed.
+//        The test button is deliberately NOT pressed: it would post to Microsoft.
+await openSettingsSection("teams");
+await fillInput(
+  '[data-testid="teams-webhook"]',
+  "https://prod-00.westus.logic.azure.com:443/workflows/0000/triggers/manual/paths/invoke?api-version=2016-06-01&sig=TESTSIGNOTREAL",
+);
+await fillInput('[data-testid="teams-label"]', "Alerts");
+await evalJs(`(() => { const b = document.querySelector('[data-testid="teams-save"]'); if (b && !b.disabled) b.click(); return true; })()`);
+for (let i = 0; i < 30; i++) {
+  const saved = await evalJs(`!!document.querySelector('[data-testid="teams-masked"]') && document.querySelector('[data-testid="teams-webhook"]')?.value === ''`);
+  if (saved) break;
+  await new Promise((res) => setTimeout(res, 700));
+}
+const teamsAudit = await waitForEval(
+  `(() => {
+    const t = document.body.textContent.toLowerCase().replace(/\\s+/g, ' ');
+    const dom = [...document.body.querySelectorAll('*')]
+      .filter((el) => el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA')
+      .map((el) => el.outerHTML)
+      .join('');
+    return {
+      maskedShown: !!document.querySelector('[data-testid="teams-masked"]'),
+      maskedText: document.querySelector('[data-testid="teams-masked"]')?.textContent ?? '',
+      // The signature is the secret. The mask keeps four characters of the path,
+      // never the query string, so the whole sig value must be absent.
+      sigLeaked: dom.includes('TESTSIGNOTREAL'),
+      howto: t.includes('workflows'),
+      botNamed: t.includes('workflows') && t.includes('bot'),
+      credentialWarning: t.includes('password'),
+    };
+  })()`,
+  (a) => a && a.maskedShown,
+);
+check(
+  "Teams: configured, masked address only, signature never rendered, Workflows explained",
+  Boolean(
+    teamsAudit &&
+      teamsAudit.maskedShown &&
+      !teamsAudit.sigLeaked &&
+      teamsAudit.howto &&
+      teamsAudit.botNamed &&
+      teamsAudit.credentialWarning,
+  ),
+  JSON.stringify(teamsAudit),
+);
+
+// The retired connector: refused in words that say what happened and what to do,
+// with no raw code anywhere in the message.
+for (let i = 0; i < 20; i++) {
+  await evalJs(`(() => {
+    const input = document.querySelector('[data-testid="teams-webhook"]');
+    if (!input) return 'missing';
+    const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    set.call(input, 'https://outlook.office.com/webhook/abc');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    return 'filled';
+  })()`);
+  await evalJs(`(() => { const b = document.querySelector('[data-testid="teams-save"]'); if (b && !b.disabled) b.click(); return true; })()`);
+  const err = await evalJs(`!!document.querySelector('[data-testid="teams-error"]')`);
+  if (err) break;
+  await new Promise((res) => setTimeout(res, 700));
+}
+const teamsLegacy = await waitForEval(
+  `(() => {
+    const el = document.querySelector('[data-testid="teams-error"]');
+    const t = el ? el.textContent : '';
+    return {
+      shown: Boolean(el),
+      explains: t.includes('switched off in May 2026'),
+      namesFix: t.includes('Workflows'),
+      noRawCode: !/\\b[A-Z]{2,}_[A-Z_]+\\b/.test(t),
+    };
+  })()`,
+  (a) => a && a.shown,
+);
+check(
+  "Teams legacy connector: refused with the May 2026 explanation, no raw code",
+  Boolean(teamsLegacy && teamsLegacy.shown && teamsLegacy.explains && teamsLegacy.namesFix && teamsLegacy.noRawCode),
+  JSON.stringify(teamsLegacy),
+);
+const shotTeams = await shot("17b-settings-teams.png");
+
 // 6a-2. PSA: the section renders its provider picker, secret fields are real
 //       password inputs, and a deliberately bad Halo URL is refused with a
 //       readable sentence rather than a raw code. No real PSA is needed: the
@@ -2292,7 +2379,7 @@ check(
   `restore=${restoreStatus}`,
 );
 
-console.log("phase 6 shots:", shotSlack, shotMailbox, shotSso, shotKeys, shotExport, shotErasure, shotBranding);
+console.log("phase 6 shots:", shotSlack, shotTeams, shotMailbox, shotSso, shotKeys, shotExport, shotErasure, shotBranding);
 
 // ─── 7. Phase 7: plan refusals, scheduled changes, sessions, shares, packs ───
 

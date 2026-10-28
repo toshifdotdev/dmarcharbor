@@ -19,6 +19,7 @@ import { portalRouter } from './routes/portal.routes.js';
 import { brandingRouter } from './routes/branding.routes.js';
 import { reportInboxRouter } from './routes/report-inbox.routes.js';
 import { slackRouter } from './routes/slack.routes.js';
+import { teamsRouter } from './routes/teams.routes.js';
 import { dnsAutomationRouter } from './routes/dns-automation.routes.js';
 import { hostedDmarcRouter } from './routes/hosted-dmarc.routes.js';
 import { managedSpfRouter } from './routes/managed-spf.routes.js';
@@ -244,6 +245,7 @@ export function createApp(): express.Express {
   app.use('/api', lifecycleRouter);
   app.use('/api', reportInboxRouter);
   app.use('/api', slackRouter);
+  app.use('/api', teamsRouter);
   app.use('/api', dnsAutomationRouter);
   app.use('/api', hostedDmarcRouter);
   app.use('/api', managedSpfRouter);

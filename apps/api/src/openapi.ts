@@ -55,6 +55,65 @@ const standardErrors = {
   429: errorResponse('Rate limit exceeded.'),
 };
 
+/**
+ * The errors a `/v1` route can answer with.
+ *
+ * Separate from `standardErrors` because the meanings are different: 403 on a
+ * browser route is "your role", and on `/v1` it is "this key's scope". A caller
+ * reading the contract should not have to translate.
+ */
+const apiErrors = {
+  400: errorResponse('The request body or query parameters are invalid.'),
+  401: errorResponse('No API key, or a key that is invalid, revoked or expired.'),
+  402: errorResponse('The workspace plan does not carry the feature this route reads.'),
+  403: errorResponse('The key does not carry the scope this route needs (write).'),
+  404: errorResponse(
+    'The resource is not in this key workspace. A resource in another workspace answers the same way, so the response cannot be used to discover what exists elsewhere.',
+  ),
+  409: errorResponse('The request conflicts with the current state of the resource.'),
+  429: errorResponse('Rate limit exceeded, either for this key or for this client address.'),
+};
+
+/**
+ * `Idempotency-Key` on every v1 write.
+ *
+ * A retried request replays the original response and sets
+ * `Idempotency-Replayed: true`. Reusing a key with a different body is a 409
+ * `IDEMPOTENCY_KEY_REUSED` rather than a silent replay of the wrong answer.
+ */
+const idempotencyHeader = {
+  name: 'Idempotency-Key',
+  in: 'header',
+  required: false,
+  description:
+    'Any stable string, for example a ticket id. A retry with the same key and body replays the original response instead of repeating the write.',
+  schema: { type: 'string', minLength: 1, maxLength: 200 },
+};
+
+const domainRefParam = idParam(
+  'domain',
+  'Domain id or slug. Both are accepted, and both are resolved inside the key workspace.',
+);
+
+const apiListResponse = (resource: string, description: string) => ({
+  description,
+  content: {
+    'application/json': {
+      schema: {
+        type: 'object',
+        required: [resource, 'nextCursor'],
+        properties: {
+          [resource]: { type: 'array', items: { type: 'object' } },
+          nextCursor: {
+            type: ['string', 'null'],
+            description: 'Pass back as ?cursor= for the next page. Null on the last page.',
+          },
+        },
+      },
+    },
+  },
+});
+
 export const openApiDocument = {
   openapi: '3.1.0',
   info: {
@@ -74,6 +133,11 @@ export const openApiDocument = {
   tags: [
     { name: 'System' },
     { name: 'Auth' },
+    {
+      name: 'API',
+      description:
+        'The public machine-to-machine surface under /api/v1, authenticated with a bearer API key. A contract: additive changes only within v1.',
+    },
     { name: 'Clients and domains' },
     { name: 'Scanning' },
     { name: 'Reports' },
@@ -168,6 +232,324 @@ export const openApiDocument = {
         security: [{ apiKeyAuth: [] }],
         parameters: [idParam('domainId', 'Domain identifier from the domains list.')],
         responses: { 200: { description: 'Verification result and the record that is expected.' } },
+      },
+    },
+    '/v1/me': {
+      get: {
+        tags: ['API'],
+        summary: 'Which workspace this key belongs to, and what it may do',
+        description: [
+          'The first call an integration should make. It answers three questions that would otherwise have to be hard-coded: which workspace the key acts on, what the plan carries, and what this key itself is allowed to do.',
+          'The workspace comes from the key, never from the path, so a key cannot be pointed at another workspace by mistake.',
+          'features is a flat { key: boolean } object using the same entitlement keys the browser uses, so a caller can test "may I read TLS reports" without knowing which plan tier carries them.',
+        ].join(' '),
+        security: [{ apiKeyAuth: [] }],
+        responses: {
+          200: {
+            description: 'Workspace, plan, feature flags, limits and the key itself.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ApiV1Me' },
+              },
+            },
+          },
+          ...apiErrors,
+        },
+      },
+    },
+    '/v1/domains/{domain}': {
+      get: {
+        tags: ['API'],
+        summary: 'One domain, with its last scan and DNS records',
+        description: [
+          'The same fields the domains list returns, plus the four a caller needs to reason about health without a second request: when it was last scanned, its SPF record, its MX hosts and its DKIM selectors.',
+          'The path segment accepts the domain id or its slug.',
+        ].join(' '),
+        security: [{ apiKeyAuth: [] }],
+        parameters: [domainRefParam],
+        responses: {
+          200: {
+            description: 'The domain.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['domain'],
+                  properties: { domain: { $ref: '#/components/schemas/ApiV1Domain' } },
+                },
+              },
+            },
+          },
+          ...apiErrors,
+        },
+      },
+    },
+    '/v1/domains/{domain}/scans': {
+      get: {
+        tags: ['API'],
+        summary: 'Scan history for one domain',
+        description: [
+          'Newest first, paged with nextCursor.',
+          'The scanner result document is not included: it is the scanner internal working state, not a conclusion. A caller that wants the conclusions reads the domain.',
+        ].join(' '),
+        security: [{ apiKeyAuth: [] }],
+        parameters: [domainRefParam, ...queryPagination],
+        responses: {
+          200: apiListResponse('scans', 'A page of scans, and the cursor for the next one.'),
+          ...apiErrors,
+        },
+      },
+      post: {
+        tags: ['API'],
+        summary: 'Run a scan now',
+        description: [
+          'Runs the same scan the browser button runs and answers 202 with the scan id and status.',
+          'A domain that is not verified answers 409: the scan reads DNS and would report a domain the caller has not proved they own.',
+          'Rate limited per client address as well as per key, so one workspace cannot use this as a DNS amplifier.',
+          'Send Idempotency-Key so a retry after a timeout returns the same scan instead of running a second one.',
+        ].join(' '),
+        security: [{ apiKeyAuth: [] }],
+        parameters: [domainRefParam, idempotencyHeader],
+        responses: {
+          202: {
+            description: 'Accepted. The scan row is the receipt.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['scan'],
+                  properties: { scan: { $ref: '#/components/schemas/ApiV1Scan' } },
+                },
+              },
+            },
+          },
+          ...apiErrors,
+        },
+      },
+    },
+    '/v1/domains/{domain}/reports': {
+      get: {
+        tags: ['API'],
+        summary: 'DMARC reports received for one domain',
+        description: [
+          'Report headers with their counts: who reported, the date range they cover, how many messages, and how many passed or failed DMARC.',
+          'Row-level data is deliberately absent. The records underneath carry source IP addresses and envelope senders, which a list endpoint should not hand to any key that holds read.',
+          'DMARC passes when either aligned check passed, which is the rule the rest of the product counts by.',
+        ].join(' '),
+        security: [{ apiKeyAuth: [] }],
+        parameters: [domainRefParam, ...queryPagination],
+        responses: {
+          200: apiListResponse('reports', 'A page of report headers, and the cursor for the next one.'),
+          ...apiErrors,
+        },
+      },
+    },
+    '/v1/domains/{domain}/senders': {
+      get: {
+        tags: ['API'],
+        summary: 'Sending services for one domain',
+        description: [
+          'The same breakdown the Senders table shows: each service, its message and failure counts, how many passed DKIM and SPF, and whether a person has reviewed it.',
+          'Not paged: the breakdown considers at most 25 senders, so the response has a ceiling that does not grow with traffic.',
+          'Source addresses are not included, for the same reason the report list omits them.',
+        ].join(' '),
+        security: [{ apiKeyAuth: [] }],
+        parameters: [domainRefParam],
+        responses: {
+          200: {
+            description: 'The senders, strongest signal first.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['senders'],
+                  properties: {
+                    senders: { type: 'array', items: { $ref: '#/components/schemas/ApiV1Sender' } },
+                  },
+                },
+              },
+            },
+          },
+          ...apiErrors,
+        },
+      },
+    },
+    '/v1/domains/{domain}/policy-readiness': {
+      get: {
+        tags: ['API'],
+        summary: 'What blocks moving this domain to a stricter policy',
+        description: [
+          'The same assessment the onboarding screen shows: the blockers, in plain sentences, and the staged advice.',
+          'The shape is passed through unchanged rather than re-modelled, because two shapes for one piece of advice would eventually disagree about what blocks a policy.',
+        ].join(' '),
+        security: [{ apiKeyAuth: [] }],
+        parameters: [domainRefParam],
+        responses: {
+          200: { description: 'Blockers and the recommended next step.' },
+          ...apiErrors,
+        },
+      },
+    },
+    '/v1/domains/{domain}/tls-reports/summary': {
+      get: {
+        tags: ['API'],
+        summary: 'TLS-RPT summary for one domain',
+        description: [
+          'Report count, successful and failed sessions, the failure share, and the breakdown by result type, receiving MX and policy type.',
+          'Requires the reports.tlsrpt feature; below it the answer is 402.',
+          'days defaults to 30 and is bounded to 1–365, the same window and bounds the browser uses, so two readers of one domain cannot be told different failure shares.',
+        ].join(' '),
+        security: [{ apiKeyAuth: [] }],
+        parameters: [
+          domainRefParam,
+          {
+            name: 'days',
+            in: 'query',
+            required: false,
+            description: 'Window in days, 1 to 365. Defaults to 30.',
+            schema: { type: 'integer', minimum: 1, maximum: 365, default: 30 },
+          },
+        ],
+        responses: {
+          200: {
+            description: 'The summary.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ApiV1TlsSummary' },
+              },
+            },
+          },
+          ...apiErrors,
+        },
+      },
+    },
+    '/v1/alerts': {
+      get: {
+        tags: ['API'],
+        summary: 'Alerts raised in this workspace',
+        description: [
+          'Newest first, paged with nextCursor.',
+          '?state=open returns what still needs a human, which is the question an integration actually asks. acknowledged and resolved are the other two.',
+          '?domain= accepts a domain id or slug. Requires the alerts.email feature.',
+        ].join(' '),
+        security: [{ apiKeyAuth: [] }],
+        parameters: [
+          ...queryPagination,
+          {
+            name: 'state',
+            in: 'query',
+            required: false,
+            description: 'open, acknowledged or resolved.',
+            schema: { type: 'string', enum: ['open', 'acknowledged', 'resolved'] },
+          },
+          {
+            name: 'domain',
+            in: 'query',
+            required: false,
+            description: 'Domain id or slug.',
+            schema: { type: 'string' },
+          },
+        ],
+        responses: {
+          200: apiListResponse('alerts', 'A page of alerts, and the cursor for the next one.'),
+          ...apiErrors,
+        },
+      },
+    },
+    '/v1/alerts/{alertId}/acknowledge': {
+      post: {
+        tags: ['API'],
+        summary: 'Acknowledge an alert',
+        description: [
+          'Records the acknowledgement against the API key rather than a person, which is the truth: nobody signed in. The audit row carries the key id.',
+          'The PSA ticket, when the workspace has one, gets a note saying it was acknowledged through the API.',
+          'A 409 means somebody got there first, either by acknowledging it or by letting it resolve. The alert is returned on success so a caller does not need a second read.',
+          'Send Idempotency-Key so a retry does not read as a second, conflicting acknowledgement.',
+        ].join(' '),
+        security: [{ apiKeyAuth: [] }],
+        parameters: [idParam('alertId', 'Alert identifier from the alerts list.'), idempotencyHeader],
+        responses: {
+          200: {
+            description: 'The acknowledged alert.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['alert'],
+                  properties: { alert: { $ref: '#/components/schemas/ApiV1Alert' } },
+                },
+              },
+            },
+          },
+          ...apiErrors,
+        },
+      },
+    },
+    '/v1/dns-changes': {
+      get: {
+        tags: ['API'],
+        summary: 'DNS changes detected in this workspace',
+        description: [
+          'Newest first, paged with nextCursor. Workspace-wide, with ?domain= to narrow it.',
+          '?severity= accepts INFO, WARNING, CRITICAL, or a comma separated list. ?acknowledged=true or false filters on whether a person has seen it.',
+        ].join(' '),
+        security: [{ apiKeyAuth: [] }],
+        parameters: [
+          ...queryPagination,
+          {
+            name: 'domain',
+            in: 'query',
+            required: false,
+            description: 'Domain id or slug.',
+            schema: { type: 'string' },
+          },
+          {
+            name: 'severity',
+            in: 'query',
+            required: false,
+            description: 'INFO, WARNING, CRITICAL, or several separated by commas.',
+            schema: { type: 'string' },
+          },
+          {
+            name: 'acknowledged',
+            in: 'query',
+            required: false,
+            description: 'true for changes a person has acknowledged, false for those still open.',
+            schema: { type: 'boolean' },
+          },
+        ],
+        responses: {
+          200: apiListResponse('changes', 'A page of DNS changes, and the cursor for the next one.'),
+          ...apiErrors,
+        },
+      },
+    },
+    '/v1/dns-changes/{changeId}/acknowledge': {
+      post: {
+        tags: ['API'],
+        summary: 'Acknowledge a DNS change',
+        description: [
+          'Records the acknowledgement against the API key, and queues the PSA note when the workspace has a PSA connection.',
+          'Acknowledging every change on a ticket closes the ticket, exactly as it does from the browser.',
+          'Send Idempotency-Key so a retry does not read as a second acknowledgement.',
+        ].join(' '),
+        security: [{ apiKeyAuth: [] }],
+        parameters: [idParam('changeId', 'DNS change identifier from the changes list.'), idempotencyHeader],
+        responses: {
+          200: {
+            description: 'The acknowledged change.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['change'],
+                  properties: { change: { $ref: '#/components/schemas/ApiV1DnsChange' } },
+                },
+              },
+            },
+          },
+          ...apiErrors,
+        },
       },
     },
     '/workspaces/{organizationId}/api-keys': {
@@ -1352,6 +1734,68 @@ export const openApiDocument = {
           'The webhook stays valid in Slack until it is deleted there, so removing it here is not the same as revoking it.',
         ].join(' '),
         responses: { 204: { description: 'Removed.' } },
+      },
+    },
+    '/workspaces/{organizationId}/teams-destination': {
+      get: {
+        tags: ['Settings'],
+        summary: 'Read the workspace Teams destination',
+        description: [
+          'One destination per workspace, because a Teams channel is shared by everyone in it.',
+          'The Workflows address is a credential: anyone holding it can post to the channel. It is stored encrypted and returned masked to the host and the last four characters of the path, never in full and never with its signature.',
+          'Returns null when no destination is configured.',
+        ].join(' '),
+        responses: { 200: { description: 'The masked destination, or null.' } },
+      },
+      put: {
+        tags: ['Settings'],
+        summary: 'Configure the workspace Teams destination',
+        description: [
+          'Accepts a Teams Workflows address and validates it before storing. Two host families are allowed: *.logic.azure.com with a path under /workflows/, and *.environment.api.powerplatform.com with a path under /powerautomate/. The host suffix is compared on a label boundary, so a lookalike host is refused.',
+          'An old Office 365 connector address is refused with its own message, because Microsoft switched those off in May 2026 and a generic refusal would send the customer looking for a bug that is not there.',
+          'Replaces any existing destination and clears its failure count, since a new address is a fresh start.',
+        ].join(' '),
+        responses: {
+          200: { description: 'The saved destination, masked.' },
+          400: { description: 'The address was refused, with the reason in words.' },
+        },
+      },
+      patch: {
+        tags: ['Settings'],
+        summary: 'Enable or disable the Teams destination',
+        description: [
+          'Turning this off stops new posts and keeps the stored address, so the channel can be re-enabled without pasting it again.',
+          'Disabling is not a rotation. To invalidate an address that may have leaked, delete the destination and create a new flow in Teams.',
+        ].join(' '),
+        responses: {
+          204: { description: 'Updated.' },
+          404: { description: 'No destination is configured.' },
+        },
+      },
+      delete: {
+        tags: ['Settings'],
+        summary: 'Remove the Teams destination',
+        description: [
+          'Stops alerts reaching the channel and discards the stored address.',
+          'The Workflows trigger stays valid in Teams until the flow is deleted there, so removing it here is not the same as revoking it.',
+        ].join(' '),
+        responses: { 204: { description: 'Removed.' } },
+      },
+    },
+    '/workspaces/{organizationId}/teams-destination/test': {
+      post: {
+        tags: ['Settings'],
+        summary: 'Post a test message to the Teams channel',
+        description: [
+          'Sends one fixed message so the MSP finds out now, rather than during an incident, that the flow is switched off or the wrong template was used.',
+          'Rate limited to five a minute per workspace: this is a button a person presses, and a wrong address is wrong on the first try.',
+          'The result is reported rather than thrown, so a refusal is a 200 with delivered: false and a readable reason.',
+        ].join(' '),
+        responses: {
+          200: { description: '{ delivered, error? }.' },
+          404: { description: 'No destination is configured.' },
+          429: { description: 'Five test messages already sent in the last minute.' },
+        },
       },
     },
     '/workspaces/{organizationId}/dns-connections': {
@@ -3695,6 +4139,13 @@ export const openApiDocument = {
                   'CONFLICT',
                   'RATE_LIMITED',
                   'INTERNAL',
+                  // Documented because they are part of the v1 contract, not
+                  // generic HTTP: a caller has to tell "your plan has no room"
+                  // from "your request was wrong" to decide what to do next.
+                  'IDEMPOTENCY_KEY_REUSED',
+                  'PLAN_LIMIT_REACHED',
+                  'FEATURE_NOT_IN_PLAN',
+                  'API_KEY_STILL_ACTIVE',
                 ],
               },
               message: { type: 'string' },
@@ -3707,6 +4158,219 @@ export const openApiDocument = {
         },
       },
       Page: paginated({ type: 'object' }),
+      ApiV1Me: {
+        type: 'object',
+        required: ['workspace', 'plan', 'features', 'limits', 'key'],
+        properties: {
+          workspace: {
+            type: 'object',
+            required: ['id', 'name', 'slug'],
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' },
+              slug: { type: 'string' },
+            },
+          },
+          plan: {
+            type: 'object',
+            properties: {
+              tier: { type: 'string', description: 'MOORING, FAIRWAY, HARBOR or ADMIRALTY.' },
+              label: { type: 'string', description: 'The tier as a person would say it.' },
+              status: {
+                type: 'string',
+                description: 'ACTIVE, TRIALING, PAST_DUE, CANCELLED, EXPIRED or NONE.',
+              },
+              currentPeriodEnd: { type: ['string', 'null'], format: 'date-time' },
+            },
+          },
+          features: {
+            type: 'object',
+            additionalProperties: { type: 'boolean' },
+            description:
+              'Entitlement keys to whether the plan carries them. The same keys the browser uses.',
+          },
+          limits: {
+            type: 'object',
+            properties: {
+              maxClients: { type: 'integer' },
+              maxActiveDomains: { type: 'integer' },
+              maxMembers: { type: 'integer' },
+            },
+          },
+          key: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' },
+              scopes: { type: 'array', items: { type: 'string', enum: ['read', 'write'] } },
+              expiresAt: { type: ['string', 'null'], format: 'date-time' },
+            },
+          },
+        },
+      },
+      ApiV1Domain: {
+        type: 'object',
+        required: ['id', 'name', 'slug', 'status'],
+        properties: {
+          id: { type: 'string' },
+          name: { type: 'string' },
+          slug: { type: 'string' },
+          status: { type: 'string', description: 'PENDING, VERIFIED or FAILED.' },
+          dmarcPolicy: { type: ['string', 'null'] },
+          dmarcRecord: { type: ['string', 'null'] },
+          verifiedAt: { type: ['string', 'null'], format: 'date-time' },
+          score: { type: ['integer', 'null'] },
+          collectForensicReports: { type: 'boolean' },
+          lastScanAt: { type: ['string', 'null'], format: 'date-time' },
+          spfRecord: { type: ['string', 'null'] },
+          mxRecords: { type: 'array', items: { type: 'string' } },
+          dkimSelectors: { type: 'array', items: { type: 'string' } },
+          client: {
+            type: 'object',
+            properties: { id: { type: 'string' }, name: { type: 'string' }, slug: { type: 'string' } },
+          },
+        },
+      },
+      ApiV1Scan: {
+        type: 'object',
+        required: ['id', 'status', 'trigger', 'startedAt'],
+        properties: {
+          id: { type: 'string' },
+          status: { type: 'string', description: 'RUNNING, COMPLETED or FAILED.' },
+          trigger: { type: 'string', description: 'MANUAL or SCHEDULED.' },
+          score: { type: ['integer', 'null'] },
+          error: { type: ['string', 'null'] },
+          startedAt: { type: 'string', format: 'date-time' },
+          completedAt: { type: ['string', 'null'], format: 'date-time' },
+          changeCount: { type: 'integer', description: 'DNS changes this scan recorded.' },
+        },
+      },
+      ApiV1Sender: {
+        type: 'object',
+        required: ['senderDomain', 'totalMessages', 'status', 'review'],
+        properties: {
+          service: { type: ['string', 'null'], description: 'The sending service, when it is recognised.' },
+          senderDomain: { type: ['string', 'null'] },
+          totalMessages: { type: 'integer' },
+          failedMessages: { type: 'integer' },
+          dmarcFailedMessages: { type: 'integer' },
+          failureSharePercent: { type: 'number' },
+          dkimPassMessages: { type: 'integer' },
+          spfPassMessages: { type: 'integer' },
+          status: {
+            type: 'string',
+            description: 'clean, degraded, failing or insufficient-data.',
+          },
+          confidence: { type: 'string' },
+          firstSeenAt: { type: 'string', format: 'date-time' },
+          lastSeenAt: { type: 'string', format: 'date-time' },
+          isNew: { type: 'boolean' },
+          review: {
+            type: 'object',
+            properties: {
+              status: { type: 'string', description: 'APPROVED, NOT_OURS or UNREVIEWED.' },
+              note: { type: ['string', 'null'] },
+              reviewedAt: { type: ['string', 'null'], format: 'date-time' },
+            },
+          },
+        },
+      },
+      ApiV1Alert: {
+        type: 'object',
+        required: ['id', 'state', 'domain', 'triggeredAt'],
+        properties: {
+          id: { type: 'string' },
+          state: { type: 'string', description: 'open, acknowledged or resolved.' },
+          ruleId: { type: 'string' },
+          ruleName: { type: ['string', 'null'] },
+          domain: {
+            type: 'object',
+            properties: { id: { type: 'string' }, name: { type: 'string' }, slug: { type: 'string' } },
+          },
+          metric: { type: 'string' },
+          operator: { type: 'string' },
+          observedValue: { type: 'integer' },
+          threshold: { type: 'integer' },
+          windowMinutes: { type: 'integer' },
+          summary: { type: 'string' },
+          reminderLevel: { type: 'integer' },
+          triggeredAt: { type: 'string', format: 'date-time' },
+          acknowledgedAt: { type: ['string', 'null'], format: 'date-time' },
+          resolvedAt: { type: ['string', 'null'], format: 'date-time' },
+        },
+      },
+      ApiV1DnsChange: {
+        type: 'object',
+        required: ['id', 'kind', 'severity', 'detectedAt'],
+        properties: {
+          id: { type: 'string' },
+          kind: { type: 'string' },
+          severity: { type: 'string', description: 'INFO, WARNING or CRITICAL.' },
+          code: { type: 'string' },
+          summary: { type: 'string' },
+          detectedAt: { type: 'string', format: 'date-time' },
+          scanId: { type: 'string' },
+          acknowledgedAt: { type: ['string', 'null'], format: 'date-time' },
+          acknowledgedBy: {
+            type: ['string', 'null'],
+            description: 'The person who acknowledged it. Null when it was a key.',
+          },
+        },
+      },
+      ApiV1TlsSummary: {
+        type: 'object',
+        required: ['days', 'reportCount', 'successfulSessions', 'failedSessions'],
+        properties: {
+          days: { type: 'integer' },
+          reportCount: { type: 'integer' },
+          successfulSessions: { type: 'integer' },
+          failedSessions: { type: 'integer' },
+          failureSharePercent: { type: ['number', 'null'] },
+          lastReportAt: { type: ['string', 'null'], format: 'date-time' },
+          byResultType: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                resultType: { type: 'string' },
+                failedSessions: { type: 'integer' },
+                reporters: { type: 'array', items: { type: 'string' } },
+              },
+            },
+          },
+          byMxHost: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                receivingMxHostname: { type: 'string' },
+                failedSessions: { type: 'integer' },
+                resultTypes: { type: 'array', items: { type: 'string' } },
+              },
+            },
+          },
+          byPolicyType: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                policyType: { type: 'string' },
+                successfulSessions: { type: 'integer' },
+                failedSessions: { type: 'integer' },
+              },
+            },
+          },
+          record: {
+            type: 'object',
+            properties: {
+              status: { type: 'string' },
+              host: { type: 'string' },
+              current: { type: ['string', 'null'] },
+              suggested: { type: 'string' },
+            },
+          },
+        },
+      },
     },
   },
 } as const;

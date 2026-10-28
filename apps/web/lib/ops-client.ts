@@ -50,6 +50,8 @@ import type {
   SwitchCheckRow,
   SwitchKitImportResult,
   SwitchPlan,
+  TeamsDestination,
+  TeamsTestResult,
   TlsReportDetail,
   VerifyDomainResult,
 } from "./types";
@@ -787,6 +789,33 @@ export const patchSlackDestinationEnabled = (orgId: string, enabled: boolean) =>
 
 export const deleteSlackDestination = (orgId: string) =>
   call<void>(wsPath(orgId, "/slack-destination"), { method: "DELETE" });
+
+// ─── settings: Microsoft Teams ──────────────────────────────────────────────
+
+export const getTeamsDestination = (orgId: string) =>
+  call<TeamsDestination | null>(wsPath(orgId, "/teams-destination"));
+
+export const putTeamsDestination = (
+  orgId: string,
+  body: { webhookUrl: string; channelLabel?: string | null },
+) =>
+  call<TeamsDestination>(wsPath(orgId, "/teams-destination"), {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+
+export const patchTeamsDestinationEnabled = (orgId: string, enabled: boolean) =>
+  call<void>(wsPath(orgId, "/teams-destination"), {
+    method: "PATCH",
+    body: JSON.stringify({ enabled }),
+  });
+
+export const deleteTeamsDestination = (orgId: string) =>
+  call<void>(wsPath(orgId, "/teams-destination"), { method: "DELETE" });
+
+/** The test button. It really does post to Microsoft, which is the point. */
+export const testTeamsDestination = (orgId: string) =>
+  call<TeamsTestResult>(wsPath(orgId, "/teams-destination/test"), { method: "POST" });
 
 // ─── settings: API keys (Phase 6) ────────────────────────────────────────────
 

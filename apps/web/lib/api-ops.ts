@@ -61,6 +61,8 @@ import type {
   ScanPage,
   SlackDestination,
   SsoConnectionRow,
+  TeamsDestination,
+  TeamsTestResult,
   TlsReportPage,
   TlsReportSummary,
   TrustSlugStatus,
@@ -788,6 +790,52 @@ export function deleteSlackDestination(organizationId: string): Promise<void> {
   return opsFetch<void>(`/api/workspaces/${organizationId}/slack-destination`, {
     method: "DELETE",
   });
+}
+
+/** Microsoft Teams alerts. Same rule as Slack: the Workflows address never
+ *  comes back, so the page shows maskedUrl and editing means pasting a new
+ *  one. */
+export function getTeamsDestination(
+  organizationId: string,
+): Promise<TeamsDestination | null> {
+  return opsFetch<TeamsDestination | null>(
+    `/api/workspaces/${organizationId}/teams-destination`,
+  );
+}
+
+export function setTeamsDestination(
+  organizationId: string,
+  body: { webhookUrl: string; channelLabel?: string | null },
+): Promise<TeamsDestination> {
+  return opsFetch<TeamsDestination>(
+    `/api/workspaces/${organizationId}/teams-destination`,
+    { method: "PUT", body: JSON.stringify(body) },
+  );
+}
+
+export function setTeamsDestinationEnabled(
+  organizationId: string,
+  enabled: boolean,
+): Promise<void> {
+  return opsFetch<void>(`/api/workspaces/${organizationId}/teams-destination`, {
+    method: "PATCH",
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+export function deleteTeamsDestination(organizationId: string): Promise<void> {
+  return opsFetch<void>(`/api/workspaces/${organizationId}/teams-destination`, {
+    method: "DELETE",
+  });
+}
+
+export function testTeamsDestination(
+  organizationId: string,
+): Promise<TeamsTestResult> {
+  return opsFetch<TeamsTestResult>(
+    `/api/workspaces/${organizationId}/teams-destination/test`,
+    { method: "POST" },
+  );
 }
 
 /** API keys. `key` appears in the create response EXACTLY ONCE — the list only
