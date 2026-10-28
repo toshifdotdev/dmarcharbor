@@ -14,12 +14,18 @@ import { requireFeature } from '../middleware/entitlement.middleware.js';
 
 export const ssoRouter = Router();
 
-/** Settings. The agency managing its own identity provider. */
+/**
+ * Settings. The agency managing its own identity provider.
+ *
+ * Reading and removing are not gated by the route: after a downgrade the
+ * workspace must still see the connections it has, when members stop being able
+ * to use them, and be able to delete them. The read answers 402 itself when the
+ * plan lacks SSO and there is nothing to show.
+ */
 ssoRouter.get(
   '/workspaces/:organizationId/sso-connections',
   requireSession,
   requireOrganizationPermission('organization', 'read'),
-  requireFeature('auth.sso'),
   listSsoConnectionsController,
 );
 
@@ -43,7 +49,6 @@ ssoRouter.delete(
   '/workspaces/:organizationId/sso-connections/:connectionId',
   requireSession,
   requireOrganizationPermission('organization', 'update'),
-  requireFeature('auth.sso'),
   deleteSsoConnectionController,
 );
 

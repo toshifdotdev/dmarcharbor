@@ -399,6 +399,16 @@ export const auth = betterAuth({
        * the invitation itself, counting open ones, so nobody is invited into a
        * seat that does not exist.
        */
+      /**
+       * Workspaces are removed through the erasure request only.
+       *
+       * The plugin's /organization/delete deleted a workspace the moment an owner
+       * called it: no seven-day grace period, no confirmation email, no audit
+       * record that survives the workspace, and nothing that stops a paid
+       * subscription billing for a workspace that no longer exists. The app never
+       * called it, so switching it off removes a route and nothing else.
+       */
+      disableOrganizationDeletion: true,
       membershipLimit: async (_user, organization) => (await resolveEntitlements(organization.id)).maxMembers,
       organizationHooks: {
         beforeCreateInvitation: async ({ organization }) => {

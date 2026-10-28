@@ -253,6 +253,14 @@ export async function buildTrustCenter(slug: string): Promise<TrustCenterPayload
 
   const entitlements = await resolveEntitlements(client.organizationId);
 
+  // A public page stops when its feature does. Only publishing was gated, so a
+  // workspace that downgraded kept serving every Trust Center it had made. The
+  // answer is the same as for a withdrawn link, and the link works again after
+  // an upgrade.
+  if (!entitlements.features['trust.center']) {
+    throw new TrustCenterError('No Trust Center at this address.', 'TRUST_CENTER_NOT_FOUND', 404);
+  }
+
   // Scoped to the client id, never the workspace.
   const [domains, grants, erasures] = await Promise.all([
     prisma.domain.findMany({

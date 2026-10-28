@@ -6,6 +6,7 @@ import { resolveLimit } from '../utils/pagination.js';
 import { domainRef } from './domain-ref.js';
 import { assessPolicyReadiness } from './onboarding.service.js';
 import { recordAuditEvent } from './audit.service.js';
+import { resolveEntitlements } from './entitlements/entitlement.service.js';
 
 const defaultShareDays = 30;
 const maximumShareDays = 365;
@@ -235,6 +236,12 @@ export async function getPublicReport(token: string, now = new Date()): Promise<
   });
 
   if (!share || share.revokedAt || share.expiresAt.getTime() <= now.getTime()) {
+    return null;
+  }
+
+  // A public page stops when its feature does: on a plan without share links the
+  // link answers as a withdrawn one, and works again after an upgrade.
+  if (!(await resolveEntitlements(share.organizationId, now)).features['sharing.links']) {
     return null;
   }
 

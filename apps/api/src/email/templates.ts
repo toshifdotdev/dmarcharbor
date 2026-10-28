@@ -491,6 +491,47 @@ export function planChangedEmail(input: {
   });
 }
 
+/**
+ * What a downgrade left running that the new plan does not include, and what to
+ * do about each. Sent only when there is something to act on.
+ */
+export function planPausedFeaturesEmail(input: {
+  workspaceName: string;
+  planLabel: string;
+  /** One line per hosted record kind still served, e.g. "3 hosted DMARC records". */
+  hostedRecords: string[];
+  /** Enabled SSO connections, and the last day existing members can use them. */
+  sso: { connections: number; signInUntil: string } | null;
+  appUrl: string;
+  billingUrl: string;
+}): RenderedEmail {
+  const paragraphs: string[] = [
+    `${input.workspaceName} is now on ${input.planLabel}. Nothing has been deleted, but some things you set up on your previous plan are no longer included.`,
+  ];
+
+  if (input.hostedRecords.length > 0) {
+    paragraphs.push(
+      `We still serve ${input.hostedRecords.join(', ')} for your domains, so your clients' mail keeps working. You can no longer change them. Move each record back to your own DNS from the domain's page with Stop hosting (Stop managing for SPF), or upgrade to keep editing them here.`,
+    );
+  }
+
+  if (input.sso) {
+    paragraphs.push(
+      `Single sign-on is not included in ${input.planLabel}. Nobody new can join through your ${input.sso.connections === 1 ? 'connection' : `${input.sso.connections} connections`}. Existing members can keep signing in through it until ${readableDate(input.sso.signInUntil)}. After that they sign in with their email address and password; anyone who has never set a password can create one with Forgot password on the sign-in page.`,
+    );
+  }
+
+  return layout({
+    title: `What changes on ${input.planLabel}`,
+    preheader: 'Nothing was deleted. A few things need your attention.',
+    heading: `What changes on ${input.planLabel}`,
+    paragraphs,
+    action: { label: 'Open DMARC Harbor', url: input.appUrl },
+    aside: { heading: 'Changed your mind?', body: `Upgrading again restores everything as it was. Plans are at ${input.billingUrl}.` },
+    footer: 'You are receiving this because you own or administer this workspace in DMARC Harbor.',
+  });
+}
+
 export function exportReadyEmail(input: {
   workspaceName: string;
   scopeLabel: string;

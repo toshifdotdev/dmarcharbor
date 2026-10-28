@@ -60,14 +60,18 @@ function bareOrigin(url: string): boolean {
 function Connection({
   c,
   canManage,
+  paused,
   onRemove,
   organizationId,
 }: {
   c: SsoConnectionRow;
   canManage: boolean;
+  /** Removable only: switching and editing need the plan. */
+  paused: boolean;
   onRemove: () => void;
   organizationId: string;
 }) {
+  const canEdit = canManage && !paused;
   const router = useRouter();
   const toast = useToast();
   const startUrl = c.callbackUrls.oidc.replace(/\/callback$/, "/start");
@@ -117,7 +121,9 @@ function Connection({
         <Badge tone="neutral" boxed>
           {c.protocol}
         </Badge>
-        {canManage ? (
+        {paused ? (
+          <Badge tone="warn">Not on this plan</Badge>
+        ) : canEdit ? (
           <span className="flex items-center gap-2 text-ui text-fg-2">
             <Switch checked={c.enabled} onChange={toggle} busy={busy === "toggle"} label={`Use ${c.label} for sign-in`} />
             {c.enabled ? "In use" : "Switched off"}
@@ -159,7 +165,7 @@ function Connection({
             ? `Someone at an allowed domain with no account here gets one on their first sign-in, as ${/^[aeiou]/.test(c.defaultRole) ? "an" : "a"} ${c.defaultRole}. Remove a person from your identity provider to stop new sign-ins.`
             : "Only people who are already members, or hold a pending invitation, can sign in through it. Nobody is created automatically."}
         </p>
-        {canManage && !editing ? (
+        {canEdit && !editing ? (
           <button type="button" className="link mt-2 text-meta" onClick={() => setEditing(true)}>
             Change who can get in
           </button>
@@ -246,10 +252,13 @@ export function SsoBoard({
   organizationId,
   connections,
   canManage,
+  paused = false,
 }: {
   organizationId: string;
   connections: SsoConnectionRow[];
   canManage: boolean;
+  /** The plan no longer includes SSO: connections can be read and removed, not added or changed. */
+  paused?: boolean;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -341,7 +350,7 @@ export function SsoBoard({
 
   return (
     <div className="flex flex-col gap-10">
-      {canManage ? (
+      {canManage && !paused ? (
         <Panel
           id="sso-add"
           title="Add a connection"
@@ -451,6 +460,7 @@ export function SsoBoard({
                 organizationId={organizationId}
                 c={c}
                 canManage={canManage}
+                paused={paused}
                 onRemove={() => {
                   setRemoveError(null);
                   setRemoving(c);

@@ -13,6 +13,8 @@ import {
   updateSsoConnection,
 } from '../services/sso/sso.service.js';
 import { zodMessage } from '../utils/zod-messages.js';
+import { assertFeature, resolveEntitlements } from '../services/entitlements/entitlement.service.js';
+import { ssoSignInUntil, syncSsoLicence } from '../services/entitlements/plan-change-effects.js';
 import {
   beginOidcSignIn,
   completeSamlSignIn,
@@ -100,7 +102,22 @@ export function isBareOrigin(value: string): boolean {
 }
 
 export async function listSsoConnectionsController(_request: Request, response: Response): Promise<void> {
-  response.json({ connections: await listSsoConnections(response.locals.organizationId) });
+  const organizationId = response.locals.organizationId;
+  const licensed = (await resolveEntitlements(organizationId)).features['auth.sso'] === true;
+  const connections = await listSsoConnections(organizationId);
+
+  if (!licensed && connections.length === 0) {
+    // Nothing kept from a previous plan: the ordinary "not on this plan" answer.
+    await assertFeature(organizationId, 'auth.sso');
+  }
+
+  // A kept connection on a plan without SSO is paused: existing members can use
+  // it until `signInUntil`, nobody new joins, and it can only be removed.
+  const since = await syncSsoLicence(organizationId, licensed);
+  const signInUntil = !licensed && since ? ssoSignInUntil(since).toISOString() : null;
+  response.json({
+    connections: connections.map((connection) => ({ ...connection, paused: !licensed, signInUntil })),
+  });
 }
 
 /**

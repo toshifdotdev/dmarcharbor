@@ -119,9 +119,17 @@ tell you exactly how many over you are on each limit, and you can remove the exc
 or stay where you are.
 
 **What happens to features when I downgrade?**
-Nothing is deleted. Hosted records keep being served and only changes pause. Alert
-rules, digests and a report mailbox are kept but stop running until you upgrade
-again. Links you already shared keep working until they expire or you revoke them.
+Nothing is deleted, and upgrading again brings everything back as it was.
+
+- Hosted records keep being served so your clients' mail keeps working, but you
+  can no longer change them. We email the workspace owners once, listing the
+  records to move back to your own DNS.
+- Alert rules, digests and a report mailbox are kept but stop running. A kept
+  mailbox can still be disconnected, which deletes its stored password.
+- Share links and Trust Center pages answer as withdrawn while the plan does not
+  include them, and work again after an upgrade.
+- Single sign-on stops admitting new people at once; existing members get 30 days.
+  See "What happens to single sign-on if we leave Admiralty?" below.
 
 **When does a plan change take effect?**
 It depends on how you pay. Paying in rupees through Razorpay, a change up or down
@@ -282,6 +290,12 @@ everyone. You can see and end every session from your account.
 **Do you support single sign-on?**
 Yes, on Admiralty. SAML and OIDC are both supported, with just-in-time provisioning
 limited to the email domains you allow.
+
+**What happens to single sign-on if we leave Admiralty?**
+Nobody new can join through your connection. Existing members can keep signing in
+through it for 30 days. After that they sign in with their email address and
+password. Anyone who joined through single sign-on and never set a password can
+create one with Forgot password on the sign-in page.
 
 **What about forensic reports and personal data?**
 Forensic reports can contain recipient addresses and subject lines. We collect them

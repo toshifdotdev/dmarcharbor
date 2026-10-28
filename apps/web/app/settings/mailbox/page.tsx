@@ -16,7 +16,8 @@ type Read =
   | { kind: "forbidden" }
   | { kind: "failed" };
 
-/** /settings/mailbox — gated on reports.inbox at the read itself. */
+/** /settings/mailbox — gated on reports.inbox at the read itself. A mailbox kept
+ *  from a previous plan reads as `paused`: shown, not read, and removable. */
 export default async function MailboxPage() {
   const ctx = await settingsContext();
   const read: Read = await getReportInbox(ctx.active.id)
@@ -30,7 +31,22 @@ export default async function MailboxPage() {
   return (
     <SettingsFrame ctx={ctx} section="mailbox">
       <RuaThread />
-      {read.kind === "ok" ? (
+      {read.kind === "ok" && read.inbox.paused ? (
+        <>
+          <UpgradeNotice
+            message="Collecting reports from your own mailbox is not included in this workspace's plan."
+            feature="reports.inbox"
+            context="The mailbox you connected on your previous plan is kept but no longer read. Disconnect it to delete the stored password, or upgrade to start collecting again."
+          />
+          <MailboxBoard
+            organizationId={ctx.active.id}
+            inbox={read.inbox}
+            canManage={ctx.role === null ? true : mayChange(ctx.role, "admin")}
+            lastPolledLabel={read.inbox.lastPolledAt ? instantLabel(read.inbox.lastPolledAt) : null}
+            paused
+          />
+        </>
+      ) : read.kind === "ok" ? (
         <MailboxBoard
           organizationId={ctx.active.id}
           inbox={read.inbox}

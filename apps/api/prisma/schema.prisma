@@ -1376,6 +1376,11 @@ model SsoConnection {
   provisioning         SsoProvisioningMode @default(JIT)
   defaultRole          String             @default("analyst")
   enabled              Boolean            @default(true)
+  /// When the workspace's plan stopped including single sign-on. Existing
+  /// members keep signing in through the connection for 30 days from here, so a
+  /// downgrade does not lock out people who have no password. Null while the
+  /// plan includes it.
+  unlicensedSince      DateTime?
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
 

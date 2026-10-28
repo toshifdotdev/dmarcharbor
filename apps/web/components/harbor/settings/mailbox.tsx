@@ -57,11 +57,14 @@ export function MailboxBoard({
   inbox,
   canManage,
   lastPolledLabel,
+  paused = false,
 }: {
   organizationId: string;
   inbox: ReportInboxSettings;
   canManage: boolean;
   lastPolledLabel: string | null;
+  /** The plan no longer includes it: only the status and Disconnect are offered. */
+  paused?: boolean;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -130,6 +133,7 @@ export function MailboxBoard({
 
   return (
     <div className="flex flex-col gap-10">
+      {paused ? null : (
       <Panel
         id="mb-set"
         title={inbox.configured ? "Change the connection" : "Connect a mailbox"}
@@ -171,12 +175,15 @@ export function MailboxBoard({
           <p className="text-ui text-fg-2">An owner or admin can connect or change the mailbox.</p>
         )}
       </Panel>
+      )}
 
       {inbox.configured ? (
         <Panel
           id="mb-status"
           title="Collection"
-          aside={inbox.enabled ? <Badge tone="ok">Collecting</Badge> : <Badge tone="warn">Stopped</Badge>}
+          aside={
+            paused ? <Badge tone="warn">Not read on this plan</Badge> : inbox.enabled ? <Badge tone="ok">Collecting</Badge> : <Badge tone="warn">Stopped</Badge>
+          }
           why="The mailbox is read on a schedule. Reports for domains in this workspace are filed under them; the rest are counted and left alone."
         >
           <KeyValue
@@ -196,9 +203,11 @@ export function MailboxBoard({
           />
           {canManage ? (
             <div className="flex flex-wrap items-center gap-3">
-              <Button onClick={poll} busy={polling} busyLabel="Reading the mailbox">
-                Collect now
-              </Button>
+              {paused ? null : (
+                <Button onClick={poll} busy={polling} busyLabel="Reading the mailbox">
+                  Collect now
+                </Button>
+              )}
               <Button variant="ghost" onClick={() => setRemoveOpen(true)}>
                 Disconnect mailbox
               </Button>

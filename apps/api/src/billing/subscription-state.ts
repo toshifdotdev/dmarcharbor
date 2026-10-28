@@ -6,6 +6,7 @@ import { recordAuditEvent } from '../services/audit.service.js';
 import { effectivePlan } from '../services/entitlements/plan-catalog.js';
 import { resolveEntitlements } from '../services/entitlements/entitlement.service.js';
 import { removeLogoOnDowngrade } from '../services/branding.service.js';
+import { afterPlanChange } from '../services/entitlements/plan-change-effects.js';
 import { billableQuantity } from './quantity.js';
 import type { BillingEvent, BillingProvider, ProviderSubscriptionStatus } from './provider.js';
 
@@ -208,7 +209,7 @@ export async function applyBillingEvent(event: BillingEvent): Promise<ApplyEvent
           },
         },
       });
-      return { plan: existing.plan, status: existing.status, stale: true };
+      return { plan: existing.plan, status: existing.status, stale: true, from: existing.plan };
     }
 
     /**
@@ -359,8 +360,12 @@ export async function applyBillingEvent(event: BillingEvent): Promise<ApplyEvent
       },
     });
 
-    return { plan: resolvedPlan, status, stale: false };
+    return { plan: resolvedPlan, status, stale: false, from: existing?.plan ?? null };
   });
+
+  if (result && !result.stale) {
+    await afterPlanChange(event.organizationId, { from: result.from, to: result.plan });
+  }
 
   if (!result) {
     const duplicate = await prisma.subscription.findUnique({
@@ -408,6 +413,8 @@ export async function setPlanByStaff(input: {
   actorUserId?: string | null;
   reason: string;
 }): Promise<void> {
+  const before = await prisma.organization.findUnique({ where: { id: input.organizationId }, select: { plan: true } });
+
   await prisma.$transaction(async (tx) => {
     await tx.subscription.upsert({
       where: { organizationId: input.organizationId },
@@ -423,6 +430,8 @@ export async function setPlanByStaff(input: {
 
     await writePlan(tx, input.organizationId, input.plan);
   });
+
+  await afterPlanChange(input.organizationId, { from: before?.plan ?? null, to: input.plan });
 
   await recordAuditEvent({
     organizationId: input.organizationId,
@@ -647,6 +656,7 @@ export async function applyDuePendingPlans(now = new Date()): Promise<{ applied:
       continue;
     }
 
+    await afterPlanChange(subscription.organizationId, { from: subscription.plan, to: targetPlan });
     applied += 1;
   }
 

@@ -15,6 +15,7 @@ import {
 } from '../services/entitlements/entitlement.service.js';
 import { zodMessage } from '../utils/zod-messages.js';
 import { catalogOrder, planLabel } from '../services/entitlements/plan-catalog.js';
+import { afterPlanChange } from '../services/entitlements/plan-change-effects.js';
 
 async function canManageBilling(request: Request, organizationId: string): Promise<boolean> {
   try {
@@ -80,6 +81,8 @@ export async function changePlanController(request: Request, response: Response)
       ? { currentPeriodEnd: body.data.currentPeriodEnd ? new Date(body.data.currentPeriodEnd) : null }
       : {}),
   });
+
+  await afterPlanChange(organizationId, { from: before.plan, to: body.data.plan });
 
   await recordAuditEvent({
     organizationId,

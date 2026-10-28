@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../database/prisma.js';
 import { InboxError, configureInbox, disableInbox, inboxStatus, pollInbox, recordInboxFailure } from '../services/report/imap-inbox.service.js';
 import { recordAuditEvent } from '../services/audit.service.js';
+import { assertFeature, resolveEntitlements } from '../services/entitlements/entitlement.service.js';
 
 /**
  * Mailbox settings for emailed report collection.
@@ -29,7 +30,17 @@ function sendError(response: Response, error: unknown): void {
 }
 
 export async function getInboxController(_request: Request, response: Response): Promise<void> {
-  response.json(await inboxStatus(response.locals.organizationId));
+  const organizationId = response.locals.organizationId;
+  const status = await inboxStatus(organizationId);
+  const licensed = (await resolveEntitlements(organizationId)).features['reports.inbox'] === true;
+
+  if (!licensed && !status.configured) {
+    // Nothing kept from a previous plan: the ordinary "not on this plan" answer.
+    await assertFeature(organizationId, 'reports.inbox');
+  }
+
+  // `paused`: kept from a previous plan. It is not read, and can only be removed.
+  response.json({ ...status, paused: !licensed });
 }
 
 export async function configureInboxController(request: Request, response: Response): Promise<void> {

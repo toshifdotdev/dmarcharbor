@@ -1770,9 +1770,14 @@ export interface ReportInboxSettings {
   lastPolledAt: string | null;
   lastError: string | null;
   consecutiveFailures: number;
+  /** Kept from a previous plan that included it: not read, and can only be removed. */
+  paused?: boolean;
 }
 
 export interface SsoConnectionRow {
+  /** The plan no longer includes SSO: nobody new joins, existing members until `signInUntil`. */
+  paused?: boolean;
+  signInUntil?: string | null;
   id: string;
   label: string;
   protocol: "SAML" | "OIDC";

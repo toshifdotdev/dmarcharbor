@@ -220,6 +220,28 @@ export async function withQuota<T>(
 }
 
 /**
+ * The same workspace lock as `withQuota`, without its all-or-nothing check.
+ *
+ * Bulk imports insert as many rows as fit and report the rest as plan-blocked,
+ * so they count and insert inside `work` themselves. Taking the lock first means
+ * two imports sent together queue behind each other instead of both reading the
+ * same free slots. The timeout is longer than Prisma's default because one call
+ * may insert hundreds of rows.
+ */
+export async function withWorkspaceLock<T>(
+  organizationId: string,
+  work: (tx: Prisma.TransactionClient) => Promise<T>,
+): Promise<T> {
+  return prisma.$transaction(
+    async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "organization" WHERE id = ${organizationId} FOR UPDATE`;
+      return work(tx);
+    },
+    { timeout: 60_000, maxWait: 15_000 },
+  );
+}
+
+/**
  * Workspaces the account behind this organization owns.
  *
  * Used wherever a limit has to be counted across the account rather than inside

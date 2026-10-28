@@ -1459,6 +1459,7 @@ export const openApiDocument = {
         description: [
           'Returns the host, username and the last poll result, and never the password. The password is account level access, so it is stored encrypted and is not readable back through any endpoint.',
           'The mailbox is per workspace rather than per client, because the product works by pointing every monitored domain rua tag at one shared address, so no customer hands over IMAP credentials.',
+          'Requires the reports.inbox entitlement, except that a mailbox kept from a previous plan is still returned, with `paused: true`: it is not read, and can only be deleted.',
         ].join(' '),
         parameters: [orgParam],
         responses: { ...standardErrors, 200: { description: 'Settings, with the password omitted.' } },
@@ -1494,7 +1495,7 @@ export const openApiDocument = {
       delete: {
         tags: ['Report collection'],
         summary: 'Stop collection and discard the mailbox',
-        description: 'Deletes the stored credentials. The messages themselves remain in the mail provider account and are removed there.',
+        description: 'Deletes the stored credentials, on any plan. The messages themselves remain in the mail provider account and are removed there.',
         parameters: [orgParam],
         responses: { ...standardErrors, 204: { description: 'Removed.' } },
       },
@@ -1517,7 +1518,7 @@ export const openApiDocument = {
         summary: 'Configured identity provider connections',
         description: [
           'Returns the connection settings and the email domains each one admits. The provider client secret is not part of this payload and is never returned by any endpoint.',
-          'Requires the auth.sso entitlement, which is sold on Admiralty only.',
+          'Requires the auth.sso entitlement, which is sold on Admiralty only. After a downgrade, connections kept from Admiralty are still listed with `paused: true` and `signInUntil`, the last moment existing members can sign in through them; nobody new joins. They can be deleted on any plan.',
         ].join(' '),
         parameters: [orgParam],
         responses: { ...standardErrors, 200: { description: 'The connections this workspace trusts.' } },

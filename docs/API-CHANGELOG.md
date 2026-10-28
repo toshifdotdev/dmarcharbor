@@ -249,6 +249,48 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-11-29 — What a downgrade keeps, stops and lets you remove
+
+**Workspace deletion.** `POST /api/auth/organization/delete` now returns 404.
+It deleted a workspace at once, skipping the seven-day erasure grace period,
+the confirmation email and the audit record. Use
+`POST /api/workspaces/{id}/erasures`.
+
+**Single sign-on.** On a plan without `auth.sso`:
+
+- Nobody new joins through a connection, by provisioning or by invitation.
+  The sign-in answers 403 `SSO_NOT_IN_PLAN`.
+- Existing members keep signing in for 30 days from the downgrade, then get
+  the same 403 and sign in with a password. Forgot password creates one for an
+  account that never had one.
+- `GET /api/workspaces/{id}/sso-connections` lists kept connections with
+  `paused: true` and `signInUntil`. It still answers 402 when there are none.
+  `DELETE …/sso-connections/{connectionId}` works on every plan. Creating and
+  changing a connection still need the plan.
+
+**Report mailbox.** `GET /api/workspaces/{id}/report-inbox` returns a mailbox
+kept from a previous plan with `paused: true`, and still answers 402 when there
+is none. `DELETE` works on every plan, so the stored password can always be
+removed. Changing and polling still need the plan.
+
+**Public pages.** A Trust Center (`GET /api/trust/{slug}`) and a share link
+(`GET /api/reports/share/{token}`) answer 404, the same as a withdrawn one,
+while the plan lacks `trust.center` or `sharing.links`. They work again after
+an upgrade. A Trust Center page already in a CDN cache can be served for up to
+an hour.
+
+**Hosted records.** Unchanged: they keep being served after a downgrade and
+only edits are refused. The owners and admins now get one email listing the
+hosted records and SSO connections the new plan no longer covers.
+
+**Bulk imports.** `POST /api/v1/clients/bulk`, `/api/v1/domains/bulk`,
+`/api/v1/clients`, `/api/v1/domains`, the browser bulk domain import and the
+switch kit count and insert under the workspace lock. Two imports sent together
+can no longer exceed the plan; rows past the limit are in `planBlocked`, as
+before.
+
+`/api/v1` response shapes are unchanged.
+
 ## 2026-11-28 — Plan limits enforced where they apply
 
 **Team size.** Each plan's member limit (Mooring 1, Fairway 3, Harbor 10,

@@ -4,6 +4,8 @@ import { providerFor } from './registry.js';
 import { applyDuePendingPlans, reconcileWithProvider, writePlan } from './subscription-state.js';
 import { effectivePlan } from '../services/entitlements/plan-catalog.js';
 import { sendPaymentFailedEmail } from '../email/mailer.js';
+import { afterPlanChange } from '../services/entitlements/plan-change-effects.js';
+import type { PlanTier } from '@prisma/client';
 
 /**
  * Recovers failed payments and repairs drift against the provider.
@@ -158,6 +160,8 @@ async function withdrawPlan(organizationId: string, previousPlan: string, reason
         },
       });
     });
+
+  await afterPlanChange(organizationId, { from: previousPlan as PlanTier, to: 'MOORING' });
 
   await recordAuditEvent({
     organizationId,

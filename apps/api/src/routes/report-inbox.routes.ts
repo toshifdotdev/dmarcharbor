@@ -29,7 +29,8 @@ reportInboxRouter.get(
   '/workspaces/:organizationId/report-inbox',
   requireSession,
   requireOrganizationPermission('organization', 'read'),
-  requireFeature('reports.inbox'),
+  // Gated in the controller: a mailbox kept from a previous plan is still shown,
+  // so its stored password can be deleted.
   getInboxController,
 );
 
@@ -42,11 +43,11 @@ reportInboxRouter.put(
   configureInboxController,
 );
 
+/** Removing a stored mailbox password is allowed on every plan. */
 reportInboxRouter.delete(
   '/workspaces/:organizationId/report-inbox',
   requireSession,
   requireOrganizationPermission('organization', 'update'),
-  requireFeature('reports.inbox'),
   deleteInboxController,
 );
 

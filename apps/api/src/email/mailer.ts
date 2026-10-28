@@ -10,6 +10,7 @@ import {
   exportReadyEmail,
   paymentFailedEmail,
   planChangedEmail,
+  planPausedFeaturesEmail,
   policyApprovalRequestedEmail,
   policyProposalDecidedEmail,
   portalAccessGranted,
@@ -278,6 +279,32 @@ async function sendPlanChangedEmailImpl(input: {
   }
 }
 
+async function sendPlanPausedFeaturesEmailImpl(input: {
+  organizationId: string;
+  plan: Parameters<typeof planLabel>[0];
+  hostedRecords: string[];
+  sso: { connections: number; signInUntil: Date } | null;
+  /** Makes repeated calls for one downgrade send one message. */
+  idempotencyKey: string;
+}): Promise<void> {
+  const name = await workspaceName(input.organizationId);
+
+  for (const email of await ownersOf(input.organizationId)) {
+    queueEmail(
+      planPausedFeaturesEmail({
+        workspaceName: name,
+        planLabel: planLabel(input.plan),
+        hostedRecords: input.hostedRecords,
+        sso: input.sso ? { connections: input.sso.connections, signInUntil: input.sso.signInUntil.toISOString() } : null,
+        appUrl: appUrl('/'),
+        billingUrl: appUrl('/billing'),
+      }),
+      email,
+      `${input.idempotencyKey}:${email}`,
+    );
+  }
+}
+
 async function sendExportReadyEmailImpl(input: {
   organizationId: string;
   exportJobId: string;
@@ -374,6 +401,13 @@ export function sendSubscriptionCancelledEmail(input: Parameters<typeof sendSubs
 
 export function sendPlanChangedEmail(input: Parameters<typeof sendPlanChangedEmailImpl>[0]): void {
   fireAndForget(sendPlanChangedEmailImpl(input), 'sendPlanChangedEmail');
+}
+
+/** Awaitable, unlike the others: the plan-change hook waits so a test can read the queue. It still never rejects. */
+export async function sendPlanPausedFeaturesEmail(input: Parameters<typeof sendPlanPausedFeaturesEmailImpl>[0]): Promise<void> {
+  await sendPlanPausedFeaturesEmailImpl(input).catch((error: unknown) => {
+    console.error(`[email] sendPlanPausedFeaturesEmail failed: ${error instanceof Error ? error.message : 'Unknown mailer error.'}`);
+  });
 }
 
 export function sendExportReadyEmail(input: Parameters<typeof sendExportReadyEmailImpl>[0]): void {

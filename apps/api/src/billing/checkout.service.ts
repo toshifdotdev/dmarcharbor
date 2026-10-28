@@ -17,6 +17,7 @@ import { resolveBillingInterval } from './interval.js';
 import { writePlan } from './subscription-state.js';
 import { dunningGraceDays, graceEndFor } from './dunning.js';
 import { sendPlanChangedEmail, sendSubscriptionCancelledEmail } from '../email/mailer.js';
+import { afterPlanChange } from '../services/entitlements/plan-change-effects.js';
 
 /**
  * Checkout orchestration.
@@ -403,6 +404,7 @@ export async function changePlan(input: {
           },
         });
       });
+      await afterPlanChange(input.organizationId, { from: subscription.plan, to: input.plan });
     } else {
     // Recorded only after the provider accepted the change, so our row can never
     // claim a scheduled change the provider refused. Cleared by applyBillingEvent

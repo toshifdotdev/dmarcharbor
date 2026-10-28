@@ -18,7 +18,8 @@ import { decryptSensitive, encryptSensitive } from '../privacy.service.js';
 import { recordAuditEvent } from '../audit.service.js';
 import { auth } from '../../auth/auth.config.js';
 import { SsoError, assertMayProvision, normalizeEmailDomain } from './sso.service.js';
-import { memberAllowance, memberLimitMessage } from '../entitlements/entitlement.service.js';
+import { memberAllowance, memberLimitMessage, resolveEntitlements } from '../entitlements/entitlement.service.js';
+import { ssoSignInUntil, syncSsoLicence } from '../entitlements/plan-change-effects.js';
 
 /**
  * The two sign in flows.
@@ -194,6 +195,43 @@ export async function completeSignIn(
   const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });
   let userId = existing?.id;
   let created = false;
+
+  /**
+   * A plan without single sign-on.
+   *
+   * Only configuring a connection used to be gated, so a downgraded workspace
+   * kept admitting and provisioning people through it indefinitely. Now nobody
+   * new joins through it, and existing members keep signing in for a grace
+   * period so the people who have no password are not locked out on the day of
+   * the downgrade. After that they use their password, which Forgot password
+   * creates for an account that never had one.
+   */
+  const licensed = (await resolveEntitlements(connection.organizationId)).features['auth.sso'] === true;
+  const unlicensedSince = await syncSsoLicence(connection.organizationId, licensed);
+  if (!licensed) {
+    const isMember = userId
+      ? Boolean(
+          await prisma.member.findUnique({
+            where: { organizationId_userId: { organizationId: connection.organizationId, userId } },
+            select: { id: true },
+          }),
+        )
+      : false;
+    if (!isMember) {
+      throw new SsoError(
+        "Single sign-on is not included in this workspace's plan, so nobody new can join through it. Ask an administrator for an invitation.",
+        'SSO_NOT_IN_PLAN',
+        403,
+      );
+    }
+    if (unlicensedSince && Date.now() > ssoSignInUntil(unlicensedSince).getTime()) {
+      throw new SsoError(
+        "Single sign-on is no longer included in this workspace's plan. Sign in with your email address and password. If you have never set a password, use Forgot password on the sign-in page to create one.",
+        'SSO_NOT_IN_PLAN',
+        403,
+      );
+    }
+  }
 
   if (!userId) {
       /**
