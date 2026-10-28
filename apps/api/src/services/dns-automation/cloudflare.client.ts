@@ -279,10 +279,15 @@ export function setCloudflareFetchForTests(impl: typeof fetch | null): void {
 export function createCloudflareClient(input: {
   token: string;
   fetchImpl?: typeof fetch;
-}): CloudflareClient {  const fetchImpl = input.fetchImpl ?? defaultFetch;
+}): CloudflareClient {
+  const fetchImpl = input.fetchImpl ?? defaultFetch;
   const token = input.token.trim();
 
-  async function requestEnvelope<T>(path: string, init: RequestInit = {}): Promise<CloudflareEnvelope<T>> {
+  async function requestEnvelope<T>(
+    path: string,
+    init: RequestInit = {},
+    options: { notFoundIsEmpty?: boolean } = {},
+  ): Promise<CloudflareEnvelope<T>> {
     let response: Response;
     try {
       response = await fetchImpl(`${CLOUDFLARE_BASE}${path}`, {
@@ -315,6 +320,9 @@ export function createCloudflareClient(input: {
       );
     }
 
+    if (response.status === 404 && options.notFoundIsEmpty) {
+      return {};
+    }
     if (!response.ok || envelope.success === false) {
       throw classifyFailure(response.status, errorCodes(envelope));
     }
@@ -494,9 +502,12 @@ export function createCloudflareClient(input: {
 
     async deleteCustomHostname(zoneId, id) {
       try {
-        await request<unknown>(
+        // A 404 means it is already gone, which is what the caller wanted. A
+        // retry after a delete whose response was lost must not fail forever.
+        await requestEnvelope<unknown>(
           `/zones/${encodeURIComponent(zoneId)}/custom_hostnames/${encodeURIComponent(id)}`,
           { method: 'DELETE' },
+          { notFoundIsEmpty: true },
         );
       } catch (error) {
         customHostnameFailure(error);

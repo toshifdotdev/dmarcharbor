@@ -169,7 +169,7 @@ lifecycleRouter.get(
         note:
           'MTA-STS stops being served. ' +
           (row.mode === 'enforce'
-            ? `Senders that cached this enforcing policy keep applying it for up to ${row.maxAge} seconds; switch it to testing first if you are moving.`
+            ? `Senders that cached this enforcing policy keep applying it for up to ${Math.ceil(row.maxAge / 86_400)} day${Math.ceil(row.maxAge / 86_400) === 1 ? '' : 's'}; switch it to testing first if you are moving.`
             : 'The policy is not enforcing, so senders apply nothing beyond what they already fetched.'),
       })),
     });

@@ -351,7 +351,10 @@ async function domainFor(organizationId: string, domainRefOrId: string) {
 }
 
 async function capacityState(): Promise<{ full: boolean; used: number; limit: number }> {
-  const used = await prisma.hostedMtaStsRecord.count({ where: { status: { not: 'RELEASED' } } });
+  // A released row whose hostname Cloudflare would not delete still holds one.
+  const used = await prisma.hostedMtaStsRecord.count({
+    where: { OR: [{ status: { not: 'RELEASED' } }, { customHostnameId: { not: null } }] },
+  });
   return { full: used >= env.HOSTED_MTA_STS_HOSTNAME_LIMIT, used, limit: env.HOSTED_MTA_STS_HOSTNAME_LIMIT };
 }
 
@@ -457,9 +460,15 @@ export async function mtaStsReadiness(input: {
     }
   }
 
-  // How long the policy has been in testing, from the last change into testing.
+  // How long the policy has been in testing, from the last change INTO testing:
+  // the start, or a move from another mode. An edit made while already in
+  // testing (adding an MX host, say) does not restart the clock.
   const intoTesting = await prisma.hostedMtaStsChange.findFirst({
-    where: { record: { domainId: input.domain.id }, newMode: 'testing' },
+    where: {
+      record: { domainId: input.domain.id },
+      newMode: 'testing',
+      OR: [{ previousMode: null }, { previousMode: { not: 'testing' } }],
+    },
     orderBy: { createdAt: 'desc' },
     select: { createdAt: true },
   });
@@ -501,6 +510,38 @@ export async function mtaStsReadiness(input: {
   }
 
   return blockers;
+}
+
+/**
+ * Why removing patterns from an enforcing policy would refuse delivery.
+ *
+ * Only hosts the old list covered and the new one does not are blockers. A
+ * host that was already uncovered is the banner's problem, not this edit's,
+ * and blocking on it would stop someone tidying the list while they fix it.
+ */
+export async function mtaStsRemovalBlockers(input: {
+  domainName: string;
+  previousMx: string[];
+  nextMx: string[];
+  reader?: DnsReader;
+}): Promise<MtaStsBlocker[]> {
+  const hosts = await currentMxHosts(input.domainName, dnsReader(input.reader));
+  if (hosts === null) {
+    return [
+      {
+        code: 'mx_lookup_failed',
+        message: `The MX lookup for ${input.domainName} failed, so no one can say whether removing these patterns leaves a mail server uncovered. Try again in a few minutes.`,
+      },
+    ];
+  }
+  const lost = hosts.filter((host) => mxCoveredBy(host, input.previousMx) && !mxCoveredBy(host, input.nextMx));
+  if (lost.length === 0) return [];
+  return [
+    {
+      code: 'mx_not_covered',
+      message: `The policy would no longer cover ${lost.join(', ')}. Senders that apply it would refuse to deliver there.`,
+    },
+  ];
 }
 
 // ─── view ───────────────────────────────────────────────────────────────────
@@ -726,7 +767,17 @@ export async function startHostedMtaSts(input: {
 
   if (existing) {
     // A released row is replaced: its token was in a CNAME that no longer
-    // points here, and its custom hostname was deleted on release.
+    // points here. If Cloudflare refused to delete its custom hostname at
+    // release, that is retried now. Deleting the row first would lose the only
+    // record of the id, and Cloudflare refuses a second hostname with the same
+    // name anyway.
+    if (!(await removeCustomHostname(existing))) {
+      throw new HostedMtaStsError(
+        'The previous custom hostname for this domain could not be removed from Cloudflare yet. Try again in a few minutes.',
+        'HOSTED_MTA_STS_PROVIDER_FAILED',
+        502,
+      );
+    }
     await prisma.hostedMtaStsRecord.delete({ where: { id: existing.id } });
   }
 
@@ -845,26 +896,38 @@ function cnameStateOf(lookup: LookupResult<string[]> | null, expected: string): 
   return target.trim().toLowerCase().replace(/\.+$/, '') === expected ? 'found' : 'elsewhere';
 }
 
+/**
+ * Deletes the row's custom hostname. True when it is gone (or there was none),
+ * false when Cloudflare refused, with the reason recorded on the row.
+ */
+async function removeCustomHostname(row: { id: string; customHostnameId: string | null }): Promise<boolean> {
+  if (!row.customHostnameId) return true;
+  const client = hostedCustomHostnameClient();
+  if (!client) return false;
+  try {
+    await client.remove(row.customHostnameId);
+    return true;
+  } catch (error) {
+    await prisma.hostedMtaStsRecord
+      .update({
+        where: { id: row.id },
+        data: { lastSyncError: error instanceof Error ? error.message : 'Cloudflare refused the removal.' },
+      })
+      .catch(() => undefined);
+    return false;
+  }
+}
+
 /** Completes a release: hostname gone, TXT gone, row closed. */
 async function completeRelease(
   row: HostedMtaStsRecord,
   input: { organizationId: string; domainId: string; domainName: string; now: Date; actorUserId?: string },
 ): Promise<HostedMtaStsRecord> {
-  const client = hostedCustomHostnameClient();
-  if (client && row.customHostnameId) {
-    try {
-      await client.remove(row.customHostnameId);
-    } catch (error) {
-      // Best effort: a hostname we cannot delete is still ours, and the row is
-      // the only record of it. Recorded rather than thrown.
-      await prisma.hostedMtaStsRecord
-        .update({
-          where: { id: row.id },
-          data: { lastSyncError: error instanceof Error ? error.message : 'Cloudflare refused the removal.' },
-        })
-        .catch(() => undefined);
-    }
-  }
+  // A hostname we cannot delete is still ours and still billed, and the row is
+  // the only record of its id: custom hostnames carry no comment, so nothing
+  // else could ever find it again. The id is kept until a removal succeeds, and
+  // the reconciler retries it.
+  const hostnameRemoved = await removeCustomHostname(row);
   const provider = hostedDnsProvider();
   if (provider) {
     await removeOurRecords(provider, row).catch(() => undefined);
@@ -875,7 +938,7 @@ async function completeRelease(
     data: {
       status: 'RELEASED',
       releasedAt: input.now,
-      customHostnameId: null,
+      ...(hostnameRemoved ? { customHostnameId: null } : {}),
       txtRecordId: null,
       delegated: false,
     },
@@ -998,6 +1061,7 @@ export async function checkMtaStsDelegation(input: {
     const due = finalRow.releaseServeUntil !== null && finalRow.releaseServeUntil.getTime() <= now.getTime();
     const ownPolicy = await customerPolicyTakesOver({
       domain: domain.name,
+      mtaCnameState,
       txtCnameState,
       reader,
       https: httpsGetter(input.https),
@@ -1018,16 +1082,20 @@ export async function checkMtaStsDelegation(input: {
 /**
  * Whether the customer now serves a valid policy of their own.
  *
- * Only asked when `_mta-sts` no longer points at us: while it does, the TXT
- * read follows our CNAME and returns our own record.
+ * Only asked when neither name points at us any more. While `_mta-sts` does,
+ * the TXT read follows our CNAME and returns our own record. While `mta-sts`
+ * does, the policy fetch reaches this API and returns our own `mode: none`,
+ * which is valid and would look like the customer's; completing the release
+ * then deletes the hostname their TXT still sends senders to.
  */
 async function customerPolicyTakesOver(input: {
   domain: string;
+  mtaCnameState: CnameState;
   txtCnameState: CnameState;
   reader: DnsReader;
   https: HttpsGetter;
 }): Promise<boolean> {
-  if (input.txtCnameState === 'found') return false;
+  if (input.txtCnameState === 'found' || input.mtaCnameState === 'found') return false;
   try {
     const txt = await input.reader.resolveTxt(`_mta-sts.${input.domain}`);
     if (txt.status !== 'found') return false;
@@ -1168,14 +1236,25 @@ export async function changeMtaStsPolicy(input: {
       record: { mx: next.mx, status: row.status },
       reader: input.reader,
     });
-    if (blockers.length > 0 && input.override !== true) {
-      throw new HostedMtaStsError(
-        'This policy is not ready to enforce: resolve the blockers or publish anyway.',
-        'POLICY_NOT_READY',
-        409,
-        { blockers },
-      );
-    }
+  } else if (next.mode === 'enforce' && row.mx.some((pattern) => !next.mx.includes(pattern))) {
+    // Already enforcing, and a pattern is being removed. That is the edit that
+    // can refuse delivery to a server the domain uses today, so the coverage
+    // check runs again. Adding a host or changing max_age cannot uncover
+    // anything, which keeps the one-click "add" free of blockers.
+    blockers = await mtaStsRemovalBlockers({
+      domainName: domain.name,
+      previousMx: row.mx,
+      nextMx: next.mx,
+      reader: input.reader,
+    });
+  }
+  if (blockers.length > 0 && input.override !== true) {
+    throw new HostedMtaStsError(
+      'This policy is not ready to enforce: resolve the blockers or publish anyway.',
+      'POLICY_NOT_READY',
+      409,
+      { blockers },
+    );
   }
   const overridden = blockers.length > 0 && input.override === true;
   const policyId = nextPolicyId();
@@ -1317,9 +1396,12 @@ export async function requestMtaStsRelease(input: {
 
   const now = new Date();
 
-  // Never delegated: nothing was ever published that a sender could have
-  // cached, so the hostname and the TXT go at once.
-  if (row.status === 'PENDING') {
+  // Never servable: without a live certificate no sender could have fetched
+  // the policy, so the hostname and the TXT go at once. A PENDING row whose
+  // certificate is active has been served (the public route answers for it),
+  // and a sender may have cached it, so it releases like an active one.
+  const everServed = row.hostnameStatus === 'active' && row.sslStatus === 'active';
+  if (row.status === 'PENDING' && !everServed) {
     const released = await completeRelease(row, {
       organizationId: input.organizationId,
       domainId: domain.id,
@@ -1386,14 +1468,11 @@ export async function requestMtaStsRelease(input: {
     detail: { domainName: domain.name, serveUntil: serveUntil.toISOString() },
   });
 
-  const synced = await syncMtaStsValue(updated);
-  if (!synced.ok) {
-    throw new HostedMtaStsError(
-      synced.error ?? 'The DNS provider refused the change.',
-      'HOSTED_MTA_STS_PROVIDER_FAILED',
-      502,
-    );
-  }
+  // The release has committed and the `none` policy is already being served.
+  // A failed TXT write is recorded on the row (the panel shows it) and retried
+  // by the reconciler; answering 502 here would report a release that happened
+  // as one that did not.
+  await syncMtaStsValue(updated);
 
   const fresh = await prisma.hostedMtaStsRecord.findUniqueOrThrow({ where: { id: row.id } });
   return viewFor(input.organizationId, domain, fresh);
@@ -1506,6 +1585,22 @@ export async function reconcileHostedMtaSts(
       } catch {
         // A read that fails leaves the stored statuses alone.
       }
+    }
+  }
+
+  // Released rows that still hold a custom hostname: the removal at release
+  // failed, and the stored id is the only way to find it again.
+  const stranded = await prisma.hostedMtaStsRecord.findMany({
+    where: { status: 'RELEASED', customHostnameId: { not: null } },
+    select: { id: true, customHostnameId: true },
+  });
+  for (const row of stranded) {
+    if (await removeCustomHostname(row)) {
+      await prisma.hostedMtaStsRecord.update({
+        where: { id: row.id },
+        data: { customHostnameId: null, lastSyncError: null },
+      });
+      summary.removed += 1;
     }
   }
 

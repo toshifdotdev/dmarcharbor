@@ -81,6 +81,7 @@ class MemoryCustomHostnames implements HostedCustomHostnameClient {
   private next = 1;
   failCreate = false;
   failGet = false;
+  failRemove = false;
 
   async create(hostname: string): Promise<HostedCustomHostname> {
     if (this.failCreate) throw new Error('The Cloudflare token cannot manage custom hostnames.');
@@ -103,6 +104,7 @@ class MemoryCustomHostnames implements HostedCustomHostnameClient {
   }
 
   async remove(id: string): Promise<void> {
+    if (this.failRemove) throw new Error('Cloudflare could not be reached.');
     this.hostnames = this.hostnames.filter((entry) => entry.id !== id);
   }
 
@@ -714,5 +716,132 @@ describe('hosted MTA-STS', () => {
     expect(same.status).toBe(200);
     expect(same.body.action).toBe('unchanged');
     expect(provider.records.find((record) => record.name === `${token}._mta-sts.${zone}`)!.content).toBe(before);
+  });
+
+  it('does not complete a release early while mta-sts still points here', async () => {
+    const fixture = await setup();
+    const { token } = await started(fixture);
+    await activate(fixture, target, token);
+    const releasing = await fixture.agent.post(`${base(fixture.organizationId, fixture.domainId)}/release`);
+    expect(releasing.body.hosted.status).toBe('RELEASING');
+
+    // The customer swaps _mta-sts for their own TXT but leaves mta-sts on us.
+    // The policy fetch then reaches this API and returns our own `none`.
+    reader.cname.delete(`_mta-sts.${fixture.domainName}`);
+    reader.txt.set(`_mta-sts.${fixture.domainName}`, 'v=STSv1; id=theirs1');
+    const url = `https://mta-sts.${fixture.domainName}/.well-known/mta-sts.txt`;
+    https.bodies.set(url, 'version: STSv1\r\nmode: none\r\nmax_age: 86400\r\n');
+    const stillOurs = await fixture.agent.post(`${base(fixture.organizationId, fixture.domainId)}/check`);
+    expect(stillOurs.body.hosted.status).toBe('RELEASING');
+    expect(hostnames.hostnames).toHaveLength(1);
+
+    // Once mta-sts points at their own server and it serves a valid policy,
+    // the release may complete early.
+    reader.cname.delete(`mta-sts.${fixture.domainName}`);
+    https.bodies.set(
+      url,
+      `version: STSv1\r\nmode: testing\r\nmx: mx1.${fixture.domainName}\r\nmx: mx2.${fixture.domainName}\r\nmax_age: 86400\r\n`,
+    );
+    const theirs = await fixture.agent.post(`${base(fixture.organizationId, fixture.domainId)}/check`);
+    expect(theirs.body.hosted.status).toBe('RELEASED');
+    expect(hostnames.hostnames).toHaveLength(0);
+  });
+
+  it('keeps a custom hostname Cloudflare would not delete, counts it, and retries it', async () => {
+    env.HOSTED_MTA_STS_HOSTNAME_LIMIT = 1;
+    const fixture = await setup();
+    const { token } = await started(fixture);
+    await activate(fixture, target, token);
+    const releasing = await fixture.agent.post(`${base(fixture.organizationId, fixture.domainId)}/release`);
+    const due = new Date(new Date(releasing.body.hosted.releaseServeUntil as string).getTime() + 1000);
+
+    hostnames.failRemove = true;
+    await reconcileHostedMtaSts(due);
+    let row = await prisma.hostedMtaStsRecord.findFirstOrThrow({ where: { domainId: fixture.domainId } });
+    expect(row.status).toBe('RELEASED');
+    expect(row.customHostnameId).not.toBeNull();
+    expect(hostnames.hostnames).toHaveLength(1);
+
+    // Still billed, so it still uses the limit.
+    const other = await setup();
+    expect((await start(other)).body.error.code).toBe('HOSTED_MTA_STS_FULL');
+
+    hostnames.failRemove = false;
+    const summary = await reconcileHostedMtaSts(due);
+    expect(summary.removed).toBeGreaterThanOrEqual(1);
+    row = await prisma.hostedMtaStsRecord.findFirstOrThrow({ where: { domainId: fixture.domainId } });
+    expect(row.customHostnameId).toBeNull();
+    expect(hostnames.hostnames).toHaveLength(0);
+    expect((await start(other)).status).toBe(201);
+  });
+
+  it('releases a pending record through the serve window once its certificate was live', async () => {
+    const fixture = await setup();
+    await started(fixture);
+    // Certificate live, CNAMEs not seen yet: still PENDING, but servable.
+    hostnames.activate();
+    const checked = await fixture.agent.post(`${base(fixture.organizationId, fixture.domainId)}/check`);
+    expect(checked.body.hosted.status).toBe('PENDING');
+    expect(checked.body.hosted.certificate.ready).toBe(true);
+
+    const released = await fixture.agent.post(`${base(fixture.organizationId, fixture.domainId)}/release`);
+    expect(released.body.hosted.status).toBe('RELEASING');
+    expect(released.body.hosted.mode).toBe('none');
+    expect(hostnames.hostnames).toHaveLength(1);
+  });
+
+  it('refuses to drop a live MX host from an enforcing policy, but adds one freely', async () => {
+    const fixture = await setup();
+    const { token } = await started(fixture);
+    const active = await activate(fixture, target, token);
+    const both = [`mx1.${fixture.domainName}`, `mx2.${fixture.domainName}`];
+    const enforced = await fixture.agent.put(base(fixture.organizationId, fixture.domainId)).send({
+      expectedVersion: active.body.hosted.version,
+      mode: 'enforce',
+      mx: both,
+      maxAge: 604_800,
+      override: true,
+    });
+    expect(enforced.status).toBe(200);
+
+    const dropped = await fixture.agent.put(base(fixture.organizationId, fixture.domainId)).send({
+      expectedVersion: enforced.body.hosted.version,
+      mode: 'enforce',
+      mx: [both[0]],
+      maxAge: 604_800,
+    });
+    expect(dropped.status).toBe(409);
+    expect(dropped.body.error.code).toBe('POLICY_NOT_READY');
+    expect(dropped.body.blockers).toEqual([expect.objectContaining({ code: 'mx_not_covered' })]);
+    expect(dropped.body.blockers[0].message).toContain(both[1]);
+
+    const added = await fixture.agent.put(base(fixture.organizationId, fixture.domainId)).send({
+      expectedVersion: enforced.body.hosted.version,
+      mode: 'enforce',
+      mx: [...both, `mx3.${fixture.domainName}`],
+      maxAge: 604_800,
+    });
+    expect(added.status).toBe(200);
+    expect(added.body.hosted.mx).toHaveLength(3);
+  });
+
+  it('does not restart the testing clock for an edit made while in testing', async () => {
+    const fixture = await setup();
+    const { token } = await started(fixture);
+    const active = await activate(fixture, target, token);
+    await prisma.hostedMtaStsChange.updateMany({
+      where: { record: { domainId: fixture.domainId } },
+      data: { createdAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000) },
+    });
+
+    const edited = await fixture.agent.put(base(fixture.organizationId, fixture.domainId)).send({
+      expectedVersion: active.body.hosted.version,
+      mode: 'testing',
+      mx: [...active.body.hosted.mx, `mx3.${fixture.domainName}`],
+      maxAge: 86_400,
+    });
+    expect(edited.status).toBe(200);
+    const codes = edited.body.hosted.readiness.blockers.map((blocker: { code: string }) => blocker.code);
+    expect(codes).not.toContain('testing_too_short');
   });
 });

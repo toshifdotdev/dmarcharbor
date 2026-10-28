@@ -181,11 +181,13 @@ export function HostedMtaSts({
     setError(null);
     setBlockers([]);
     setNotice(null);
+    // The published mx list and max_age, not the editor's unsaved values: the
+    // safe action changes the mode and nothing else.
     const res = await updateHostedMtaSts(organizationId, domainId, {
       expectedVersion: hosted.version,
       mode: "testing",
-      mx,
-      maxAge: Number(maxAge) || hosted.maxAge,
+      mx: hosted.mx,
+      maxAge: hosted.maxAge,
     });
     setBusy(null);
     if (!res.ok) {
@@ -227,16 +229,24 @@ export function HostedMtaSts({
     router.refresh();
   }
 
-  async function addHost(host: string): Promise<void> {    if (!hosted) return;
+  /**
+   * Adds one host to the published policy.
+   *
+   * Built from what is published, not from the editor: an unsaved edit in the
+   * form (a removed host, a mode change) must not ride along with a one-click
+   * fix.
+   */
+  async function addHost(host: string): Promise<void> {
+    if (!hosted) return;
     setBusy("add");
     setError(null);
     setNotice(null);
-    const nextMx = mx.includes(host) ? mx : [...mx, host];
+    const nextMx = hosted.mx.includes(host) ? hosted.mx : [...hosted.mx, host];
     const res = await updateHostedMtaSts(organizationId, domainId, {
       expectedVersion: hosted.version,
-      mode: mode,
+      mode: hosted.mode === "enforce" ? "enforce" : "testing",
       mx: nextMx,
-      maxAge: Number(maxAge) || hosted.maxAge,
+      maxAge: hosted.maxAge,
     });
     setBusy(null);
     if (!res.ok) {
@@ -263,7 +273,7 @@ export function HostedMtaSts({
     setConfirmRelease(false);
     setNotice(
       res.data.hosted?.status === "RELEASED"
-        ? "Hosting stopped at once; nothing had been delegated."
+        ? "Hosting stopped at once; the policy had never been served."
         : "A 'none' policy is being served until every cached policy has expired. The date is below.",
     );
     router.refresh();
@@ -619,7 +629,11 @@ export function HostedMtaSts({
                 >
                   Publish the policy
                 </Button>
-                {mode === "enforce" && hosted.mode !== "enforce" && hosted.readiness.blockers.length > 0 ? (
+                {/* Offered for the blockers the view predicted, and for any the
+                    server returned on a refusal: the server checks the list
+                    being published, the view the list already published. */}
+                {mode === "enforce" &&
+                (blockers.length > 0 || (hosted.mode !== "enforce" && hosted.readiness.blockers.length > 0)) ? (
                   <Button data-testid="hosted-mta-sts-override" onClick={() => setConfirmOverride(true)}>
                     Enforce anyway
                   </Button>
@@ -720,8 +734,8 @@ export function HostedMtaSts({
               We publish <code className="data">mode: none</code> with a new id and keep serving it until every
               policy a sender may have cached has expired. Only then are the CNAMEs yours to remove.
             </p>
-            {hosted?.status === "PENDING" ? (
-              <p>This record was never delegated, so the hostname and the TXT are removed at once.</p>
+            {hosted?.status === "PENDING" && !hosted.certificate.ready ? (
+              <p>The policy was never served, so the hostname and the TXT are removed at once.</p>
             ) : (
               <p>Withdrawing an enforcing policy immediately would leave senders refusing mail to servers you still use.</p>
             )}
@@ -745,11 +759,13 @@ export function HostedMtaSts({
               Senders that apply this policy will refuse to deliver to any mail server it does not cover, and TLS
               failures become delivery failures. The override is recorded in the audit trail.
             </p>
-            {hosted?.readiness.blockers.map((blocker) => (
-              <p key={blocker.code} className="text-meta text-fg-2">
-                {blocker.message}
-              </p>
-            ))}
+            {(blockers.length > 0 ? blockers : (hosted?.readiness.blockers ?? []).map((blocker) => blocker.message)).map(
+              (message) => (
+                <p key={message} className="text-meta text-fg-2">
+                  {message}
+                </p>
+              ),
+            )}
           </div>
         }
         confirmLabel="Enforce anyway"

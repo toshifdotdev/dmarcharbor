@@ -188,8 +188,20 @@ function conflictDetails(
       failed?: unknown;
     };
     return {
+      // Hosted DMARC sends sentences; hosted MTA-STS sends `{ code, message }`.
+      // Both arrive as sentences, so an MTA-STS refusal still lists its reasons.
       ...(Array.isArray(body.blockers)
-        ? { blockers: body.blockers.filter((entry): entry is string => typeof entry === "string") }
+        ? {
+            blockers: body.blockers
+              .map((entry: unknown) =>
+                typeof entry === "string"
+                  ? entry
+                  : entry && typeof (entry as { message?: unknown }).message === "string"
+                    ? (entry as { message: string }).message
+                    : null,
+              )
+              .filter((entry): entry is string => entry !== null),
+          }
         : {}),
       ...(body.view && typeof body.view === "object"
         ? { view: body.view as HostedDmarcView | ManagedSpfView }
