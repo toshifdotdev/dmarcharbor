@@ -489,3 +489,26 @@ export const mtaStsPublicRateLimiter = rateLimit({
     },
   },
 });
+
+/**
+ * The PSA routes that call the customer's PSA.
+ *
+ * Keyed on the workspace, because the cost and the provider's own rate limit
+ * belong to the account: one technician refreshing the company picker must not
+ * spend another workspace's budget, and a workspace cannot escape its own by
+ * rotating addresses. Twenty a minute is enough for a person searching and far
+ * below what would trip a PSA's own limits.
+ */
+export const psaRateLimiter = rateLimit({
+  ...SHARED_LIMITER_OPTIONS,
+  windowMs: 60_000,
+  limit: 20,
+  store: rateLimitStoreFor('psa'),
+  keyGenerator: (request) => `org:${String(request.params.organizationId ?? clientKey(request))}`,
+  message: {
+    error: {
+      code: 'RATE_LIMITED',
+      message: 'Too many PSA requests for this workspace. Wait a minute and try again.',
+    },
+  },
+});

@@ -333,6 +333,9 @@ const EXPECTED_REQUEST_FAILURES = [
   // a section the plan does not carry, exactly like the revoked share's 404.
   // The gated-section checks probe these paths on purpose.
   /api\/workspaces\/[^/]+\/(sso-connections|api-keys|report-digests|compliance-packs|erasures|export-jobs|slack-destination|billing)(\?|$|\/)/,
+  // The PSA probe deliberately submits a bad provider URL to prove the refusal
+  // is readable; the 400 is the product answering, not a broken page.
+  /api\/workspaces\/[^/]+\/psa(\?|$|\/)/,
 ];
 const EXPECTED_CONSOLE_PATTERNS = [
   /_next\/hmr/, // dev-only: HMR socket cannot handshake on the mapped custom host
@@ -2008,6 +2011,53 @@ check(
   JSON.stringify(slackFail),
 );
 const shotSlack = await shot("17-settings-slack.png");
+
+// 6a-2. PSA: the section renders its provider picker, secret fields are real
+//       password inputs, and a deliberately bad Halo URL is refused with a
+//       readable sentence rather than a raw code. No real PSA is needed: the
+//       refusal comes from the URL validation, before any provider is called.
+await openSettingsSection("psa");
+const psaPanel = await waitForEval(
+  `(() => {
+    const panel = document.querySelector('[data-testid="psa-providers"]');
+    const secret = document.querySelector('[data-testid="psa-credential-clientSecret"]');
+    return {
+      panel: Boolean(panel),
+      providers: ['halopsa', 'connectwise', 'autotask'].every((id) => !!document.querySelector('[data-testid="psa-provider-' + id + '"]')),
+      secretIsPassword: secret ? secret.getAttribute('type') === 'password' : false,
+      text: panel ? panel.textContent : '',
+    };
+  })()`,
+  (a) => a && a.panel && a.providers,
+  30000,
+);
+check(
+  "PSA section renders its provider picker and password-masked secrets",
+  Boolean(psaPanel && psaPanel.panel && psaPanel.providers && psaPanel.secretIsPassword),
+  JSON.stringify(psaPanel),
+);
+
+await fillInput('[data-testid="psa-credential-resourceServer"]', "http://localhost");
+await fillInput('[data-testid="psa-credential-clientId"]', "test-client-id");
+await fillInput('[data-testid="psa-credential-clientSecret"]', "test-secret-not-real");
+await evalJs(`(() => { const b = document.querySelector('[data-testid="psa-connect-save"]'); if (b && !b.disabled) b.click(); return true; })()`);
+const psaFail = await waitForEval(
+  `(() => {
+    const t = document.body.textContent.replace(/\\s+/g, ' ');
+    const codeShaped = /\\b[A-Z]{2,}_[A-Z_]+\\b/.test(t);
+    return {
+      readable: t.includes('must start with https://'),
+      noRawCode: !codeShaped,
+    };
+  })()`,
+  (a) => a && a.readable,
+  30000,
+);
+check(
+  "PSA: a bad provider URL is refused in words, with no raw code",
+  Boolean(psaFail && psaFail.readable && psaFail.noRawCode),
+  JSON.stringify(psaFail),
+);
 
 // 6b. Mailbox: save and reload (Harbor plan carries reports.inbox).
 await openSettingsSection("mailbox");

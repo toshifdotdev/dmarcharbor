@@ -245,6 +245,58 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-11-11 — PSA ticketing
+
+A workspace can connect one PSA — HaloPSA, ConnectWise PSA or Autotask — and
+map each client to a company in it. DMARC Harbor then files tickets where the
+technician already works:
+
+| Event | What happens in the PSA |
+|---|---|
+| An alert opens | A ticket is created under the mapped company |
+| The reminder ladder fires (level 2+) | An internal note is added |
+| The alert is acknowledged | An internal note naming who did it |
+| The alert resolves | An internal note, and the ticket closes when `closeOnResolve` is on |
+| Critical DNS changes for a domain | One ticket per domain per notification pass |
+| A DNS change is acknowledged | An internal note; the ticket closes when every change on it is acknowledged |
+
+Tickets are never created under a default company. An unmapped client produces a
+skipped job that the job log shows, because a ticket filed under the wrong
+customer tells the wrong people to act.
+
+**Operator setup.** ConnectWise needs one deployment-wide value:
+`PSA_CONNECTWISE_CLIENT_ID`, obtained free from developer.connectwise.com and
+sent as the `clientId` header on every call. Without it the ConnectWise option
+is not offered and the API answers 503 `PSA_PROVIDER_UNAVAILABLE`.
+
+Browser routes, all under `/api/workspaces/{id}/psa`:
+
+- `GET /psa` — provider, status, credential hint, settings, health, ticket
+  counts and the clients whose alerts were skipped as unmapped.
+- `PUT /psa` (`integrations.psa`) — connect or replace. The credentials are
+  tested before anything is stored.
+- `PATCH /psa` — settings with `expectedVersion`, or `{ enabled }` to pause and
+  resume. Pause and resume are never gated.
+- `DELETE /psa` — removes the connection, mappings, queued jobs and links.
+  Tickets already in the PSA stay there.
+- `POST /psa/test`, `GET /psa/options`, `GET /psa/companies?search=` — rate
+  limited per workspace.
+- `GET /psa/mappings`, `PUT|DELETE /psa/mappings/{clientId}`.
+- `GET /psa/jobs`, `POST /psa/jobs/{jobId}/retry`.
+
+Every ticket title ends with `[DH-<ref>]`. Before a retry of a create, the
+worker searches the PSA for an open ticket carrying that marker, so a lost
+response cannot produce a duplicate. Retries back off over 1, 5, 30, 120 and
+720 minutes, give up after five attempts, and a 401 or 403 pauses the connection
+at once because retrying cannot fix bad credentials. Twenty consecutive failures
+also pause it, with an audit row and an in-app notification to owners and admins.
+
+`integrations.psa` starts at Harbor. On a downgrade no new tickets are opened,
+but notes and closes for tickets that already exist keep flowing, so the
+customer's queue is never left with orphans. The connection, mappings, ticket
+links and the last 90 days of jobs are in the data export; credentials never
+are. `/api/v1` is unchanged.
+
 ## 2026-11-04 — Hosted MTA-STS
 
 A domain can now have its MTA-STS policy (RFC 8461) served by DMARC Harbor. The
@@ -603,7 +655,13 @@ webhook event was added. `/api/v1` is unchanged.
 
 ## Integration notes for a PSA
 
-The intended onboarding flow:
+**The native integration is the first choice.** A workspace can connect HaloPSA,
+ConnectWise PSA or Autotask under Settings → PSA and map each client to a
+company; tickets, reminder notes, acknowledgements and closes then happen
+without any code. Everything below is for a PSA that is not one of those three,
+or for an agency that already has its own automation and prefers to keep it.
+
+The intended onboarding flow for a hand-rolled integration:
 
 1. On a new client event, call `POST /api/v1/clients/bulk` with
    `Idempotency-Key` set to your ticket id.

@@ -28,6 +28,7 @@ export type SettingsKey =
   | "compliance"
   | "slack"
   | "webhooks"
+  | "psa"
   | "dns"
   | "api-keys"
   | "mailbox"
@@ -152,7 +153,14 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
         key: "webhooks",
         label: "Webhooks",
         does: "Signed events posted to your own systems, and the record of each delivery.",
-        tasks: ["send events to our system", "psa", "ticketing", "callback url", "retry a failed delivery", "integration"],
+        tasks: ["send events to our system", "callback url", "retry a failed delivery", "integration"],
+        who: "admin",
+      }),
+      s({
+        key: "psa",
+        label: "PSA",
+        does: "Tickets opened in your own PSA when an alert fires or DNS changes, under the right client.",
+        tasks: ["psa", "ticketing", "connectwise", "autotask", "halopsa", "open a ticket", "service desk"],
         who: "admin",
       }),
       s({

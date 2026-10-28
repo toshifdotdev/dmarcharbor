@@ -87,7 +87,7 @@ lifecycleRouter.get(
   async (request: Request, response: Response) => {
     const organizationIdValue = organizationId(request);
     const clientId = typeof request.query.clientId === 'string' ? request.query.clientId : null;
-    const [summary, hosted, spf, bimi, mtaSts] = await Promise.all([
+    const [summary, hosted, spf, bimi, mtaSts, psaTickets] = await Promise.all([
       summariseWorkspace(organizationIdValue),
       prisma.hostedDmarcRecord.findMany({
         where: {
@@ -124,6 +124,16 @@ lifecycleRouter.get(
         },
         select: { status: true, mode: true, maxAge: true, domain: { select: { name: true } } },
         orderBy: { domain: { name: 'asc' } },
+      }),
+      prisma.psaTicketLink.findMany({
+        where: {
+          organizationId: organizationIdValue,
+          state: 'OPEN',
+          ...(clientId ? { domain: { clientId } } : {}),
+        },
+        select: { externalTicketId: true, externalTicketUrl: true, domain: { select: { name: true } } },
+        orderBy: { createdAt: 'asc' },
+        take: 100,
       }),
     ]);
     response.json({
@@ -172,6 +182,20 @@ lifecycleRouter.get(
             ? `Senders that cached this enforcing policy keep applying it for up to ${Math.ceil(row.maxAge / 86_400)} day${Math.ceil(row.maxAge / 86_400) === 1 ? '' : 's'}; switch it to testing first if you are moving.`
             : 'The policy is not enforcing, so senders apply nothing beyond what they already fetched.'),
       })),
+      /**
+       * The one thing a deletion does not reach. A ticket lives in the
+       * customer's PSA, which is their system of record; deleting a workspace
+       * here must not quietly close work someone is still doing, so the preview
+       * says so rather than implying the list is everything.
+       */
+      psa: {
+        openTickets: psaTickets.map((row) => ({
+          domain: row.domain?.name ?? null,
+          ticketId: row.externalTicketId,
+          url: row.externalTicketUrl,
+        })),
+        note: 'Tickets already in your PSA are not changed or deleted.',
+      },
     });
   },
 );

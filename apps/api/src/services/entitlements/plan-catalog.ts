@@ -29,7 +29,8 @@ export type EntitlementKey =
   | 'dns.hosted'
   | 'dns.managedSpf'
   | 'dns.hostedBimi'
-  | 'dns.hostedMtaSts';
+  | 'dns.hostedMtaSts'
+  | 'integrations.psa';
 
 export type QuotaKey = 'client' | 'activeDomain' | 'member';
 
@@ -66,6 +67,7 @@ export const entitlementLabels: Record<EntitlementKey, string> = {
   'dns.managedSpf': 'Managed SPF',
   'dns.hostedBimi': 'Logo in the inbox (BIMI)',
   'dns.hostedMtaSts': 'Hosted MTA-STS policy',
+  'integrations.psa': 'PSA ticketing',
 };
 
 /**
@@ -164,6 +166,7 @@ const allFeatures = (overrides: Partial<Record<EntitlementKey, boolean>> = {}): 
   'dns.managedSpf': true,
   'dns.hostedBimi': true,
   'dns.hostedMtaSts': true,
+  'integrations.psa': true,
   ...overrides,
 });
 
@@ -312,6 +315,17 @@ const noHostedBimi = { 'dns.hostedBimi': false } as const;
  */
 const noHostedMtaSts = { 'dns.hostedMtaSts': false } as const;
 
+/**
+ * PSA ticketing starts at Harbor with the other integrations.
+ *
+ * A PSA is where an MSP's work already lives, so a ticket has to land in the
+ * same system the technician opens in the morning; that makes it a Fairway-plus
+ * feature rather than a free convenience. On a downgrade nothing new is opened,
+ * but tickets that already exist still get their notes and their close, because
+ * leaving them open would strand work in the customer's own queue.
+ */
+const noPsa = { 'integrations.psa': false } as const;
+
 /** TLS-RPT viewing starts at Fairway; collection happens on every plan. */
 const noTlsRpt = { 'reports.tlsrpt': false } as const;
 
@@ -338,7 +352,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
       maxMembers: 1,
       maxWorkspaces: 1,
     activeDomainWindowDays: 30,
-    features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noIntegrations, ...noDnsAutomation, ...noDnsHosted, ...noManagedSpf, ...noHostedBimi, ...noHostedMtaSts, ...noTlsRpt, ...off }),
+    features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noIntegrations, ...noDnsAutomation, ...noDnsHosted, ...noManagedSpf, ...noHostedBimi, ...noHostedMtaSts, ...noPsa, ...noTlsRpt, ...off }),
   },
   FAIRWAY: {
     tier: 'FAIRWAY',
@@ -353,7 +367,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
       maxMembers: 3,
       maxWorkspaces: 2,
     activeDomainWindowDays: 365,
-    features: allFeatures({ ...noNamedForensic, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noDigests, ...noManagedSpf, ...noHostedBimi, ...noHostedMtaSts }),
+    features: allFeatures({ ...noNamedForensic, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noDigests, ...noManagedSpf, ...noHostedBimi, ...noHostedMtaSts, ...noPsa }),
   },
   HARBOR: {
     tier: 'HARBOR',

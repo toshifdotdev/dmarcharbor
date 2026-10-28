@@ -76,6 +76,10 @@ export interface DeletionSummary {
   reportShares: number;
   portalAccessGrants: number;
   compliancePacks: number;
+  /** PSA company mappings that go with this scope. */
+  psaMappings: number;
+  /** PSA tickets this service opened that are still open in the PSA. */
+  psaOpenTickets: number;
 }
 
 const EMPTY: DeletionSummary = {
@@ -89,6 +93,8 @@ const EMPTY: DeletionSummary = {
   reportShares: 0,
   portalAccessGrants: 0,
   compliancePacks: 0,
+  psaMappings: 0,
+  psaOpenTickets: 0,
 };
 
 function merge(target: DeletionSummary, add: Partial<DeletionSummary>): DeletionSummary {
@@ -149,6 +155,12 @@ export async function deleteDomain(
   const reportShares = await prisma.reportShare.count({ where: { domainId: domain.id } });
 
   const summary: DeletionSummary = merge({ ...EMPTY, domains: 1 }, { ...rows, reportShares });
+  // The tickets stay in the customer's PSA: deleting the domain removes the
+  // link we hold, not the work someone may still be doing.
+  summary.psaOpenTickets = await prisma.psaTicketLink.count({
+    where: { domainId: domain.id, state: 'OPEN' },
+  });
+  summary.psaMappings = 0;
   const hosted = await hostedSnapshotsForDomainIds([domain.id]);
   const spf = await managedSpfSnapshotsForDomainIds([domain.id]);
   const bimi = await hostedBimiSnapshotsForDomainIds([domain.id]);
@@ -195,6 +207,10 @@ async function summariseClient(clientId: string): Promise<DeletionSummary> {
     reportShares: await prisma.reportShare.count({ where: { clientId } }),
     portalAccessGrants: await prisma.clientPortalAccess.count({ where: { clientId } }),
     compliancePacks: await prisma.compliancePack.count({ where: { clientId } }),
+    psaMappings: await prisma.psaCompanyMapping.count({ where: { clientId } }),
+    psaOpenTickets: await prisma.psaTicketLink.count({
+      where: { state: 'OPEN', OR: [{ domain: { clientId } }, { alertEvent: { domain: { clientId } } }] },
+    }),
   });
   return summary;
 }

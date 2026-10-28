@@ -1,6 +1,7 @@
 import { prisma } from '../../database/prisma.js';
 import { recordAuditEvent } from '../audit.service.js';
 import { domainRef } from '../domain-ref.js';
+import { enqueueDnsChangeAcknowledged } from '../psa/psa-queue.service.js';
 
 export type DnsChangeSeverityName = 'INFO' | 'WARNING' | 'CRITICAL';
 
@@ -137,6 +138,31 @@ export async function acknowledgeDnsChange(input: {
       targetType: 'dns_change',
       targetId: change.id,
     });
+
+    /**
+     * The PSA ticket that covers this change learns about it, and closes when
+     * every change on that ticket has been acknowledged. Queued, never called:
+     * acknowledging a change must not wait on a third party.
+     */
+    try {
+      const detail = await prisma.dnsChange.findUnique({
+        where: { id: change.id },
+        select: { summary: true },
+      });
+      const actor = input.actorUserId
+        ? await prisma.user.findUnique({ where: { id: input.actorUserId }, select: { name: true } })
+        : null;
+      await enqueueDnsChangeAcknowledged({
+        organizationId: input.organizationId,
+        changeId: change.id,
+        changeSummary: detail?.summary ?? 'DNS change acknowledged.',
+        actorName: actor?.name ?? null,
+      });
+    } catch (error) {
+      console.warn(
+        `[psa] could not queue the acknowledgement for DNS change ${change.id}: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+    }
   }
 
   const updated = await prisma.dnsChange.findUniqueOrThrow({

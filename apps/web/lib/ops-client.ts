@@ -37,6 +37,13 @@ import type {
   ManagedSpfView,
   MonthlyReportSchedule,
   PlanOverageRow,
+  PsaCompany,
+  PsaJobView,
+  PsaMappingView,
+  PsaOptions,
+  PsaProviderName,
+  PsaTicketSettings,
+  PsaView,
   SenderReviewResult,
   PortalGrant,
   SlackDestination,
@@ -1382,3 +1389,56 @@ export const checkHostedMtaSts = (orgId: string, domainId: string) =>
 
 export const releaseHostedMtaSts = (orgId: string, domainId: string) =>
   call<HostedMtaStsView>(`${mtaStsPath(orgId, domainId)}/release`, { method: "POST" });
+
+// ─── PSA ticketing ──────────────────────────────────────────────────────────
+
+const psaPath = (orgId: string, tail = "") => wsPath(orgId, `/psa${tail}`);
+
+export const savePsa = (
+  orgId: string,
+  body: {
+    provider: PsaProviderName;
+    credentials: Record<string, string>;
+    settings?: Partial<PsaTicketSettings>;
+  },
+) => call<PsaView>(psaPath(orgId), { method: "PUT", body: JSON.stringify(body) });
+
+export const patchPsa = (
+  orgId: string,
+  body: {
+    expectedVersion?: number;
+    enabled?: boolean;
+    settings?: Partial<PsaTicketSettings>;
+  },
+) => call<PsaView>(psaPath(orgId), { method: "PATCH", body: JSON.stringify(body) });
+
+export const deletePsa = (orgId: string) =>
+  call<void>(psaPath(orgId), { method: "DELETE" });
+
+export const testPsa = (orgId: string) =>
+  call<{ ok: boolean; detail: string }>(psaPath(orgId, "/test"), { method: "POST" });
+
+export const getPsaOptions = (orgId: string) => call<PsaOptions>(psaPath(orgId, "/options"));
+
+export const searchPsaCompanies = (orgId: string, search: string) =>
+  call<{ companies: PsaCompany[] }>(
+    psaPath(orgId, `/companies?search=${encodeURIComponent(search)}`),
+  );
+
+export const setPsaMapping = (
+  orgId: string,
+  clientId: string,
+  body: { externalCompanyId: string; externalCompanyName: string },
+) =>
+  call<{ mappings: PsaMappingView[] }>(psaPath(orgId, `/mappings/${clientId}`), {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+
+export const removePsaMapping = (orgId: string, clientId: string) =>
+  call<{ mappings: PsaMappingView[] }>(psaPath(orgId, `/mappings/${clientId}`), {
+    method: "DELETE",
+  });
+
+export const retryPsaJob = (orgId: string, jobId: string) =>
+  call<{ jobs: PsaJobView[] }>(psaPath(orgId, `/jobs/${jobId}/retry`), { method: "POST" });

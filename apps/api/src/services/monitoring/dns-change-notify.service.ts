@@ -6,6 +6,7 @@ import { queueEmail } from '../../email/email.service.js';
 import { isWithinQuietHours } from '../alert.service.js';
 import { resolveEntitlements } from '../entitlements/entitlement.service.js';
 import { deliverSlackAlert, hasEnabledSlackDestination } from '../slack.service.js';
+import { enqueueDnsChangesOpened } from '../psa/psa-queue.service.js';
 
 export interface DnsChangeDeliveryOutcome {
   claimed: number;
@@ -95,11 +96,59 @@ export async function deliverDnsChangeNotifications(
         id: true,
         severity: true,
         summary: true,
-        domain: { select: { id: true, name: true, slug: true } },
+        domain: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            clientId: true,
+            client: { select: { name: true } },
+          },
+        },
         organization: { select: { id: true, name: true } },
       },
       orderBy: [{ detectedAt: 'asc' }, { id: 'asc' }],
     });
+
+    /**
+     * The PSA ticket, queued right after the claim.
+     *
+     * Deliberately before the `alerts.email` early continue below: PSA
+     * ticketing is gated by integrations.psa, not by the email alert feature,
+     * and a workspace that has turned email off still wants its tickets. One
+     * ticket per domain per pass, which is what the notifiedAt in the dedupe
+     * key gives us.
+     */
+    try {
+      const criticalByDomain = new Map<
+        string,
+        {
+          domain: { id: string; name: string; slug: string; clientId: string; client: { name: string } };
+          changes: Array<{ id: string; summary: string }>;
+        }
+      >();
+      for (const change of changes) {
+        if (change.severity !== 'CRITICAL') continue;
+        const entry = criticalByDomain.get(change.domain.id) ?? {
+          domain: change.domain,
+          changes: [],
+        };
+        entry.changes.push({ id: change.id, summary: change.summary });
+        criticalByDomain.set(change.domain.id, entry);
+      }
+      for (const entry of criticalByDomain.values()) {
+        await enqueueDnsChangesOpened({
+          organizationId,
+          domain: entry.domain,
+          changes: entry.changes,
+          notifiedAt: now,
+        });
+      }
+    } catch (error) {
+      console.warn(
+        `[psa] could not queue DNS tickets for ${organizationId}: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+    }
 
     const entitlements = await resolveEntitlements(organizationId, now);
     if (!entitlements.features['alerts.email']) {

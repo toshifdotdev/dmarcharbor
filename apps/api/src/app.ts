@@ -26,6 +26,7 @@ import { hostedBimiRouter } from './routes/hosted-bimi.routes.js';
 import { hostedBimiPublicRouter } from './routes/hosted-bimi-public.routes.js';
 import { hostedMtaStsRouter } from './routes/hosted-mta-sts.routes.js';
 import { hostedMtaStsPublicRouter } from './routes/hosted-mta-sts-public.routes.js';
+import { psaRouter } from './routes/psa.routes.js';
 import { dpaRouter, wellKnownRouter } from './routes/dpa.routes.js';
 import { ssoRouter } from './routes/sso.routes.js';
 import { billingRouter } from './routes/billing.routes.js';
@@ -248,6 +249,7 @@ export function createApp(): express.Express {
   app.use('/api', managedSpfRouter);
   app.use('/api', hostedBimiRouter);
   app.use('/api', hostedMtaStsRouter);
+  app.use('/api', psaRouter);
 
   // Deliberately not through the guard above: this is the route that records the
   // acceptance, and it has to stay reachable for someone stuck on the old one.

@@ -228,6 +228,10 @@ model Organization {
   hostedSpfRecords      HostedSpfRecord[]
   hostedBimiRecords     HostedBimiRecord[]
   hostedMtaStsRecords   HostedMtaStsRecord[]
+  psaConnection         PsaConnection?
+  psaCompanyMappings    PsaCompanyMapping[]
+  psaTicketLinks        PsaTicketLink[]
+  psaTicketJobs         PsaTicketJob[]
 
   @@unique([slug])
   /// Reads the document version rather than the column being null, so the sweep
@@ -321,6 +325,7 @@ model Client {
   trustSlug              String?       @unique
   compliancePacks       CompliancePack[]
   monthlyReportSchedule MonthlyReportSchedule?
+  psaMapping            PsaCompanyMapping?
 }
 
 model Domain {
@@ -396,6 +401,7 @@ model Domain {
   hostedSpf              HostedSpfRecord?
   hostedBimi             HostedBimiRecord?
   hostedMtaSts           HostedMtaStsRecord?
+  psaTicketLinks         PsaTicketLink[]
   tlsReports             TlsReport[]
 
   /// The per client constraint is gone. Global uniqueness on `name` above
@@ -733,6 +739,7 @@ model AlertEvent {
   triggeredAt         DateTime        @default(now())
   deliveries          AlertDelivery[]
   notifications       Notification[]
+  psaTicket           PsaTicketLink?
 
   @@index([ruleId, triggeredAt])
   @@index([ruleId, acknowledgedAt])
@@ -905,6 +912,8 @@ enum NotificationKind {
   ALERT
   DIGEST
   DNS_CHANGE
+  /// The PSA connection paused itself after repeated failures.
+  PSA
 }
 
 enum NotificationSeverity {
@@ -1794,6 +1803,165 @@ model HostedMtaStsChange {
   @@map("hosted_mta_sts_change")
 }
 
+enum PsaProvider {
+  HALOPSA
+  CONNECTWISE
+  AUTOTASK
+}
+
+enum PsaConnectionStatus {
+  ACTIVE
+  PAUSED
+}
+
+enum PsaTicketSource {
+  ALERT_EVENT
+  DNS_CHANGES
+}
+
+enum PsaTicketState {
+  OPEN
+  CLOSED
+}
+
+enum PsaJobKind {
+  OPEN
+  NOTE
+  CLOSE
+}
+
+enum PsaJobStatus {
+  PENDING
+  IN_FLIGHT
+  DONE
+  FAILED
+  SKIPPED
+}
+
+/// One PSA connected to one workspace.
+///
+/// The credentials are a single encrypted JSON object: the three providers need
+/// different fields (a Halo client id and secret, a ConnectWise public/private
+/// key pair, an Autotask username and secret), and one blob means adding a field
+/// is not a migration. Nothing here is ever returned by a route, exported or
+/// logged; `credentialHint` is the only thing the UI shows.
+model PsaConnection {
+  id                   String              @id @default(cuid())
+  organizationId       String              @unique
+  organization         Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  provider             PsaProvider
+  status               PsaConnectionStatus @default(ACTIVE)
+  pausedReason         String?
+  encryptedCredentials String
+  /// What the UI shows instead of the secret: the host and the last four
+  /// characters of the public identifier.
+  credentialHint       String
+  /// The resolved API base. Autotask's is discovered, the other two are typed.
+  baseUrl              String
+  /// Ids as strings: Halo uses integers, ConnectWise uses integers, Autotask
+  /// uses integers, and none of them agree on a range.
+  ticketQueueId        String?
+  ticketTypeId         String?
+  openStatusId         String?
+  closedStatusId       String?
+  priorityId           String?
+  closeOnResolve       Boolean             @default(true)
+  ticketOnAlert        Boolean             @default(true)
+  ticketOnCriticalDns  Boolean             @default(true)
+  lastSuccessAt        DateTime?
+  lastError            String?
+  consecutiveFailures  Int                 @default(0)
+  createdById          String?
+  /// Incremented on every settings change; an edit must name the version it read.
+  version              Int                 @default(1)
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  tickets              PsaTicketLink[]
+  jobs                 PsaTicketJob[]
+
+  @@map("psa_connection")
+}
+
+/// One DMARC Harbor client, and the PSA company its tickets belong to.
+///
+/// There is no default company on purpose: a ticket filed under the wrong
+/// customer tells the wrong people to act, which is worse than no ticket.
+model PsaCompanyMapping {
+  id                  String        @id @default(cuid())
+  organizationId      String
+  organization        Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId            String        @unique
+  client              Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  externalCompanyId   String
+  externalCompanyName String
+  mappedById          String?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  @@index([organizationId])
+  @@map("psa_company_mapping")
+}
+
+/// One ticket this service opened, and what it was opened for.
+model PsaTicketLink {
+  id                String          @id @default(cuid())
+  organizationId    String
+  organization      Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connectionId      String
+  connection        PsaConnection   @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  provider          PsaProvider
+  source            PsaTicketSource
+  alertEventId      String?         @unique
+  alertEvent        AlertEvent?     @relation(fields: [alertEventId], references: [id], onDelete: Cascade)
+  domainId          String?
+  domain            Domain?         @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  /// The DNS changes this ticket covers. A plain array, not a join table: the
+  /// ticket is the unit, the ids are only ever read together with it, and the
+  /// rows themselves cascade from the domain.
+  dnsChangeIds      String[]        @default([])
+  externalTicketId  String
+  externalTicketUrl String?
+  /// The `[DH-<ref>]` marker written into the title, and the idempotency key.
+  reference         String          @unique
+  state             PsaTicketState  @default(OPEN)
+  closedAt          DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@index([organizationId])
+  @@index([domainId])
+  @@map("psa_ticket_link")
+}
+
+/// The outbox. Hooks only ever insert here; the scheduler does the calling.
+model PsaTicketJob {
+  id             String        @id @default(cuid())
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connectionId   String
+  connection     PsaConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  kind           PsaJobKind
+  /// One key per intent, so two replicas produce one job.
+  dedupeKey      String        @unique
+  /// The reference of the ticket this job opens or acts on.
+  linkReference  String
+  /// Built at enqueue time: a later rule rename must not change a queued ticket.
+  payload        Json
+  status         PsaJobStatus  @default(PENDING)
+  skipReason     String?
+  attempts       Int           @default(0)
+  nextAttemptAt  DateTime      @default(now())
+  lastError      String?
+  claimedAt      DateTime?
+  claimedBy      String?
+  doneAt         DateTime?
+  createdAt      DateTime      @default(now())
+
+  @@index([status, nextAttemptAt, createdAt])
+  @@index([organizationId, createdAt])
+  @@map("psa_ticket_job")
+}
+
 /// A signed compliance pack issued for one client.
 ///
 /// The PDF is not stored. Its SHA-256 is, because the hash is the claim and the
@@ -2267,6 +2435,12 @@ enum AuditAction {
   HOSTED_MTA_STS_UPDATED
   HOSTED_MTA_STS_RELEASE_REQUESTED
   HOSTED_MTA_STS_RELEASED
+  PSA_CONNECTION_CREATED
+  PSA_CONNECTION_UPDATED
+  PSA_CONNECTION_REMOVED
+  PSA_CONNECTION_PAUSED
+  PSA_CONNECTION_RESUMED
+  PSA_MAPPING_CHANGED
 }
 
 enum AuditOutcome {

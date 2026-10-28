@@ -148,6 +148,82 @@ export interface HostedDmarcView {
   capacity: { full: boolean };
 }
 
+// ─── PSA ticketing ──────────────────────────────────────────────────────────
+
+export type PsaProviderName = "HALOPSA" | "CONNECTWISE" | "AUTOTASK";
+
+export interface PsaOption {
+  id: string;
+  name: string;
+}
+
+export interface PsaOptions {
+  queues: PsaOption[];
+  ticketTypes: PsaOption[];
+  openStatuses: PsaOption[];
+  closedStatuses: PsaOption[];
+  priorities: PsaOption[];
+}
+
+export interface PsaCompany {
+  id: string;
+  name: string;
+}
+
+export interface PsaTicketSettings {
+  ticketQueueId: string | null;
+  ticketTypeId: string | null;
+  openStatusId: string | null;
+  closedStatusId: string | null;
+  priorityId: string | null;
+  closeOnResolve: boolean;
+  ticketOnAlert: boolean;
+  ticketOnCriticalDns: boolean;
+}
+
+export interface PsaConnectionView {
+  id: string;
+  provider: PsaProviderName;
+  status: "ACTIVE" | "PAUSED";
+  pausedReason: string | null;
+  /** The host and the last four characters of the public id. Never the secret. */
+  credentialHint: string;
+  baseUrl: string;
+  settings: PsaTicketSettings;
+  health: { lastSuccessAt: string | null; lastError: string | null; consecutiveFailures: number };
+  version: number;
+  createdAt: string;
+}
+
+export interface PsaView {
+  available: boolean;
+  providers: Array<{ provider: PsaProviderName; available: boolean; reason: string | null }>;
+  connection: PsaConnectionView | null;
+  skippedUnmapped: Array<{ clientId: string; clientName: string; count: number }>;
+  ticketCounts: { open: number; closed: number };
+}
+
+export interface PsaMappingView {
+  clientId: string;
+  clientName: string;
+  clientSlug: string;
+  mapping: { externalCompanyId: string; externalCompanyName: string; updatedAt: string } | null;
+}
+
+export interface PsaJobView {
+  id: string;
+  kind: string;
+  status: string;
+  skipReason: string | null;
+  attempts: number;
+  lastError: string | null;
+  reference: string;
+  createdAt: string;
+  doneAt: string | null;
+  nextAttemptAt: string;
+  ticket: { id: string; url: string | null; state: string } | null;
+}
+
 // ─── Hosted MTA-STS ─────────────────────────────────────────────────────────
 
 export type HostedMtaStsStatus = "PENDING" | "ACTIVE" | "RELEASING" | "RELEASED";
@@ -1144,7 +1220,8 @@ export type EntitlementKey =
   | "dns.hosted"
   | "dns.managedSpf"
   | "dns.hostedBimi"
-  | "dns.hostedMtaSts";
+  | "dns.hostedMtaSts"
+  | "integrations.psa";
 
 export type QuotaKey = "client" | "activeDomain" | "member";
 
@@ -1416,7 +1493,13 @@ export type AuditAction =
   | "HOSTED_MTA_STS_CREATED"
   | "HOSTED_MTA_STS_UPDATED"
   | "HOSTED_MTA_STS_RELEASE_REQUESTED"
-  | "HOSTED_MTA_STS_RELEASED";
+  | "HOSTED_MTA_STS_RELEASED"
+  | "PSA_CONNECTION_CREATED"
+  | "PSA_CONNECTION_UPDATED"
+  | "PSA_CONNECTION_REMOVED"
+  | "PSA_CONNECTION_PAUSED"
+  | "PSA_CONNECTION_RESUMED"
+  | "PSA_MAPPING_CHANGED";
 
 /**
  * AuditOutcome is SUCCESS or DENIED. There is no FAILED value: the trail records

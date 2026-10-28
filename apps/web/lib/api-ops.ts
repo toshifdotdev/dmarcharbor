@@ -49,6 +49,9 @@ import type {
   MonthlyReportSchedule,
   MySecurity,
   PlanDefinition,
+  PsaJobView,
+  PsaMappingView,
+  PsaView,
   PortalGrant,
   ReportDigestRow,
   ReportInboxSettings,
@@ -186,6 +189,30 @@ export function getHostedMtaSts(
 ): Promise<HostedMtaStsView> {
   return opsFetch<HostedMtaStsView>(
     `/api/workspaces/${organizationId}/domains/${domainId}/hosted-mta-sts`,
+  );
+}
+
+/** GET /psa — the connection, its health and what was skipped. */
+export function getPsa(organizationId: string): Promise<PsaView> {
+  return opsFetch<PsaView>(`/api/workspaces/${organizationId}/psa`);
+}
+
+/** GET /psa/mappings — every client, with its company or null. */
+export function getPsaMappings(
+  organizationId: string,
+): Promise<{ mappings: PsaMappingView[] }> {
+  return opsFetch<{ mappings: PsaMappingView[] }>(
+    `/api/workspaces/${organizationId}/psa/mappings`,
+  );
+}
+
+/** GET /psa/jobs — the outbox, newest first. */
+export function getPsaJobs(
+  organizationId: string,
+  limit = 50,
+): Promise<{ jobs: PsaJobView[] }> {
+  return opsFetch<{ jobs: PsaJobView[] }>(
+    `/api/workspaces/${organizationId}/psa/jobs?limit=${limit}`,
   );
 }
 

@@ -14,6 +14,7 @@ import { buildSenderBreakdown, possibleSpoofingSources } from './sender-breakdow
 import { emitEvent } from './webhook.service.js';
 import { deliverSlackAlert, hasEnabledSlackDestination } from './slack.service.js';
 import { domainRef } from './domain-ref.js';
+import { enqueueAlertClosed, enqueueAlertNote, enqueueAlertOpened } from './psa/psa-queue.service.js';
 import { resolveLimit } from '../utils/pagination.js';
 
 const riskByMetric: Record<AlertMetric, 'high' | 'medium'> = {
@@ -32,7 +33,19 @@ const ruleInclude = {
   // slug rather than by a cuid. An AlertEvent carries `domainId` and nothing
   // else, so without it the notification has no choice but to put a primary key
   // in the address bar.
-  domain: { select: { id: true, name: true, slug: true } },
+  //
+  // `clientId` and the client name are here for PSA ticketing: a ticket is
+  // filed under the PSA company the CLIENT is mapped to, so the evaluation
+  // cannot open one without knowing which client the domain belongs to.
+  domain: {
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      clientId: true,
+      client: { select: { name: true } },
+    },
+  },
   recipients: { select: { userId: true } },
   organization: { select: { id: true, name: true, slug: true } },
 } as const;
@@ -821,6 +834,23 @@ export async function evaluateAlertRules(now = new Date()): Promise<RuleEvaluati
           data: { resolvedAt: now },
         });
         results.push({ ruleId: rule.id, outcome: 'resolved', observed, eventId: openEvent.id });
+
+        /**
+         * A resolved alert notes its ticket, and closes it when the connection
+         * asks for that. Never allowed to fail the tick: the alert is already
+         * resolved, and a PSA problem must not undo that.
+         */
+        try {
+          await enqueueAlertClosed({
+            organizationId: rule.organizationId,
+            eventId: openEvent.id,
+            text: `Resolved in DMARC Harbor: ${rule.metric} is back within the threshold (observed ${observed}, threshold ${rule.threshold}).`,
+          });
+        } catch (error) {
+          console.warn(
+            `[psa] could not queue the resolve note for alert ${openEvent.id}: ${error instanceof Error ? error.message : 'unknown error'}`,
+          );
+        }
       } else {
         results.push({ ruleId: rule.id, outcome: 'unchanged', observed });
       }
@@ -907,6 +937,32 @@ export async function evaluateAlertRules(now = new Date()): Promise<RuleEvaluati
         triggeredAt: now.toISOString(),
       });
 
+      /**
+       * The ticket, queued rather than created.
+       *
+       * Inserting a row is all this does: the PSA is called by its own worker,
+       * so a slow or broken PSA cannot delay the alert or fail the tick. A
+       * failure to queue is logged and the alert carries on — the ticket is a
+       * convenience, the alert is the product.
+       */
+      try {
+        await enqueueAlertOpened({
+          organizationId: rule.organizationId,
+          eventId: event.id,
+          ruleName: rule.name,
+          metric: rule.metric,
+          observed,
+          threshold: rule.threshold,
+          summary,
+          domain: rule.domain,
+          now,
+        });
+      } catch (error) {
+        console.warn(
+          `[psa] could not queue a ticket for alert ${event.id}: ${error instanceof Error ? error.message : 'unknown error'}`,
+        );
+      }
+
       results.push({
         ruleId: rule.id,
         outcome: 'triggered',
@@ -940,6 +996,23 @@ export async function evaluateAlertRules(now = new Date()): Promise<RuleEvaluati
     });
 
     await notifyRecipients(rule, openEvent.id, summary, observed, reminderLevel, now, snapshot);
+
+    // The ladder also runs in the MSP's PSA: level 2 and beyond add an internal
+    // note to the ticket the alert opened, so the technician sees the chase.
+    if (reminderLevel >= 2) {
+      try {
+        await enqueueAlertNote({
+          organizationId: rule.organizationId,
+          eventId: openEvent.id,
+          text: `Reminder ${reminderLevel} in DMARC Harbor: nobody has acknowledged this alert. ${escalationNote(reminderLevel)}`.trim(),
+          suffix: `reminder:${reminderLevel}`,
+        });
+      } catch (error) {
+        console.warn(
+          `[psa] could not queue reminder ${reminderLevel} for alert ${openEvent.id}: ${error instanceof Error ? error.message : 'unknown error'}`,
+        );
+      }
+    }
 
     results.push({
       ruleId: rule.id,
@@ -1235,6 +1308,28 @@ export async function acknowledgeAlertEvent(
     where: { id: event.id },
     data: { acknowledgedAt: new Date(), acknowledgedById: userId ?? null },
   });
+
+  /**
+   * The ticket learns who picked it up.
+   *
+   * The name is read here rather than trusted from a caller: the note says
+   * "acknowledged by <name>" and a caller-supplied name could say anything.
+   */
+  try {
+    const actor = userId
+      ? await prisma.user.findUnique({ where: { id: userId }, select: { name: true } })
+      : null;
+    await enqueueAlertNote({
+      organizationId,
+      eventId: event.id,
+      text: `Acknowledged in DMARC Harbor by ${actor?.name ?? 'a workspace member'}.`,
+      suffix: 'ack',
+    });
+  } catch (error) {
+    console.warn(
+      `[psa] could not queue the acknowledgement note for alert ${event.id}: ${error instanceof Error ? error.message : 'unknown error'}`,
+    );
+  }
 
   return 'acknowledged';
 }

@@ -183,7 +183,7 @@ export async function buildExportPayload(input: {
           ...(input.scope === 'CLIENT' && input.targetId ? { clientId: input.targetId } : {}),
         };
 
-  const [organization, clients, domains, users, members, sessions, reports, forensics, alertRules, alertEvents, shares, digests, monthlyReports, senderReviews, dnsConnections, dnsPublications, hostedDmarcRecords, hostedSpfRecords, hostedBimiRecords, hostedMtaStsRecords, tlsReports, auditLog] =
+  const [organization, clients, domains, users, members, sessions, reports, forensics, alertRules, alertEvents, shares, digests, monthlyReports, senderReviews, dnsConnections, dnsPublications, hostedDmarcRecords, hostedSpfRecords, hostedBimiRecords, hostedMtaStsRecords, psaConnection, psaMappings, psaTicketLinks, psaJobs, tlsReports, auditLog] =
     await Promise.all([
       prisma.organization.findUnique({
         where: { id: org },
@@ -648,6 +648,96 @@ export async function buildExportPayload(input: {
         orderBy: { createdAt: 'asc' },
         take: exportTableLimit,
       }),
+      /**
+       * The PSA connection, without the credentials.
+       *
+       * `credentialHint` is what the UI shows and is safe; the encrypted blob is
+       * not exported, because an export is emailed, downloaded and kept, and a
+       * ciphertext with a known key is a credential.
+       */
+      prisma.psaConnection.findUnique({
+        where: { organizationId: org },
+        select: {
+          id: true,
+          provider: true,
+          status: true,
+          pausedReason: true,
+          credentialHint: true,
+          baseUrl: true,
+          ticketQueueId: true,
+          ticketTypeId: true,
+          openStatusId: true,
+          closedStatusId: true,
+          priorityId: true,
+          closeOnResolve: true,
+          ticketOnAlert: true,
+          ticketOnCriticalDns: true,
+          lastSuccessAt: true,
+          lastError: true,
+          consecutiveFailures: true,
+          version: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      }),
+      prisma.psaCompanyMapping.findMany({
+        where: {
+          organizationId: org,
+          ...(input.scope === 'CLIENT' && input.targetId ? { clientId: input.targetId } : {}),
+          ...(input.scope === 'DOMAIN' && input.targetId ? { clientId: '__none__' } : {}),
+        },
+        select: {
+          clientId: true,
+          externalCompanyId: true,
+          externalCompanyName: true,
+          createdAt: true,
+          updatedAt: true,
+          client: { select: { name: true } },
+        },
+        take: exportTableLimit,
+      }),
+      prisma.psaTicketLink.findMany({
+        where: {
+          organizationId: org,
+          ...(input.scope === 'CLIENT' && input.targetId
+            ? { domain: { clientId: input.targetId } }
+            : {}),
+          ...(input.scope === 'DOMAIN' && input.targetId ? { domainId: input.targetId } : {}),
+        },
+        select: {
+          source: true,
+          provider: true,
+          reference: true,
+          externalTicketId: true,
+          externalTicketUrl: true,
+          state: true,
+          closedAt: true,
+          createdAt: true,
+          dnsChangeIds: true,
+          alertEventId: true,
+          domain: { select: { name: true } },
+        },
+        orderBy: { createdAt: 'asc' },
+        take: exportTableLimit,
+      }),
+      prisma.psaTicketJob.findMany({
+        where: {
+          organizationId: org,
+          createdAt: { gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) },
+        },
+        select: {
+          kind: true,
+          status: true,
+          skipReason: true,
+          attempts: true,
+          lastError: true,
+          linkReference: true,
+          createdAt: true,
+          doneAt: true,
+        },
+        orderBy: { createdAt: 'asc' },
+        take: exportTableLimit,
+      }),
       prisma.tlsReport.findMany({
         where: { domain: domainFilter },
         select: {
@@ -912,6 +1002,66 @@ export async function buildExportPayload(input: {
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
         changes: row.changes,
+      })),
+      // Every section is a list in this format, so a single connection is a
+      // one-element list rather than a shape of its own.
+      psaConnection: psaConnection
+        ? [
+            {
+              provider: psaConnection.provider,
+              status: psaConnection.status,
+              pausedReason: psaConnection.pausedReason,
+              credentialHint: psaConnection.credentialHint,
+              baseUrl: psaConnection.baseUrl,
+              settings: {
+                ticketQueueId: psaConnection.ticketQueueId,
+                ticketTypeId: psaConnection.ticketTypeId,
+                openStatusId: psaConnection.openStatusId,
+                closedStatusId: psaConnection.closedStatusId,
+                priorityId: psaConnection.priorityId,
+                closeOnResolve: psaConnection.closeOnResolve,
+                ticketOnAlert: psaConnection.ticketOnAlert,
+                ticketOnCriticalDns: psaConnection.ticketOnCriticalDns,
+              },
+              health: {
+                lastSuccessAt: psaConnection.lastSuccessAt,
+                lastError: psaConnection.lastError,
+                consecutiveFailures: psaConnection.consecutiveFailures,
+              },
+              version: psaConnection.version,
+              createdAt: psaConnection.createdAt,
+              updatedAt: psaConnection.updatedAt,
+            },
+          ]
+        : [],
+      psaMappings: psaMappings.map((row) => ({
+        clientName: row.client.name,
+        externalCompanyId: row.externalCompanyId,
+        externalCompanyName: row.externalCompanyName,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      })),
+      psaTicketLinks: psaTicketLinks.map((row) => ({
+        domainName: row.domain?.name ?? null,
+        provider: row.provider,
+        source: row.source,
+        reference: row.reference,
+        externalTicketId: row.externalTicketId,
+        externalTicketUrl: row.externalTicketUrl,
+        state: row.state,
+        closedAt: row.closedAt,
+        dnsChangeIds: row.dnsChangeIds,
+        createdAt: row.createdAt,
+      })),
+      psaJobs: psaJobs.map((row) => ({
+        kind: row.kind,
+        status: row.status,
+        skipReason: row.skipReason,
+        attempts: row.attempts,
+        lastError: row.lastError,
+        reference: row.linkReference,
+        createdAt: row.createdAt,
+        doneAt: row.doneAt,
       })),
       tlsReports: tlsReports.map((row) => ({
         domainId: row.domainId,

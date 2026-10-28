@@ -196,6 +196,29 @@ const envSchema = z.object({
     .default('false')
     .transform((value) => value === 'true'),
   /**
+   * The PSA outbox drain interval.
+   *
+   * Sixty seconds keeps a ticket close to the alert that raised it without
+   * hammering a PSA: Autotask allows three concurrent threads per endpoint and
+   * roughly ten thousand requests an hour, and the worker is serial per
+   * connection.
+   */
+  PSA_DELIVERY_INTERVAL_SECONDS: z.coerce.number().int().min(15).max(3600).default(60),
+  /** Turns the PSA outbox drain off without disabling every other scheduler. */
+  PSA_SCHEDULER_DISABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+  /**
+   * ConnectWise's clientId header.
+   *
+   * Deployment-wide, not per customer: ConnectWise issues one to the vendor of
+   * the integration, free, and every API member call must send it. Without it
+   * the ConnectWise option is simply not offered, because a connection that
+   * cannot authenticate is worse than one that is absent.
+   */
+  PSA_CONNECTWISE_CLIENT_ID: optionalSecret,
+  /**
    * Continuous DNS monitoring. Every verified domain is rescanned on the
    * interval below; the tick only decides how often work is looked for.
    */

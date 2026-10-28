@@ -2814,6 +2814,229 @@ export const openApiDocument = {
         },
       },
     },
+    '/workspaces/{organizationId}/psa': {
+      get: {
+        tags: ['Integrations'],
+        summary: 'Read the workspace PSA connection',
+        description: [
+          'Returns the provider, status, credential hint, base URL, ticket settings, health, the number of open and closed tickets this service opened, and any clients whose alerts could not be ticketed because they are not mapped.',
+          'Never returns a credential, a token or a decrypted value. Requires organization read permission.',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: { 200: { description: 'The connection, if any, and the providers this deployment offers.' }, ...standardErrors },
+      },
+      put: {
+        tags: ['Integrations'],
+        summary: 'Connect or replace the workspace PSA',
+        description: [
+          'Validates the credentials, calls the provider once to prove they work, and stores nothing if that call fails. For Autotask the zone is discovered and stored; for Halo the resource server and authorisation server are validated; for ConnectWise the site must be a bare hostname.',
+          'Replacing a connection with a different provider clears the company mappings, because a company id means nothing in another PSA. Requires organization update permission and integrations.psa.',
+          'Answers 503 PSA_PROVIDER_UNAVAILABLE when the provider is not offered on this deployment (ConnectWise without PSA_CONNECTWISE_CLIENT_ID), 400 INVALID_CREDENTIALS, and the provider\'s own refusal code when the test call fails.',
+        ].join(' '),
+        parameters: [orgParam],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['provider', 'credentials'],
+                properties: {
+                  provider: { type: 'string', enum: ['HALOPSA', 'CONNECTWISE', 'AUTOTASK'] },
+                  credentials: { type: 'object', additionalProperties: { type: 'string' } },
+                  settings: { $ref: '#/components/schemas/PsaSettings' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          ...standardErrors,
+          200: { description: 'The saved connection.' },
+          400: { description: 'INVALID_CREDENTIALS or INVALID_REQUEST.' },
+          402: { description: 'The plan does not include PSA ticketing.' },
+          503: { description: 'PSA_PROVIDER_UNAVAILABLE.' },
+        },
+      },
+      patch: {
+        tags: ['Integrations'],
+        summary: 'Change PSA settings, or pause and resume',
+        description: [
+          'Sends settings with expectedVersion, or { enabled } to pause and resume. A stale expectedVersion answers 409 VERSION_CHANGED with the current view. Pausing and resuming are not entitlement-gated, so a downgraded workspace can still stop the queue.',
+          'Requires organization update permission.',
+        ].join(' '),
+        parameters: [orgParam],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  expectedVersion: { type: 'integer', minimum: 1 },
+                  enabled: { type: 'boolean' },
+                  settings: { $ref: '#/components/schemas/PsaSettings' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          ...standardErrors,
+          200: { description: 'The updated connection.' },
+          404: { description: 'NOT_CONNECTED.' },
+          409: { description: 'VERSION_CHANGED, with the current view.' },
+        },
+      },
+      delete: {
+        tags: ['Integrations'],
+        summary: 'Remove the PSA connection',
+        description: [
+          'Deletes the connection, its mappings, its queued jobs and its ticket links. Tickets already created in the PSA are left alone: they belong to the customer\'s system of record.',
+          'Not entitlement-gated, so a downgraded workspace can always take it apart. Requires organization update permission.',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: { 204: { description: 'Removed.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/psa/test': {
+      post: {
+        tags: ['Integrations'],
+        summary: 'Test the stored PSA credentials',
+        description: [
+          'Authenticates and reads one page of companies. The refusal carries the provider\'s readable message and never a credential. Rate limited per workspace.',
+          'Requires organization update permission and integrations.psa.',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: {
+          ...standardErrors,
+          200: { description: '{ ok, detail }.' },
+          404: { description: 'NOT_CONNECTED.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/psa/options': {
+      get: {
+        tags: ['Integrations'],
+        summary: 'Read the PSA boards, types, statuses and priorities',
+        description: [
+          'Fills the ticket-settings pickers from the provider, so an id is never typed by hand. ConnectWise statuses and types are board-scoped and need a board chosen first. Rate limited per workspace.',
+          'Requires organization read permission and integrations.psa.',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: {
+          ...standardErrors,
+          200: { description: 'Queues, ticket types, statuses and priorities.' },
+          404: { description: 'NOT_CONNECTED.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/psa/companies': {
+      get: {
+        tags: ['Integrations'],
+        summary: 'Search PSA companies',
+        description: [
+          'At most 25 matches for a query of at least two characters, used by the client mapping table. Rate limited per workspace.',
+          'Requires organization read permission and integrations.psa.',
+        ].join(' '),
+        parameters: [
+          orgParam,
+          { name: 'search', in: 'query', required: true, schema: { type: 'string', minLength: 2 } },
+        ],
+        responses: {
+          ...standardErrors,
+          200: { description: 'Matching companies.' },
+          400: { description: 'INVALID_QUERY when the search is shorter than two characters.' },
+          404: { description: 'NOT_CONNECTED.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/psa/mappings': {
+      get: {
+        tags: ['Integrations'],
+        summary: 'List client to company mappings',
+        description: [
+          'Every client in the workspace, with the PSA company it is mapped to or null. Not entitlement-gated, so a downgraded workspace can still see what it configured.',
+          'Requires organization read permission.',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: { 200: { description: 'One row per client.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/psa/mappings/{clientId}': {
+      put: {
+        tags: ['Integrations'],
+        summary: 'Map a client to a PSA company',
+        description: [
+          'Sets the company tickets for this client are filed under. There is no default: an unmapped client produces a skipped job and no ticket, because a ticket under the wrong customer is worse than none. Requires organization update permission and integrations.psa.',
+        ].join(' '),
+        parameters: [orgParam, idParam('clientId', 'Client identifier.')],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['externalCompanyId', 'externalCompanyName'],
+                properties: {
+                  externalCompanyId: { type: 'string', maxLength: 64 },
+                  externalCompanyName: { type: 'string', maxLength: 200 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          ...standardErrors,
+          200: { description: 'The full mapping list.' },
+          400: { description: 'INVALID_MAPPING.' },
+          402: { description: 'The plan does not include PSA ticketing.' },
+          404: { description: 'NOT_CONNECTED or CLIENT_NOT_FOUND.' },
+        },
+      },
+      delete: {
+        tags: ['Integrations'],
+        summary: 'Remove a client mapping',
+        description: [
+          'Unmaps the client. New tickets stop; tickets already open stay open in the PSA. Not entitlement-gated, so a downgraded workspace can always unmap.',
+          'Requires organization update permission.',
+        ].join(' '),
+        parameters: [orgParam, idParam('clientId', 'Client identifier.')],
+        responses: { 200: { description: 'The full mapping list.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/psa/jobs': {
+      get: {
+        tags: ['Integrations'],
+        summary: 'Read the PSA job log',
+        description: [
+          'The newest jobs first, 50 by default and 100 at most, with status, skip reason, attempts, the last error and the ticket link when the provider gives one. This is how a skipped unmapped client or a failed ticket becomes visible. Not entitlement-gated.',
+          'Requires organization read permission.',
+        ].join(' '),
+        parameters: [
+          orgParam,
+          { name: 'limit', in: 'query', required: false, schema: { type: 'integer', minimum: 1, maximum: 100 } },
+        ],
+        responses: { 200: { description: 'The job log.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/psa/jobs/{jobId}/retry': {
+      post: {
+        tags: ['Integrations'],
+        summary: 'Retry a failed PSA job',
+        description: [
+          'Resets a FAILED job to PENDING with no attempts, so the worker picks it up on its next pass. Only a failed job can be retried. Requires organization update permission and integrations.psa.',
+        ].join(' '),
+        parameters: [orgParam, idParam('jobId', 'Job identifier from the log.')],
+        responses: {
+          ...standardErrors,
+          200: { description: 'The job log after the reset.' },
+          402: { description: 'The plan does not include PSA ticketing.' },
+          404: { description: 'JOB_NOT_FOUND.' },
+          409: { description: 'JOB_NOT_FAILED.' },
+        },
+      },
+    },
     '/workspaces/{organizationId}/domains/{domainId}/tls-reports': {
       get: {
         tags: ['Reports'],
@@ -3439,6 +3662,21 @@ export const openApiDocument = {
       },
     },
     schemas: {
+      PsaSettings: {
+        type: 'object',
+        description:
+          'Ticket defaults. Ids are strings because the three providers use different id types.',
+        properties: {
+          ticketQueueId: { type: ['string', 'null'] },
+          ticketTypeId: { type: ['string', 'null'] },
+          openStatusId: { type: ['string', 'null'] },
+          closedStatusId: { type: ['string', 'null'] },
+          priorityId: { type: ['string', 'null'] },
+          closeOnResolve: { type: 'boolean' },
+          ticketOnAlert: { type: 'boolean' },
+          ticketOnCriticalDns: { type: 'boolean' },
+        },
+      },
       ApiError: {
         type: 'object',
         required: ['error'],

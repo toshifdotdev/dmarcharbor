@@ -134,6 +134,12 @@ const ACTION_SENTENCES: Record<AuditAction, string> = {
   HOSTED_MTA_STS_UPDATED: "Hosted MTA-STS policy changed",
   HOSTED_MTA_STS_RELEASE_REQUESTED: "Hosted MTA-STS release requested",
   HOSTED_MTA_STS_RELEASED: "Hosted MTA-STS policy released",
+  PSA_CONNECTION_CREATED: "PSA connected",
+  PSA_CONNECTION_UPDATED: "PSA settings changed",
+  PSA_CONNECTION_REMOVED: "PSA disconnected",
+  PSA_CONNECTION_PAUSED: "PSA ticketing paused",
+  PSA_CONNECTION_RESUMED: "PSA ticketing resumed",
+  PSA_MAPPING_CHANGED: "Client to PSA company mapping changed",
 };
 
 /**
