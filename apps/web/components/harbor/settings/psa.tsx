@@ -94,6 +94,7 @@ const FIELDS: Record<PsaProviderName, Array<{ key: string; label: string; secret
 const SKIP_WORDS: Record<string, string> = {
   unmapped_client: "The client is not mapped to a PSA company, so no ticket was opened.",
   ticket_not_opened: "The ticket this belongs to was never opened, so there was nothing to add to.",
+  source_deleted: "The domain or alert was deleted before the ticket was opened, so none was.",
   no_closed_status: "No closed status is chosen in the ticket settings.",
   not_applicable: "There was nothing to do.",
 };

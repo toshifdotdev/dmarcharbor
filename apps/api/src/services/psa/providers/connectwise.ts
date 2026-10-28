@@ -158,8 +158,17 @@ export function createConnectWiseClient(config: PsaClientConfig): PsaProviderCli
     },
 
     async findTicketByReference(companyIdValue: string, reference: string) {
+      // `[` and `]` are a character class inside a SQL Server LIKE, which is
+      // what ConnectWise conditions compile to, so `like "%[DH-ab12]%"` would
+      // match one character from a set and miss the real ticket. The search
+      // uses `DH-<ref>` (no wildcards: the ref is a-z and 2-7) and the exact
+      // bracketed marker is checked below. The company id is numeric-only for
+      // the same reason it is interpolated: it must not carry a condition.
+      if (!/^\d+$/.test(companyIdValue)) {
+        throw new PsaError('The mapped ConnectWise company id is not a number.', 'PSA_REJECTED', 400);
+      }
       const conditions = encodeURIComponent(
-        `company/id=${companyIdValue} and summary like "%[DH-${reference}]%" and closedFlag=false`,
+        `company/id=${companyIdValue} and summary like "%DH-${reference}%" and closedFlag=false`,
       );
       const items = await call<Array<{ id?: unknown; summary?: unknown }>>(
         `/service/tickets?conditions=${conditions}&pageSize=10`,

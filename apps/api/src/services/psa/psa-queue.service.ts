@@ -194,9 +194,13 @@ export async function enqueueAlertOpened(input: AlertContext): Promise<void> {
 async function referenceForAlertEvent(organizationId: string, eventId: string): Promise<string | null> {
   const open = await prisma.psaTicketJob.findUnique({
     where: { dedupeKey: `alert:${eventId}:open` },
-    select: { linkReference: true, organizationId: true },
+    select: { linkReference: true, organizationId: true, status: true },
   });
   if (!open || open.organizationId !== organizationId) return null;
+  // An OPEN that was skipped (unmapped client) never becomes a ticket, so its
+  // reminders and acknowledgement have nowhere to go. Queuing them only filled
+  // the job log with "nothing to add to" rows.
+  if (open.status === 'SKIPPED') return null;
   return open.linkReference;
 }
 
@@ -337,11 +341,35 @@ export async function enqueueDnsChangeAcknowledged(input: {
   const connection = await connectionForEnqueue(input.organizationId);
   if (!connection) return;
 
-  const link = await prisma.psaTicketLink.findFirst({
-    where: { organizationId: input.organizationId, dnsChangeIds: { has: input.changeId } },
-    select: { reference: true, dnsChangeIds: true, state: true },
-  });
-  if (!link) return;
+  let link: { reference: string; dnsChangeIds: string[]; state: 'OPEN' | 'CLOSED' } | null =
+    await prisma.psaTicketLink.findFirst({
+      where: { organizationId: input.organizationId, dnsChangeIds: { has: input.changeId } },
+      select: { reference: true, dnsChangeIds: true, state: true },
+    });
+  if (!link) {
+    /**
+     * The ticket may not be open yet: its OPEN job is still queued (the PSA is
+     * slow or down). The note and the close are queued behind it, and the
+     * worker holds them until the OPEN finishes. Dropping them here meant a
+     * change acknowledged during a PSA outage left its ticket open for ever.
+     */
+    const pendingOpen = await prisma.psaTicketJob.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        kind: 'OPEN',
+        status: { in: ['PENDING', 'IN_FLIGHT'] },
+        payload: { path: ['dnsChangeIds'], array_contains: [input.changeId] },
+      },
+      select: { linkReference: true, payload: true },
+    });
+    if (!pendingOpen) return;
+    const ids = (pendingOpen.payload as { dnsChangeIds?: unknown } | null)?.dnsChangeIds;
+    link = {
+      reference: pendingOpen.linkReference,
+      dnsChangeIds: Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : [],
+      state: 'OPEN',
+    };
+  }
 
   await enqueueJob({
     organizationId: input.organizationId,
@@ -385,6 +413,7 @@ interface ClaimedJob {
   linkReference: string;
   payload: unknown;
   attempts: number;
+  lastError: string | null;
 }
 
 function payloadOf(job: ClaimedJob): Record<string, unknown> {
@@ -528,14 +557,40 @@ async function executeJob(input: {
     }
 
     /**
+     * The domain or alert was deleted after the job was queued.
+     *
+     * Deletion must not call the PSA, and a ticket for a domain the MSP just
+     * removed is noise. It also cannot be linked: the link row references the
+     * domain and the alert event, so the insert would fail after the ticket
+     * already existed, and every retry would find it and fail again.
+     */
+    const domainId = textOf(payload.domainId);
+    const alertEventId = textOf(payload.alertEventId);
+    const [domain, alertEvent] = await Promise.all([
+      domainId
+        ? prisma.domain.findFirst({
+            where: { id: domainId, client: { organizationId: input.job.organizationId } },
+            select: { id: true },
+          })
+        : Promise.resolve(null),
+      alertEventId
+        ? prisma.alertEvent.findUnique({ where: { id: alertEventId }, select: { id: true } })
+        : Promise.resolve(null),
+    ]);
+    if (!domain || (alertEventId && !alertEvent)) {
+      return { outcome: 'skipped', reason: 'source_deleted' };
+    }
+
+    /**
      * The lost-response case.
      *
      * The first attempt does not search: nothing can exist yet, and a search is
-     * a wasted call on the happy path. Every retry searches first, because the
-     * only reason to be here twice is that the first call may have succeeded
-     * without us hearing about it.
+     * a wasted call on the happy path. Every later attempt searches first,
+     * because the only reason to be here twice is that an earlier call may have
+     * succeeded without us hearing about it. A manual retry resets `attempts`
+     * but keeps `lastError`, which is what still marks the job as tried.
      */
-    if (input.job.attempts > 0) {
+    if (input.job.attempts > 0 || input.job.lastError !== null) {
       const found = await client.findTicketByReference(companyId, reference);
       if (found) {
         await prisma.psaTicketLink.create({
@@ -723,9 +778,28 @@ export async function runPsaDelivery(now = new Date()): Promise<PsaDeliveryOutco
         const pause = await recordFailure({ connection, error: failure });
         if (pause === 'paused') {
           outcome.paused += 1;
+          /**
+           * The job goes back in the queue and this connection stops for the
+           * pass. Marking it FAILED meant a resume never delivered the job that
+           * tripped the pause, and carrying on with the rest of the batch (the
+           * in-memory connection still said ACTIVE) failed every one of them
+           * too, writing a pause audit row and a notification per job.
+           */
+          await prisma.psaTicketJob.update({
+            where: { id: job.id },
+            data: {
+              status: 'PENDING',
+              attempts,
+              nextAttemptAt: now,
+              lastError: failure.message,
+              claimedAt: null,
+              claimedBy: null,
+            },
+          });
+          break;
         }
 
-        if (pause === 'paused' || attempts >= psaMaxAttempts) {
+        if (attempts >= psaMaxAttempts) {
           await prisma.psaTicketJob.update({
             where: { id: job.id },
             data: {

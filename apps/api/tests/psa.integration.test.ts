@@ -527,7 +527,67 @@ describe('PSA ticketing', () => {
     const connection = await prisma.psaConnection.findFirstOrThrow();
     expect(connection.status).toBe('PAUSED');
     expect(connection.pausedReason).toContain('credentials');
-    expect((await prisma.psaTicketJob.findFirstOrThrow()).status).toBe('FAILED');
+    // The job stays queued, so resuming delivers it instead of dropping it.
+    expect((await prisma.psaTicketJob.findFirstOrThrow()).status).toBe('PENDING');
+
+    psa.failWith = null;
+    const resumed = await fixture.agent.patch(base(fixture.organizationId)).send({ enabled: true });
+    expect(resumed.status).toBe(200);
+    await runPsaDelivery();
+    expect(psa.tickets).toHaveLength(1);
+    expect((await prisma.psaTicketJob.findFirstOrThrow()).status).toBe('DONE');
+  });
+
+  it('stops a connection for the pass once it pauses, with one audit row', async () => {
+    const fixture = await setup();
+    await connect(fixture);
+    await mapClient(fixture);
+    for (let index = 0; index < 3; index += 1) {
+      const { event } = await openAlert(fixture, `alert ${index}`);
+      await enqueueAlertOpened({ ...alertContext(fixture), eventId: event.id });
+    }
+
+    psa.failWith = { status: 401, body: '{}' };
+    const outcome = await runPsaDelivery();
+    expect(outcome.processed).toBe(1);
+    expect(await prisma.auditLog.count({ where: { action: 'PSA_CONNECTION_PAUSED' } })).toBe(1);
+    expect(await prisma.psaTicketJob.count({ where: { status: 'PENDING' } })).toBe(3);
+  });
+
+  it('searches for the marker before a manual retry creates a ticket', async () => {
+    const fixture = await setup();
+    await connect(fixture);
+    await mapClient(fixture);
+    const { event } = await openAlert(fixture);
+    await enqueueAlertOpened({ ...alertContext(fixture), eventId: event.id });
+
+    // The first attempt creates the ticket and loses the response; the job is
+    // then exhausted, as if the PSA stayed down for every retry.
+    psa.loseCreateResponseOnce = true;
+    await runPsaDelivery();
+    await prisma.psaTicketJob.updateMany({ data: { status: 'FAILED', attempts: 5 } });
+    expect(psa.tickets).toHaveLength(1);
+
+    const job = await prisma.psaTicketJob.findFirstOrThrow();
+    expect((await fixture.agent.post(`${base(fixture.organizationId)}/jobs/${job.id}/retry`)).status).toBe(200);
+    await runPsaDelivery();
+    expect(psa.tickets).toHaveLength(1);
+    expect(await prisma.psaTicketLink.count()).toBe(1);
+  });
+
+  it('skips an OPEN whose domain was deleted after it was queued, calling no PSA', async () => {
+    const fixture = await setup();
+    await connect(fixture);
+    await mapClient(fixture);
+    const { event } = await openAlert(fixture);
+    await enqueueAlertOpened({ ...alertContext(fixture), eventId: event.id });
+
+    await prisma.domain.delete({ where: { id: fixture.domainId } });
+    psa.calls = [];
+    const outcome = await runPsaDelivery();
+    expect(outcome.skipped).toBe(1);
+    expect(psa.calls).toHaveLength(0);
+    expect((await prisma.psaTicketJob.findFirstOrThrow()).skipReason).toBe('source_deleted');
   });
 
   it('runs one job at a time per connection, in order', async () => {
@@ -734,5 +794,102 @@ describe('PSA ticketing', () => {
     expect(refused.body.error.code).toBe('INVALID_CREDENTIALS');
     expect(refused.body.error.message).toContain('https://');
     expect(await prisma.psaConnection.count()).toBe(0);
+  });
+
+  it('does not reuse another workspace’s cached Halo token without the secret', async () => {
+    const owner = await setup();
+    await connect(owner);
+
+    // Same Halo address and client id, wrong secret. The token endpoint
+    // refuses that secret; a token cached for the owner must not stand in.
+    setGuardedTransportForTests(async (spec) => {
+      if (new URL(spec.url).pathname.endsWith('/token') && !(spec.body ?? '').includes('halo-client-secret-value')) {
+        return { status: 'ok', statusCode: 401, headers: {}, body: Buffer.from('{"error":"invalid_client"}') };
+      }
+      return psa.handle(spec);
+    });
+    const stranger = await setup();
+    const refused = await stranger.agent.put(base(stranger.organizationId)).send({
+      provider: 'HALOPSA',
+      credentials: { resourceServer: 'https://acme.halopsa.com', clientId: 'halo-client', clientSecret: 'guess' },
+    });
+    expect(refused.status).toBe(400);
+    expect(refused.body.error.code).toBe('PSA_AUTH_FAILED');
+    expect(await prisma.psaConnection.count({ where: { organizationId: stranger.organizationId } })).toBe(0);
+  });
+
+  it('clears mappings, links and queued jobs when the connection moves to another PSA', async () => {
+    const fixture = await setup();
+    await connect(fixture);
+    await mapClient(fixture);
+    const { event } = await openAlert(fixture);
+    await enqueueAlertOpened({ ...alertContext(fixture), eventId: event.id });
+    await runPsaDelivery();
+    const second = await openAlert(fixture, 'another alert');
+    await enqueueAlertOpened({ ...alertContext(fixture), eventId: second.event.id });
+    expect(await prisma.psaTicketLink.count()).toBe(1);
+
+    // Rotating the secret on the same Halo keeps everything.
+    const rotated = await fixture.agent.put(base(fixture.organizationId)).send({
+      provider: 'HALOPSA',
+      credentials: { resourceServer: 'https://acme.halopsa.com', clientId: 'halo-client', clientSecret: 'rotated-secret' },
+    });
+    expect(rotated.status).toBe(200);
+    expect(await prisma.psaCompanyMapping.count()).toBe(1);
+    expect(await prisma.psaTicketLink.count()).toBe(1);
+    expect(await prisma.psaTicketJob.count({ where: { status: 'PENDING' } })).toBe(1);
+
+    // A different Halo is a different set of companies and tickets.
+    const moved = await fixture.agent.put(base(fixture.organizationId)).send({
+      provider: 'HALOPSA',
+      credentials: { resourceServer: 'https://other.halopsa.com', clientId: 'halo-client', clientSecret: 'other-secret' },
+    });
+    expect(moved.status).toBe(200);
+    expect(await prisma.psaCompanyMapping.count()).toBe(0);
+    expect(await prisma.psaTicketLink.count()).toBe(0);
+    expect(await prisma.psaTicketJob.count()).toBe(0);
+
+    psa.calls = [];
+    await runPsaDelivery();
+    expect(psa.calls).toHaveLength(0);
+  });
+
+  it('closes a DNS ticket whose changes were acknowledged before it opened', async () => {
+    const fixture = await setup();
+    await connect(fixture);
+    await mapClient(fixture);
+    const scan = await prisma.scan.create({
+      data: { domainId: fixture.domainId, status: 'COMPLETED', trigger: 'MANUAL', completedAt: new Date() },
+    });
+    const change = await prisma.dnsChange.create({
+      data: {
+        organizationId: fixture.organizationId,
+        domainId: fixture.domainId,
+        scanId: scan.id,
+        kind: 'SPF_RECORD',
+        severity: 'CRITICAL',
+        code: 'spf_removed',
+        summary: 'The SPF record was removed.',
+      },
+    });
+    await deliverDnsChangeNotifications();
+
+    // Acknowledged while the OPEN is still queued (the PSA has not been called).
+    await acknowledgeDnsChange({
+      organizationId: fixture.organizationId,
+      domainIdOrSlug: fixture.domainId,
+      changeId: change.id,
+      actorUserId: fixture.userId,
+    });
+    expect(await prisma.psaTicketJob.count({ where: { kind: 'CLOSE' } })).toBe(1);
+
+    let now = Date.now();
+    for (let pass = 0; pass < 3; pass += 1) {
+      await runPsaDelivery(new Date(now));
+      now += 60_000;
+    }
+    expect(psa.tickets).toHaveLength(1);
+    expect(psa.tickets[0]!.notes.some((note) => note.includes('Acknowledged'))).toBe(true);
+    expect(psa.tickets[0]!.closed).toBe(true);
   });
 });

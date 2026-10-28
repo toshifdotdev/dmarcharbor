@@ -16,6 +16,7 @@ import {
   testConnection,
 } from '../services/psa/psa-connection.service.js';
 import type { PsaProviderName } from '../services/psa/provider.js';
+import { EntitlementError, assertFeature } from '../services/entitlements/entitlement.service.js';
 
 const providerSchema = z.enum(['HALOPSA', 'CONNECTWISE', 'AUTOTASK']);
 
@@ -112,6 +113,20 @@ export async function patchPsaController(request: Request, response: Response): 
       error: { code: 'INVALID_REQUEST', message: 'Send settings, or enabled to pause or resume.' },
     });
     return;
+  }
+  // Pause and resume stay open on every plan, so a downgraded workspace can
+  // stop its tickets. Changing the ticket settings is the paid feature, the
+  // same as connecting.
+  if (parsed.data.settings !== undefined) {
+    try {
+      await assertFeature(String(response.locals.organizationId ?? request.params.organizationId), 'integrations.psa');
+    } catch (error) {
+      if (error instanceof EntitlementError) {
+        response.status(402).json({ error: { code: error.code, message: error.message, ...error.details } });
+        return;
+      }
+      throw error;
+    }
   }
   try {
     response.json(

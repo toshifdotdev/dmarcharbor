@@ -163,6 +163,43 @@ describe('HaloPSA requests', () => {
   });
 });
 
+describe('HaloPSA list answers and the token cache', () => {
+  const base = { resourceServer: 'https://wrap.halopsa.com', clientId: 'wrap-client' };
+
+  it('reads clients and tickets when Halo wraps the list in an object', async () => {
+    responder = (spec) => {
+      if (spec.url.endsWith('/token')) return ok({ access_token: 'tok-w', expires_in: 3600 });
+      if (spec.url.includes('/api/Client')) return ok({ record_count: 1, clients: [{ id: 5, name: 'Acme Ltd' }] });
+      return ok({ record_count: 1, tickets: [{ id: 77, summary: 'x [DH-abcdefgh]' }] });
+    };
+    const client = createHaloPsaClient({
+      credentials: { ...base, clientSecret: 'wrap-secret' },
+      baseUrl: base.resourceServer,
+      settings,
+    });
+    expect(await client.searchCompanies('acme')).toEqual([{ id: '5', name: 'Acme Ltd' }]);
+    expect((await client.findTicketByReference('5', 'abcdefgh'))?.id).toBe('77');
+  });
+
+  it('asks for a new token when the secret differs, even for the same client id', async () => {
+    responder = (spec) =>
+      spec.url.endsWith('/token') ? ok({ access_token: 'tok-c', expires_in: 3600 }) : ok([]);
+    await createHaloPsaClient({
+      credentials: { ...base, clientSecret: 'first-secret' },
+      baseUrl: base.resourceServer,
+      settings,
+    }).test();
+    calls = [];
+    await createHaloPsaClient({
+      credentials: { ...base, clientSecret: 'other-secret' },
+      baseUrl: base.resourceServer,
+      settings,
+    }).test();
+    expect(calls[0]!.url).toContain('/token');
+    expect(calls[0]!.body).toContain('client_secret=other-secret');
+  });
+});
+
 describe('ConnectWise requests', () => {
   const credentials = {
     site: 'api-na.myconnectwise.net',
@@ -222,6 +259,24 @@ describe('ConnectWise requests', () => {
       'https://api-na.myconnectwise.net/v4_6_release/apis/3.0/service/tickets/55',
     );
     expect(JSON.parse(patch.body!)).toEqual([{ op: 'replace', path: 'status', value: { id: 22 } }]);
+  });
+
+  it('searches for the marker without LIKE brackets, and matches the exact marker', async () => {
+    responder = () =>
+      ok([
+        { id: 1, summary: 'something DH-abcdefghx else' },
+        { id: 2, summary: 'DMARC Harbor: example.com: x [DH-abcdefgh]' },
+      ]);
+    const client = createConnectWiseClient({ credentials, baseUrl: 'api-na.myconnectwise.net', settings });
+    const found = await client.findTicketByReference('12', 'abcdefgh');
+
+    const conditions = new URL(calls[0]!.url).searchParams.get('conditions')!;
+    expect(conditions).toBe('company/id=12 and summary like "%DH-abcdefgh%" and closedFlag=false');
+    expect(conditions).not.toContain('[');
+    expect(found?.id).toBe('2');
+    await expect(client.findTicketByReference('12 or 1=1', 'abcdefgh')).rejects.toMatchObject({
+      code: 'PSA_REJECTED',
+    });
   });
 
   it('refuses to build a client when the deployment has no clientId', () => {

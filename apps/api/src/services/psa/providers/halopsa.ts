@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { psaRequest } from '../../net/guarded-request.js';
 import {
   PsaError,
@@ -42,7 +43,13 @@ export function createHaloPsaClient(config: PsaClientConfig): PsaProviderClient 
   const tenant = config.credentials.tenant?.trim() ?? '';
   const clientId = config.credentials.clientId ?? '';
   const clientSecret = config.credentials.clientSecret ?? '';
-  const cacheKey = `${authServer}|${clientId}`;
+  // Keyed on everything that authenticates, the secret included (as a hash).
+  // Keyed on the client id alone, a second workspace that typed someone else's
+  // Halo address and client id with any secret at all was handed the cached
+  // token, and its "test" passed against a PSA it had no secret for.
+  const cacheKey = createHash('sha256')
+    .update(`${authServer}\n${tenant}\n${clientId}\n${clientSecret}`)
+    .digest('hex');
 
   async function accessToken(): Promise<string> {
     const cached = tokenCache.get(cacheKey);
@@ -144,6 +151,19 @@ export function createHaloPsaClient(config: PsaClientConfig): PsaProviderClient 
     }
   }
 
+  /**
+   * Halo's list endpoints answer either a bare array or an object that wraps
+   * it (`{ record_count, clients: [...] }`, `{ tickets: [...] }`), depending on
+   * the endpoint and the paging flags. Both are read, so a wrapped answer is
+   * not mistaken for "no results" (which for the reference search would mean a
+   * duplicate ticket).
+   */
+  const listOf = <T>(value: unknown, key: string): T[] => {
+    if (Array.isArray(value)) return value as T[];
+    const wrapped = (value as Record<string, unknown> | null | undefined)?.[key];
+    return Array.isArray(wrapped) ? (wrapped as T[]) : [];
+  };
+
   const optionsFor = (items: Array<{ id?: unknown; name?: unknown }> | undefined): PsaOption[] =>
     (Array.isArray(items) ? items : [])
       .map((item) => ({
@@ -179,10 +199,8 @@ export function createHaloPsaClient(config: PsaClientConfig): PsaProviderClient 
     },
 
     async searchCompanies(query: string) {
-      const items = await call<Array<{ id?: unknown; name?: unknown }>>(
-        `/api/Client?search=${encodeURIComponent(query)}&count=25`,
-      );
-      return optionsFor(items).slice(0, 25) as PsaCompany[];
+      const items = await call<unknown>(`/api/Client?search=${encodeURIComponent(query)}&count=25`);
+      return optionsFor(listOf(items, 'clients')).slice(0, 25) as PsaCompany[];
     },
 
     async createTicket(input: CreateTicketInput): Promise<PsaTicketRef> {
@@ -219,10 +237,10 @@ export function createHaloPsaClient(config: PsaClientConfig): PsaProviderClient 
 
     async findTicketByReference(companyId: string, reference: string) {
       const marker = encodeURIComponent(`[DH-${reference}]`);
-      const items = await call<Array<{ id?: unknown; summary?: unknown }>>(
+      const items = await call<unknown>(
         `/api/Tickets?client_id=${encodeURIComponent(companyId)}&search=${marker}&open_only=true`,
       );
-      const match = (Array.isArray(items) ? items : []).find((item) =>
+      const match = listOf<{ id?: unknown; summary?: unknown }>(items, 'tickets').find((item) =>
         typeof item?.summary === 'string' ? item.summary.includes(`[DH-${reference}]`) : false,
       );
       if (!match || match.id === undefined || match.id === null) return null;

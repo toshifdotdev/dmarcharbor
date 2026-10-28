@@ -47,6 +47,9 @@ psaRouter.put(
   requireSession,
   requireOrganizationPermission('organization', 'update'),
   requireFeature('integrations.psa'),
+  // Saving tests the credentials against the PSA (and discovers the Autotask
+  // zone), so it is a PSA call like the others and shares their limit.
+  psaRateLimiter,
   json,
   savePsaController,
 );

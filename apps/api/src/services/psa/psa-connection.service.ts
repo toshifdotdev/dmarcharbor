@@ -229,6 +229,53 @@ export function credentialHintFor(provider: PsaProviderName, credentials: PsaCre
   }
 }
 
+function hostOf(baseUrl: string): string {
+  try {
+    return new URL(baseUrl.includes('://') ? baseUrl : `https://${baseUrl}`).host;
+  } catch {
+    return baseUrl;
+  }
+}
+
+/** The stored credentials, or an empty object when they cannot be read. */
+function storedCredentials(connection: PsaConnection): PsaCredentials {
+  const decrypted = decryptSensitive(connection.encryptedCredentials);
+  if (!decrypted) return {};
+  try {
+    return JSON.parse(decrypted) as PsaCredentials;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Which PSA database a connection talks to, independent of the key or secret.
+ *
+ * Rotating a key keeps the same instance and keeps the mappings and queue.
+ * Halo is identified by its server and tenant, ConnectWise by its site and
+ * company id, Autotask by its zone and the domain its API usernames are
+ * issued under.
+ */
+export function instanceKey(provider: PsaProvider | PsaProviderName, baseUrl: string, credentials: PsaCredentials): string {
+  const host = hostOf(baseUrl).toLowerCase();
+  switch (provider) {
+    case 'HALOPSA':
+      return `HALOPSA|${host}|${(credentials.tenant ?? '').trim().toLowerCase()}`;
+    case 'CONNECTWISE':
+      return `CONNECTWISE|${host}|${(credentials.companyId ?? '').trim().toLowerCase()}`;
+    case 'AUTOTASK': {
+      // One zone serves many Autotask databases, so the zone alone does not
+      // identify one. API usernames are issued under the database's own
+      // domain (`api-user@ACMEMSP.COM`), which does.
+      const username = (credentials.username ?? '').trim().toLowerCase();
+      const tenant = username.includes('@') ? username.slice(username.lastIndexOf('@') + 1) : username;
+      return `AUTOTASK|${host}|${tenant}`;
+    }
+    default:
+      return `${String(provider)}|${host}`;
+  }
+}
+
 /** Resolves the stored base URL and normalises the credentials for one provider. */
 async function resolveBaseUrl(provider: PsaProviderName, credentials: PsaCredentials): Promise<string> {
   switch (provider) {
@@ -341,11 +388,26 @@ export async function psaView(organizationId: string): Promise<PsaView> {
     byClient.set(clientId, entry);
   }
 
+  // Only clients that still exist and are still unmapped: the banner asks the
+  // MSP to map them, and naming one that is already mapped (or deleted) asks
+  // for something that cannot be done.
+  const stillUnmapped = byClient.size
+    ? await prisma.client.findMany({
+        where: { organizationId, id: { in: [...byClient.keys()] }, psaMapping: { is: null } },
+        select: { id: true, name: true },
+      })
+    : [];
+  const unmapped = stillUnmapped.map((client) => ({
+    clientId: client.id,
+    clientName: client.name,
+    count: byClient.get(client.id)?.count ?? 0,
+  }));
+
   return {
     available: true,
     providers: psaProviderAvailability(),
     connection: connection ? connectionView(connection) : null,
-    skippedUnmapped: [...byClient.values()].sort((a, b) => b.count - a.count),
+    skippedUnmapped: unmapped.sort((a, b) => b.count - a.count),
     ticketCounts: { open, closed },
   };
 }
@@ -403,7 +465,17 @@ export async function saveConnection(input: {
   }
 
   const existing = await prisma.psaConnection.findUnique({ where: { organizationId: input.organizationId } });
-  const providerChanged = Boolean(existing && existing.provider !== input.provider);
+  /**
+   * Whether the replacement points at a different PSA, not only a different
+   * vendor. A second Halo tenant or another ConnectWise company is as foreign
+   * as a new vendor: company 42 and ticket 1001 there are someone else's.
+   */
+  const instanceChanged = Boolean(
+    existing &&
+      instanceKey(existing.provider, existing.baseUrl, storedCredentials(existing)) !==
+        instanceKey(input.provider, baseUrl, credentials),
+  );
+  const providerChanged = instanceChanged;
 
   const data = {
     provider: input.provider,
@@ -427,7 +499,23 @@ export async function saveConnection(input: {
       : {}),
   };
 
-  const connection = await prisma.psaConnection.upsert({
+  const connection = await prisma.$transaction(async (transaction) => {
+    /**
+     * Everything that names a record in the old PSA goes with it, in the same
+     * transaction as the credential change so the worker can never run an old
+     * job against the new PSA:
+     *  - mappings name companies there, so a queued or future ticket would be
+     *    filed under whichever customer has that id in the new one;
+     *  - links and queued jobs name tickets there, so a note or a close would
+     *    land on an unrelated ticket that happens to share the id.
+     * Tickets already in the old PSA stay where they are.
+     */
+    if (instanceChanged && existing) {
+      await transaction.psaTicketJob.deleteMany({ where: { connectionId: existing.id } });
+      await transaction.psaTicketLink.deleteMany({ where: { connectionId: existing.id } });
+      await transaction.psaCompanyMapping.deleteMany({ where: { organizationId: input.organizationId } });
+    }
+    return transaction.psaConnection.upsert({
     where: { organizationId: input.organizationId },
     create: {
       organizationId: input.organizationId,
@@ -446,13 +534,8 @@ export async function saveConnection(input: {
       ticketOnCriticalDns: input.settings?.ticketOnCriticalDns ?? true,
     },
     update: data,
+    });
   });
-
-  // A mapping names a company in one PSA. Keeping it across a provider change
-  // would point at an id the new provider has never heard of.
-  if (providerChanged) {
-    await prisma.psaCompanyMapping.deleteMany({ where: { organizationId: input.organizationId } });
-  }
 
   await recordAuditEvent({
     organizationId: input.organizationId,
@@ -463,7 +546,14 @@ export async function saveConnection(input: {
     detail: {
       provider: input.provider,
       host: new URL(baseUrl).host,
-      ...(providerChanged ? { replacedProvider: existing?.provider, mappingsCleared: true } : {}),
+      ...(providerChanged
+        ? {
+            replacedProvider: existing?.provider,
+            replacedHost: existing ? hostOf(existing.baseUrl) : null,
+            mappingsCleared: true,
+            queueCleared: true,
+          }
+        : {}),
     },
   });
 
@@ -831,7 +921,9 @@ export async function retryJob(input: {
       status: 'PENDING',
       attempts: 0,
       nextAttemptAt: new Date(),
-      lastError: null,
+      // Kept on purpose: it is what tells the worker this job was tried, so an
+      // OPEN searches the PSA for its marker before creating a second ticket.
+      // Cleared by the worker on the next success.
       claimedAt: null,
       claimedBy: null,
     },

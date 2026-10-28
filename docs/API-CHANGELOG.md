@@ -273,10 +273,14 @@ Browser routes, all under `/api/workspaces/{id}/psa`:
 
 - `GET /psa` — provider, status, credential hint, settings, health, ticket
   counts and the clients whose alerts were skipped as unmapped.
-- `PUT /psa` (`integrations.psa`) — connect or replace. The credentials are
-  tested before anything is stored.
-- `PATCH /psa` — settings with `expectedVersion`, or `{ enabled }` to pause and
-  resume. Pause and resume are never gated.
+- `PUT /psa` (`integrations.psa`, rate limited) — connect or replace. The
+  credentials are tested before anything is stored. Replacing them for the same
+  PSA keeps mappings, links and queued jobs; pointing at a different PSA (another
+  vendor, Halo server or tenant, ConnectWise site or company, or Autotask
+  database) clears all three, because their ids belong to the old one.
+- `PATCH /psa` — settings with `expectedVersion` (`integrations.psa`, 402
+  otherwise), or `{ enabled }` to pause and resume. Pause and resume are never
+  gated.
 - `DELETE /psa` — removes the connection, mappings, queued jobs and links.
   Tickets already in the PSA stay there.
 - `POST /psa/test`, `GET /psa/options`, `GET /psa/companies?search=` — rate
