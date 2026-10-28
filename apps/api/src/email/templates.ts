@@ -240,6 +240,41 @@ export function dnsChangesEmail(input: {
 }
 
 /**
+ * Domain registrations that expire soon, or have expired, in one workspace.
+ *
+ * Each line is the same sentence the in-app notice and the chat post carry,
+ * built once by the expiry service, so the three channels cannot disagree
+ * about a date.
+ */
+export function domainExpiryEmail(input: {
+  workspaceName: string;
+  appUrl: string;
+  domains: Array<{ domainSlug: string; sentence: string; registrar: string | null }>;
+}): RenderedEmail {
+  const count = input.domains.length;
+  const subject =
+    count === 1
+      ? `A domain registration needs renewing in ${input.workspaceName}`
+      : `${count} domain registrations need renewing in ${input.workspaceName}`;
+
+  return layout({
+    title: subject,
+    preheader: input.domains[0]?.sentence ?? subject,
+    heading: subject,
+    paragraphs: [
+      ...input.domains.map(
+        (entry) =>
+          `${entry.sentence}${entry.registrar ? ` Registrar: ${entry.registrar}.` : ''} (${input.appUrl}/domains/${entry.domainSlug})`,
+      ),
+      'When a registration lapses the domain stops resolving: mail to and from it fails, its DMARC, SPF and DKIM records disappear with it, and DMARC reports stop arriving.',
+      'Renew it with the registrar, or check that auto-renew is on and the card on file is current. The date comes from the registry over RDAP and is re-read every day, so a renewal shows here within a day.',
+    ],
+    action: { label: 'Open DMARC Harbor', url: `${input.appUrl}/domains/${input.domains[0]?.domainSlug ?? ''}` },
+    footer: 'You are receiving this because you own or administer this DMARC Harbor workspace.',
+  });
+}
+
+/**
  * The email that delivers a monthly report.
  *
  * It carries a link, not an attachment. The report is stored and fingerprinted;

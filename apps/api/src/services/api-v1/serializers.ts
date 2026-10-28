@@ -102,6 +102,13 @@ export interface DomainDetailInput {
   mxRecords: unknown;
   dkimSelectors: unknown;
   client: { id: string; name: string; slug: string };
+  registration?: {
+    registrableDomain: string;
+    status: string;
+    expiresAt: Date | null;
+    registrar: string | null;
+    checkedAt: Date;
+  } | null;
 }
 
 /**
@@ -124,6 +131,20 @@ export function serializeDomainDetail(row: DomainDetailInput) {
     mxRecords: stringList(row.mxRecords),
     dkimSelectors: stringList(row.dkimSelectors),
     client: { id: row.client.id, name: row.client.name, slug: row.client.slug },
+    /**
+     * The registration expiry as the registry last reported it, or null before
+     * the first lookup. Additive (2026-11-25); the lookup error text is not
+     * included, only the status a caller can branch on.
+     */
+    registration: row.registration
+      ? {
+          registrableDomain: row.registration.registrableDomain,
+          status: row.registration.status,
+          expiresAt: iso(row.registration.expiresAt),
+          registrar: row.registration.registrar,
+          checkedAt: row.registration.checkedAt.toISOString(),
+        }
+      : null,
   };
 }
 

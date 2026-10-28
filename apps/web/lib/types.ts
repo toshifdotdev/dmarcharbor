@@ -658,6 +658,18 @@ export interface TlsReportDetail extends TlsReportListItem {
   policies: Array<TlsReportPolicySummary & { failures: TlsReportFailure[] }>;
 }
 
+/** GET /domains/:id/registration — the registry's expiry, read over RDAP. */
+export interface DomainRegistrationView {
+  registrableDomain: string;
+  /** ok | no_expiry | unsupported | not_found | error */
+  status: string;
+  expiresAt: string | null;
+  daysLeft: number | null;
+  registrar: string | null;
+  checkedAt: string;
+  lastError: string | null;
+}
+
 export interface TlsReportSummary {
   days: number;
   reportCount: number;

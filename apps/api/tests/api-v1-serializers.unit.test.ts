@@ -98,6 +98,7 @@ describe('serializeDomainDetail', () => {
       'lastScanAt',
       'mxRecords',
       'name',
+      'registration',
       'score',
       'slug',
       'spfRecord',
@@ -109,6 +110,43 @@ describe('serializeDomainDetail', () => {
     expect(body.mxRecords).toEqual(['mx1.example.com']);
     expect(body.lastScanAt).toBeNull();
     expect(body.verifiedAt).toBe('2026-01-01T00:00:00.000Z');
+    // Before the first lookup.
+    expect(body.registration).toBeNull();
+  });
+
+  it('carries the registration expiry, without the lookup error or the warning state', () => {
+    const body = serializeDomainDetail({
+      id: 'dom_1',
+      name: 'example.com',
+      slug: 'example-com-abc123',
+      status: 'VERIFIED',
+      dmarcPolicy: null,
+      dmarcRecord: null,
+      verifiedAt: null,
+      score: null,
+      collectForensicReports: false,
+      lastScanAt: null,
+      spfRecord: null,
+      mxRecords: [],
+      dkimSelectors: [],
+      client: { id: 'cl_1', name: 'Northwind', slug: 'northwind' },
+      registration: {
+        registrableDomain: 'example.com',
+        status: 'ok',
+        expiresAt: new Date('2027-08-13T04:00:00Z'),
+        registrar: 'Example Registrar',
+        checkedAt: new Date('2026-11-25T12:00:00Z'),
+      },
+    });
+
+    expect(Object.keys(body.registration!).sort()).toEqual([
+      'checkedAt',
+      'expiresAt',
+      'registrableDomain',
+      'registrar',
+      'status',
+    ]);
+    expect(body.registration!.expiresAt).toBe('2027-08-13T04:00:00.000Z');
   });
 });
 

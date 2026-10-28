@@ -39,6 +39,7 @@ import { portalErrorHandler } from './middleware/portal.middleware.js';
 import { globalErrorHandler } from './middleware/global-error.middleware.js';
 import { domainScanRouter } from './routes/domain-scan.routes.js';
 import { mailboxComplianceRouter } from './routes/mailbox-compliance.routes.js';
+import { domainRegistrationRouter } from './routes/domain-registration.routes.js';
 import { forensicRouter } from './routes/forensic.routes.js';
 import { inboundReportRouter } from './routes/inbound-report.routes.js';
 import { notificationRouter } from './routes/notification.routes.js';
@@ -149,6 +150,7 @@ export function createApp(): express.Express {
   app.use('/api', alertRouter);
   app.use('/api', onboardingRouter);
   app.use('/api', mailboxComplianceRouter);
+  app.use('/api', domainRegistrationRouter);
   app.use('/api', notificationRouter);
   /**
    * A larger body reader for one path, registered BEFORE the 10kb parser below.

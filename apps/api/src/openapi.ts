@@ -3212,6 +3212,19 @@ export const openApiDocument = {
         },
       },
     },
+    '/workspaces/{organizationId}/domains/{domainId}/registration': {
+      get: {
+        tags: ['Clients and domains'],
+        summary: 'Read the domain registration expiry',
+        description: [
+          'The registrable domain, its expiry date, days left, registrar and registry status, as last read over RDAP from the registry the IANA bootstrap list names. Read about once a day.',
+          'status is ok, no_expiry (the registry publishes no date), unsupported (no RDAP service for the TLD), not_found, or error (the last lookup failed; the last good date is kept). registration is null before the first lookup.',
+          'Available on every plan. Warnings at 30, 14, 7 and 1 days and on expiry are sent to owners and admins on plans with alerts. Requires domain read permission.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: { 200: { description: 'The registration view, or null.' }, ...standardErrors },
+      },
+    },
     '/workspaces/{organizationId}/domains/{domainId}/hosted-mta-sts/check': {
       post: {
         tags: ['Clients and domains'],
@@ -4228,6 +4241,18 @@ export const openApiDocument = {
           client: {
             type: 'object',
             properties: { id: { type: 'string' }, name: { type: 'string' }, slug: { type: 'string' } },
+          },
+          registration: {
+            type: ['object', 'null'],
+            description:
+              'Only on GET /v1/domains/{domain}. The registration expiry as the registry last reported it over RDAP, or null before the first lookup.',
+            properties: {
+              registrableDomain: { type: 'string' },
+              status: { type: 'string', description: 'ok, no_expiry, unsupported, not_found or error.' },
+              expiresAt: { type: ['string', 'null'], format: 'date-time' },
+              registrar: { type: ['string', 'null'] },
+              checkedAt: { type: 'string', format: 'date-time' },
+            },
           },
         },
       },

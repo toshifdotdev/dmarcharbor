@@ -684,6 +684,7 @@ const detail = await waitForEval(
       hasReports: t.includes('Aggregate reports'),
       hasReadiness: t.includes('Policy posture'),
       hasDnsChanges: !!document.querySelector('[data-testid="dns-changes"]'),
+      registration: document.querySelector('[data-testid="domain-registration"]')?.textContent.trim() ?? null,
       headings: [...document.querySelectorAll('h1,h2')].map(h => h.textContent.trim()).slice(0, 8),
     };
   })()`,
@@ -698,6 +699,18 @@ check(
   "domain detail renders the DNS changes section",
   Boolean(detail && detail.hasDnsChanges),
   JSON.stringify({ hasDnsChanges: detail?.hasDnsChanges }),
+);
+// The registration line is in words whatever the lookup state: a date, "not
+// checked yet", or why the registry gave none. Never empty, never a raw code.
+check(
+  "domain detail states the registration expiry in words",
+  Boolean(
+    detail &&
+      typeof detail.registration === "string" &&
+      detail.registration.length > 3 &&
+      !/^[a-z_]+$/.test(detail.registration),
+  ),
+  JSON.stringify({ registration: detail?.registration }),
 );
 const shotDetail = await shot("03-domain-detail.png");
 

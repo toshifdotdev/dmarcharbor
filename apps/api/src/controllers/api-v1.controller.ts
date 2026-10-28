@@ -542,6 +542,9 @@ async function resolveApiDomain(organizationId: string, reference: string) {
       mxRecords: true,
       dkimSelectors: true,
       client: { select: { id: true, name: true, slug: true } },
+      registration: {
+        select: { registrableDomain: true, status: true, expiresAt: true, registrar: true, checkedAt: true },
+      },
     },
   });
 }

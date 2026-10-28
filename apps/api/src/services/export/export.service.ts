@@ -183,7 +183,7 @@ export async function buildExportPayload(input: {
           ...(input.scope === 'CLIENT' && input.targetId ? { clientId: input.targetId } : {}),
         };
 
-  const [organization, clients, domains, users, members, sessions, reports, forensics, alertRules, alertEvents, shares, digests, monthlyReports, senderReviews, dnsConnections, dnsPublications, hostedDmarcRecords, hostedSpfRecords, hostedBimiRecords, hostedMtaStsRecords, psaConnection, psaMappings, psaTicketLinks, psaJobs, tlsReports, auditLog] =
+  const [organization, clients, domains, users, members, sessions, reports, forensics, alertRules, alertEvents, shares, digests, monthlyReports, senderReviews, dnsConnections, dnsPublications, hostedDmarcRecords, hostedSpfRecords, hostedBimiRecords, hostedMtaStsRecords, psaConnection, psaMappings, psaTicketLinks, psaJobs, tlsReports, domainRegistrations, auditLog] =
     await Promise.all([
       prisma.organization.findUnique({
         where: { id: org },
@@ -781,6 +781,22 @@ export async function buildExportPayload(input: {
         orderBy: { receivedAt: 'asc' },
         take: exportTableLimit,
       }),
+      prisma.domainRegistration.findMany({
+        where: { domain: domainFilter },
+        select: {
+          domainId: true,
+          registrableDomain: true,
+          status: true,
+          expiresAt: true,
+          registrar: true,
+          checkedAt: true,
+          lastError: true,
+          warnedThreshold: true,
+          warnedForExpiry: true,
+        },
+        orderBy: { domainId: 'asc' },
+        take: exportTableLimit,
+      }),
       prisma.auditLog.findMany({
         where: input.scope === 'DOMAIN' && input.targetId ? { domainId: input.targetId } : { organizationId: org },
         select: { id: true, action: true, targetType: true, targetId: true, createdAt: true },
@@ -1090,6 +1106,7 @@ export async function buildExportPayload(input: {
           })),
         })),
       })),
+      domainRegistrations,
       auditLog,
     },
   };

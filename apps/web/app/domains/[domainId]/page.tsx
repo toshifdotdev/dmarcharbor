@@ -21,6 +21,7 @@ import {
   getPlanCatalog,
   getTlsReportSummary,
   getTlsReports,
+  getDomainRegistration,
   getWorkspaceEntitlements,
   listDomainScans,
   listWorkspaceMembers,
@@ -37,6 +38,7 @@ import { resolveActiveWorkspace } from "@/lib/session";
 import type {
   DnsChangePage,
   DomainInsights,
+  DomainRegistrationView,
   DomainSwitchView,
   HostedBimiView,
   HostedDmarcView,
@@ -165,7 +167,7 @@ export default async function DomainPage({
 
   // A scan history is a different claim from the report evidence, so it fails
   // on its own and renders as a failure, never as an empty history.
-  const [scanHistory, switchState, dnsChanges, serviceMeta, members, me, entitlements, catalog, dnsConnections, mailboxCompliance, hostedDmarc, managedSpf, hostedBimi, hostedMtaSts, tlsSummary, tlsReports] = await Promise.all([
+  const [scanHistory, switchState, dnsChanges, serviceMeta, members, me, entitlements, catalog, dnsConnections, mailboxCompliance, hostedDmarc, managedSpf, hostedBimi, hostedMtaSts, tlsSummary, tlsReports, registration] = await Promise.all([
     listDomainScans(active.id, id).then(
       (page) => ({ rows: page.rows, nextCursor: page.nextCursor, failed: false }),
       () => ({ rows: [] as ScanRow[], nextCursor: null as string | null, failed: true }),
@@ -217,6 +219,12 @@ export default async function DomainPage({
         error instanceof OpsError && error.status === 402
           ? { data: null as TlsReportPage | null, failed: false, notInPlan: true }
           : { data: null as TlsReportPage | null, failed: true, notInPlan: false },
+    ),
+    // `undefined` when the read failed: the header then says nothing rather
+    // than "not checked yet", which would be a claim.
+    getDomainRegistration(active.id, id).then(
+      (data) => data.registration,
+      () => undefined,
     ),
   ]);
 
@@ -298,6 +306,11 @@ export default async function DomainPage({
               <MetaItem k="Last report">
                 {lastReportAt ? <span className="tnum text-fg-2">{instantLabel(lastReportAt)}</span> : <span className="text-fg-3">never</span>}
               </MetaItem>
+              {registration !== undefined ? (
+                <MetaItem k="Registration">
+                  <RegistrationExpiry registration={registration} />
+                </MetaItem>
+              ) : null}
             </>
           }
           actions={
@@ -498,6 +511,61 @@ function MetaItem({ k, children }: { k: string; children: React.ReactNode }) {
     <span className="inline-flex items-baseline gap-1.5">
       <span className="legend">{k}</span>
       <span>{children}</span>
+    </span>
+  );
+}
+
+/**
+ * When the registration lapses, as the registry reported it.
+ *
+ * Red from seven days (and once expired), amber inside thirty, plain beyond.
+ * The registry's own words are used for the cases with no date, because "no
+ * date" and "not looked up yet" are different claims.
+ */
+function RegistrationExpiry({ registration }: { registration: DomainRegistrationView | null }) {
+  if (!registration) {
+    return (
+      <span className="text-fg-3" data-testid="domain-registration">
+        not checked yet
+      </span>
+    );
+  }
+  if (!registration.expiresAt || registration.daysLeft === null) {
+    const words: Record<string, string> = {
+      no_expiry: "the registry publishes no expiry date",
+      unsupported: "this registry has no RDAP service",
+      not_found: "the registry has no record of it",
+      error: "the registry could not be read",
+    };
+    return (
+      <span className="text-fg-3" data-testid="domain-registration">
+        {words[registration.status] ?? "no expiry date"}
+      </span>
+    );
+  }
+  const days = registration.daysLeft;
+  const date = new Date(registration.expiresAt).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+  const tone = days <= 7 ? "font-semibold text-fail" : days <= 30 ? "font-semibold text-warn" : "text-fg-2";
+  const label =
+    days < 0
+      ? `expired ${date}`
+      : days === 0
+        ? `expires today (${date})`
+        : days <= 30
+          ? `expires in ${days} day${days === 1 ? "" : "s"} (${date})`
+          : `expires ${date}`;
+  return (
+    <span
+      className={`tnum ${tone}`}
+      data-testid="domain-registration"
+      title={registration.registrar ? `Registrar: ${registration.registrar}` : undefined}
+    >
+      {label}
     </span>
   );
 }

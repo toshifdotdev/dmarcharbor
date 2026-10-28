@@ -3,6 +3,7 @@ import { evaluateAlertRules, runAlertRollups } from '../services/alert.service.j
 import { runReportDigests } from '../services/report-digest.service.js';
 import { runMonthlyReportSchedules } from '../services/reports/monthly-report-schedule.service.js';
 import { runSenderIntelPass } from '../services/senders/ip-intel.service.js';
+import { runDomainExpiryPass } from '../services/monitoring/domain-expiry.service.js';
 import { executeDueErasures } from '../services/erasure/erasure.service.js';
 import { reverifyUnverifiedDomains } from '../services/domain-reverify.service.js';
 import { purgeExpiredIdempotencyRecords } from '../services/api-key.service.js';
@@ -191,6 +192,27 @@ async function runAlertEvaluationPass(): Promise<{ completed: true }> {
       const detail = error instanceof Error ? error.message : 'Unknown monthly report error.';
       console.error(`[monthly-reports] run failed: ${detail}`);
       recordJobFailure('monthly-reports');
+    }
+
+    /**
+     * Domain expiry is hourly so its daily lookups are spread out: each pass
+     * reads a batch over RDAP, then sends any warning newly due. Its own lease
+     * and try/catch, so a slow registry cannot stop the rest of this pass.
+     */
+    try {
+      await withDueLease('domain-expiry', 60 * 60 * 1000, async () => {
+        const expiry = await runDomainExpiryPass();
+        recordJobSuccess('domain-expiry');
+        if (expiry.checked > 0 || expiry.failed > 0 || expiry.warned > 0) {
+          console.info(
+            `[domain-expiry] checked ${expiry.checked}, failed ${expiry.failed}, warned ${expiry.warned}, notifications ${expiry.notifications}, emails ${expiry.emails}, slack ${expiry.slack}, teams ${expiry.teams}`,
+          );
+        }
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Unknown domain expiry error.';
+      console.error(`[domain-expiry] run failed: ${detail}`);
+      recordJobFailure('domain-expiry');
     }
 
     /**

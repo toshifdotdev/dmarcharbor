@@ -78,6 +78,14 @@ export const dataClasses: DataClass[] = [
     erasure: 'delete',
   },
   {
+    key: 'domainRegistration',
+    label: 'Domain registration',
+    description:
+      'Each domain’s registration expiry, registrar name and registry status, read over RDAP. Public registry data; no registrant contact is kept.',
+    containsPersonalData: false,
+    erasure: 'delete',
+  },
+  {
     key: 'tlsReport',
     label: 'TLS reports',
     description: 'Daily TLS-RPT delivery reports received by email.',

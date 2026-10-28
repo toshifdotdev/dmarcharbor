@@ -404,6 +404,7 @@ model Domain {
   hostedMtaSts           HostedMtaStsRecord?
   psaTicketLinks         PsaTicketLink[]
   tlsReports             TlsReport[]
+  registration           DomainRegistration?
 
   /// The per client constraint is gone. Global uniqueness on `name` above
   /// subsumes it: two rows in one client with the same name would violate the
@@ -810,6 +811,10 @@ model Notification {
   alertEvent     AlertEvent?          @relation(fields: [alertEventId], references: [id], onDelete: Cascade)
   dnsChangeId    String?
   dnsChange      DnsChange?           @relation(fields: [dnsChangeId], references: [id], onDelete: Cascade)
+  /// Set on a domain-expiry notice, so it goes when the domain does: the title
+  /// names the domain, and erasing a domain must not leave that behind.
+  domainRegistrationId String?
+  domainRegistration   DomainRegistration? @relation(fields: [domainRegistrationId], references: [id], onDelete: Cascade)
   readAt         DateTime?
   createdAt      DateTime             @default(now())
 
@@ -819,7 +824,40 @@ model Notification {
   @@unique([dnsChangeId, userId])
   @@index([userId, readAt, createdAt])
   @@index([organizationId, createdAt])
+  @@index([domainRegistrationId])
   @@map("notification")
+}
+
+/// What the domain's registry says about its registration, read over RDAP.
+///
+/// One row per monitored domain. A subdomain (`mail.acme.com`) carries the
+/// registration of its registrable domain (`acme.com`), because that is the
+/// thing that lapses. Only public registry data is kept: the expiry date, the
+/// registrar's name and the registry status. No registrant contact is stored.
+model DomainRegistration {
+  id                String    @id @default(cuid())
+  domainId          String    @unique
+  domain            Domain    @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  /// The name that was looked up: the registrable domain.
+  registrableDomain String
+  /// ok | no_expiry | unsupported | not_found | error
+  status            String
+  expiresAt         DateTime?
+  registrar         String?
+  checkedAt         DateTime
+  lastError         String?
+  /// The tightest warning already sent (30, 14, 7, 1, or 0 for expired) for
+  /// the expiry in `warnedForExpiry`. A renewal changes the expiry, which is
+  /// what starts the ladder again.
+  warnedThreshold   Int?
+  warnedForExpiry   DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  notifications     Notification[]
+
+  @@index([checkedAt])
+  @@index([expiresAt])
+  @@map("domain_registration")
 }
 
 model ReportDigest {
@@ -920,6 +958,8 @@ enum NotificationKind {
   DNS_CHANGE
   /// The PSA connection paused itself after repeated failures.
   PSA
+  /// A domain's registration expires soon, or has expired.
+  DOMAIN_EXPIRY
 }
 
 enum NotificationSeverity {

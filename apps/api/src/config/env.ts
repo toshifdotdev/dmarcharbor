@@ -231,6 +231,14 @@ const envSchema = z.object({
   DNS_MONITOR_BATCH_SIZE: z.coerce.number().int().min(1).max(200).default(30),
   DNS_MONITOR_CONCURRENCY: z.coerce.number().int().min(1).max(10).default(3),
   /**
+   * Domain-expiry checks over RDAP. Each verified domain is looked up about
+   * once a day, `DOMAIN_EXPIRY_BATCH_SIZE` per hourly pass, so a large
+   * workspace spreads its lookups instead of sending them all at once to the
+   * registries.
+   */
+  DOMAIN_EXPIRY_ENABLED: z.enum(['true', 'false']).default('true').transform((value) => value === 'true'),
+  DOMAIN_EXPIRY_BATCH_SIZE: z.coerce.number().int().min(1).max(1000).default(100),
+  /**
    * How many unseen sending IPs one sender-intelligence pass may look up.
    *
    * The lookups are public DNS only, but each pass is background work shared

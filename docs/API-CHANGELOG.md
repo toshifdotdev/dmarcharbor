@@ -249,6 +249,38 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-11-25 — Domain-expiry alerts
+
+Each verified domain's registration expiry is read over RDAP about once a day,
+from the registry that IANA's bootstrap list names for its TLD (no third-party
+WHOIS service). A subdomain such as `mail.acme.com` carries the registration of
+`acme.com`, which is the thing that lapses. Only public registry data is kept:
+the date, the registrar's name and the registry status.
+
+Owners and admins are warned at 30, 14, 7 and 1 days before expiry, and once on
+the day it lapses, by in-app notification (kind `DOMAIN_EXPIRY`), email, Slack
+and Teams. One message per workspace per pass lists every domain. 7 days and
+less is critical. A renewal shows up as a new expiry date at the next daily
+lookup and starts the ladder again. Warnings follow the same plan rule and
+email preferences as DNS-change alerts; the date itself is shown on every plan.
+
+A failed lookup keeps the last good date. Several ccTLD registries publish no
+expiry over RDAP; those domains say so instead of showing a date.
+
+**Operator setup:** `DOMAIN_EXPIRY_ENABLED` (default `true`) and
+`DOMAIN_EXPIRY_BATCH_SIZE` (default 100 lookups per hourly pass).
+
+Browser routes:
+
+- `GET /api/workspaces/{id}/domains/{domainId}/registration` — `{ registration }`
+  with `registrableDomain`, `status` (`ok`, `no_expiry`, `unsupported`,
+  `not_found`, `error`), `expiresAt`, `daysLeft`, `registrar`, `checkedAt`,
+  `lastError`; `null` before the first lookup. Every plan; domain read.
+
+`/api/v1`: `GET /api/v1/domains/{domain}` gains `registration`
+(`registrableDomain`, `status`, `expiresAt`, `registrar`, `checkedAt`, or
+`null`). Additive; nothing else changes.
+
 ## 2026-11-25 — Webhook delivery connects only to the address it checked
 
 Each delivery resolves the endpoint's hostname, refuses it if any answer is a

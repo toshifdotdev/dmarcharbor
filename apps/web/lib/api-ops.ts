@@ -65,6 +65,7 @@ import type {
   TeamsTestResult,
   TlsReportPage,
   TlsReportSummary,
+  DomainRegistrationView,
   TrustSlugStatus,
   VerifyDomainResult,
   WebhookDeliveryRow,
@@ -226,6 +227,16 @@ export function getTlsReportSummary(
 ): Promise<TlsReportSummary> {
   return opsFetch<TlsReportSummary>(
     `/api/workspaces/${organizationId}/domains/${domainId}/tls-reports/summary?days=${days}`,
+  );
+}
+
+/** GET /registration — the registration expiry, or null before the first lookup. */
+export function getDomainRegistration(
+  organizationId: string,
+  domainId: string,
+): Promise<{ registration: DomainRegistrationView | null }> {
+  return opsFetch<{ registration: DomainRegistrationView | null }>(
+    `/api/workspaces/${organizationId}/domains/${domainId}/registration`,
   );
 }
 
