@@ -367,7 +367,7 @@ export function PsaBoard({
 
   return (
     <div className="flex flex-col gap-6">
-      {error ? <Notice tone="fail" title={error} /> : null}
+      {error ? <Notice tone="fail" title={error} testId="psa-error" /> : null}
       {notice ? <Notice tone="ok" title={notice} /> : null}
 
       {!connection ? (

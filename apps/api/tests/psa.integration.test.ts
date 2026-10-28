@@ -673,8 +673,9 @@ describe('PSA ticketing', () => {
     expect(await prisma.psaTicketLink.count()).toBe(0);
 
     expect((await deleteWorkspace(other.organizationId, other.userId)).ok).toBe(true);
-    expect(await prisma.psaConnection.count()).toBe(0);
-    expect(await prisma.psaTicketJob.count()).toBe(0);
+    // Scoped to this workspace: the first fixture still has its own connection.
+    expect(await prisma.psaConnection.count({ where: { organizationId: other.organizationId } })).toBe(0);
+    expect(await prisma.psaTicketJob.count({ where: { organizationId: other.organizationId } })).toBe(0);
 
     // The deletion path never calls the PSA: it removes our rows only.
     expect(psa.calls.length).toBe(callsBeforeOtherDeletion);

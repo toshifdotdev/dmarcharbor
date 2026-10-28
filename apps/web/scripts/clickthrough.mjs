@@ -2043,19 +2043,20 @@ await fillInput('[data-testid="psa-credential-clientSecret"]', "test-secret-not-
 await evalJs(`(() => { const b = document.querySelector('[data-testid="psa-connect-save"]'); if (b && !b.disabled) b.click(); return true; })()`);
 const psaFail = await waitForEval(
   `(() => {
-    const t = document.body.textContent.replace(/\\s+/g, ' ');
-    const codeShaped = /\\b[A-Z]{2,}_[A-Z_]+\\b/.test(t);
+    const el = document.querySelector('[data-testid="psa-error"]');
+    const t = (el ? el.textContent : '').replace(/\\s+/g, ' ');
     return {
+      shown: Boolean(el),
       readable: t.includes('must start with https://'),
-      noRawCode: !codeShaped,
+      noRawCode: !/\\b[A-Z]{2,}_[A-Z_]+\\b/.test(t),
     };
   })()`,
-  (a) => a && a.readable,
+  (a) => a && a.shown,
   30000,
 );
 check(
   "PSA: a bad provider URL is refused in words, with no raw code",
-  Boolean(psaFail && psaFail.readable && psaFail.noRawCode),
+  Boolean(psaFail && psaFail.shown && psaFail.readable && psaFail.noRawCode),
   JSON.stringify(psaFail),
 );
 

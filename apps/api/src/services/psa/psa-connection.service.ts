@@ -371,7 +371,14 @@ export async function saveConnection(input: {
   requireFields(input.provider, input.credentials);
 
   const credentials = { ...input.credentials };
-  const baseUrl = await resolveBaseUrl(input.provider, credentials);
+  // Zone discovery can refuse with a provider error (a zone outside
+  // autotask.net), and the route answers connection errors, not provider ones.
+  let baseUrl: string;
+  try {
+    baseUrl = await resolveBaseUrl(input.provider, credentials);
+  } catch (error) {
+    throw asConnectionError(error);
+  }
 
   // Tested before anything is stored: a connection that cannot authenticate is
   // a promise the product cannot keep, and every job against it would fail.
