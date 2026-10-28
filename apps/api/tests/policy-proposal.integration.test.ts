@@ -194,7 +194,9 @@ describe('client-approved enforcement', () => {
     expect(proposal.from).toMatchObject({ policy: 'none', testing: false });
     expect(proposal.to).toMatchObject({ policy: 'quarantine', testing: false });
     expect(proposal.recordValue).toContain('p=quarantine');
-    expect(proposal.recordValue).toContain('rua=mailto:dmarc@example.test');
+    // The client's own report address is kept, beside ours.
+    expect(proposal.recordValue).toMatch(/rua=mailto:[^;]*dmarc@example\.test/);
+    expect(proposal.recordValue).toMatch(/rua=mailto:[^;]*@reports\./);
 
     const request_ = { to: contact.email, subject: { contains: 'asks your approval' } };
     await vi.waitFor(async () => {
