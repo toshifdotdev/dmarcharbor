@@ -227,7 +227,8 @@ describe('prospect risk reports', () => {
     const badEmail = await fixture.agent.post(base(fixture.organizationId)).send({ domain: 'acme.example', contactEmail: 'nope' });
     expect(badEmail.status).toBe(400);
     expect(badEmail.body.error.message).toContain('contact email');
-    expect(scanned).toHaveLength(0);
+    // Only the failed scan reached the scanner; no refused input did.
+    expect(scanned).toEqual(['down.example']);
   });
 
   it('is invisible to another workspace', async () => {
