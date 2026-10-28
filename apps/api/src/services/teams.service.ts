@@ -35,6 +35,7 @@ export class TeamsError extends Error {
       | 'INVALID_WEBHOOK_URL'
       | 'LEGACY_WEBHOOK_URL'
       | 'NO_DESTINATION'
+      | 'DESTINATION_PAUSED'
       | 'DELIVERY_FAILED'
       | 'TEAMS_ERROR',
     readonly status: number,
@@ -298,7 +299,16 @@ export interface TeamsAlertMessage {
 
 /** Teams' own message ceiling is about 28 KB; this keeps us well inside it. */
 const maximumBodyCharacters = 3000;
-const maximumListLines = 10;
+
+/** Cuts text to `limit` characters at the last whole line, and says it was cut. */
+function capOnLine(text: string, limit: number): string {
+  if (text.length <= limit) return text;
+  const marker = '\n… (shortened; open DMARC Harbor for the rest)';
+  const room = limit - marker.length;
+  const cut = text.slice(0, room);
+  const lastBreak = cut.lastIndexOf('\n');
+  return `${lastBreak > 0 ? cut.slice(0, lastBreak) : cut}${marker}`;
+}
 
 /**
  * The card Teams renders.
@@ -319,20 +329,15 @@ export function buildTeamsCard(input: {
   appUrl: string;
 }): Record<string, unknown> {
   /**
-   * Lines first, then the character cap.
+   * Only a character cap, cut on a line boundary.
    *
-   * The other order looks equivalent and is not: slicing 13,000 characters to
-   * 3,000 leaves about a hundred lines, so "and 88 more" would be counted from
-   * the cut text rather than from what the customer actually changed. The reader
-   * of a DNS-change summary is trying to work out how much happened, and a count
-   * that under-reports it is worse than no count.
+   * The callers already shorten their own lists (the DNS summary lists ten
+   * changes and says "and N more"; an alert lists at most ten spoofing
+   * sources). A second line cap here cut every alert body at ten lines, which
+   * dropped the reminder level and the "move to p=reject" advice, and turned the
+   * DNS summary's own "and 5 more" into "and 1 more".
    */
-  const allLines = input.message.body.split('\n');
-  const trimmed =
-    allLines.length > maximumListLines
-      ? [...allLines.slice(0, maximumListLines), `and ${allLines.length - maximumListLines} more`].join('\n')
-      : input.message.body;
-  const body = trimmed.slice(0, maximumBodyCharacters);
+  const body = capOnLine(input.message.body, maximumBodyCharacters);
 
   const riskWord = input.message.risk === 'high' ? 'High' : input.message.risk === 'medium' ? 'Medium' : 'Low';
 
@@ -497,6 +502,16 @@ export async function sendTeamsTestMessage(
 
   if (!destination) {
     throw new TeamsError('No Teams destination is configured.', 'NO_DESTINATION', 404);
+  }
+
+  // A paused destination posts nothing, so the delivery below would come back
+  // "not delivered" with no reason, and the panel would blame Microsoft.
+  if (!destination.enabled) {
+    throw new TeamsError(
+      'Teams alerts are paused. Turn them on, then send the test message.',
+      'DESTINATION_PAUSED',
+      409,
+    );
   }
 
   return deliverTeamsAlert({

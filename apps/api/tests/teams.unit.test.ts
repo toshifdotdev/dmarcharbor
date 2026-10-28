@@ -213,9 +213,30 @@ describe('buildTeamsCard', () => {
     };
     const text = rich.inlines.map((run) => run.text).join('');
 
-    // Ten lines plus a count of the rest, as Slack's summary does.
-    expect(text).toContain('and 390 more');
-    expect(text.split('\n').filter((line) => line.startsWith('line ')).length).toBe(10);
+    // Cut on a whole line, with a note that it was cut.
+    expect(text).toContain('shortened; open DMARC Harbor');
+    expect(text.split('\n').every((line) => !line.startsWith('line ') || line.endsWith('summary'))).toBe(true);
+  });
+
+  it('keeps a normal alert body whole, and keeps a caller’s own "and N more"', () => {
+    const lines = [
+      ...Array.from({ length: 10 }, (_, index) => `example.com: change ${index}`),
+      'and 5 more',
+      'Reminder 2 of 3',
+      'If the domain owner confirms this is not their service, move to p=reject to stop it.',
+    ];
+    const card = buildTeamsCard({
+      message: { ...message, body: lines.join('\n') },
+      appUrl: 'https://app.example.test',
+    });
+    const rich = (card as { attachments: Array<{ content: { body: Array<Record<string, unknown>> } }> })
+      .attachments[0]!.content.body.find((block) => block.type === 'RichTextBlock') as {
+      inlines: Array<{ text: string }>;
+    };
+    const text = rich.inlines.map((run) => run.text).join('');
+    expect(text).toContain('and 5 more');
+    expect(text).not.toContain('and 1 more');
+    expect(text).toContain('move to p=reject');
   });
 
   it('cuts a body longer than the character cap', () => {

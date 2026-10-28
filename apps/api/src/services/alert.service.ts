@@ -312,6 +312,12 @@ export async function listAlertEvents(
         })
       )?.id
     : undefined;
+  // A filter that names no domain in this workspace matches nothing. Leaving
+  // `domainId` undefined dropped the filter, so a typo (or another workspace's
+  // domain) returned every alert in the workspace as if it were that domain's.
+  if (options.domainId && !domainId) {
+    return { rows: [], limit };
+  }
   const rows = await prisma.alertEvent.findMany({
     where: {
       organizationId,

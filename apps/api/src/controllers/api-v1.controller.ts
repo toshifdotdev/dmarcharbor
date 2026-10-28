@@ -809,9 +809,16 @@ export async function apiListAlertsController(request: Request, response: Respon
     }
 
     const domainParam = typeof request.query.domain === 'string' ? request.query.domain : undefined;
+    // The same answer as `GET /dns-changes?domain=`: a domain that is not in
+    // this workspace is a 404, not an empty or unfiltered list.
+    const domain = domainParam ? await resolveApiDomain(organizationId, domainParam) : null;
+    if (domainParam && !domain) {
+      notFound(response, 'domain');
+      return;
+    }
 
     const { rows, limit } = await listAlertEvents(organizationId, {
-      domainId: domainParam,
+      domainId: domain?.id,
       limit: page.limit,
       cursor: page.cursor,
       state,

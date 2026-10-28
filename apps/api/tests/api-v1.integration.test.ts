@@ -673,6 +673,18 @@ describe('v1: alerts and DNS changes', () => {
       .get('/api/v1/alerts?state=nonsense')
       .set('Authorization', `Bearer ${fixture.key}`);
     expect(bad.status).toBe(400);
+
+    // A domain filter that matches nothing here is a 404, never every alert.
+    const typo = await request(app)
+      .get('/api/v1/alerts?domain=no-such-domain.example')
+      .set('Authorization', `Bearer ${fixture.key}`);
+    expect(typo.status).toBe(404);
+
+    const filtered = await request(app)
+      .get(`/api/v1/alerts?domain=${fixture.domainId}`)
+      .set('Authorization', `Bearer ${fixture.key}`);
+    expect(filtered.status).toBe(200);
+    expect(filtered.body.alerts).toHaveLength(1);
   });
 
   it('acknowledges an alert as the key, records the key, and refuses a second time', async () => {

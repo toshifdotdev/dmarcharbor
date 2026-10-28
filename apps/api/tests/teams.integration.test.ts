@@ -301,6 +301,17 @@ describe('Microsoft Teams destination', () => {
     ).toBe(404);
   });
 
+  it('says the destination is paused instead of blaming Microsoft for a test', async () => {
+    const { agent, organizationId } = await createWorkspace();
+    await agent.put(`/api/workspaces/${organizationId}/teams-destination`).send({ webhookUrl: TEAMS });
+    await agent.patch(`/api/workspaces/${organizationId}/teams-destination`).send({ enabled: false });
+
+    const response = await agent.post(`/api/workspaces/${organizationId}/teams-destination/test`);
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe('DESTINATION_PAUSED');
+    expect(response.body.error.message).toContain('paused');
+  });
+
   it('deletes the destination', async () => {
     const { agent, organizationId } = await createWorkspace();
 
