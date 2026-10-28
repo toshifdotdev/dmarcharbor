@@ -32,39 +32,58 @@ describe('monthly report logo checks', () => {
   });
 
   it('refuses a private address before making a request', async () => {
-    const fetchImpl = vi.fn();
-    const result = await loadMonthlyReportLogo('https://10.0.0.1/logo.png', { fetchImpl });
+    const request = vi.fn();
+    const result = await loadMonthlyReportLogo('https://10.0.0.1/logo.png', { request });
     expect(result).toBeNull();
-    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
   });
 
   it('refuses loopback in every environment, including tests', async () => {
-    const fetchImpl = vi.fn();
-    const result = await loadMonthlyReportLogo('https://127.0.0.1/logo.png', { fetchImpl });
+    const request = vi.fn();
+    const result = await loadMonthlyReportLogo('https://127.0.0.1/logo.png', { request });
     expect(result).toBeNull();
-    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
   });
 
   it('refuses a hostname that resolves to a private address', async () => {
-    const fetchImpl = vi.fn();
+    const request = vi.fn();
     const result = await loadMonthlyReportLogo('https://public-looking.example/logo.png', {
-      fetchImpl,
-      lookup: async () => [{ address: '192.168.1.10' }],
+      request,
+      lookup: async () => [{ address: '192.168.1.10', family: 4 }],
     });
     expect(result).toBeNull();
-    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
   });
 
   it('loads a PNG from a public https host', async () => {
-    const fetchImpl = vi.fn(async () =>
-      new Response(png, { status: 200, headers: { 'content-length': String(png.length) } }),
-    );
+    const request = vi.fn(async () => ({
+      status: 'ok' as const,
+      statusCode: 200,
+      headers: {},
+      body: png,
+    }));
     const result = await loadMonthlyReportLogo('https://cdn.example/logo.png', {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-      lookup: async () => [{ address: '203.0.113.10' }],
+      request,
+      lookup: async () => [{ address: '203.0.113.10', family: 4 }],
     });
     expect(result?.contentType).toBe('image/png');
     expect(result?.bytes.equals(png)).toBe(true);
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request.mock.calls[0]).toEqual([
+      expect.objectContaining({ method: 'GET', policy: 'strict', maxBytes: maxMonthlyReportLogoBytes }),
+    ]);
+  });
+
+  it('returns no logo when the host answers an error or a redirect', async () => {
+    for (const answer of [
+      { status: 'ok' as const, statusCode: 404, headers: {}, body: Buffer.from('') },
+      { status: 'error' as const, failure: 'redirect' as const, statusCode: 302, detail: 'redirect' },
+    ]) {
+      const result = await loadMonthlyReportLogo('https://cdn.example/logo.png', {
+        request: async () => answer,
+        lookup: async () => [{ address: '203.0.113.10', family: 4 }],
+      });
+      expect(result).toBeNull();
+    }
   });
 });

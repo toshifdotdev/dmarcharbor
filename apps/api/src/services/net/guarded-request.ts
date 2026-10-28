@@ -1,4 +1,5 @@
 import { request as httpsRequest } from 'node:https';
+import { request as httpRequest } from 'node:http';
 import { lookup as dnsLookup } from 'node:dns';
 import { assertPublicHost, isPrivateOrReservedHost } from '../net-guard.js';
 /**
@@ -52,16 +53,42 @@ export interface GuardedFailureResult {
 
 export type GuardedResult = GuardedResponse | GuardedFailureResult;
 
+/**
+ * Which rules the request is held to.
+ *
+ * - `strict` (the default, for PSA calls and report logos): https on port 443
+ *   only, and a response larger than the cap is an error, because the caller
+ *   parses it.
+ * - `webhook`: a customer's own receiver. Any port, since registration has
+ *   always allowed `https://hooks.example.com:8443`. The response body is never
+ *   used, so one larger than the cap is cut short rather than refused: a
+ *   receiver that answers 200 with a large page still delivered the event.
+ *   Plain http is accepted only outside production, for the loopback receivers
+ *   the delivery suites listen on; in production a stored http URL is refused.
+ *
+ * Both resolve the name, refuse any private or reserved answer, and pin the
+ * socket to the address that was checked. That part is not negotiable.
+ */
+export type GuardPolicy = 'strict' | 'webhook';
+
 export interface GuardedRequestInput {
   url: string;
   method: 'GET' | 'POST' | 'PATCH';
   headers?: Record<string, string>;
-  /** A JSON value, or already-encoded form fields. */
-  body?: { kind: 'json'; value: unknown } | { kind: 'form'; value: Record<string, string> };
+  /**
+   * A JSON value, already-encoded form fields, or a string sent byte for byte
+   * (a signed webhook body must be exactly the bytes that were signed).
+   */
+  body?:
+    | { kind: 'json'; value: unknown }
+    | { kind: 'form'; value: Record<string, string> }
+    | { kind: 'text'; value: string; contentType: string };
   /** Defaults to 1 MB. */
   maxBytes?: number;
   /** Defaults to 15 seconds. */
   timeoutMs?: number;
+  /** Defaults to `strict`. */
+  policy?: GuardPolicy;
 }
 
 /** The request as it would leave, so a fake can assert on it exactly. */
@@ -90,6 +117,9 @@ function specFor(input: GuardedRequestInput): GuardedRequestSpec {
   } else if (input.body?.kind === 'form') {
     body = new URLSearchParams(input.body.value).toString();
     headers['content-type'] = headers['content-type'] ?? 'application/x-www-form-urlencoded';
+  } else if (input.body?.kind === 'text') {
+    body = input.body.value;
+    headers['content-type'] = headers['content-type'] ?? input.body.contentType;
   }
   if (body !== null) {
     headers['content-length'] = String(Buffer.byteLength(body));
@@ -97,26 +127,34 @@ function specFor(input: GuardedRequestInput): GuardedRequestSpec {
   return { url: input.url, method: input.method, headers, body };
 }
 
+/** Plain http, for the webhook policy outside production only. */
+function plainHttpAllowed(policy: GuardPolicy): boolean {
+  return policy === 'webhook' && process.env.NODE_ENV !== 'production';
+}
+
 /** Everything the URL itself can be refused for, before any DNS is asked. */
-export function refuseUrl(raw: string): GuardedFailureResult | null {
+export function refuseUrl(raw: string, policy: GuardPolicy = 'strict'): GuardedFailureResult | null {
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
     return { status: 'error', failure: 'invalid_url', detail: 'That address is not a valid URL.' };
   }
-  if (url.protocol !== 'https:') {
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && plainHttpAllowed(policy))) {
     return {
       status: 'error',
       failure: 'invalid_url',
-      detail: 'PSA calls must use https. A plain http address would send credentials in clear text.',
+      detail:
+        policy === 'webhook'
+          ? 'The endpoint must use https.'
+          : 'This address must use https. A plain http address would send its contents in clear text.',
     };
   }
-  if (url.port && url.port !== '443') {
+  if (policy === 'strict' && url.port && url.port !== '443') {
     return {
       status: 'error',
       failure: 'invalid_url',
-      detail: 'PSA calls must use port 443, which is the only port https is served on here.',
+      detail: 'This address must use port 443, the only port https is accepted on here.',
     };
   }
   if (url.username || url.password) {
@@ -129,7 +167,10 @@ export function refuseUrl(raw: string): GuardedFailureResult | null {
   if (url.hash) {
     return { status: 'error', failure: 'invalid_url', detail: 'An address must not carry a fragment.' };
   }
-  if (isPrivateOrReservedHost(url.hostname)) {
+  // The webhook policy leaves the literal check to `assertPublicHost` below,
+  // which applies the same rule plus the non-production loopback waiver the
+  // delivery suites need. Link-local (the metadata service) is refused by both.
+  if (policy === 'strict' && isPrivateOrReservedHost(url.hostname)) {
     return {
       status: 'error',
       failure: 'refused_address',
@@ -140,7 +181,13 @@ export function refuseUrl(raw: string): GuardedFailureResult | null {
 }
 
 export function createGuardedRequester(
-  deps: { lookup?: Lookup; request?: typeof httpsRequest; transport?: GuardedTransport } = {},
+  deps: {
+    lookup?: Lookup;
+    request?: typeof httpsRequest;
+    /** Used only for plain http under the webhook policy outside production. */
+    httpRequest?: typeof httpRequest;
+    transport?: GuardedTransport;
+  } = {},
 ): GuardedRequester {
   const lookup: Lookup =
     deps.lookup ??
@@ -154,12 +201,14 @@ export function createGuardedRequester(
           resolve(addresses as LookupAnswer);
         });
       }));
-  const request = deps.request ?? httpsRequest;
+  const secureRequest = deps.request ?? httpsRequest;
+  const plainRequest = deps.httpRequest ?? httpRequest;
   const transport = deps.transport;
 
   return async (input) => {
+    const policy = input.policy ?? 'strict';
     const spec = specFor(input);
-    const refused = refuseUrl(spec.url);
+    const refused = refuseUrl(spec.url, policy);
     if (refused) return refused;
 
     if (transport) {
@@ -190,6 +239,12 @@ export function createGuardedRequester(
       };
     }
     const pinned = checked[0]!;
+    const secure = url.protocol === 'https:';
+    const request = (secure ? secureRequest : plainRequest) as typeof httpsRequest;
+    const port = url.port ? Number(url.port) : secure ? 443 : 80;
+    // A webhook receiver's body is never read, so a large one is cut short
+    // rather than turning a delivered event into a failed one.
+    const truncate = policy === 'webhook';
 
     return new Promise<GuardedResult>((resolve) => {
       let settled = false;
@@ -206,8 +261,11 @@ export function createGuardedRequester(
         outgoing = request(
           {
             method: spec.method,
-            hostname: url.hostname,
-            port: 443,
+            // The name, not the pinned address: it is what TLS checks the
+            // certificate against and what the Host header carries. Only the
+            // lookup below decides which address the socket opens to.
+            hostname: url.hostname.replace(/^\[|\]$/g, ''),
+            port,
             // No pooled socket: a reused connection would skip the pinned
             // lookup below and outlive this request.
             agent: false,
@@ -238,7 +296,7 @@ export function createGuardedRequester(
             }
 
             const declared = Number(response.headers['content-length'] ?? '');
-            if (Number.isFinite(declared) && declared > maxBytes) {
+            if (!truncate && Number.isFinite(declared) && declared > maxBytes) {
               response.destroy();
               outgoing?.destroy();
               finish({
@@ -257,6 +315,12 @@ export function createGuardedRequester(
               if (total > maxBytes) {
                 response.destroy();
                 outgoing?.destroy();
+                if (truncate) {
+                  // The status is what was asked for; the rest of the page is
+                  // not ours to download.
+                  finish({ status: 'ok', statusCode, headers: response.headers, body: Buffer.concat(chunks) });
+                  return;
+                }
                 finish({
                   status: 'error',
                   failure: 'too_large',
@@ -279,7 +343,7 @@ export function createGuardedRequester(
               finish({
                 status: 'error',
                 failure: error.code === 'ETIMEDOUT' ? 'timeout' : 'network',
-                detail: 'The PSA closed the connection before answering.',
+                detail: 'The server closed the connection before answering.',
               });
             });
           },
@@ -294,29 +358,29 @@ export function createGuardedRequester(
         finish({
           status: 'error',
           failure: 'timeout',
-          detail: `The PSA did not answer within ${Math.round(timeoutMs / 1000)} seconds.`,
+          detail: `The server did not answer within ${Math.round(timeoutMs / 1000)} seconds.`,
         });
       }, timeoutMs);
       deadline.timer.unref?.();
 
       outgoing.on('error', (error: NodeJS.ErrnoException) => {
         if (error.code === 'ETIMEDOUT') {
-          finish({ status: 'error', failure: 'timeout', detail: 'The PSA did not answer in time.' });
+          finish({ status: 'error', failure: 'timeout', detail: 'The server did not answer in time.' });
           return;
         }
         if (error.code === 'ENOTFOUND' || error.code === 'EAI_AGAIN') {
-          finish({ status: 'error', failure: 'dns', detail: 'The PSA host could not be resolved.' });
+          finish({ status: 'error', failure: 'dns', detail: 'The host could not be resolved.' });
           return;
         }
         if (error.code?.startsWith('ERR_TLS') || error.code === 'EPROTO' || error.code === 'CERT_HAS_EXPIRED') {
           finish({
             status: 'error',
             failure: 'tls',
-            detail: 'The PSA presented a certificate this service will not accept.',
+            detail: 'The server presented a certificate this service will not accept.',
           });
           return;
         }
-        finish({ status: 'error', failure: 'network', detail: 'The connection to the PSA failed.' });
+        finish({ status: 'error', failure: 'network', detail: 'The connection to the server failed.' });
       });
 
       if (spec.body !== null) {

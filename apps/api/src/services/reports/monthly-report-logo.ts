@@ -1,6 +1,7 @@
 import { lookup as dnsLookup } from 'node:dns/promises';
 import { objectKeyFromLogoUrl, readStoredLogoBytes } from '../branding/logo-storage.service.js';
 import { assertPublicHost, isPrivateOrReservedHost } from '../net-guard.js';
+import { createGuardedRequester, type GuardedRequester } from '../net/guarded-request.js';
 
 /**
  * Logo bytes for the monthly report.
@@ -43,11 +44,12 @@ export function inspectReportLogo(bytes: Buffer): ReportLogo | null {
 }
 
 interface LogoDependencies {
-  fetchImpl?: typeof fetch;
-  lookup?: (hostname: string) => Promise<Array<{ address: string }>>;
+  /** The pinned requester; tests pass a fake so nothing reaches the network. */
+  request?: GuardedRequester;
+  lookup?: (hostname: string) => Promise<Array<{ address: string; family: number }>>;
 }
 
-async function defaultLookup(hostname: string): Promise<Array<{ address: string }>> {
+async function defaultLookup(hostname: string): Promise<Array<{ address: string; family: number }>> {
   return dnsLookup(hostname, { all: true, verbatim: true });
 }
 
@@ -95,26 +97,31 @@ export async function loadMonthlyReportLogo(
     return null;
   }
 
-  const fetchImpl = dependencies.fetchImpl ?? fetch;
+  /**
+   * Fetched through the pinned requester, which resolves the name again,
+   * re-checks every answer and opens the socket to exactly the address it
+   * checked. This used global `fetch`, which resolves the name on its own at
+   * connect time, so a rebinding host could pass the check above as a public
+   * address and then serve the request from a private one.
+   *
+   * Redirects are refused (a public host must not hand the connection on), and
+   * the cap is the logo limit, so an oversized answer is never buffered.
+   */
+  const request =
+    dependencies.request ?? createGuardedRequester({ lookup: dependencies.lookup ?? defaultLookup });
   try {
-    const response = await fetchImpl(parsed.toString(), {
-      // Following a redirect would let a public host hand the connection to a
-      // private one after the address check had already passed.
-      redirect: 'error',
-      signal: AbortSignal.timeout(5_000),
+    const response = await request({
+      url: parsed.toString(),
+      method: 'GET',
+      policy: 'strict',
       headers: { accept: 'image/png,image/jpeg' },
+      maxBytes: maxMonthlyReportLogoBytes,
+      timeoutMs: 5_000,
     });
-    if (!response.ok) {
+    if (response.status !== 'ok' || response.statusCode < 200 || response.statusCode >= 300) {
       return null;
     }
-
-    const declaredLength = Number(response.headers.get('content-length') ?? '');
-    if (Number.isFinite(declaredLength) && declaredLength > maxMonthlyReportLogoBytes) {
-      return null;
-    }
-
-    const bytes = Buffer.from(await response.arrayBuffer());
-    return inspectReportLogo(bytes);
+    return inspectReportLogo(response.body);
   } catch {
     return null;
   }

@@ -249,6 +249,28 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-11-25 — Webhook delivery connects only to the address it checked
+
+Each delivery resolves the endpoint's hostname, refuses it if any answer is a
+private, loopback or link-local address (including 169.254.169.254), and opens
+the connection to exactly the address it checked. Before this, the check ran
+first and the HTTP client then resolved the name again on its own, so a
+hostname that changed its answer between the two could be steered at an
+internal address. The monthly report logo fetch had the same gap and is fixed
+the same way.
+
+What a receiver sees is unchanged: the same headers, the same signed body byte
+for byte, and the same retries. Three behaviours worth knowing:
+
+- Redirects are still not followed. A 3xx is recorded as the delivery's
+  response code with "Redirects are not followed; register the final URL."
+- A stored `http://` endpoint is refused at delivery in production
+  (registration has always required https).
+- A receiver's response body is read up to 64 KB and the rest discarded; a
+  large body no longer matters to whether the delivery counts as delivered.
+
+`/api/v1` is unchanged.
+
 ## 2026-11-18 — Microsoft Teams alerts and API v1 additions
 
 **Teams is a second chat destination, independent of Slack.** A workspace can

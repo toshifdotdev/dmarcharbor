@@ -1,11 +1,26 @@
 import { randomUUID } from 'node:crypto';
 import { createHmac, randomBytes } from 'node:crypto';
-import { lookup as dnsLookup } from 'node:dns';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
 import { recordAuditEvent } from './audit.service.js';
 import { decryptSensitive, encryptSensitive } from './privacy.service.js';
-import { assertPublicHost, isPrivateOrReservedHost } from './net-guard.js';
+import { isPrivateOrReservedHost } from './net-guard.js';
+import { guardedRequest, type GuardedRequester } from './net/guarded-request.js';
+
+let requesterOverride: GuardedRequester | null = null;
+
+/**
+ * Replaces the pinned requester, for tests only: a unit test can then prove a
+ * rebinding name is refused without a network. Integration suites use the real
+ * one against a loopback receiver.
+ */
+export function setWebhookRequesterForTests(requester: GuardedRequester | null): void {
+  requesterOverride = requester;
+}
+
+function webhookRequest(...args: Parameters<GuardedRequester>): ReturnType<GuardedRequester> {
+  return (requesterOverride ?? guardedRequest)(...args);
+}
 
 export const webhookEvents = [
   'domain.verified',
@@ -505,39 +520,28 @@ export async function deliverDueWebhooks(now = new Date()): Promise<DeliveryOutc
 
     try {
       /**
-       * Resolved and re-checked here, not only where the endpoint was created.
+       * Resolved, checked and pinned in one place: `webhookRequest`.
        *
-       * The registration check validates the string as written, which answers
-       * "did the customer type a number that looks private" and not "where will
-       * this connection actually go". A hostname passes the first and answers
-       * anything at all the second, so a URL accepted when it was registered can
-       * point at the cloud metadata service by the time a delivery reaches it -
-       * and the row need never be re-saved for that to be true.
+       * The registration check validates the string as written, so a hostname
+       * accepted then can resolve to the cloud metadata service by the time a
+       * delivery reaches it, and the row need never be re-saved for that to be
+       * true. Every delivery therefore resolves the name, refuses any private or
+       * reserved answer, and opens the socket to exactly the address it checked.
        *
-       * The resolved addresses are then pinned by passing them as the connection
-       * address and sending the original hostname as `Host`, so the request goes to
-       * exactly what was checked and to nothing else. Resolving twice, once to
-       * check and once to connect, would leave the window this closes.
+       * This used global `fetch` with a `lookup` option and a `host` header.
+       * Node's fetch (undici) ignores both, so the "pinned" request resolved the
+       * name a second time at connect: a DNS-rebinding name could answer a
+       * public address for the check and 169.254.169.254 for the connection.
+       *
+       * Redirects are not followed: a 3xx is recorded as the response code it
+       * is, so an accepted endpoint cannot bounce the request somewhere the
+       * check never saw. A receiver that redirects should register the final URL.
        */
-      const target = new URL(delivery.endpoint.url);
-      const checked = await assertPublicHost(target.hostname, (host) =>
-        new Promise((resolve, reject) => {
-          dnsLookup(host, { all: true }, (error, addresses) => {
-            if (error) {
-              reject(error);
-              return;
-            }
-            resolve(addresses);
-          });
-        }),
-      );
-      const primary = checked[0]?.address ?? target.hostname;
-
-      const response = await fetch(delivery.endpoint.url, {
+      const result = await webhookRequest({
+        url: delivery.endpoint.url,
         method: 'POST',
+        policy: 'webhook',
         headers: {
-          host: target.host,
-          'content-type': 'application/json',
           [signatureHeader]: signPayload(secret, body, timestamp),
           [timestampHeader]: String(timestamp),
           [eventHeader]: delivery.event,
@@ -545,37 +549,22 @@ export async function deliverDueWebhooks(now = new Date()): Promise<DeliveryOutc
           [deliveryAttemptHeader]: String(attempt),
           'user-agent': 'DMARC-Harbor-Webhook/1',
         },
-        body,
-        signal: AbortSignal.timeout(deliveryTimeoutMs),
-        /**
-         * Redirects are not followed.
-         *
-         * The URL was validated when the endpoint was registered, but `fetch`
-         * follows redirects by default, so an accepted `https://` endpoint could
-         * answer with a 302 to the cloud metadata service and the request would
-         * carry on to it. That defeats the address check entirely, and it is not a
-         * theoretical concern: a tenant with `organization: update` controls the
-         * endpoint, and delivery can be triggered on demand through
-         * `POST /workspaces/:id/webhooks/test`.
-         *
-         * A 3xx is recorded as the response code it is. A receiver that
-         * legitimately redirects should point the endpoint at the final URL.
-         */
-        redirect: 'manual',
-        // Pins the socket to the address that was just checked. Without it the
-        // resolver runs again at connect time and can return something else.
-        ...(target.protocol === 'https:'
-          ? {
-              lookup: (
-                _hostname: string,
-                _options: unknown,
-                callback: (error: Error | null, address: string) => void,
-              ) => callback(null, primary),
-            }
-          : {}),
-      } as RequestInit);
-      responseCode = response.status;
-      if (response.status >= 200 && response.status < 300) {
+        // Sent byte for byte: the signature is over exactly this string.
+        body: { kind: 'text', value: body, contentType: 'application/json' },
+        timeoutMs: deliveryTimeoutMs,
+        maxBytes: 65_536,
+      });
+
+      if (result.status === 'error') {
+        if (result.failure === 'redirect' && result.statusCode !== undefined) {
+          responseCode = result.statusCode;
+          throw new Error(`Endpoint responded ${result.statusCode}. Redirects are not followed; register the final URL.`);
+        }
+        throw new Error(result.detail);
+      }
+
+      responseCode = result.statusCode;
+      if (result.statusCode >= 200 && result.statusCode < 300) {
         await prisma.webhookDelivery.update({
           where: { id: delivery.id },
           data: { status: 'DELIVERED', attempts: attempt, responseCode, deliveredAt: now, lastError: null, claimedAt: null, claimedBy: null },
@@ -587,7 +576,7 @@ export async function deliverDueWebhooks(now = new Date()): Promise<DeliveryOutc
         outcomes.push({ deliveryId: delivery.id, status: 'DELIVERED', responseCode });
         continue;
       }
-      error = `Endpoint responded ${response.status}.`;
+      error = `Endpoint responded ${result.statusCode}.`;
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'The endpoint could not be reached.';
     }
