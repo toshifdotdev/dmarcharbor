@@ -119,7 +119,8 @@ describe('domain expiry', () => {
   it('stores the registry date and shows it on the registration route', async () => {
     const fixture = await setup();
     const now = new Date();
-    registry.set(fixture.base, { expiresAt: new Date(now.getTime() + 200 * day).toISOString() });
+    // A margin, because the view counts whole days from the moment it is read.
+    registry.set(fixture.base, { expiresAt: new Date(now.getTime() + 200 * day + 60 * 60 * 1000).toISOString() });
 
     const before = await fixture.agent.get(
       `/api/workspaces/${fixture.organizationId}/domains/${fixture.domains[0]!.id}/registration`,
