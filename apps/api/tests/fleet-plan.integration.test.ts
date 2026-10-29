@@ -480,7 +480,28 @@ describe('logo removal respects live entitlement overrides', () => {
     expect(organization.brandLogoUrl).toBeNull();
   });
 
-  it('keeps the existing Admiralty to Harbor downgrade behaviour', async () => {
+  // Harbor now includes logo upload, so the logo is removed only below it.
+  it('removes the logo when Admiralty drops to Fairway, a plan without logo upload', async () => {
+    const workspace = await workspaceWithBilling({ plan: 'ADMIRALTY', domains: 5 });
+    await prisma.organization.update({
+      where: { id: workspace.organizationId },
+      data: { brandLogoUrl: 'https://cdn.harbor.test/logo.svg' },
+    });
+
+    await renewalEvent({
+      organizationId: workspace.organizationId,
+      providerSubscriptionId: workspace.providerSubscriptionId,
+      plan: 'FAIRWAY',
+      occurredAt: new Date(Date.now() + 1_000),
+    });
+
+    const organization = await prisma.organization.findUniqueOrThrow({
+      where: { id: workspace.organizationId },
+    });
+    expect(organization.brandLogoUrl).toBeNull();
+  });
+
+  it('keeps the logo when Admiralty drops to Harbor, which includes it', async () => {
     const workspace = await workspaceWithBilling({ plan: 'ADMIRALTY', domains: 5 });
     await prisma.organization.update({
       where: { id: workspace.organizationId },
@@ -497,7 +518,7 @@ describe('logo removal respects live entitlement overrides', () => {
     const organization = await prisma.organization.findUniqueOrThrow({
       where: { id: workspace.organizationId },
     });
-    expect(organization.brandLogoUrl).toBeNull();
+    expect(organization.brandLogoUrl).toBe('https://cdn.harbor.test/logo.svg');
   });
 });
 

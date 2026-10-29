@@ -215,7 +215,7 @@ describe('white label branding', () => {
   it('lets Harbor set colours but keeps the custom domain for Admiralty', async () => {
     const { agent, organizationId } = await setup('HARBOR');
 
-    const colours = await agent.patch(`/api/workspaces/${organizationId}/branding`).send({ brandPrimaryColor: '#123456' });
+    const colours = await agent.patch(`/api/workspaces/${organizationId}/branding`).send({ primaryColor: '#123456' });
     expect(colours.status).toBe(200);
     const resolved = await resolveBranding(organizationId);
     expect(resolved.branded).toBe(true);
