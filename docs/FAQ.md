@@ -263,6 +263,15 @@ Starts on Harbor.
 Managed SPF publishes a flattened SPF record from the services you list and keeps it
 current, so the domain stays under the limit. Starts on Harbor.
 
+**Can you tell me which SPF includes are no longer used?**
+Yes, on every plan. On a domain's Reporting and setup tab, choose Check SPF sources.
+Each include and address range in the SPF record is resolved to the servers it
+allows and matched against the servers that actually sent the domain's mail in the
+last 90 days. A source with no mail is marked, with the lookups removing it would
+free. Nothing is called unused until there are reports on at least 14 days, and an
+include that cannot be resolved in advance (for example one using `exists`) is shown
+as not checkable rather than unused.
+
 **Do you support BIMI and MTA-STS?**
 Yes. Hosted BIMI serves your logo and certificate; hosted MTA-STS serves the policy
 file and record for you. TLS reports (TLS-RPT) show delivery problems to your mail
