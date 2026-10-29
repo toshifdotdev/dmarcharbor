@@ -112,7 +112,7 @@ function familyOf(value: string): 4 | 6 | null {
 }
 
 /** True when `outer` contains `inner` in the same family. */
-function contains(outer: ParsedCidr, inner: ParsedCidr): boolean {
+export function contains(outer: ParsedCidr, inner: ParsedCidr): boolean {
   if (outer.family !== inner.family || outer.prefix > inner.prefix) {
     return false;
   }

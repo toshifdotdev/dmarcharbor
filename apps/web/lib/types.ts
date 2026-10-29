@@ -2318,6 +2318,36 @@ export interface MailboxCheck {
   perProvider: MailboxPerProvider[] | null;
 }
 
+/** One source of an SPF record and the reported mail its networks carried. */
+export interface SpfSourceUsage {
+  term: string;
+  kind: "include" | "ip4" | "ip6" | "a" | "mx";
+  value: string;
+  status: "used" | "unused" | "insufficient_data" | "unresolved";
+  networkCount: number;
+  messages: number;
+  spfPassMessages: number;
+  matchedIps: number;
+  /** DNS lookups the source costs; removing it frees these. */
+  lookups: number | null;
+  reason: string | null;
+}
+
+/** GET /api/workspaces/:id/domains/:domainId/spf-usage */
+export interface SpfUsage {
+  domain: { id: string; name: string };
+  origin: "managed" | "published" | null;
+  record: string | null;
+  windowDays: number;
+  evidence: { reportDays: number; messages: number; ips: number; enough: boolean };
+  /** Null for a managed record, which is flattened. */
+  lookupCount: number | null;
+  sources: SpfSourceUsage[];
+  uncovered: { messages: number; ips: number };
+  problem: string | null;
+  checkedAt: string;
+}
+
 /** One name below a domain seen as header_from in its reports, not monitored. */
 export interface DiscoveredSubdomain {
   name: string;

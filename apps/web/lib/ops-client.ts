@@ -48,6 +48,7 @@ import type {
   PsaTicketSettings,
   PsaView,
   SenderReviewResult,
+  SpfUsage,
   PortalGrant,
   SlackDestination,
   SwitchCheckRow,
@@ -995,6 +996,11 @@ export const setSenderOwner = (
     method: "PUT",
     body: JSON.stringify(body),
   });
+
+/** Which SPF sources carried mail. Resolves a published record live, so it is
+ *  asked for on demand, never on page load. */
+export const getSpfUsage = (orgId: string, domainId: string) =>
+  call<SpfUsage>(wsPath(orgId, `/domains/${domainId}/spf-usage`));
 
 /** Hide a discovered subdomain (dismissed true) or list it again (false). */
 export const setSubdomainDismissed = (

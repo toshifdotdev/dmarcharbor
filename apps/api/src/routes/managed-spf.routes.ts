@@ -7,6 +7,7 @@ import {
   startManagedSpfController,
   updateManagedSpfController,
 } from '../controllers/managed-spf.controller.js';
+import { spfUsageController } from '../controllers/spf-usage.controller.js';
 import { requireSession } from '../middleware/auth.middleware.js';
 import { requireFeature } from '../middleware/entitlement.middleware.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
@@ -17,6 +18,7 @@ import {
 
 const json = express.json({ limit: '32kb' });
 const previewRateLimiter = createScanRateLimiter();
+const spfUsageRateLimiter = createScanRateLimiter();
 
 /**
  * Managed SPF.
@@ -61,6 +63,19 @@ managedSpfRouter.put(
   dnsPublishRateLimiter,
   json,
   updateManagedSpfController,
+);
+
+/**
+ * Which SPF sources carried mail. Not gated: it reads the published record
+ * (or the managed sources) and the domain's own reports, and changes nothing.
+ * Rate limited like a scan, because a published record is resolved live.
+ */
+managedSpfRouter.get(
+  '/workspaces/:organizationId/domains/:domainId/spf-usage',
+  requireSession,
+  requireOrganizationPermission('domain', 'read'),
+  spfUsageRateLimiter,
+  spfUsageController,
 );
 
 managedSpfRouter.post(

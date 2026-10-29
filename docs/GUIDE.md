@@ -72,6 +72,13 @@ unmeasured.
 If SPF is over the 10-lookup limit, managed SPF (Harbor and above) publishes a
 flattened record from the services you list and keeps it current.
 
+To tidy SPF on any plan, open Reporting and setup and choose Check SPF sources. Each
+include and address range in the record is matched against the servers that sent
+the domain's mail in the last 90 days. A source marked "No mail seen" is a candidate
+to remove, which frees its lookups; confirm with the client first, because a service
+that sends rarely may not show up in 90 days. Nothing is called unused until there
+are reports on at least 14 days.
+
 ## 5. Get told when something changes
 
 - **Alerts** (Fairway and above): create rules per domain for failure rate,

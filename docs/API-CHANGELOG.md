@@ -249,6 +249,44 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-12-01 — SPF sources in use
+
+`GET /api/workspaces/{id}/domains/{domainId}/spf-usage` (domain read, rate
+limited like a scan, on every plan) says which sources of a domain's SPF record
+carried mail. Each source (include, a, mx, ip4, ip6) is resolved to the
+networks it authorises. The sending addresses in the domain's aggregate reports
+from the last 90 days (by report period) are then matched against those
+networks.
+
+- `origin` is `managed` for a domain on managed SPF, which is read from its
+  managed sources and their last resolved networks with no DNS lookups. It is
+  `published` for any other domain, read from the record published now.
+- Each source has a `status`:
+  - `used`.
+  - `unused`.
+  - `insufficient_data`: reports cover fewer than 14 days of the window, so
+    nothing is called unused yet.
+  - `unresolved`: the source uses `exists`, `ptr` or a macro, or a lookup
+    failed, so its networks cannot be known in advance.
+- Each source also has `messages`, `spfPassMessages`, `matchedIps`,
+  `networkCount` and `lookups`. For a published record, `lookups` is what
+  removing the source frees.
+- `lookupCount` is the cost of the whole published record, and null for a
+  managed one.
+- `uncovered` counts mail from addresses that no source covers.
+- `problem` gives the reason when there is nothing to analyse: no SPF record,
+  more than one, or a record that cannot be read.
+
+Matching is by address only, whatever SPF said for each message. A service that
+sends with its own bounce domain therefore still counts as used. This errs
+toward "used", because removing a source that was still needed would make real
+mail fail.
+
+The web app's Reporting and setup tab has a "Check SPF sources" button that
+runs the check on demand.
+
+---
+
 ## 2026-12-01 — Subdomains seen sending
 
 Each domain now lists the names below it that receivers reported as the From

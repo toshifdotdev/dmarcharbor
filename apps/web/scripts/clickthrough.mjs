@@ -995,6 +995,31 @@ check(
 );
 
 
+// 4b-6. SPF sources in use, in the same setup tab. Asked for on demand: one
+//       click (retried until hydrated), then the answer is either the source
+//       table or a plain reason there is nothing to check, never an error.
+const spfUsageAudit = await waitForEval(
+  `(() => {
+    const section = document.querySelector('[data-testid="spf-usage"]');
+    if (!section) return { section: false };
+    const text = section.textContent;
+    const answered = text.includes('Reports on') || !!section.querySelector('[data-testid="spf-usage-problem"]');
+    const failed = !!section.querySelector('[role="alert"]');
+    if (!answered && !failed) {
+      const button = section.querySelector('[data-testid="spf-usage-check"]');
+      if (button && !button.disabled && !button.textContent.includes('again')) button.click();
+    }
+    return { section: true, answered, failed, window: text.includes('90 days') };
+  })()`,
+  (a) => a && (a.answered || a.failed),
+  60000,
+);
+check(
+  "SPF sources in use: a check answers with the sources or a reason, never an error",
+  Boolean(spfUsageAudit?.section && spfUsageAudit.answered && !spfUsageAudit.failed && spfUsageAudit.window),
+  JSON.stringify(spfUsageAudit),
+);
+
 // 4c. the stale-feed domain: blackout band + hatched chart gap, no pass.
 // Read the row id from the PORTFOLIO (the detail page's tables have no such
 // row), then navigate directly: the posture truth is the same whether the user

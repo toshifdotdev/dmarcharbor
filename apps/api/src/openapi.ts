@@ -3070,6 +3070,23 @@ export const openApiDocument = {
         },
       },
     },
+    '/workspaces/{organizationId}/domains/{domainId}/spf-usage': {
+      get: {
+        tags: ['Clients and domains'],
+        summary: 'Which SPF sources carried mail',
+        description: [
+          'Resolves every source in the domain SPF record (include, a, mx, ip4, ip6) to the networks it authorises and matches the sending addresses in the domain aggregate reports from the last 90 days (by report period) against them.',
+          'A domain on managed SPF is read from its managed sources and the networks last resolved for them, with no DNS lookups (origin managed, lookupCount null). Any other domain is read from the record published now (origin published), and lookups per source are what removing it frees.',
+          'Each source has status used, unused, insufficient_data (reports on fewer than 14 days of the window, so nothing is called unused) or unresolved (exists, ptr, a macro or a failed lookup: its networks cannot be known in advance). Matching is by address only, whatever SPF said for each message. uncovered counts mail from addresses no source covers.',
+          'problem explains an empty result: no SPF record, more than one, or one that cannot be read. Changes nothing, on every plan. Requires domain read permission; rate limited like a scan.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: {
+          200: { description: '{ domain, origin, record, windowDays, evidence, lookupCount, sources, uncovered, problem, checkedAt }.' },
+          ...standardErrors,
+        },
+      },
+    },
     '/workspaces/{organizationId}/domains/{domainId}/managed-spf/check': {
       post: {
         tags: ['Clients and domains'],

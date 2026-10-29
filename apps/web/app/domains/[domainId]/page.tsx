@@ -67,6 +67,7 @@ import { ManagedSpf } from "@/components/harbor/managed-spf";
 import { MailboxCompliance } from "@/components/harbor/mailbox-compliance";
 import { ScanHistory, toScanHistoryRow } from "@/components/harbor/scan-history";
 import { SendersTable } from "@/components/harbor/senders-table";
+import { SpfUsage } from "@/components/harbor/spf-usage";
 import { SubdomainsTable } from "@/components/harbor/subdomains-table";
 import { TlsReports } from "@/components/harbor/tls-reports";
 import { PageHeader, SectionHead } from "@/components/harbor/page-header";
@@ -945,6 +946,7 @@ function SetupPanel({
         spfServices={spfServices}
         currentSpf={currentSpf}
       />
+      <SpfUsage organizationId={organizationId} domainId={domainId} />
       <HostedBimi
         organizationId={organizationId}
         domainId={domainId}
