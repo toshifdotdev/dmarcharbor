@@ -26,6 +26,7 @@ const FEATURES: Array<[key: string, label: string]> = [
   ["integrations.webhooks", "Webhooks"],
   ["dns.automation", "Publish DNS records through Cloudflare"],
   ["dns.hosted", "Hosted DMARC record"],
+  ["dns.spfUsage", "SPF check for unused includes"],
   ["dns.managedSpf", "Managed SPF"],
   ["dns.hostedBimi", "Logo in the inbox (BIMI)"],
   ["dns.hostedMtaSts", "Hosted MTA-STS policy"],

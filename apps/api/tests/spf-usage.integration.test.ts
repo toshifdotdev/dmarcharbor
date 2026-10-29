@@ -2,8 +2,10 @@ import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { app } from '../src/index.js';
 import { prisma } from '../src/database/prisma.js';
+import type { PlanTier } from '@prisma/client';
 import { setSpfUsageReaderForTests } from '../src/services/spf-usage.service.js';
 import type { DnsReader, LookupResult, MxRecord } from '../src/scanner/types.js';
+import { grantPlan } from './helpers/plan.js';
 
 /**
  * Which SPF sources carried mail.
@@ -45,7 +47,7 @@ let reader: FakeDns;
 
 async function resetDatabase(): Promise<void> {
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE "hosted_spf_change", "hosted_spf_record", "rate_limit_bucket", "audit_log", "dmarc_auth_result", "dmarc_report_record", "dmarc_report", "domain", "client", "organization", invitation, member, session, account, verification, "user" CASCADE',
+    'TRUNCATE TABLE "hosted_spf_change", "hosted_spf_record", "rate_limit_bucket", "entitlement_override", "subscription", "audit_log", "dmarc_auth_result", "dmarc_report_record", "dmarc_report", "domain", "client", "organization", invitation, member, session, account, verification, "user" CASCADE',
   );
 }
 
@@ -57,7 +59,8 @@ beforeEach(async () => {
 
 afterEach(() => setSpfUsageReaderForTests(null));
 
-async function workspace(label: string) {
+/** Fairway by default: the first plan with the check. null leaves the free plan. */
+async function workspace(label: string, plan: PlanTier | null = 'FAIRWAY') {
   fixtureId += 1;
   const email = `${label}-${Date.now()}-${fixtureId}@example.com`;
   expect((await request(app).post('/api/auth/sign-up/email').send({ name: 'Owner', email, password })).status).toBe(200);
@@ -72,7 +75,9 @@ async function workspace(label: string) {
     dpaConfirmsAuthority: true,
   });
   expect(created.status).toBe(201);
-  return { agent, organizationId: created.body.id as string };
+  const organizationId = created.body.id as string;
+  if (plan) await grantPlan(organizationId, plan);
+  return { agent, organizationId };
 }
 
 async function domainIn(organizationId: string) {
@@ -227,6 +232,19 @@ describe('SPF source usage', () => {
       ['include:_spf.mail.test', 'used'],
       ['include:oldesp.test', 'unused'],
     ]);
+    expect(reader.calls).toBe(0);
+  });
+
+  it('is refused on the free plan before any DNS is read', async () => {
+    const free = await workspace('spf-free', null);
+    const domain = await domainIn(free.organizationId);
+    publish(domain.name);
+
+    const refused = await free.agent.get(`/api/workspaces/${free.organizationId}/domains/${domain.id}/spf-usage`);
+    expect(refused.status).toBe(402);
+    expect(refused.body.error.code).toBe('FEATURE_NOT_IN_PLAN');
+    expect(refused.body.error.feature).toBe('dns.spfUsage');
+    expect(refused.body.error.requiredIn).toBe('FAIRWAY');
     expect(reader.calls).toBe(0);
   });
 

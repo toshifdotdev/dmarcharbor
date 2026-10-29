@@ -33,7 +33,8 @@ export type EntitlementKey =
   | 'dns.hostedMtaSts'
   | 'integrations.psa'
   | 'prospects.reports'
-  | 'reports.usageExport';
+  | 'reports.usageExport'
+  | 'dns.spfUsage';
 
 export type QuotaKey = 'client' | 'activeDomain' | 'member';
 
@@ -78,6 +79,7 @@ export const entitlementLabels: Record<EntitlementKey, string> = {
   'integrations.psa': 'PSA ticketing',
   'prospects.reports': 'Prospect risk reports',
   'reports.usageExport': 'Monthly usage export per client',
+  'dns.spfUsage': 'SPF check for unused includes',
 };
 
 /**
@@ -224,6 +226,7 @@ const allFeatures = (overrides: Partial<Record<EntitlementKey, boolean>> = {}): 
   'integrations.psa': true,
   'prospects.reports': true,
   'reports.usageExport': true,
+  'dns.spfUsage': true,
   ...overrides,
 });
 
@@ -410,6 +413,14 @@ const noProspects = { 'prospects.reports': false } as const;
  */
 const noUsageExport = { 'reports.usageExport': false } as const;
 
+/**
+ * The SPF check for unused includes starts at Fairway, with alerts and DNS
+ * publishing: it tells an agency what to change, where the free plan shows
+ * what is happening. Mooring still gets the lookup count and its warning from
+ * every scan. Nothing is stored, so a downgrade only hides the check.
+ */
+const noSpfUsage = { 'dns.spfUsage': false } as const;
+
 /** TLS-RPT viewing starts at Fairway; collection happens on every plan. */
 const noTlsRpt = { 'reports.tlsrpt': false } as const;
 
@@ -460,7 +471,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     maxWorkspaces: 1,
     activeDomainWindowDays: 30,
     maxProspectReportsPerMonth: 0,
-    features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noIntegrations, ...noDnsAutomation, ...noDnsHosted, ...noManagedSpf, ...noHostedBimi, ...noHostedMtaSts, ...noPsa, ...noProspects, ...noTlsRpt, ...noUsageExport, ...off }),
+    features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noIntegrations, ...noDnsAutomation, ...noDnsHosted, ...noManagedSpf, ...noHostedBimi, ...noHostedMtaSts, ...noPsa, ...noProspects, ...noTlsRpt, ...noUsageExport, ...noSpfUsage, ...off }),
   },
   FAIRWAY: {
     tier: 'FAIRWAY',

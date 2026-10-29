@@ -251,6 +251,11 @@ export default async function DomainPage({
   const managedSpfFeature = featureOf(entitlements, "dns.managedSpf");
   const hostedBimiFeature = featureOf(entitlements, "dns.hostedBimi");
   const hostedMtaStsFeature = featureOf(entitlements, "dns.hostedMtaSts");
+  const spfUsageFeature = featureOf(entitlements, "dns.spfUsage");
+  const spfUsagePlanLabel =
+    catalog?.order
+      .map((tier) => catalog.plans.find((plan) => plan.tier === tier))
+      .find((plan) => plan?.features["dns.spfUsage"])?.label ?? "a paid plan";
   const canEditDomain = role === null || ["owner", "admin", "analyst"].includes(role);
   const latestSpfScan = scanHistory.rows.find((row) => row.result?.spf) ?? null;
   const currentSpf = latestSpfScan?.result?.spf
@@ -531,6 +536,8 @@ export default async function DomainPage({
                       hasHostedBimiFeature={hostedBimiFeature}
                       hostedMtaSts={hostedMtaSts}
                       hasHostedMtaStsFeature={hostedMtaStsFeature}
+                      hasSpfUsageFeature={spfUsageFeature}
+                      spfUsagePlanLabel={spfUsagePlanLabel}
                       spfServices={serviceMeta?.spfServices ?? []}
                       currentSpf={currentSpf}
                       canEdit={canEditDomain}
@@ -901,6 +908,8 @@ function SetupPanel({
   hasHostedBimiFeature,
   hostedMtaSts,
   hasHostedMtaStsFeature,
+  hasSpfUsageFeature,
+  spfUsagePlanLabel,
   spfServices,
   currentSpf,
   canEdit,
@@ -919,6 +928,8 @@ function SetupPanel({
   hasHostedBimiFeature: boolean | null;
   hostedMtaSts: { data: HostedMtaStsView | null; failed: boolean };
   hasHostedMtaStsFeature: boolean | null;
+  hasSpfUsageFeature: boolean | null;
+  spfUsagePlanLabel: string;
   spfServices: Array<{ id: string; name: string; include: string }>;
   currentSpf: { record: string | null; lookupCount: number | null } | null;
   canEdit: boolean;
@@ -946,7 +957,12 @@ function SetupPanel({
         spfServices={spfServices}
         currentSpf={currentSpf}
       />
-      <SpfUsage organizationId={organizationId} domainId={domainId} />
+      <SpfUsage
+        organizationId={organizationId}
+        domainId={domainId}
+        hasFeature={hasSpfUsageFeature}
+        planLabel={spfUsagePlanLabel}
+      />
       <HostedBimi
         organizationId={organizationId}
         domainId={domainId}

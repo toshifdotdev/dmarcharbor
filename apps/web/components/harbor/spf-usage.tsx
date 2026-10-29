@@ -9,6 +9,10 @@
  * used" is said only with enough reports behind it, and a source whose
  * networks cannot be known in advance says so rather than guessing.
  *
+ * From Fairway (dns.spfUsage). Below it the section stays, with the plan that
+ * includes it, so the check is discoverable; the scan's lookup count and its
+ * warning are on every plan regardless.
+ *
  * Test hooks: spf-usage, spf-usage-check, spf-usage-row-<term>,
  * spf-usage-status-<term>, spf-usage-problem.
  */
@@ -17,9 +21,11 @@ import { useState } from "react";
 import { getSpfUsage } from "@/lib/ops-client";
 import { fmtVolume } from "@/lib/posture";
 import type { SpfSourceUsage, SpfUsage as SpfUsageView } from "@/lib/types";
+import { ActionRefusal, type ActionError } from "@/components/harbor/plan-refusal";
 import { Badge, type Tone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
+import { UpgradeNotice } from "@/components/ui/states";
 import { Nil, Table, TBody, Td, Th, THead, Tr } from "@/components/ui/table";
 
 const STATUS: Record<SpfSourceUsage["status"], { tone: Tone; label: string }> = {
@@ -29,10 +35,22 @@ const STATUS: Record<SpfSourceUsage["status"], { tone: Tone; label: string }> = 
   unresolved: { tone: "neutral", label: "Cannot be checked" },
 };
 
-export function SpfUsage({ organizationId, domainId }: { organizationId: string; domainId: string }) {
+export function SpfUsage({
+  organizationId,
+  domainId,
+  hasFeature,
+  planLabel,
+}: {
+  organizationId: string;
+  domainId: string;
+  /** dns.spfUsage: false shows where the check is included; null (plan unknown) lets the API decide. */
+  hasFeature: boolean | null;
+  /** The first plan that includes the check, from the catalog. */
+  planLabel: string;
+}) {
   const [view, setView] = useState<SpfUsageView | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ActionError | null>(null);
 
   async function check(): Promise<void> {
     setBusy(true);
@@ -40,7 +58,7 @@ export function SpfUsage({ organizationId, domainId }: { organizationId: string;
     const result = await getSpfUsage(organizationId, domainId);
     setBusy(false);
     if (!result.ok) {
-      setError(result.error.message ?? "The SPF record could not be checked just now.");
+      setError({ ...result.error, message: result.error.message ?? "The SPF record could not be checked just now." });
       return;
     }
     setView(result.data);
@@ -62,12 +80,22 @@ export function SpfUsage({ organizationId, domainId }: { organizationId: string;
             lookups toward the limit of 10 and still lets that service send as the domain.
           </p>
         </div>
-        <Button size="sm" variant="secondary" onClick={check} busy={busy} busyLabel="Checking the record" data-testid="spf-usage-check">
-          {view ? "Check again" : "Check SPF sources"}
-        </Button>
+        {hasFeature === false ? null : (
+          <Button size="sm" variant="secondary" onClick={check} busy={busy} busyLabel="Checking the record" data-testid="spf-usage-check">
+            {view ? "Check again" : "Check SPF sources"}
+          </Button>
+        )}
       </div>
 
-      {error ? <Notice tone="fail" title={error} /> : null}
+      {hasFeature === false ? (
+        <UpgradeNotice
+          feature="dns.spfUsage"
+          message={`The SPF check for unused includes is included from ${planLabel}. Nothing about this domain changes.`}
+          context="Every scan still counts the record's lookups and warns when it goes over 10."
+        />
+      ) : null}
+
+      <ActionRefusal error={error} />
 
       {view?.problem ? (
         <Notice tone="warn" title="Nothing to check" testId="spf-usage-problem">

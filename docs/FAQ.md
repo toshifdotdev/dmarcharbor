@@ -89,12 +89,13 @@ comparison.
 **What starts on which plan?**
 - **Every plan, free included:** aggregate reports, the audit trail, data export and
   erasure, DNS monitoring and change history, Gmail, Yahoo and Microsoft sender
-  requirement checks, registration expiry dates, sender review, the switch kit and
-  two-step verification.
+  requirement checks, registration expiry dates, sender review, subdomains seen
+  sending that you do not monitor, the switch kit and two-step verification.
 - **Fairway:** alerts by email, Slack and Teams (including DNS change and expiry
   warnings), spoofing alerts, sender owners, webhooks, publishing through
-  Cloudflare, hosted DMARC, forensic reports with recipients unnamed, share links,
-  TLS reports and 10 prospect reports a month.
+  Cloudflare, hosted DMARC, the SPF check for unused includes, forensic reports
+  with recipients unnamed, share links, TLS reports and 10 prospect reports a
+  month.
 - **Harbor:** the client portal and client approvals, named forensic evidence,
   scheduled digests, the API, PSA ticketing, managed SPF, hosted BIMI and
   MTA-STS, the Trust Center, compliance packs and monthly client reports, report
@@ -264,13 +265,14 @@ Managed SPF publishes a flattened SPF record from the services you list and keep
 current, so the domain stays under the limit. Starts on Harbor.
 
 **Can you tell me which SPF includes are no longer used?**
-Yes, on every plan. On a domain's Reporting and setup tab, choose Check SPF sources.
+Yes, from Fairway. On a domain's Reporting and setup tab, choose Check SPF sources.
 Each include and address range in the SPF record is resolved to the servers it
 allows and matched against the servers that actually sent the domain's mail in the
 last 90 days. A source with no mail is marked, with the lookups removing it would
 free. Nothing is called unused until there are reports on at least 14 days, and an
 include that cannot be resolved in advance (for example one using `exists`) is shown
-as not checkable rather than unused.
+as not checkable rather than unused. On the free plan every scan still counts the
+record's lookups and warns when it goes over 10.
 
 **Do you support BIMI and MTA-STS?**
 Yes. Hosted BIMI serves your logo and certificate; hosted MTA-STS serves the policy

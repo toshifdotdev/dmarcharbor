@@ -40,7 +40,8 @@ const CURRENCIES = ["INR", "USD"] as const;
  * history (domain-scan.routes), the mailbox-provider checks
  * (mailbox-compliance.routes), the registration expiry date
  * (domain-registration.routes), sender review (onboarding.routes,
- * senders/review), the switch kit (switch.routes) and two-step verification
+ * senders/review), subdomain discovery (onboarding.routes, subdomains), the
+ * switch kit (switch.routes) and two-step verification
  * (mfa.routes). Warnings about DNS changes and expiry are alerts, and are not
  * claimed here.
  */
@@ -49,6 +50,7 @@ const UNGATED_CAPABILITIES = [
   "Gmail, Yahoo and Microsoft sender requirement checks",
   "Domain registration expiry dates",
   "Sender review: mark each source as yours or not",
+  "Subdomains seen sending that you do not monitor",
   "Switch kit for moving from another DMARC service",
   "Two-step verification",
 ];

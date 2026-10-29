@@ -252,8 +252,10 @@ requeues a failed delivery with a fresh signature.
 ## 2026-12-01 — SPF sources in use
 
 `GET /api/workspaces/{id}/domains/{domainId}/spf-usage` (domain read, rate
-limited like a scan, on every plan) says which sources of a domain's SPF record
-carried mail. Each source (include, a, mx, ip4, ip6) is resolved to the
+limited like a scan) says which sources of a domain's SPF record carried mail.
+It needs the new `dns.spfUsage` entitlement, which `GET /api/plans` lists on
+Fairway, Harbor, Admiralty and Fleet. On Mooring the route answers 402
+`FEATURE_NOT_IN_PLAN` with `requiredIn: "FAIRWAY"`, before any DNS is read. Each source (include, a, mx, ip4, ip6) is resolved to the
 networks it authorises. The sending addresses in the domain's aggregate reports
 from the last 90 days (by report period) are then matched against those
 networks.

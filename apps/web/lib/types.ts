@@ -1383,7 +1383,8 @@ export type EntitlementKey =
   | "dns.hostedMtaSts"
   | "integrations.psa"
   | "prospects.reports"
-  | "reports.usageExport";
+  | "reports.usageExport"
+  | "dns.spfUsage";
 
 export type QuotaKey = "client" | "activeDomain" | "member";
 

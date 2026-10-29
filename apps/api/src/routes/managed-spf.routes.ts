@@ -66,14 +66,16 @@ managedSpfRouter.put(
 );
 
 /**
- * Which SPF sources carried mail. Not gated: it reads the published record
- * (or the managed sources) and the domain's own reports, and changes nothing.
- * Rate limited like a scan, because a published record is resolved live.
+ * Which SPF sources carried mail. From Fairway (dns.spfUsage). It reads the
+ * published record (or the managed sources) and the domain's own reports, and
+ * changes nothing. Rate limited like a scan, because a published record is
+ * resolved live. The plan is checked first, so a refused call costs no DNS.
  */
 managedSpfRouter.get(
   '/workspaces/:organizationId/domains/:domainId/spf-usage',
   requireSession,
   requireOrganizationPermission('domain', 'read'),
+  requireFeature('dns.spfUsage'),
   spfUsageRateLimiter,
   spfUsageController,
 );
