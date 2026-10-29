@@ -99,8 +99,9 @@ SAML or OIDC single sign-on instead.
   a PDF per client for each month.
 - **Trust Center and compliance pack** (Harbor and above): a public page and a
   signed PDF that state what data is held, by whom, and for how long.
-- **Your brand** (Admiralty): your logo and colours on the portal, reports and
-  client emails, and the portal on your own domain.
+- **Your brand** (Harbor and above): your logo and colours on the portal,
+  reports and client emails. On Admiralty, client pages can also run on your own
+  domain.
 
 ## 8. Move to enforcement
 

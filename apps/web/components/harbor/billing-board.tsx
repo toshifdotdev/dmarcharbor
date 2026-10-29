@@ -30,8 +30,17 @@ import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 import { clsx } from "clsx";
 import { formatMinor } from "@/lib/money";
-import { fleetIsMonthlyOnly, fleetMinimumQuantity, fleetMinimumTotalMinor, fleetUnitMinor } from "@/lib/fleet-pricing";
-import { addedFeatures, catalogMonthsSaved, isFree, planFeatureLabel, soldFeatures, UNLISTED_FEATURES } from "@/lib/plan-features";
+import { fleetBill, fleetIsMonthlyOnly, fleetMinimumQuantity, fleetMinimumTotalMinor, fleetUnitMinor } from "@/lib/fleet-pricing";
+import {
+  addedFeatures,
+  catalogMonthsSaved,
+  isFree,
+  limitLabel,
+  planFeatureLabel,
+  planLimit,
+  soldFeatures,
+  UNLISTED_FEATURES,
+} from "@/lib/plan-features";
 import { changeBillingPlan, startCheckout } from "@/lib/ops-client";
 import type { BillingStatus, PlanDefinition, PlanOverageRow } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -75,8 +84,8 @@ function features(plan: PlanDefinition): Set<string> {
 
 function priceOf(plan: PlanDefinition, currency: Currency, interval: Interval, quote?: BillingStatus["perDomainQuote"] | null): string {
   if (plan.pricing === "per_domain") {
-    const units = quote?.quantity ?? fleetMinimumQuantity(plan);
-    return formatMinor(fleetUnitMinor(plan, currency) * units, currency);
+    // Priced in the band the measured count falls in, at that band's unit.
+    return formatMinor(fleetBill(plan, currency, quote?.activeDomains ?? fleetMinimumQuantity(plan)).totalMinor, currency);
   }
   const p = plan.prices[currency];
   if (isFree(p)) return "Free";
@@ -225,6 +234,7 @@ export function BillingBoard({
 }
 
 function usageLine(u: UsageCount | null, limit: number, l: (typeof LIMITS)[number]): { text: string; over: boolean; near: boolean } {
+  if (!Number.isFinite(limit)) return { text: "No limit on this plan.", over: false, near: false };
   if (!u) return { text: `Up to ${limit} ${limit === 1 ? l.one : l.many}. The current count could not be read.`, over: false, near: false };
   const word = u.used === 1 ? l.one : l.many;
   if (l.usage === "domains" && !u.exact) {
@@ -269,10 +279,10 @@ function UsagePanel({ plan, usage }: { plan: PlanDefinition; usage: Usage }) {
       </h2>
       <dl className="grid gap-px overflow-hidden rounded-ctl border border-rule bg-rule sm:grid-cols-2 xl:grid-cols-4">
         {LIMITS.map((l) => {
-          const limit = plan[l.key];
+          const limit = planLimit(plan[l.key]);
           const u = usage[l.usage];
           const line = usageLine(u, limit, l);
-          const share = u && u.exact ? Math.min(1, u.used / Math.max(1, limit)) : null;
+          const share = u && u.exact && Number.isFinite(limit) ? Math.min(1, u.used / Math.max(1, limit)) : null;
           return (
             <div key={l.key} data-usage={l.usage} className="flex flex-col gap-1.5 bg-paper-2 px-4 py-4">
               <dt className="text-meta font-semibold text-fg-2">{l.label}</dt>
@@ -282,10 +292,10 @@ function UsagePanel({ plan, usage }: { plan: PlanDefinition; usage: Usage }) {
                     <>
                       {l.usage === "domains" && !u.exact ? <span className="text-body font-medium text-fg-3">up to </span> : null}
                       {u.used}
-                      <span className="text-body font-medium text-fg-3"> of {limit}</span>
+                      <span className="text-body font-medium text-fg-3"> of {limitLabel(limit).toLowerCase()}</span>
                     </>
                   ) : (
-                    <span className="text-body font-medium text-fg-3">limit {limit}</span>
+                    <span className="text-body font-medium text-fg-3">limit {limitLabel(limit).toLowerCase()}</span>
                   )}
                 </span>
                 {share !== null ? (
@@ -339,8 +349,11 @@ function PlanCard(props: {
   const perDomain = plan.pricing === "per_domain";
   const fleetMinimum = fleetMinimumQuantity(plan);
   const fleetMinimumTotal = fleetMinimumTotalMinor(plan, currency);
-  const quoteQuantity = props.fleetQuote?.quantity ?? fleetMinimum;
-  const quoteTotal = props.fleetQuote?.totalMinor ?? fleetMinimumTotal;
+  // Recomputed in the currency on screen, in the band the measured count is in.
+  const quote = fleetBill(plan, currency, props.fleetQuote?.activeDomains ?? fleetMinimum);
+  const quoteQuantity = quote.quantity;
+  const quoteTotal = quote.totalMinor;
+  const measuredDomains = props.fleetQuote?.activeDomains ?? 0;
 
   const action: Action = isCurrent
     ? pendingTier && pendingTier !== plan.tier && hasSubscription
@@ -386,18 +399,20 @@ function PlanCard(props: {
           <>
             <span className="tnum inline-flex items-baseline [animation:hb-rise_220ms_ease-out_both]">
               <span className="display text-[30px] leading-none text-fg">{formatMinor(fleetUnitMinor(plan, currency), currency)}</span>
-              <span className="ml-1 text-meta text-fg-3">per active domain a month</span>
+              <span className="ml-1 text-meta text-fg-3">per active domain a month, falling with volume</span>
             </span>
             <span className="mt-1 block text-meta text-fg-2">
               Minimum {fleetMinimum} domains: <span className="tnum font-semibold text-fg">{formatMinor(fleetMinimumTotal, currency)}</span> a
               month
             </span>
             <span className="mt-0.5 block text-meta text-fg-2">
-              {props.fleetQuote && props.fleetQuote.activeDomains >= fleetMinimum
-                ? `At your current ${props.fleetQuote.activeDomains} active domains: `
+              {props.fleetQuote && measuredDomains >= fleetMinimum
+                ? `At your current ${measuredDomains} active domains: `
                 : `At the minimum of ${fleetMinimum} domains: `}
               <span className="tnum font-semibold text-fg">{formatMinor(quoteTotal, currency)}</span> a month
-              {quoteQuantity > fleetMinimum ? ` for ${quoteQuantity} active domains` : ""}
+              {quoteQuantity > fleetMinimum
+                ? ` at ${formatMinor(quote.unitMinor, currency)} a domain${quoteQuantity > measuredDomains ? `, covering up to ${quoteQuantity}` : ""}`
+                : ""}
             </span>
             <span className="mt-0.5 block text-meta text-fg-3">
               Billed monthly. The count is measured before each period starts; no proration.
@@ -413,7 +428,7 @@ function PlanCard(props: {
         )}
       </p>
       <p className="text-meta text-fg-2">
-        {LIMITS.map((l) => `${plan[l.key]} ${plan[l.key] === 1 ? l.one : l.many}`).join(" · ")}
+        {LIMITS.map((l) => `${limitLabel(plan[l.key])} ${plan[l.key] === 1 ? l.one : l.many}`).join(" · ")}
         {perDomain ? " · contact us to add more" : ""}
       </p>
 
@@ -495,8 +510,8 @@ function Decision(
   const currentLabel = current?.label ?? "the current plan";
 
   const limitRows = LIMITS.map((l) => {
-    const before = current?.[l.key] ?? null;
-    const after = plan[l.key];
+    const before = current ? planLimit(current[l.key]) : null;
+    const after = planLimit(plan[l.key]);
     const u = props.usage[l.usage];
     const over = u ? (u.exact || l.usage === "clients" ? u.used > after : false) : false;
     const maybe = u && !over && l.usage === "domains" ? u.used > after : false;
@@ -598,7 +613,8 @@ function Decision(
                     {l.label}
                   </th>
                   <td className="tnum py-1 text-right text-fg">
-                    {before ?? "—"} → <span className={clsx(after < (before ?? after) && "font-semibold", over && "text-fail")}>{after}</span>
+                    {before === null ? "—" : limitLabel(before)} →{" "}
+                    <span className={clsx(after < (before ?? after) && "font-semibold", over && "text-fail")}>{limitLabel(after)}</span>
                   </td>
                   <td className="py-1 pl-2 text-right">
                     {over && u ? (

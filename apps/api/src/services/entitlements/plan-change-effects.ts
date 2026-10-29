@@ -108,7 +108,19 @@ export async function afterPlanChange(
       : 0;
     const sso = ssoSince && ssoConnections > 0 ? { connections: ssoConnections, signInUntil: ssoSignInUntil(ssoSince) } : null;
 
-    if (hostedRecords.length === 0 && !sso) {
+    // A custom domain kept from Admiralty stops serving the agency's brand, so
+    // links clients already have on it need to move to our address.
+    let customDomain: string | null = null;
+    if (!features['branding.customDomain']) {
+      const organization = await prisma.organization.findUnique({
+        where: { id: organizationId },
+        select: { customDomain: true, customDomainVerifiedAt: true },
+      });
+      customDomain = organization?.customDomainVerifiedAt ? organization.customDomain : null;
+    }
+
+    if (hostedRecords.length === 0 && !sso && !customDomain) {
+      // Nothing kept that the new plan no longer covers.
       return;
     }
 
@@ -117,6 +129,7 @@ export async function afterPlanChange(
       plan: entitlements.plan,
       hostedRecords,
       sso,
+      customDomain,
       // One message per change to a plan per day. A webhook and the
       // reconciliation that follows it describe the same change.
       idempotencyKey: `plan-paused:${organizationId}:${change.from ?? 'none'}:${change.to}:${now.toISOString().slice(0, 10)}`,

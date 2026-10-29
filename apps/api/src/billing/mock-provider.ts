@@ -9,7 +9,7 @@ import {
   type CheckoutSession,
   type ProviderSubscription,
 } from './provider.js';
-import { planCatalog } from '../services/entitlements/plan-catalog.js';
+import { perDomainBill, planCatalog } from '../services/entitlements/plan-catalog.js';
 
 /**
  * An in-memory stand-in for a real payment provider.
@@ -66,7 +66,11 @@ export class MockBillingProvider implements BillingProvider {
   async createCheckout(input: CheckoutRequest): Promise<CheckoutSession> {
     assertValidQuantity(input.quantity);
 
-    const unit = planCatalog[input.plan].prices[input.currency][intervalKey(input.interval)];
+    // A per-domain plan is priced at the unit of the band the quantity bills in.
+    const unit =
+      planCatalog[input.plan].pricing === 'per_domain'
+        ? perDomainBill(input.plan, input.quantity, input.currency).unitMinor
+        : planCatalog[input.plan].prices[input.currency][intervalKey(input.interval)];
     const price = unit * input.quantity;
 
     if (price <= 0) {
@@ -166,6 +170,7 @@ export class MockBillingProvider implements BillingProvider {
     providerSubscriptionId: string;
     plan: PlanTier;
     quantity: number;
+    band?: number;
   }): Promise<void> {
     assertValidQuantity(input.quantity);
     void input.plan;
@@ -180,7 +185,11 @@ export class MockBillingProvider implements BillingProvider {
       providerSubscriptionId: input.providerSubscriptionId,
       quantity: input.quantity,
     });
+    this.quantityBands.push(input.band ?? null);
   }
+
+  /** The band each quantity update named, in the same order as `quantityUpdates`. */
+  readonly quantityBands: Array<number | null> = [];
 
   async cancelAtPeriodEnd(providerSubscriptionId: string): Promise<void> {
     const subscription = this.require(providerSubscriptionId);

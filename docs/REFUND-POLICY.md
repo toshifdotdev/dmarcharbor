@@ -8,9 +8,10 @@
 
 ## Summary
 
-We offer a **30-day money-back guarantee** on every purchase. After 30 days we do
-not ordinarily refund, but we still refund in the cases listed under "Discretionary
-refunds", because those are the ones where not refunding would be wrong.
+We offer a **14-day money-back guarantee** on your first payment, once per
+customer. After that we do not ordinarily refund, but we still refund in the cases
+listed under "Discretionary refunds", because those are the ones where not
+refunding would be wrong.
 
 Most purchases are made through an online reseller that handles refunds on our
 behalf. Where that applies, requests go to them rather than to us, and they hold
@@ -27,17 +28,26 @@ Paddle acts as merchant of record for payments made through them, which means
 they are the seller of record for that order and they authorise refunds. We cannot
 process a refund for an order you placed with them.
 
-## 30-day money-back guarantee
+## 14-day money-back guarantee
 
-If you are not satisfied, tell us within 30 days of the order date and we will
+If you are not satisfied, tell us within 14 days of your first payment and we will
 refund the amount you paid.
 
-- The 30 days run from the order date, not from the day you first used the
-  product.
+- The 14 days run from the date of your first payment, not from the day you first
+  used the product.
+- It covers the first payment of your first paid subscription only. Renewals do
+  not start a new 14 days.
+- It applies once per customer. A customer is the account that owns the
+  workspace, so a second workspace, or a new subscription after a refund, does not
+  qualify again.
 - This applies to monthly and annual subscriptions alike.
 - You do not need to give a reason.
+- We may refuse a request where there is evidence of refund abuse, for example
+  repeated sign-ups to claim the guarantee more than once.
 - The guarantee is also shown to you at the point of purchase, so you are
   agreeing to something you have read.
+- If you are a consumer in the EU or the UK, you also have a statutory 14-day
+  right to withdraw from your first payment, which this guarantee does not reduce.
 
 ## Subscriptions already paid for
 
@@ -52,11 +62,11 @@ will decide that case by case and say so.
 
 **Upgrades are charged immediately.** When you upgrade, we bill the difference
 straight away so you have the new plan now. That charge is not refundable except
-under the 30-day guarantee above.
+under the 14-day guarantee above.
 
 ## Discretionary refunds
 
-We will refund outside the 30-day window where one of these applies:
+We will refund outside the 14-day window where one of these applies:
 
 - **We caused it.** A material defect, a sustained outage in a paid feature, or an
   error on our part that cost you money.

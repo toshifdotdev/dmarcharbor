@@ -42,11 +42,11 @@ describe('plan catalog', () => {
   });
 
   it('prices the agreed ladder', () => {
-    expect(planCatalog.FAIRWAY.prices.USD.monthlyMinor).toBe(2900);
+    expect(planCatalog.FAIRWAY.prices.USD.monthlyMinor).toBe(3900);
     expect(planCatalog.HARBOR.prices.USD.monthlyMinor).toBe(14900);
     expect(planCatalog.ADMIRALTY.prices.USD.monthlyMinor).toBe(39900);
 
-    expect(planCatalog.FAIRWAY.prices.INR.monthlyMinor).toBe(249900);
+    expect(planCatalog.FAIRWAY.prices.INR.monthlyMinor).toBe(329900);
     expect(planCatalog.HARBOR.prices.INR.monthlyMinor).toBe(1249900);
     expect(planCatalog.ADMIRALTY.prices.INR.monthlyMinor).toBe(3399900);
   });
@@ -120,8 +120,14 @@ describe('statutory entitlements are never paywalled', () => {
     expect(planCatalog.HARBOR.descriptor).toContain('API');
     expect(planCatalog.ADMIRALTY.descriptor).not.toContain('API');
 
-    expect(planCatalog.HARBOR.features['branding.whitelabel']).toBe(false);
+    // Logo and colours start at Harbor, with the client portal; the custom
+    // domain stays Admiralty-only, with SSO.
+    expect(planCatalog.FAIRWAY.features['branding.whitelabel']).toBe(false);
+    expect(planCatalog.HARBOR.features['branding.whitelabel']).toBe(true);
     expect(planCatalog.ADMIRALTY.features['branding.whitelabel']).toBe(true);
+    expect(planCatalog.HARBOR.features['branding.customDomain']).toBe(false);
+    expect(planCatalog.FLEET.features['branding.customDomain']).toBe(false);
+    expect(planCatalog.ADMIRALTY.features['branding.customDomain']).toBe(true);
 
     // SSO shipped, so Admiralty is now granted it. Provisioned members are
     // bounded by the connection's email domain allowlist and can never be given
@@ -135,8 +141,9 @@ describe('statutory entitlements are never paywalled', () => {
     expect(planCatalog.FAIRWAY.features['digests']).toBe(false);
     expect(planCatalog.HARBOR.features['digests']).toBe(true);
 
-    // Logo upload is an Admiralty feature, alongside white labelling.
-    expect(planCatalog.HARBOR.features['branding.logoUpload']).toBe(false);
+    // Logo upload ships with the logo and colours, from Harbor.
+    expect(planCatalog.FAIRWAY.features['branding.logoUpload']).toBe(false);
+    expect(planCatalog.HARBOR.features['branding.logoUpload']).toBe(true);
     expect(planCatalog.ADMIRALTY.features['branding.logoUpload']).toBe(true);
 
     // The Trust Center is live and starts at Harbor.

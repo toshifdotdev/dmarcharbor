@@ -1145,7 +1145,7 @@ model Subscription {
   lastEventAt            DateTime?
   /// When this workspace's first payment settled.
   ///
-  /// The refund policy promises a 30 day money back guarantee on every purchase, and
+  /// The refund policy promises a money back guarantee from the first payment, and
   /// nothing recorded when a purchase happened. `BillingEvent.occurredAt` is the
   /// closest thing to the truth but it is the event's own timestamp and an event is
   /// retained, deduplicated and eventually purged, so an eligibility check that
@@ -1187,7 +1187,7 @@ model RefundRecord {
   eligible       Boolean
   /// Why it was refused. Null on a refund that went through.
   refusalReason  String?
-  /// The day 30 after the first charge, which is what "within the guarantee" means.
+  /// The last moment of the guarantee (refundGuaranteeDays after the first charge).
   eligibleUntil  DateTime?
   reason         String
   actorUserId    String?
@@ -1322,11 +1322,15 @@ model BillingPlan {
   priceMinor      Int
   /// The provider's own identifier for this plan.
   providerPlanId  String
+  /// The volume band of a per-domain plan, by index into the catalog's bands.
+  /// Each band has its own unit price, so each is its own provider plan. 0 for
+  /// a flat plan.
+  band            Int             @default(0)
   active          Boolean         @default(true)
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
-  @@unique([provider, tier, interval, currency])
+  @@unique([provider, tier, interval, currency, band])
   @@index([provider, active])
   @@map("billing_plan")
 }

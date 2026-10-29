@@ -41,8 +41,9 @@ const FEATURES: Array<[key: string, label: string]> = [
   ["reports.compliancePack", "Compliance pack and monthly client reports"],
   ["reports.inbox", "Report collection from your own mailbox"],
   ["reports.tlsrpt", "TLS reports"],
-  ["branding.whitelabel", "White label"],
+  ["branding.whitelabel", "Your logo and colours for clients"],
   ["branding.logoUpload", "Logo upload"],
+  ["branding.customDomain", "Client pages on your own domain"],
   ["auth.sso", "Single sign-on (OIDC and SAML)"],
 ];
 
@@ -105,6 +106,17 @@ export function addedFeatures(plan: PlanDefinition, previous: PlanDefinition | n
 /** True only when every plan in the catalog grants the key. */
 export function onEveryPlan(plans: PlanDefinition[], key: string): boolean {
   return plans.length > 0 && plans.every((p) => p.features[key as keyof PlanDefinition["features"]] === true);
+}
+
+/** A limit from the catalog as a number; null (no limit) becomes Infinity so comparisons hold. */
+export function planLimit(value: number | null | undefined): number {
+  return value === null || value === undefined ? Number.POSITIVE_INFINITY : value;
+}
+
+/** A limit as a person reads it: "25", or "Unlimited". */
+export function limitLabel(value: number | null | undefined): string {
+  const n = planLimit(value);
+  return Number.isFinite(n) ? n.toLocaleString("en-GB") : "Unlimited";
 }
 
 export function isFree(price: PlanPriceMinor): boolean {

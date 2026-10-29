@@ -6,6 +6,7 @@ import {
   alwaysAllowedEntitlements,
   catalogOrder,
   entitlementLabels,
+  limitText,
   nextTier,
   planCatalog,
   planOrder,
@@ -23,6 +24,7 @@ export interface ResolvedEntitlements {
   cancelAtPeriodEnd: boolean;
   maxClients: number;
   maxActiveDomains: number;
+  /** `UNLIMITED` (Infinity) where there is no cap; null on the wire. */
   maxMembers: number;
   /** Quota rule, not retention: see PlanDefinition.activeDomainWindowDays. */
   activeDomainWindowDays: number;
@@ -329,7 +331,7 @@ export function memberLimitMessage(allowance: { limit: number; members: number; 
   return (
     `${allowance.planLabel} includes ${allowance.limit} team member${allowance.limit === 1 ? '' : 's'} and this workspace has ${allowance.members}${waiting}. ` +
     (upgradeTo
-      ? `Remove someone or cancel an invitation, or upgrade to ${planCatalog[upgradeTo].label} for ${planCatalog[upgradeTo].maxMembers}.`
+      ? `Remove someone or cancel an invitation, or upgrade to ${planCatalog[upgradeTo].label} for ${limitText(planCatalog[upgradeTo].maxMembers)}.`
       : 'Remove someone or cancel an invitation, or contact us to add more.')
   );
 }
@@ -421,7 +423,7 @@ async function quotaExceeded(
       // The upgrade names the limit that was hit; it used to quote active
       // domains whichever quota (clients, members) had been reached.
       (upgradeName
-        ? `Upgrade to ${upgradeName} for ${quotaLimitFor(upgradeTo!, quota)} ${label}, or remove one.`
+        ? `Upgrade to ${upgradeName} for ${limitText(quotaLimitFor(upgradeTo!, quota))} ${label}, or remove one.`
         : 'Contact us to add more.'),
     {
       quota,

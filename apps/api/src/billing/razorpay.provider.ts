@@ -13,6 +13,7 @@ import {
   type ProviderSubscriptionStatus,
 } from './provider.js';
 import { expectedPlans, findStoredPlan, findStoredPlanByProviderPlanId, requireStoredPlan, saveStoredPlan } from './plans.js';
+import { bandIndexFor, bandSuffix } from '../services/entitlements/plan-catalog.js';
 import { PROVIDER_TIMEOUT_MS, withTimeout } from './provider-timeout.js';
 import { prisma } from '../database/prisma.js';
 import type { PlanTier } from '@prisma/client';
@@ -142,6 +143,7 @@ export class RazorpayBillingProvider implements BillingProvider {
       tier: input.plan,
       interval: input.interval,
       currency: input.currency,
+      band: bandIndexFor(input.plan, input.quantity),
     });
 
     const { providerCustomerId } = await this.ensureCustomer({
@@ -214,6 +216,7 @@ export class RazorpayBillingProvider implements BillingProvider {
       tier: input.plan,
       interval: input.interval,
       currency,
+      band: bandIndexFor(input.plan, input.quantity),
     });
 
     const updated = (await this.call(() =>
@@ -247,14 +250,28 @@ export class RazorpayBillingProvider implements BillingProvider {
     providerSubscriptionId: string;
     plan: PlanTier;
     quantity: number;
+    band?: number;
   }): Promise<void> {
     assertValidQuantity(input.quantity);
-    void input.plan;
+
+    // A Razorpay plan has one fixed unit amount, so each price band is its own
+    // plan. The band's plan id goes with the quantity, in the currency of the
+    // plan the subscription is on now, so a count that crosses a band changes
+    // the unit price and the count together, both from the next cycle.
+    const raw = (await this.call(() => razorpay().subscriptions.fetch(input.providerSubscriptionId))) as unknown as RazorpaySubscriptionLike;
+    const livePlan = raw.plan_id ? await findStoredPlanByProviderPlanId(this.name, raw.plan_id) : null;
+    const target = await requireStoredPlan({
+      provider: this.name,
+      tier: input.plan,
+      interval: 'monthly',
+      currency: livePlan?.currency ?? 'INR',
+      band: input.band ?? bandIndexFor(input.plan, input.quantity),
+    });
 
     await this.call(() =>
       razorpay().subscriptions.update(
         input.providerSubscriptionId,
-        razorpayQuantityUpdateBody(input.quantity) as never,
+        razorpayQuantityUpdateBody(input.quantity, target.providerPlanId) as never,
       ),
     );
   }
@@ -359,6 +376,7 @@ export class RazorpayBillingProvider implements BillingProvider {
         tier: entry.tier,
         interval: entry.interval,
         currency,
+        band: entry.band,
       });
       if (existing) {
         reused += 1;
@@ -370,12 +388,12 @@ export class RazorpayBillingProvider implements BillingProvider {
           period: entry.interval === 'annual' ? 'yearly' : 'monthly',
           interval: 1,
           item: {
-            name: `DMARC Harbor ${entry.tier}`,
+            name: `DMARC Harbor ${entry.tier}${bandSuffix(entry.tier, entry.band)}`,
             amount: entry.priceMinor,
             currency,
-            description: `${entry.tier} plan, billed ${entry.interval}`,
+            description: `${entry.tier} plan${bandSuffix(entry.tier, entry.band)}, billed ${entry.interval}`,
           },
-          notes: { tier: entry.tier, interval: entry.interval },
+          notes: { tier: entry.tier, interval: entry.interval, band: String(entry.band) },
         }),
       );
 
@@ -384,6 +402,7 @@ export class RazorpayBillingProvider implements BillingProvider {
         tier: entry.tier,
         interval: entry.interval,
         currency,
+        band: entry.band,
         priceMinor: entry.priceMinor,
         providerPlanId: plan.id,
       });
@@ -467,13 +486,18 @@ export function withCustomerId(body: {
  * The exact body for a quantity-only update.
  *
  * Exported so a unit test can assert the payload without an SDK or a network.
- * `cycle_end` is what keeps the change off the current month's invoice.
+ * `cycle_end` is what keeps the change off the current month's invoice. The
+ * plan id is the band's plan, so the unit price follows the new count.
  */
-export function razorpayQuantityUpdateBody(quantity: number): {
+export function razorpayQuantityUpdateBody(
+  quantity: number,
+  planId: string,
+): {
+  plan_id: string;
   quantity: number;
   schedule_change_at: 'cycle_end';
 } {
-  return { quantity, schedule_change_at: 'cycle_end' };
+  return { plan_id: planId, quantity, schedule_change_at: 'cycle_end' };
 }
 
 /**

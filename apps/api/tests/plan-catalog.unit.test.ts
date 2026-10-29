@@ -208,10 +208,10 @@ describe('plan catalog integrity', () => {
 
   it('renders a price the way a customer would expect to read it', () => {
     expect(formatPrice('MOORING', 'USD', 'monthly')).toBe('Free');
-    expect(formatPrice('FAIRWAY', 'USD', 'monthly')).toBe('$29');
+    expect(formatPrice('FAIRWAY', 'USD', 'monthly')).toBe('$39');
     expect(formatPrice('HARBOR', 'USD', 'monthly')).toBe('$149');
     expect(formatPrice('ADMIRALTY', 'USD', 'annual')).toBe('$3,990');
-    expect(formatPrice('FAIRWAY', 'INR', 'monthly')).toBe('\u20b92,499');
+    expect(formatPrice('FAIRWAY', 'INR', 'monthly')).toBe('\u20b93,299');
     expect(formatPrice('HARBOR', 'INR', 'annual')).toBe('\u20b91,24,990');
   });
 

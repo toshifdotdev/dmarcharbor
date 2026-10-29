@@ -155,8 +155,11 @@ before the app is live is a webhook that is silently lost.
 
 **Razorpay**
 - Complete KYC, MSME/Udyam registration.
-- Create the three products and plans, then run the plan sync so ids land in
-  `billing_plan`.
+- Create the products and plans, then run the plan sync so ids land in
+  `billing_plan`: three paid flat tiers on two intervals, and one monthly Fleet
+  plan per price band. Re-run it after any price change (Fairway moved to
+  $39 / ₹3,299); a stored price that differs from the catalog is refused at
+  checkout.
 - Set `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`.
 - Webhook URL: `https://api.dmarcharbor.com/api/billing/webhooks/razorpay`.
 - **Verify the subscription end date bound in a sandbox.** This is the single

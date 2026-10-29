@@ -188,7 +188,7 @@ describe('downgrading a workspace that is over the target quota', () => {
     });
 
     const overage = response.body.error.overage as { quota: string }[];
-    // Mooring allows one member and this workspace has exactly one owner, so
+    // Mooring allows two members and this workspace has exactly one owner, so
     // reporting a member overage here would be inventing a problem.
     expect(overage.map((entry) => entry.quota)).not.toContain('member');
   });

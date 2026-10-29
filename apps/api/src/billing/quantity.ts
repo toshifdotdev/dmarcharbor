@@ -1,43 +1,45 @@
 import type { PlanTier, Prisma } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
-import { planCatalog } from '../services/entitlements/plan-catalog.js';
+import { bandIndexFor, planCatalog } from '../services/entitlements/plan-catalog.js';
 import { quotaUsage } from '../services/entitlements/entitlement.service.js';
 import { recordAuditEvent } from '../services/audit.service.js';
 import { providerFor } from './registry.js';
 
 /**
- * How many units a provider should bill for a plan.
+ * How many units a provider should bill for a plan, and in which price band.
  *
- * A flat plan always bills one. A per-domain plan bills the active domains
- * counted across the owner's account, with a floor so the smallest possible
- * portfolio still pays the published minimum. Measured here, server side: a
- * quantity sent by a client would be a number the customer controls.
+ * A flat plan always bills one, in band 0. A per-domain plan bills the active
+ * domains counted across the owner's account, in the band that count falls in,
+ * with that band's minimum as the floor. Measured here, server side: a quantity
+ * sent by a client would be a number the customer controls.
  */
 export async function billableQuantity(
   organizationId: string,
   plan: PlanTier,
   now = new Date(),
   client: Prisma.TransactionClient | typeof prisma = prisma,
-): Promise<{ quantity: number; activeDomains: number; minimum: number | null }> {
+): Promise<{ quantity: number; activeDomains: number; minimum: number | null; band: number }> {
   const definition = planCatalog[plan];
   const activeDomains = (await quotaUsage(organizationId, 'activeDomain', plan, now, client)).used;
 
   if (definition.pricing !== 'per_domain') {
-    return { quantity: 1, activeDomains, minimum: null };
+    return { quantity: 1, activeDomains, minimum: null, band: 0 };
   }
 
-  const minimum = Math.max(1, definition.minimumQuantity ?? 1);
-  return { quantity: Math.max(minimum, activeDomains), activeDomains, minimum };
+  const band = bandIndexFor(plan, activeDomains);
+  const minimum = Math.max(1, definition.bands?.[band]?.minimumQuantity ?? definition.minimumQuantity ?? 1);
+  return { quantity: Math.max(minimum, activeDomains), activeDomains, minimum, band };
 }
 
 /**
  * The quantity a stored subscription is billed at, for display and refunds.
  *
- * A per-domain subscription can never have been charged below its minimum:
- * checkout and every sync bill at least that many. The stored column defaults
- * to 1 and stays there when a provider event omits the quantity, so reading it
- * raw would show a Fleet customer a one-domain bill and refund them a
- * seventy-fifth of what they paid. The floor is the smallest true answer.
+ * A per-domain subscription can never have been charged below its plan's
+ * smallest minimum: checkout and every sync bill at least that many. The stored
+ * column defaults to 1 and stays there when a provider event omits the
+ * quantity, so reading it raw would show a Fleet customer a one-domain bill and
+ * refund them a seventy-fifth of what they paid. The floor is the smallest true
+ * answer. The band follows from the quantity (see `bandIndexFor`).
  */
 export function billedQuantity(plan: PlanTier, storedQuantity: number | null | undefined): number {
   const definition = planCatalog[plan];
@@ -55,13 +57,15 @@ export interface QuantitySyncOutcome {
 }
 
 /**
- * Pushes next period's per-domain quantity to the provider inside the 48 hour
- * window before renewal.
+ * Pushes next period's per-domain quantity, and its band, to the provider
+ * inside the 48 hour window before renewal.
  *
  * Each month is billed at the count measured just before it starts, with no
- * proration. The marker is claimed conditionally before the provider call, so
- * two instances cannot both push the same change; a failure puts it back so
- * the next run retries rather than silently skipping a period.
+ * proration. A count that crosses into another band moves the subscription to
+ * that band's provider plan at the same time, so the unit price and the count
+ * always change together. The marker is claimed conditionally before the
+ * provider call, so two instances cannot both push the same change; a failure
+ * puts it back so the next run retries rather than silently skipping a period.
  */
 export async function syncPerDomainQuantities(now = new Date()): Promise<QuantitySyncOutcome> {
   const windowEnd = new Date(now.getTime() + 48 * 60 * 60 * 1000);
@@ -119,8 +123,9 @@ export async function syncPerDomainQuantities(now = new Date()): Promise<Quantit
     let quantity: number;
     let activeDomains: number;
     let minimum: number | null;
+    let band: number;
     try {
-      ({ quantity, activeDomains, minimum } = await billableQuantity(row.organizationId, 'FLEET', now));
+      ({ quantity, activeDomains, minimum, band } = await billableQuantity(row.organizationId, 'FLEET', now));
     } catch (error) {
       await releaseClaim(row.id, periodEnd, previousMarker);
       outcome.failed += 1;
@@ -133,12 +138,15 @@ export async function syncPerDomainQuantities(now = new Date()): Promise<Quantit
       continue;
     }
 
+    const previousBand = bandIndexFor('FLEET', billedQuantity('FLEET', row.quantity));
+
     try {
       const provider = providerFor(row.provider as 'RAZORPAY' | 'PADDLE');
       await provider.updateQuantity({
         providerSubscriptionId: row.providerSubscriptionId!,
         plan: 'FLEET',
         quantity,
+        band,
       });
     } catch (error) {
       await releaseClaim(row.id, periodEnd, previousMarker);
@@ -147,7 +155,7 @@ export async function syncPerDomainQuantities(now = new Date()): Promise<Quantit
         row.organizationId,
         row.providerSubscriptionId ?? row.organizationId,
         error,
-        { from: row.quantity, to: quantity, activeDomains, minimum, effectiveAt: periodEnd.toISOString() },
+        { from: row.quantity, to: quantity, activeDomains, minimum, band, effectiveAt: periodEnd.toISOString() },
       );
       continue;
     }
@@ -169,6 +177,8 @@ export async function syncPerDomainQuantities(now = new Date()): Promise<Quantit
         to: quantity,
         activeDomains,
         minimum,
+        band,
+        ...(band !== previousBand ? { fromBand: previousBand } : {}),
         effectiveAt: periodEnd.toISOString(),
       },
     });

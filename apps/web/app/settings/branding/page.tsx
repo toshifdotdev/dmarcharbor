@@ -23,7 +23,7 @@ export default async function BrandingPage() {
     <SettingsFrame
       ctx={ctx}
       section="branding"
-      lede="White label puts your name, logo and colours on everything a client opens, in place of ours. Check the preview before you save: it is what they will see."
+      lede="Your name, logo and colours on everything a client opens, in place of ours, from Harbor up. On Admiralty, client pages can also open on your own domain. Check the preview before you save: it is what they will see."
     >
       {entitlements === null ? <PlanUnknown what="white label" /> : null}
       {branding === "forbidden" ? (
@@ -41,6 +41,7 @@ export default async function BrandingPage() {
           customDomainVerified={Boolean(branding.customDomainVerifiedAt)}
           whitelabel={featureOf(entitlements, "branding.whitelabel")}
           logoUpload={featureOf(entitlements, "branding.logoUpload")}
+          customDomainFeature={featureOf(entitlements, "branding.customDomain")}
           canManage={ctx.role === null ? true : mayChange(ctx.role, "admin")}
         />
       )}

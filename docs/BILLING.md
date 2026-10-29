@@ -30,9 +30,20 @@ code handles a decimal amount, because a rounding error is a real charge.
 | Plan | USD | INR |
 |---|---|---|
 | Mooring | $0 | ₹0 |
-| Fairway | $29 | ₹2,499 |
+| Fairway | $39 | ₹3,299 |
 | Harbor | $149 | ₹12,499 |
 | Admiralty | $399 | ₹33,999 |
+
+Fleet is billed monthly per active domain, in bands. Each band is its own
+provider plan (`billing_plan.band`), and the quantity sync moves a subscription
+to the band its count falls in from the next period.
+
+| Fleet band | USD per domain | INR per domain | Billed at least |
+|---|---|---|---|
+| Up to 200 | $2.00 | ₹169 | 75 |
+| 201 to 500 | $1.25 | ₹106 | 320 |
+| 501 to 2,000 | $1.00 | ₹85 | 625 |
+| 2,001 to 5,000 | $0.75 | ₹64 | 2,667 |
 
 Annual billing is ten months of price for twelve months of service. These were
 raised from $19/$79/$249 and ₹1,599/₹6,599/₹20,999, and this table was not
@@ -188,7 +199,7 @@ so the customer keeps the period they paid for.
   customer needs to downgrade and start the cheaper plan immediately, that needs
   a credit of the unused time and is a separate piece of work.
 - **Trials.** Mooring is the free tier and is the real trial. A time limited
-  trial on Admiralty would hand over white label and the portal for nothing, and
+  trial on Admiralty would hand over the custom domain and SSO for nothing, and
   neither can be evaluated in a fortnight anyway.
 - **Usage based metering** beyond the active domain rule already in place.
 - **Provider migration.** A customer cannot move from Razorpay to Paddle without

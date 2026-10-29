@@ -66,8 +66,18 @@ export async function resolveBrandingByHostController(request: Request, response
     // domain is pointed at us, so saying so is the honest answer and it is what
     // lets the frontend show "not verified yet" instead of silently falling back
     // to the default brand, which read as the branding being live when it was not.
+    // A domain kept from a plan that included it, on a plan that no longer
+    // does, is answered as no agency at all. Without this the raw DNS state
+    // below would mark it verified and the web app would serve the agency's
+    // brand on it, which is the Admiralty feature itself.
+    const branding = await resolveBranding(found.organizationId);
+    if (!branding.customDomainLicensed) {
+      response.status(404).json({ error: { code: 'NOT_FOUND', message: 'No agency is served on this address.' } });
+      return;
+    }
+
     response.json({
-      ...(await resolveBranding(found.organizationId)),
+      ...branding,
       customDomainVerified: found.verified,
     });
   } catch (error) {
@@ -111,7 +121,10 @@ export async function setCustomDomainController(request: Request, response: Resp
   const organizationId = response.locals.organizationId;
 
   try {
-    await assertFeature(organizationId, 'branding.whitelabel');
+    // Removing a kept domain is allowed on any plan; claiming one needs Admiralty.
+    if (body.data.customDomain) {
+      await assertFeature(organizationId, 'branding.customDomain');
+    }
     const result = await setCustomDomain({
       organizationId,
       customDomain: body.data.customDomain,
@@ -133,7 +146,7 @@ export async function verifyCustomDomainController(_request: Request, response: 
   const organizationId = response.locals.organizationId;
 
   try {
-    await assertFeature(organizationId, 'branding.whitelabel');
+    await assertFeature(organizationId, 'branding.customDomain');
     response.json(await verifyCustomDomain(organizationId, response.locals.session?.user?.id));
   } catch (error) {
     sendBrandingError(response, error);

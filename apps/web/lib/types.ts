@@ -1373,6 +1373,7 @@ export type EntitlementKey =
   | "reports.inbox"
   | "reports.tlsrpt"
   | "branding.logoUpload"
+  | "branding.customDomain"
   | "integrations.webhooks"
   | "senders.owners"
   | "dns.automation"
@@ -1390,6 +1391,15 @@ export interface PlanPriceMinor {
   annualMinor: number;
 }
 
+/** One volume band of a per-domain plan. */
+export interface PerDomainBand {
+  /** The highest active-domain count this band covers. */
+  upTo: number;
+  /** The least count billed in this band. */
+  minimumQuantity: number;
+  unitMinor: { USD: number; INR: number };
+}
+
 export interface PlanDefinition {
   tier: string;
   label: string;
@@ -1401,9 +1411,12 @@ export interface PlanDefinition {
   intervals: Array<"monthly" | "annual">;
   /** The least quantity a per-domain plan bills. Null on a flat plan. */
   minimumQuantity: number | null;
+  /** Volume bands of a per-domain plan, ascending. Null (or absent) on a flat plan. */
+  bands?: PerDomainBand[] | null;
   maxClients: number;
   maxActiveDomains: number;
-  maxMembers: number;
+  /** Null when the plan has no team-size limit. */
+  maxMembers: number | null;
   /**
    * How many workspaces the plan lets an account hold.
    *
@@ -1428,13 +1441,14 @@ export interface ResolvedEntitlements {
   cancelAtPeriodEnd: boolean;
   maxClients: number;
   maxActiveDomains: number;
-  maxMembers: number;
+  /** Null when the plan has no team-size limit. */
+  maxMembers: number | null;
   activeDomainWindowDays: number;
   features: Partial<Record<EntitlementKey, boolean>>;
   overrides: Array<{ entitlement: string; enabled: boolean; expiresAt: string | null }>;
   /** What the quota check counts: clients and active domains across the
    *  owner's workspaces, members in this one. */
-  usage?: Record<"client" | "activeDomain" | "member", { used: number; limit: number }>;
+  usage?: Record<"client" | "activeDomain" | "member", { used: number; limit: number | null }>;
 }
 
 export interface BillingStatus {
@@ -1459,6 +1473,8 @@ export interface BillingStatus {
     quantity: number;
     unitMinor: number;
     totalMinor: number;
+    /** The price band the quote is in, by index into the plan's bands. */
+    band?: number;
     currency: "USD" | "INR";
   } | null;
   /**

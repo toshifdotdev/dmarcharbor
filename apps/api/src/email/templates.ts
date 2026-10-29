@@ -502,6 +502,8 @@ export function planPausedFeaturesEmail(input: {
   hostedRecords: string[];
   /** Enabled SSO connections, and the last day existing members can use them. */
   sso: { connections: number; signInUntil: string } | null;
+  /** A verified custom domain that the new plan no longer serves. */
+  customDomain?: string | null;
   appUrl: string;
   billingUrl: string;
 }): RenderedEmail {
@@ -518,6 +520,12 @@ export function planPausedFeaturesEmail(input: {
   if (input.sso) {
     paragraphs.push(
       `Single sign-on is not included in ${input.planLabel}. Nobody new can join through your ${input.sso.connections === 1 ? 'connection' : `${input.sso.connections} connections`}. Existing members can keep signing in through it until ${readableDate(input.sso.signInUntil)}. After that they sign in with their email address and password; anyone who has never set a password can create one with Forgot password on the sign-in page.`,
+    );
+  }
+
+  if (input.customDomain) {
+    paragraphs.push(
+      `Client pages on your own domain are not included in ${input.planLabel}, so ${input.customDomain} no longer shows your brand. Clients can still reach their portal and reports at our address, with your logo and colours where your plan includes them. You can remove the domain under Settings, White label.`,
     );
   }
 

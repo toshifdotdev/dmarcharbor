@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  fleetBandRows,
+  fleetBill,
   fleetIsMonthlyOnly,
   fleetMinimumQuantity,
   fleetMinimumTotalMinor,
@@ -59,10 +61,47 @@ describe("Fleet price lines", () => {
 
   it("quotes at the current count, or says the minimum applies below it", () => {
     const above = fleetQuote(fleet, "USD", { activeDomains: 120, quantity: 120 });
-    expect(above).toEqual({ quantity: 120, totalMinor: 24_000, atMinimum: false });
+    expect(above).toEqual({ quantity: 120, totalMinor: 24_000, unitMinor: 200, atMinimum: false });
 
     const below = fleetQuote(fleet, "INR", { activeDomains: 10, quantity: 75 });
-    expect(below).toEqual({ quantity: 75, totalMinor: 1_267_500, atMinimum: true });
+    expect(below).toEqual({ quantity: 75, totalMinor: 1_267_500, unitMinor: 16900, atMinimum: true });
+  });
+
+  it("prices each band at its own unit and minimum, and never lowers the bill", () => {
+    const banded = {
+      ...fleet,
+      maxMembers: null,
+      bands: [
+        { upTo: 200, minimumQuantity: 75, unitMinor: { USD: 200, INR: 16900 } },
+        { upTo: 500, minimumQuantity: 320, unitMinor: { USD: 125, INR: 10600 } },
+        { upTo: 2000, minimumQuantity: 625, unitMinor: { USD: 100, INR: 8500 } },
+        { upTo: 5000, minimumQuantity: 2667, unitMinor: { USD: 75, INR: 6400 } },
+      ],
+    } satisfies PlanDefinition;
+
+    expect(fleetBill(banded, "USD", 250)).toMatchObject({ band: 1, quantity: 320, unitMinor: 125, totalMinor: 40_000 });
+    expect(fleetBill(banded, "USD", 1000)).toMatchObject({ band: 2, quantity: 1000, totalMinor: 100_000 });
+    expect(fleetQuote(banded, "INR", { activeDomains: 250, quantity: 320 })).toEqual({
+      quantity: 320,
+      totalMinor: 3_392_000,
+      unitMinor: 10600,
+      atMinimum: true,
+    });
+    expect(fleetBandRows(banded, "USD").map((row) => [row.from, row.upTo, row.minimumTotalMinor])).toEqual([
+      [1, 200, 15_000],
+      [201, 500, 40_000],
+      [501, 2000, 62_500],
+      [2001, 5000, 200_025],
+    ]);
+
+    for (const currency of ["USD", "INR"] as const) {
+      let previous = 0;
+      for (let count = 1; count <= 5000; count += 1) {
+        const total = fleetTotalMinor(banded, currency, count);
+        expect(total).toBeGreaterThanOrEqual(previous);
+        previous = total;
+      }
+    }
   });
 
   it("is monthly only", () => {

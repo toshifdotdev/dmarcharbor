@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  bandIndexFor,
   catalogOrder,
   formatPlanPrice,
+  perDomainBill,
   formatPrice,
   nextTier,
   perDomainPlans,
@@ -40,8 +42,10 @@ beforeEach(() => {
 describe('Fleet in the catalog', () => {
   it('grants exactly Harbor features and nothing Admiralty sells', () => {
     expect(FLEET.features).toBe(planCatalog.HARBOR.features);
-    expect(FLEET.features['branding.whitelabel']).toBe(false);
-    expect(FLEET.features['branding.logoUpload']).toBe(false);
+    // Logo and colours come with Harbor, so a growing Harbor customer keeps them.
+    expect(FLEET.features['branding.whitelabel']).toBe(true);
+    expect(FLEET.features['branding.logoUpload']).toBe(true);
+    expect(FLEET.features['branding.customDomain']).toBe(false);
     expect(FLEET.features['auth.sso']).toBe(false);
   });
 
@@ -90,12 +94,84 @@ describe('Fleet in the catalog', () => {
   it('adds exactly one monthly provider plan and leaves the six flat ones alone', () => {
     for (const currency of ['USD', 'INR'] as const) {
       const plans = expectedPlans(currency);
-      expect(plans).toHaveLength(7);
+      // Six flat (three paid tiers on two intervals) plus one per Fleet band.
+      expect(plans).toHaveLength(6 + FLEET.bands!.length);
       const fleet = plans.filter((plan) => plan.tier === 'FLEET');
-      expect(fleet).toEqual([
-        { tier: 'FLEET', interval: 'monthly', priceMinor: planCatalog.FLEET.prices[currency].monthlyMinor },
-      ]);
+      expect(fleet).toEqual(
+        FLEET.bands!.map((band, index) => ({ tier: 'FLEET', interval: 'monthly', band: index, priceMinor: band.unitMinor[currency] })),
+      );
+      expect(plans.filter((plan) => plan.tier !== 'FLEET').every((plan) => plan.band === 0)).toBe(true);
     }
+  });
+});
+
+describe('Fleet volume bands', () => {
+  it('prices each band as agreed, in both currencies', () => {
+    expect(FLEET.bands).toEqual([
+      { upTo: 200, minimumQuantity: 75, unitMinor: { USD: 200, INR: 16900 } },
+      { upTo: 500, minimumQuantity: 320, unitMinor: { USD: 125, INR: 10600 } },
+      { upTo: 2000, minimumQuantity: 625, unitMinor: { USD: 100, INR: 8500 } },
+      { upTo: 5000, minimumQuantity: 2667, unitMinor: { USD: 75, INR: 6400 } },
+    ]);
+    // The first band is what `prices` and `minimumQuantity` describe.
+    expect(FLEET.bands![0]!.unitMinor).toEqual({ USD: FLEET.prices.USD.monthlyMinor, INR: FLEET.prices.INR.monthlyMinor });
+    expect(FLEET.bands![0]!.minimumQuantity).toBe(FLEET.minimumQuantity);
+  });
+
+  it('never lowers the bill when a domain is added, from 1 to 5,000, in either currency', () => {
+    for (const currency of ['USD', 'INR'] as const) {
+      let previous = 0;
+      for (let count = 1; count <= 5000; count += 1) {
+        const { totalMinor } = perDomainBill('FLEET', count, currency);
+        expect(totalMinor, `${currency} at ${count}`).toBeGreaterThanOrEqual(previous);
+        previous = totalMinor;
+      }
+    }
+  });
+
+  it('keeps each band minimum inside its own band, so a stored quantity names its band', () => {
+    FLEET.bands!.forEach((band, index) => {
+      expect(bandIndexFor('FLEET', band.minimumQuantity)).toBe(index);
+      expect(perDomainBill('FLEET', band.minimumQuantity, 'USD').band).toBe(index);
+    });
+  });
+
+  it('bills the agreed totals at the points that matter', () => {
+    const usd = (count: number) => perDomainBill('FLEET', count, 'USD').totalMinor / 100;
+    expect(usd(75)).toBe(150);
+    expect(usd(200)).toBe(400);
+    expect(usd(201)).toBe(400);
+    expect(usd(300)).toBe(400);
+    expect(usd(500)).toBe(625);
+    expect(usd(501)).toBe(625);
+    expect(usd(1000)).toBe(1000);
+    expect(usd(2000)).toBe(2000);
+    expect(usd(5000)).toBe(3750);
+    // Above the top band the top band's price applies.
+    expect(bandIndexFor('FLEET', 9000)).toBe(FLEET.bands!.length - 1);
+  });
+
+  it('costs about what Admiralty does from 200 to 300 domains, so Admiralty is the better buy there', () => {
+    for (const count of [200, 250, 300]) {
+      expect(perDomainBill('FLEET', count, 'USD').totalMinor).toBeGreaterThanOrEqual(planCatalog.ADMIRALTY.prices.USD.monthlyMinor);
+    }
+  });
+
+  it('prices formatPlanPrice in the band the quantity falls in', () => {
+    expect(formatPlanPrice('FLEET', 'USD', 'monthly', 320)).toBe('$400');
+    expect(formatPlanPrice('FLEET', 'USD', 'monthly', 1000)).toBe('$1,000');
+  });
+});
+
+describe('team size', () => {
+  it('caps members at 2, 5 and 25, and leaves Admiralty and Fleet unlimited', () => {
+    expect(planCatalog.MOORING.maxMembers).toBe(2);
+    expect(planCatalog.FAIRWAY.maxMembers).toBe(5);
+    expect(planCatalog.HARBOR.maxMembers).toBe(25);
+    expect(planCatalog.ADMIRALTY.maxMembers).toBe(Number.POSITIVE_INFINITY);
+    expect(FLEET.maxMembers).toBe(Number.POSITIVE_INFINITY);
+    // Unlimited reaches the wire as null, which the web app reads as "Unlimited".
+    expect(JSON.parse(JSON.stringify({ maxMembers: FLEET.maxMembers })).maxMembers).toBeNull();
   });
 });
 
@@ -116,9 +192,11 @@ describe('feature refusals stay on the ladder', () => {
   });
 
   it('never points at Fleet, whatever its unit price', () => {
-    for (const feature of ['auth.sso', 'branding.whitelabel', 'branding.logoUpload', 'api.access'] as const) {
+    for (const feature of ['auth.sso', 'branding.whitelabel', 'branding.logoUpload', 'branding.customDomain', 'api.access'] as const) {
       expect(requiredPlanFor(feature)).not.toBe('FLEET');
     }
+    expect(requiredPlanFor('branding.whitelabel')).toBe('HARBOR');
+    expect(requiredPlanFor('branding.customDomain')).toBe('ADMIRALTY');
     expect(requiredPlanFor('auth.sso')).toBe('ADMIRALTY');
     expect(requiredPlanFor('api.access')).toBe('HARBOR');
   });
@@ -132,6 +210,7 @@ describe('billable quantity', () => {
       quantity: 1,
       activeDomains: 12,
       minimum: null,
+      band: 0,
     });
   });
 
@@ -142,6 +221,7 @@ describe('billable quantity', () => {
       quantity: 75,
       activeDomains: 10,
       minimum: 75,
+      band: 0,
     });
   });
 
@@ -160,7 +240,11 @@ describe('billable quantity', () => {
 
 describe('provider quantity payloads', () => {
   it('schedules a Razorpay quantity change at cycle end', () => {
-    expect(razorpayQuantityUpdateBody(140)).toEqual({ quantity: 140, schedule_change_at: 'cycle_end' });
+    expect(razorpayQuantityUpdateBody(140, 'plan_fleet_band0')).toEqual({
+      plan_id: 'plan_fleet_band0',
+      quantity: 140,
+      schedule_change_at: 'cycle_end',
+    });
   });
 
   it('sends Paddle a quantity change with no proration', () => {

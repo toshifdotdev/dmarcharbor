@@ -249,6 +249,47 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-11-30 — Pricing, team sizes, branding split and Fleet bands
+
+**Prices.** Fairway is $39 / ₹3,299 a month and $390 / ₹32,990 a year. Other
+flat plans are unchanged. Run the plan sync for both providers and currencies
+before taking payment: the catalog check refuses a stored price that differs.
+
+**Team size.** Mooring 2, Fairway 5, Harbor 25, Admiralty and Fleet unlimited.
+`maxMembers` is `null` where there is no limit, in `GET /api/plans`,
+`GET /api/workspaces/{id}/entitlements` (including `usage.member.limit`) and
+`GET /api/v1/me` (`limits.maxMembers`). Treat `null` as no limit.
+
+**Branding.** A new entitlement, `branding.customDomain`, gates the custom
+domain (`PUT …/branding/custom-domain` and `POST …/branding/custom-domain/verify`),
+on Admiralty only.
+`branding.whitelabel` (logo and colours) and `branding.logoUpload` now start at
+Harbor and are on Fleet. Removing a kept custom domain
+(`customDomain: null`) works on every plan. `GET /api/branding/host` answers 404
+for a domain whose workspace no longer has `branding.customDomain`. The resolved
+branding gains `customDomainLicensed`.
+
+**Fleet.** Priced in volume bands. `GET /api/plans` gains `bands` on Fleet
+(`upTo`, `minimumQuantity`, `unitMinor` per currency); `prices` and
+`minimumQuantity` stay the first band's.
+
+| Active domains | USD | INR | Billed at least |
+|---|---|---|---|
+| Up to 200 | $2.00 | ₹169 | 75 |
+| 201 to 500 | $1.25 | ₹106 | 320 |
+| 501 to 2,000 | $1.00 | ₹85 | 625 |
+| 2,001 to 5,000 | $0.75 | ₹64 | 2,667 |
+
+Each band is its own provider plan (`billing_plan.band`). The quantity sync
+moves a subscription to the band its new count falls in, together with the new
+count, from the next period. `perDomainQuote` in `GET …/billing` gains `band`.
+
+**Refunds.** The money-back guarantee is 14 days from the first payment, once
+per customer: a guarantee refund on any workspace the owner owns makes the rest
+ineligible. `GET …/refund-eligibility` reflects both.
+
+`/api/v1` is unchanged except `limits.maxMembers` can be `null`.
+
 ## 2026-11-29 — What a downgrade keeps, stops and lets you remove
 
 **Workspace deletion.** `POST /api/auth/organization/delete` now returns 404.

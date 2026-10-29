@@ -24,9 +24,10 @@ import { useId, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { clsx } from "clsx";
 import { formatMajor, formatMinor } from "@/lib/money";
-import { fleetIsMonthlyOnly, fleetMinimumQuantity, fleetMinimumTotalMinor, fleetUnitMinor } from "@/lib/fleet-pricing";
+import { fleetBandRows, fleetIsMonthlyOnly, fleetMinimumQuantity, fleetMinimumTotalMinor, fleetUnitMinor } from "@/lib/fleet-pricing";
 import {
   addedFeatures,
+  limitLabel,
   annualSavingMinor,
   catalogMonthsSaved,
   isFree,
@@ -473,7 +474,7 @@ function limitRows(plan: PlanDefinition | null, where: "card" | "table" = "card"
   return [
     ["Clients", plan.maxClients.toLocaleString("en-GB")],
     ["Active domains", plan.maxActiveDomains.toLocaleString("en-GB")],
-    ["Team members", plan.maxMembers.toLocaleString("en-GB")],
+    ["Team members", limitLabel(plan.maxMembers)],
     [where === "table" ? "Workspaces per account" : "Workspaces", plan.maxWorkspaces.toLocaleString("en-GB")],
     ...(typeof prospects === "number"
       ? ([["Prospect reports a month", prospects > 0 ? prospects.toLocaleString("en-GB") : "–"]] as Array<[string, string]>)
@@ -517,6 +518,7 @@ function FleetCard({
   const minimum = fleetMinimumQuantity(plan);
   const minimumTotal = fleetMinimumTotalMinor(plan, currency);
   const monthlyOnly = fleetIsMonthlyOnly(plan);
+  const bandRows = fleetBandRows(plan, currency);
 
   return (
     <article
@@ -553,12 +555,31 @@ function FleetCard({
           <span data-testid="fleet-price" className="tnum display text-[38px] leading-none">
             {formatMajor(unit, currency)}
           </span>
-          <span className="text-meta font-semibold text-fg-2">per active domain a month</span>
+          <span className="text-meta font-semibold text-fg-2">per active domain a month{bandRows.length > 1 ? ", falling with volume" : ""}</span>
         </p>
         <p data-testid="fleet-minimum" className="text-meta text-fg-2">
           At least <span className="tnum">{minimum}</span> domains are billed, so the smallest bill is{" "}
           <span className="tnum">{formatMinor(minimumTotal, currency)}</span> a month.
         </p>
+        {/* The price per domain falls with volume. Each band's minimum is shown
+            as what that monthly amount covers, so a flat stretch reads as an
+            allowance rather than as being billed for domains you do not have. */}
+        <table data-testid="fleet-bands" className="mt-1 w-full max-w-[26rem] text-meta">
+          <caption className="sr-only">Price per active domain by volume</caption>
+          <tbody>
+            {bandRows.map((row, index) => (
+              <tr key={row.upTo} className="border-t border-rule">
+                <th scope="row" className="tnum py-1 pr-3 text-left font-medium text-fg-2">
+                  {index === 0 ? `Up to ${row.upTo.toLocaleString("en-GB")}` : `${row.from.toLocaleString("en-GB")} to ${row.upTo.toLocaleString("en-GB")}`}
+                </th>
+                <td className="tnum py-1 pr-3 text-right font-semibold text-fg">{formatMinor(row.unitMinor, currency)} each</td>
+                <td className="tnum py-1 text-right text-fg-3">
+                  {formatMinor(row.minimumTotalMinor, currency)} covers up to {row.minimum.toLocaleString("en-GB")}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
         <p className="text-meta font-semibold text-fg-2">
           {monthlyOnly ? (interval === "annual" ? "Billed monthly only" : "Billed monthly") : "Billed per interval"}
         </p>
@@ -577,7 +598,7 @@ function FleetCard({
           {isCurrent ? "Manage on Billing" : `Choose ${plan.label}`}
         </ButtonLink>
         <p className="text-meta text-fg-2">
-          Need white label or SSO for more than 300 domains?{" "}
+          Up to 300 domains, Admiralty includes your own domain and SSO. Need them for more than 300 domains?{" "}
           <a href="/support" className="link font-semibold">
             Contact us
           </a>

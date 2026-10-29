@@ -82,8 +82,9 @@ Yes. Enter it on the home page. That is one lookup at one moment, not monitoring
 
 **What are the plans?**
 Mooring (free), Fairway, Harbor and Admiralty, plus Fleet, which has Harbor's
-features and is priced per active domain with a minimum of 75. The pricing page has
-the current prices, every limit and a full comparison.
+features and is priced per active domain, with a price per domain that falls as the
+count grows. The pricing page has the current prices, every limit and a full
+comparison.
 
 **What starts on which plan?**
 - **Every plan, free included:** aggregate reports, the audit trail, data export and
@@ -97,10 +98,31 @@ the current prices, every limit and a full comparison.
 - **Harbor:** the client portal and client approvals, named forensic evidence,
   scheduled digests, the API, PSA ticketing, managed SPF, hosted BIMI and
   MTA-STS, the Trust Center, compliance packs and monthly client reports, report
-  collection from your own mailbox, and 50 prospect reports a month.
-- **Admiralty:** white label (your logo, colours and domain), logo upload, single
-  sign-on, and 200 prospect reports a month.
-- **Fleet:** everything in Harbor, for more domains.
+  collection from your own mailbox, your logo and colours on everything clients
+  see, and 50 prospect reports a month.
+- **Admiralty:** client pages on your own domain, single sign-on, an unlimited
+  team, and 200 prospect reports a month.
+- **Fleet:** everything in Harbor, including your logo and colours, for more
+  domains, with an unlimited team.
+
+**How many people can join a workspace?**
+Mooring 2, Fairway 5, Harbor 25, and Admiralty and Fleet have no limit. These are
+your own staff. A client's people sign in to the client portal instead, and they do
+not use a seat.
+
+**How is Fleet priced?**
+Per active domain a month, in bands:
+
+| Active domains | Per domain | Smallest bill in the band |
+|---|---|---|
+| Up to 200 | $2.00 (₹169) | $150 (₹12,675), covering up to 75 |
+| 201 to 500 | $1.25 (₹106) | $400 (₹33,920), covering up to 320 |
+| 501 to 2,000 | $1.00 (₹85) | $625 (₹53,125), covering up to 625 |
+| 2,001 to 5,000 | $0.75 (₹64) | $2,000 (₹1,70,688), covering up to 2,667 |
+
+Adding a domain never lowers the bill. The count is measured before each month
+starts, with no proration. From 200 to 300 domains Admiralty costs about the same
+and adds your own domain and single sign-on.
 
 **How are the limits counted?**
 Clients and active domains are counted across every workspace your account owns,
@@ -129,6 +151,8 @@ Nothing is deleted, and upgrading again brings everything back as it was.
 - Share links and Trust Center pages answer as withdrawn while the plan does not
   include them, and work again after an upgrade.
 - Single sign-on stops admitting new people at once; existing members get 30 days.
+- Your logo and colours stop showing below Harbor, and the stored logo is removed.
+  A custom domain kept from Admiralty stops being used; you can remove it.
   See "What happens to single sign-on if we leave Admiralty?" below.
 
 **When does a plan change take effect?**
@@ -139,8 +163,9 @@ prorates the difference. The billing page says which applies to you before you
 confirm.
 
 **Do I get a refund?**
-There is a 30-day money-back guarantee. After that, refunds are considered case by
-case, for example for a double charge or a fault on our side. See the Refund Policy.
+There is a 14-day money-back guarantee on your first payment. It applies once per
+customer. After that, refunds are considered case by case, for example for a
+double charge or a fault on our side. See the Refund Policy.
 
 **Which currency am I charged in?**
 Rupees are processed by Razorpay and US dollars by Paddle. You choose before your
@@ -156,8 +181,8 @@ the free plan with all its data kept; upgrading brings everything back.
 Not at present. Pay by card through Razorpay or Paddle.
 
 **Is there a free trial of the paid plans?**
-Not at present. Mooring is free with no card and no time limit, and the 30-day
-money-back guarantee covers your first paid month.
+No. Mooring is free with no card and no time limit, and the 14-day money-back
+guarantee covers your first payment.
 
 ## Monitoring and alerts
 
@@ -272,8 +297,9 @@ opening the link never scans anyone's DNS. Fairway includes 10 a month, Harbor 5
 Admiralty and Fleet 200.
 
 **Can I use my own brand?**
-On Admiralty. Your logo and colours appear in the portal, on reports and on the
-emails clients receive, and the portal can run on your own domain.
+From Harbor, your logo and colours appear in the portal, on reports and on the
+emails clients receive. On Admiralty the portal and other client pages can also
+run on your own domain, so DMARC Harbor's address never appears.
 
 ## Team and security
 

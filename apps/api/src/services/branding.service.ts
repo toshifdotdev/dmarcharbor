@@ -16,8 +16,10 @@ export interface ResolvedBranding {
   accentColor: string | null;
   customDomain: string | null;
   customDomainVerified: boolean;
-  /** True only when the portal should present the agency brand. */
+  /** True only when the portal should present the agency brand (logo and colours). */
   branded: boolean;
+  /** True when the plan includes serving client pages on the agency's own domain. */
+  customDomainLicensed: boolean;
 }
 
 const hexColour = /^#[0-9a-f]{6}$/i;
@@ -383,6 +385,10 @@ export async function resolveBranding(organizationId: string): Promise<ResolvedB
 
   const entitlements = await resolveEntitlements(organizationId);
   const licensed = entitlements.features['branding.whitelabel'] ?? false;
+  // The custom domain is its own entitlement (Admiralty), separate from the
+  // logo and colours (Harbor and up). A domain kept from Admiralty after a
+  // downgrade stops being presented; it is not deleted.
+  const domainLicensed = licensed && (entitlements.features['branding.customDomain'] ?? false);
   const domainVerified = Boolean(organization.customDomain && organization.customDomainVerifiedAt);
 
   // A logo is only ever served from our own origin. An agency pasted a URL is
@@ -396,8 +402,9 @@ export async function resolveBranding(organizationId: string): Promise<ResolvedB
     logoUrl: licensed && storedLogo ? publicLogoUrl(storedLogo) : null,
     primaryColor: licensed ? organization.brandPrimaryColor : null,
     accentColor: licensed ? organization.brandAccentColor : null,
-    customDomain: licensed && domainVerified ? organization.customDomain : null,
-    customDomainVerified: licensed ? domainVerified : false,
+    customDomain: domainLicensed && domainVerified ? organization.customDomain : null,
+    customDomainVerified: domainLicensed ? domainVerified : false,
     branded: licensed,
+    customDomainLicensed: domainLicensed,
   };
 }

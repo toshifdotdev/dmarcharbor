@@ -10,6 +10,11 @@
  * The preview uses the same arithmetic the real pages do (lib/brand-vars.ts),
  * and the contrast of each colour pair is measured and stated, not guessed.
  *
+ * Logo and colours need branding.whitelabel and branding.logoUpload (Harbor
+ * and up). The custom domain needs branding.customDomain (Admiralty), so it
+ * has its own plan notice and its own editable flag; a domain kept after a
+ * downgrade can still be removed.
+ *
  * Custom domain: the API mints a new TXT token on every set and returns it
  * only in that response, so the record is shown once with that warning, and
  * an unverified domain can be issued a fresh record instead of a dead end.
@@ -86,6 +91,7 @@ export function BrandingBoard({
   customDomainVerified,
   whitelabel,
   logoUpload,
+  customDomainFeature,
   canManage,
 }: {
   organizationId: string;
@@ -98,6 +104,8 @@ export function BrandingBoard({
   customDomainVerified: boolean;
   whitelabel: FeatureStatus;
   logoUpload: FeatureStatus;
+  /** Admiralty only. Absent from an older API: then the white label flag decides, as before. */
+  customDomainFeature?: FeatureStatus;
   canManage: boolean;
 }) {
   const router = useRouter();
@@ -125,6 +133,8 @@ export function BrandingBoard({
   const dirty = (primary || null) !== (savedPrimary ?? null) || (ink || null) !== (savedInk ?? null);
   const coloursValid = (primary === "" || HEX.test(primary)) && (ink === "" || HEX.test(ink));
   const editable = canManage && whitelabel !== false;
+  const domainFeature = customDomainFeature === undefined ? whitelabel : customDomainFeature;
+  const domainEditable = canManage && domainFeature !== false;
 
   async function saveColours(e: FormEvent) {
     e.preventDefault();
@@ -224,9 +234,9 @@ export function BrandingBoard({
     <div className="flex flex-col gap-10">
       {whitelabel === false ? (
         <UpgradeNotice
-          message="White label is not included in this workspace's plan."
+          message="Your logo and colours are not included in this workspace's plan."
           feature="branding.whitelabel"
-          context="Clients see DMARC Harbor's name and colours until it is. Anything saved here before is kept, and returns when the plan includes it."
+          context="Clients see DMARC Harbor's colours until it is. Anything saved here before is kept, and returns when the plan includes it."
         />
       ) : null}
 
@@ -334,7 +344,7 @@ export function BrandingBoard({
               ) : null}
             </div>
           ) : (
-            <p className="text-meta text-fg-3">Try colours here; saving needs {canManage ? "white label on the plan" : "an owner or admin"}.</p>
+            <p className="text-meta text-fg-3">Try colours here; saving needs {canManage ? "Harbor or above" : "an owner or admin"}.</p>
           )}
         </form>
       </Panel>
@@ -379,7 +389,9 @@ export function BrandingBoard({
         why="Client links open on your own address, such as reports.youragency.example, instead of ours. A TXT record proves the domain is yours; the hostname must also point at this service for the pages to open on it."
         aside={
           customDomain ? (
-            customDomainVerified ? (
+            domainFeature === false ? (
+              <Badge tone="warn">Kept, not used on this plan</Badge>
+            ) : customDomainVerified ? (
               <span data-testid="domain-verified">
                 <Badge tone="ok">Verified, serving your brand</Badge>
               </span>
@@ -411,13 +423,25 @@ export function BrandingBoard({
           </div>
         ) : null}
 
+        {domainFeature === false ? (
+          <UpgradeNotice
+            message="Client pages on your own domain are not included in this workspace's plan."
+            feature="branding.customDomain"
+            context={
+              customDomain
+                ? "The domain you set up on Admiralty is kept but not used. Remove it below, or upgrade to use it again."
+                : "Your logo and colours already appear on client pages served from our address."
+            }
+          />
+        ) : null}
         {verifyNote ? <Notice tone={verifyNote.ok ? "ok" : "warn"} title={verifyNote.text} /> : null}
         <ActionRefusal error={domainError} />
 
-        {editable ? (
+        {/* Removing a kept domain works on every plan; claiming and verifying need Admiralty. */}
+        {domainEditable || (canManage && customDomain) ? (
           customDomain ? (
             <div className="flex flex-wrap items-center gap-3">
-              {!customDomainVerified ? (
+              {!customDomainVerified && domainEditable ? (
                 <>
                   <Button variant="primary" onClick={verify} busy={domainBusy === "verify"} busyLabel="Looking up the record">
                     Check the record

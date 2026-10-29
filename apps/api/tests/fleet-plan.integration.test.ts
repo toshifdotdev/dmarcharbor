@@ -63,14 +63,18 @@ async function seedPlans(): Promise<void> {
         });
       }
     }
-    await saveStoredPlan({
-      provider: 'RAZORPAY',
-      tier: 'FLEET',
-      interval: 'monthly',
-      currency,
-      priceMinor: planCatalog.FLEET.prices[currency].monthlyMinor,
-      providerPlanId: `plan_FLEET_monthly_${currency}`,
-    });
+    // One provider plan per price band. Band 0 keeps the id it always had.
+    for (const [band, entry] of planCatalog.FLEET.bands!.entries()) {
+      await saveStoredPlan({
+        provider: 'RAZORPAY',
+        tier: 'FLEET',
+        interval: 'monthly',
+        currency,
+        band,
+        priceMinor: entry.unitMinor[currency],
+        providerPlanId: band === 0 ? `plan_FLEET_monthly_${currency}` : `plan_FLEET_monthly_${currency}_band${band}`,
+      });
+    }
   }
 }
 
@@ -127,7 +131,7 @@ async function addDomains(clientId: string, count: number): Promise<void> {
 
 async function createProviderSubscription(input: {
   organizationId: string;
-  plan: 'HARBOR' | 'ADMIRALTY' | 'FLEET';
+  plan: 'FAIRWAY' | 'HARBOR' | 'ADMIRALTY' | 'FLEET';
   quantity?: number;
   currentPeriodEnd?: Date;
 }): Promise<string> {
@@ -168,7 +172,7 @@ async function createProviderSubscription(input: {
 async function renewalEvent(input: {
   organizationId: string;
   providerSubscriptionId: string;
-  plan: 'HARBOR' | 'ADMIRALTY' | 'FLEET';
+  plan: 'FAIRWAY' | 'HARBOR' | 'ADMIRALTY' | 'FLEET';
   quantity?: number;
   currentPeriodEnd?: Date;
   occurredAt?: Date;
@@ -193,7 +197,7 @@ async function renewalEvent(input: {
 }
 
 async function workspaceWithBilling(input: {
-  plan: 'HARBOR' | 'ADMIRALTY' | 'FLEET';
+  plan: 'FAIRWAY' | 'HARBOR' | 'ADMIRALTY' | 'FLEET';
   quantity?: number;
   domains?: number;
   currentPeriodEnd?: Date;
@@ -295,6 +299,24 @@ describe('Fleet checkout', () => {
     expect(response.body.priceMinor).toBe(planCatalog.FLEET.prices.INR.monthlyMinor * 120);
   });
 
+  it('checks out in the band the count falls in, at that band\'s unit and minimum', async () => {
+    const { agent, organizationId } = await setupWorkspace();
+    const client = await createClientRow(organizationId);
+    await addDomains(client.id, 250);
+
+    const response = await agent.post(`/api/workspaces/${organizationId}/billing/checkout`).send({
+      plan: 'FLEET',
+      interval: 'monthly',
+      currency: 'INR',
+      contact: { name: 'Fleet Owner', email: 'owner@example.com' },
+    });
+
+    expect(response.status).toBe(201);
+    expect(response.body.quantity).toBe(320);
+    expect(response.body.unitPriceMinor).toBe(planCatalog.FLEET.bands![1]!.unitMinor.INR);
+    expect(response.body.priceMinor).toBe(planCatalog.FLEET.bands![1]!.unitMinor.INR * 320);
+  });
+
   it('refuses annual Fleet, which is not sold', async () => {
     const { agent, organizationId } = await setupWorkspace();
 
@@ -370,7 +392,7 @@ describe('moving between Fleet and the ladder', () => {
     expect(allowed.body.status).toBe('scheduled');
   });
 
-  it('removes a stored logo when Admiralty moves to Fleet', async () => {
+  it('keeps a stored logo when Admiralty moves to Fleet, which includes logo and colours', async () => {
     const workspace = await workspaceWithBilling({ plan: 'ADMIRALTY', domains: 5 });
     await prisma.organization.update({
       where: { id: workspace.organizationId },
@@ -388,7 +410,7 @@ describe('moving between Fleet and the ladder', () => {
     const organization = await prisma.organization.findUniqueOrThrow({
       where: { id: workspace.organizationId },
     });
-    expect(organization.brandLogoUrl).toBeNull();
+    expect(organization.brandLogoUrl).toBe('https://cdn.harbor.test/logo.svg');
   });
 });
 
@@ -396,8 +418,9 @@ describe('logo removal respects live entitlement overrides', () => {
   beforeAll(resetDatabase);
   beforeAll(seedPlans);
 
-  it('keeps the logo on Fleet while a logoUpload override is live', async () => {
-    const workspace = await workspaceWithBilling({ plan: 'FLEET', quantity: 75, domains: 10 });
+  // Fairway is a plan without logo upload; Fleet now includes it.
+  it('keeps the logo on Fairway while a logoUpload override is live', async () => {
+    const workspace = await workspaceWithBilling({ plan: 'FAIRWAY', domains: 10 });
     await prisma.organization.update({
       where: { id: workspace.organizationId },
       data: { brandLogoUrl: 'https://cdn.harbor.test/logo.svg' },
@@ -411,8 +434,7 @@ describe('logo removal respects live entitlement overrides', () => {
     await renewalEvent({
       organizationId: workspace.organizationId,
       providerSubscriptionId: workspace.providerSubscriptionId,
-      plan: 'FLEET',
-      quantity: 75,
+      plan: 'FAIRWAY',
       occurredAt: new Date(Date.now() + 1_000),
     });
 
@@ -423,7 +445,7 @@ describe('logo removal respects live entitlement overrides', () => {
   });
 
   it('removes it on the next billing event once the override has expired', async () => {
-    const workspace = await workspaceWithBilling({ plan: 'FLEET', quantity: 75, domains: 10 });
+    const workspace = await workspaceWithBilling({ plan: 'FAIRWAY', domains: 10 });
     await prisma.organization.update({
       where: { id: workspace.organizationId },
       data: { brandLogoUrl: 'https://cdn.harbor.test/logo.svg' },
@@ -448,8 +470,7 @@ describe('logo removal respects live entitlement overrides', () => {
     await renewalEvent({
       organizationId: workspace.organizationId,
       providerSubscriptionId: workspace.providerSubscriptionId,
-      plan: 'FLEET',
-      quantity: 75,
+      plan: 'FAIRWAY',
       occurredAt: new Date(Date.now() + 1_000),
     });
 
@@ -530,6 +551,34 @@ describe('per-domain quantity sync', () => {
         (entry) => entry.providerSubscriptionId === workspace.providerSubscriptionId,
       ),
     ).toEqual([{ providerSubscriptionId: workspace.providerSubscriptionId, quantity: 90 }]);
+  });
+
+  it('moves to the next price band when the count crosses 200', async () => {
+    const workspace = await dueWorkspace({ domains: 250, quantity: 75 });
+
+    const outcome = await syncPerDomainQuantities();
+    expect(outcome.updated).toBe(1);
+
+    // 250 domains bill in the 201 to 500 band, whose minimum is 320.
+    const subscription = await prisma.subscription.findUniqueOrThrow({
+      where: { organizationId: workspace.organizationId },
+    });
+    expect(subscription.quantity).toBe(320);
+    const index = provider.quantityUpdates.findIndex(
+      (entry) => entry.providerSubscriptionId === workspace.providerSubscriptionId,
+    );
+    expect(provider.quantityUpdates[index]?.quantity).toBe(320);
+    expect(provider.quantityBands[index]).toBe(1);
+
+    const audit = await prisma.auditLog.findFirstOrThrow({
+      where: { organizationId: workspace.organizationId, action: 'BILLING_QUANTITY_UPDATED' },
+    });
+    expect(audit.detail).toMatchObject({ from: 75, to: 320, band: 1, fromBand: 0 });
+
+    // The billing screen and a refund price it at the band's unit, not the first band's.
+    const status = await billingStatus(workspace.organizationId);
+    expect(status.unitPriceLabel).toBe('\u20b9106');
+    expect(status.priceLabel).toBe('\u20b933,920');
   });
 
   it('leaves a subscription alone outside the window', async () => {
@@ -779,7 +828,7 @@ describe('Fleet webhooks, status, refunds and gating', () => {
       });
     }
 
-    for (const feature of ['branding.whitelabel', 'branding.logoUpload', 'auth.sso'] as const) {
+    for (const feature of ['branding.customDomain', 'auth.sso'] as const) {
       const fleetError = await assertFeature(fleet.organizationId, feature).catch((error) => error);
       const harborError = await assertFeature(harbor.organizationId, feature).catch((error) => error);
 
@@ -795,7 +844,7 @@ describe('Fleet webhooks, status, refunds and gating', () => {
       expect(harborError.message).toContain('Upgrade to Admiralty to use it.');
     }
 
-    for (const feature of ['portal.client', 'api.access', 'trust.center'] as const) {
+    for (const feature of ['portal.client', 'api.access', 'trust.center', 'branding.whitelabel', 'branding.logoUpload'] as const) {
       await expect(assertFeature(fleet.organizationId, feature)).resolves.toBeUndefined();
     }
   });

@@ -35,7 +35,7 @@ describe('raised prices', () => {
     // The point of the raise was to stop Harbor reading as a $1-a-domain product
     // next to a market charging $4 to $14. These bounds are what keep it both
     // credible and still far cheaper than every competitor.
-    expect(planCatalog.FAIRWAY.prices.USD.monthlyMinor).toBe(2900);
+    expect(planCatalog.FAIRWAY.prices.USD.monthlyMinor).toBe(3900);
     expect(planCatalog.HARBOR.prices.USD.monthlyMinor).toBe(14900);
     expect(planCatalog.ADMIRALTY.prices.USD.monthlyMinor).toBe(39900);
   });

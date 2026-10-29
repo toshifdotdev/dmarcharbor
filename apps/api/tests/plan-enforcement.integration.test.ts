@@ -74,36 +74,73 @@ function invite(agent: ReturnType<typeof request.agent>, organizationId: string,
 describe('team size', () => {
   beforeEach(resetDatabase);
 
-  it('lets Fairway invite up to its three members and refuses the next', async () => {
+  it('lets Fairway invite up to its five members and refuses the next', async () => {
     const owner = await workspace('fairway-team');
     await grantPlan(owner.organizationId, 'FAIRWAY');
 
-    expect((await invite(owner.agent, owner.organizationId, `one-${fixtureId}@example.com`)).status).toBe(200);
-    expect((await invite(owner.agent, owner.organizationId, `two-${fixtureId}@example.com`)).status).toBe(200);
+    for (const name of ['one', 'two', 'three', 'four']) {
+      expect((await invite(owner.agent, owner.organizationId, `${name}-${fixtureId}@example.com`)).status).toBe(200);
+    }
 
-    // The owner and two open invitations fill three seats. A fourth person
+    // The owner and four open invitations fill five seats. A sixth person
     // would be a member the plan does not include.
-    const refused = await invite(owner.agent, owner.organizationId, `three-${fixtureId}@example.com`);
+    const refused = await invite(owner.agent, owner.organizationId, `five-${fixtureId}@example.com`);
     expect(refused.status).toBe(403);
     expect(refused.body.code).toBe('PLAN_LIMIT_REACHED');
-    expect(String(refused.body.message)).toContain('includes 3 team members');
-    expect(String(refused.body.message)).toContain('2 open invitations');
+    expect(String(refused.body.message)).toContain('includes 5 team members');
+    expect(String(refused.body.message)).toContain('4 open invitations');
 
-    expect(await prisma.invitation.count({ where: { organizationId: owner.organizationId, status: 'pending' } })).toBe(2);
+    expect(await prisma.invitation.count({ where: { organizationId: owner.organizationId, status: 'pending' } })).toBe(4);
   });
 
-  it('refuses any invitation on the free plan, whose one seat is the owner', async () => {
+  it('lets the free plan invite one person, so an owner can bring in a technician', async () => {
     const owner = await workspace('mooring-team');
 
-    const refused = await invite(owner.agent, owner.organizationId, `helper-${fixtureId}@example.com`);
+    expect((await invite(owner.agent, owner.organizationId, `helper-${fixtureId}@example.com`)).status).toBe(200);
+
+    const refused = await invite(owner.agent, owner.organizationId, `second-${fixtureId}@example.com`);
     expect(refused.status).toBe(403);
-    expect(String(refused.body.message)).toContain('Mooring includes 1 team member');
-    expect(await prisma.invitation.count({ where: { organizationId: owner.organizationId } })).toBe(0);
+    expect(String(refused.body.message)).toContain('Mooring includes 2 team members');
+    expect(String(refused.body.message)).toContain('1 open invitation');
+    expect(await prisma.invitation.count({ where: { organizationId: owner.organizationId } })).toBe(1);
+  });
+
+  it('has no team-size limit on Admiralty', async () => {
+    const owner = await workspace('admiralty-team');
+    await grantPlan(owner.organizationId, 'ADMIRALTY');
+
+    // Thirty open invitations, more than any capped plan allows.
+    await prisma.invitation.createMany({
+      data: Array.from({ length: 30 }, (_, index) => ({
+        id: `bulk-invite-${fixtureId}-${index}`,
+        organizationId: owner.organizationId,
+        email: `bulk-${index}-${fixtureId}@example.com`,
+        role: 'analyst',
+        status: 'pending',
+        inviterId: owner.userId,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        createdAt: new Date(),
+      })),
+    });
+
+    expect((await invite(owner.agent, owner.organizationId, `one-more-${fixtureId}@example.com`)).status).toBe(200);
   });
 
   it('refuses to accept an invitation once the plan has no seat for it', async () => {
     const owner = await workspace('accept-team');
     await grantPlan(owner.organizationId, 'FAIRWAY');
+
+    // A second member, so the free plan's two seats are both taken.
+    const colleague = await person('colleague');
+    await prisma.member.create({
+      data: {
+        id: `member-colleague-${fixtureId}`,
+        organizationId: owner.organizationId,
+        userId: colleague.userId,
+        role: 'analyst',
+        createdAt: new Date(),
+      },
+    });
 
     const invitee = await person('invitee');
     const invited = await invite(owner.agent, owner.organizationId, invitee.email);
@@ -116,7 +153,7 @@ describe('team size', () => {
       .post('/api/auth/organization/accept-invitation')
       .send({ invitationId: invited.body.id as string });
     expect(accepted.status).toBe(403);
-    expect(await prisma.member.count({ where: { organizationId: owner.organizationId } })).toBe(1);
+    expect(await prisma.member.count({ where: { organizationId: owner.organizationId } })).toBe(2);
   });
 });
 

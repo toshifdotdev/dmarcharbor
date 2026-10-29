@@ -2,16 +2,16 @@ import type { PlanTier } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
 import { recordAuditEvent } from '../services/audit.service.js';
 import { providerFor } from './registry.js';
-import { planCatalog, type BillingCurrency } from '../services/entitlements/plan-catalog.js';
+import { perDomainBill, planCatalog, type BillingCurrency } from '../services/entitlements/plan-catalog.js';
 import { BillingProviderError } from './provider.js';
 import { intervalLabel, resolveBillingInterval } from './interval.js';
 import { billedQuantity } from './quantity.js';
 
 /**
- * Refunds against the published 30 day money back guarantee.
+ * Refunds against the published money back guarantee (see refundGuaranteeDays).
  *
- * docs/REFUND-POLICY.md and docs/FAQ.md both promise a 30 day guarantee on every
- * purchase, monthly and annual, no reason required. There was no code path that
+ * docs/REFUND-POLICY.md and docs/FAQ.md promise a guarantee on the first payment,
+ * monthly and annual, no reason required, once per customer. There was no code path that
  * could honour it, no purchase date to evaluate it against, and no record of a
  * refund having been given, so support answered by opening a provider dashboard
  * and reading an invoice date. A guess is wrong in one of two directions and both
@@ -29,8 +29,34 @@ import { billedQuantity } from './quantity.js';
  * a refund that the provider did not confirm.
  */
 
-/** The guarantee, in days, as published. */
-export const refundGuaranteeDays = 30;
+/**
+ * The guarantee, in days, as published: 14 from the first payment, once per
+ * customer. It matches the withdrawal window EU and UK law gives consumers and
+ * Paddle's own discretionary window, and it halves the time a plan can be used
+ * and then refunded. Renewals never start a new window.
+ */
+export const refundGuaranteeDays = 14;
+
+/** Whether any workspace this workspace's owner owns has already had a guarantee refund. */
+async function accountHasGuaranteeRefund(organizationId: string): Promise<boolean> {
+  const owners = await prisma.member.findMany({
+    where: { organizationId, role: 'owner' },
+    select: { userId: true },
+  });
+  if (owners.length === 0) return false;
+
+  const owned = await prisma.member.findMany({
+    where: { userId: { in: owners.map((owner) => owner.userId) }, role: 'owner' },
+    select: { organizationId: true },
+    distinct: ['organizationId'],
+  });
+
+  return (
+    (await prisma.refundRecord.count({
+      where: { organizationId: { in: owned.map((row) => row.organizationId) }, eligible: true },
+    })) > 0
+  );
+}
 
 export class RefundError extends Error {
   readonly code: string;
@@ -138,7 +164,16 @@ export async function refundEligibility(
     ? Math.floor((now.getTime() - firstChargeAt.getTime()) / (24 * 60 * 60 * 1000))
     : null;
 
-  const alreadyRefunded = organization?.refunds.length !== 0;
+  /**
+   * Once per customer, not once per workspace.
+   *
+   * A guarantee checked per workspace could be claimed again by opening a second
+   * workspace on the same account, paying, and asking again. The account is the
+   * customer: every workspace its owner owns is checked for a refund already
+   * granted under the guarantee.
+   */
+  const alreadyRefunded =
+    organization?.refunds.length !== 0 || (await accountHasGuaranteeRefund(organizationId));
 
   /**
    * The interval is read from the shape of the billing cycle, not assumed.
@@ -162,7 +197,7 @@ export async function refundEligibility(
   const quantity = billedQuantity(subscription.plan as PlanTier, subscription.quantity);
   const amountMinor =
     definition.pricing === 'per_domain'
-      ? prices.monthlyMinor * quantity
+      ? perDomainBill(subscription.plan as PlanTier, quantity, currency).totalMinor
       : interval === 'annual'
         ? prices.annualMinor
         : prices.monthlyMinor;
@@ -197,7 +232,7 @@ export async function refundEligibility(
     return {
       ...base,
       eligible: false,
-      reason: 'A refund has already been issued for this workspace.',
+      reason: 'A guarantee refund has already been issued to this customer, on this workspace or another one they own. The guarantee applies once per customer.',
     };
   }
 
@@ -205,7 +240,7 @@ export async function refundEligibility(
     return {
       ...base,
       eligible: false,
-      reason: `The 30 day guarantee ended on ${eligibleUntil!.toISOString().slice(0, 10)}. Handle this as a goodwill request rather than a guarantee.`,
+      reason: `The ${refundGuaranteeDays} day guarantee ended on ${eligibleUntil!.toISOString().slice(0, 10)}. Handle this as a goodwill request rather than a guarantee.`,
     };
   }
 

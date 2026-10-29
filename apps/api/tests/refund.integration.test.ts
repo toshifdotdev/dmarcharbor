@@ -207,6 +207,41 @@ describe('refund eligibility against the published guarantee', () => {
     expect(second.reason).toMatch(/already been issued/i);
   });
 
+  it('applies once per customer, not once per workspace', async () => {
+    const first = await paidWorkspace('refund-customer-first', new Date());
+    await prisma.refundRecord.create({
+      data: {
+        organizationId: first.organizationId,
+        provider: 'RAZORPAY',
+        amountMinor: 1,
+        currency: 'INR',
+        plan: 'HARBOR',
+        eligible: true,
+        reason: 'first refund',
+      },
+    });
+
+    // A second workspace owned by the same person, paid today.
+    const owner = await prisma.member.findFirstOrThrow({
+      where: { organizationId: first.organizationId, role: 'owner' },
+      select: { userId: true },
+    });
+    const second = await paidWorkspace('refund-customer-second', new Date());
+    await prisma.member.updateMany({
+      where: { organizationId: second.organizationId, role: 'owner' },
+      data: { userId: owner.userId },
+    });
+
+    const eligibility = await refundEligibility(second.organizationId);
+    expect(eligibility.eligible).toBe(false);
+    expect(eligibility.alreadyRefunded).toBe(true);
+    expect(eligibility.reason).toMatch(/once per customer/i);
+  });
+
+  it('publishes a 14 day window', () => {
+    expect(refundGuaranteeDays).toBe(14);
+  });
+
   it('ignores a recorded refusal when deciding whether a refund was already given', async () => {
     const { organizationId } = await paidWorkspace('refund-refusal-only', new Date());
 

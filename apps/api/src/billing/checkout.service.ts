@@ -3,6 +3,7 @@ import { prisma } from '../database/prisma.js';
 import { recordAuditEvent } from '../services/audit.service.js';
 import { env } from '../config/env.js';
 import {
+  perDomainBill,
   planCatalog,
   planOrder,
   type BillingCurrency,
@@ -148,16 +149,18 @@ export async function startCheckout(input: StartCheckoutInput): Promise<Checkout
 
   // Fails loudly if the provider has no plan for this tier, so a price
   // mismatch cannot reach a customer as a surprise charge.
+  // Measured here, never taken from the request. A per-domain plan bills the
+  // active domains across the account, in the band that count falls in, with
+  // that band's minimum.
+  const billable = await billableQuantity(input.organizationId, input.plan);
+
   const plan = await requireStoredPlan({
     provider: provider.name,
     tier: input.plan,
     interval: input.interval,
     currency,
+    band: billable.band,
   });
-
-  // Measured here, never taken from the request. A per-domain plan bills the
-  // active domains across the account, with its published minimum.
-  const billable = await billableQuantity(input.organizationId, input.plan);
   const totalMinor = definition.pricing === 'per_domain' ? plan.priceMinor * billable.quantity : plan.priceMinor;
 
   const session = await provider.createCheckout({
@@ -568,6 +571,8 @@ export async function billingStatus(organizationId: string): Promise<{
     quantity: number;
     unitMinor: number;
     totalMinor: number;
+    /** The price band the quote is in, by index into the plan's bands. */
+    band: number;
     currency: BillingCurrency;
   };
   /**
@@ -641,8 +646,9 @@ export async function billingStatus(organizationId: string): Promise<{
   const prices = definition.prices[currency];
   const storedQuantity = organization.subscription?.quantity ?? 1;
   const quantity = billedQuantity(organization.plan, storedQuantity);
+  // A per-domain plan's unit is the price of the band the billed quantity is in.
   const unitMinor = definition.pricing === 'per_domain'
-    ? prices.monthlyMinor
+    ? perDomainBill(organization.plan, quantity, currency).unitMinor
     : interval === 'ANNUAL'
       ? prices.annualMinor
       : prices.monthlyMinor;
@@ -654,7 +660,8 @@ export async function billingStatus(organizationId: string): Promise<{
       : billableQuantity(organizationId, 'FLEET'),
   ]);
   const fleet = definition.pricing === 'per_domain' ? nextBillable : fleetBillable!;
-  const fleetUnitMinor = planCatalog.FLEET.prices[currency].monthlyMinor;
+  const fleetBill = perDomainBill('FLEET', fleet.activeDomains, currency);
+  const fleetUnitMinor = fleetBill.unitMinor;
 
   return {
     plan: organization.plan,
@@ -688,6 +695,7 @@ export async function billingStatus(organizationId: string): Promise<{
       quantity: fleet.quantity,
       unitMinor: fleetUnitMinor,
       totalMinor: fleetUnitMinor * fleet.quantity,
+      band: fleetBill.band,
       currency,
     },
     pendingPlan: organization.subscription?.pendingPlan

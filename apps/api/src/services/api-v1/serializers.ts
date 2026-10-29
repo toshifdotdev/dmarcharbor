@@ -74,7 +74,8 @@ export function serializeMe(input: MeInput) {
     limits: {
       maxClients: input.entitlements.maxClients,
       maxActiveDomains: input.entitlements.maxActiveDomains,
-      maxMembers: input.entitlements.maxMembers,
+      // Null where the plan has no team-size limit (stated, not left to JSON).
+      maxMembers: Number.isFinite(input.entitlements.maxMembers) ? input.entitlements.maxMembers : null,
     },
     key: {
       id: input.key.id,

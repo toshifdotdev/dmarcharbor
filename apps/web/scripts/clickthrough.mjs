@@ -3789,7 +3789,7 @@ const fleetAudit = await evalJs(`(() => {
     text,
     billedMonthlyOnly: /billed monthly only/i.test(text),
     freeInCard: /\\bfree\\b/i.test(text),
-    supportLine: /need white label or sso for more than 300 domains\\?/i.test(text),
+    supportLine: /admiralty includes your own domain and sso\\. need them for more than 300 domains\\?/i.test(text),
     supportHref: card.querySelector('a[href="/support"]')?.getAttribute('href') ?? null,
     noLadderHooks:
       !card.hasAttribute('data-plan') &&

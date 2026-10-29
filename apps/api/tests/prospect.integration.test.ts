@@ -108,8 +108,9 @@ describe('prospect risk reports', () => {
     expect(page.headers['cache-control']).toBe('no-store');
     expect(page.headers['x-robots-tag']).toBe('noindex');
     expect(page.body.preparedBy.workspaceName).toBe('Northwind IT');
-    // Harbor has no white label, so no logo or colours are offered.
-    expect(page.body.preparedBy).toMatchObject({ branded: false, logoUrl: null, primaryColor: null });
+    // Harbor includes the agency's logo and colours, but none are saved here,
+    // so none are offered.
+    expect(page.body.preparedBy).toMatchObject({ branded: true, logoUrl: null, primaryColor: null });
     expect(page.body).toMatchObject({
       domain: 'acme-widgets.example',
       prospectName: 'Acme Widgets',

@@ -192,13 +192,13 @@ describe('white label branding', () => {
     expect(stored.brandLogoUrl).toBe('https://cdn.harbour.test/logo.svg');
   });
 
-  it('refuses branding below Admiralty, so a cheap plan cannot look like a branded agency', async () => {
-    const { agent, organizationId } = await setup('HARBOR');
+  it('refuses logo and colours below Harbor, so a cheap plan cannot look like a branded agency', async () => {
+    const { agent, organizationId } = await setup('FAIRWAY');
 
     const refused = await agent.patch(`/api/workspaces/${organizationId}/branding`).send({ logoUrl: 'https://cdn.test/l.png' });
     expect(refused.status).toBe(402);
     expect(refused.body.error.feature).toBe('branding.whitelabel');
-    expect(refused.body.error.requiredIn).toBe('ADMIRALTY');
+    expect(refused.body.error.requiredIn).toBe('HARBOR');
 
     await prisma.organization.update({
       where: { id: organizationId },
@@ -210,6 +210,54 @@ describe('white label branding', () => {
     expect(resolved.logoUrl).toBeNull();
     expect(resolved.branded).toBe(false);
     expect(resolved.workspaceName).toBe('Harbour Digital');
+  });
+
+  it('lets Harbor set colours but keeps the custom domain for Admiralty', async () => {
+    const { agent, organizationId } = await setup('HARBOR');
+
+    const colours = await agent.patch(`/api/workspaces/${organizationId}/branding`).send({ brandPrimaryColor: '#123456' });
+    expect(colours.status).toBe(200);
+    const resolved = await resolveBranding(organizationId);
+    expect(resolved.branded).toBe(true);
+    expect(resolved.primaryColor).toBe('#123456');
+    expect(resolved.customDomainLicensed).toBe(false);
+
+    const domain = await agent
+      .put(`/api/workspaces/${organizationId}/branding/custom-domain`)
+      .send({ customDomain: `https://harbor-${fixtureId}.harbour.test` });
+    expect(domain.status).toBe(402);
+    expect(domain.body.error.feature).toBe('branding.customDomain');
+    expect(domain.body.error.requiredIn).toBe('ADMIRALTY');
+
+    const verify = await agent.post(`/api/workspaces/${organizationId}/branding/custom-domain/verify`);
+    expect(verify.status).toBe(402);
+  });
+
+  it('stops serving a kept custom domain after a downgrade, and lets it be removed', async () => {
+    const { agent, organizationId } = await setup('ADMIRALTY');
+    const host = `kept-${fixtureId}.harbour.test`;
+    await prisma.organization.update({
+      where: { id: organizationId },
+      data: { customDomain: host, customDomainToken: 'token', customDomainVerifiedAt: new Date() },
+    });
+
+    const live = await request(app).get('/api/branding/host').set('Host', host);
+    expect(live.status).toBe(200);
+    expect(live.body.customDomainVerified).toBe(true);
+
+    await grantPlan(organizationId, 'HARBOR');
+
+    // Answered as no agency, so the web app does not serve the brand on it.
+    const kept = await request(app).get('/api/branding/host').set('Host', host);
+    expect(kept.status).toBe(404);
+    const resolved = await resolveBranding(organizationId);
+    expect(resolved.customDomain).toBeNull();
+    expect(resolved.customDomainVerified).toBe(false);
+    expect(resolved.branded).toBe(true);
+
+    const removed = await agent.put(`/api/workspaces/${organizationId}/branding/custom-domain`).send({ customDomain: null });
+    expect(removed.status).toBe(200);
+    expect((await prisma.organization.findUniqueOrThrow({ where: { id: organizationId } })).customDomain).toBeNull();
   });
 
   it('does not use a custom domain until its DNS record is verified', async () => {
@@ -311,7 +359,7 @@ describe('white label branding', () => {
   });
 
   it('gates logo upload to the tier that includes it', async () => {
-    const { agent, organizationId } = await setup('HARBOR');
+    const { agent, organizationId } = await setup('FAIRWAY');
 
     const refused = await agent
       .post(`/api/workspaces/${organizationId}/branding/logo/upload`)
@@ -319,7 +367,7 @@ describe('white label branding', () => {
 
     expect(refused.status).toBe(402);
     expect(refused.body.error.feature).toBe('branding.logoUpload');
-    expect(refused.body.error.requiredIn).toBe('ADMIRALTY');
+    expect(refused.body.error.requiredIn).toBe('HARBOR');
   });
 
   it('refuses to confirm an object key belonging to another workspace', async () => {

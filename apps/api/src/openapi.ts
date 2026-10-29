@@ -740,7 +740,7 @@ export const openApiDocument = {
         description: [
           'The grant is held against an email address, not an account, so the agency never sets a password on behalf of somebody else staff. It activates the first time that person signs in with the same address, and works equally with a password or with Google or Microsoft sign in.',
           'A grant covers exactly one client. The contact cannot see any other client in the workspace, whichever internal role they also happen to hold.',
-          'Requires the portal.client entitlement, so it is a Harbor and Admiralty feature.',
+          'Requires the portal.client entitlement, which starts at Harbor and is on Fleet.',
         ].join(' '),
         parameters: [orgParam, idParam('clientId', 'Client the contact should see.')],
         responses: {
@@ -885,7 +885,7 @@ export const openApiDocument = {
         description: [
           'An agency selling monitoring to its clients should not hand over reports headed with a product they do not own, so the client facing surface presents the agency logo and colours instead.',
           'The logo must be an https URL and the colours must be hex. Applied to client facing pages and emails only. The agency own interface deliberately keeps DMARC Harbor branding, so support stays unambiguous.',
-          'Requires the branding.whitelabel entitlement, so it is an Admiralty feature.',
+          'Requires the branding.whitelabel entitlement, which starts at Harbor and is on Fleet.',
         ].join(' '),
         parameters: [orgParam],
         responses: { ...standardErrors, 200: { description: 'Branding updated.' }, 400: { description: 'The logo or colour is not usable.' } },
@@ -898,6 +898,7 @@ export const openApiDocument = {
         description: [
           'Returns a TXT record to publish, on the same ownership proof pattern as domain verification.',
           'The custom domain is not used until the record is verified, so a half configured agency cannot serve a broken portal to a client.',
+          'Setting a domain requires the branding.customDomain entitlement (Admiralty). Sending customDomain null removes a kept domain on any plan.',
         ].join(' '),
         parameters: [orgParam],
         responses: { ...standardErrors, 200: { description: 'Saved, with the record to publish.' } },
@@ -907,7 +908,7 @@ export const openApiDocument = {
       post: {
         tags: ['White label'],
         summary: 'Verify the custom domain',
-        description: 'Reads the TXT record and marks the domain usable. Recorded in the audit trail the first time it succeeds.',
+        description: 'Reads the TXT record and marks the domain usable. Recorded in the audit trail the first time it succeeds. Requires the branding.customDomain entitlement (Admiralty).',
         parameters: [orgParam],
         responses: { ...standardErrors, 200: { description: 'Verification result.' } },
       },
@@ -1176,7 +1177,7 @@ export const openApiDocument = {
         summary: 'What this workspace is paying for right now',
         description: [
           'Reports the effective plan, so a workspace mid cancellation still shows the plan it has paid for until the period ends.',
-          'For a per-domain plan it also returns the stored quantity, the unit price, the total, and the quantity measured for the next period. Every workspace gets a Fleet quote computed with Fleet\'s 30 day active-domain window.',
+          'For a per-domain plan it also returns the stored quantity, the unit price of the band it bills in, the total, and the quantity measured for the next period. Every workspace gets a Fleet quote computed with Fleet\'s 30 day active-domain window, with the band it falls in.',
         ].join(' '),
         responses: { 200: { description: 'Current plan, status, period end, price and per-domain quantity fields.' }, ...standardErrors },
       },
@@ -1415,7 +1416,7 @@ export const openApiDocument = {
         summary: 'Which agency serves this hostname',
         description: [
           'Resolves the agency for the hostname the request arrived on, so a white labelled portal knows whose brand to render before anybody has signed in.',
-          'No authentication is required and only branding is returned, never clients, domains or counts. A hostname that has never been verified returns 404, so an unverified or removed domain cannot be used to discover an agency.',
+          'No authentication is required and only branding is returned, never clients, domains or counts. An unknown hostname returns 404, and so does one whose workspace plan no longer includes branding.customDomain (Admiralty), so a domain kept after a downgrade does not keep serving the agency brand. A known hostname not yet verified is answered with customDomainVerified false.',
         ].join(' '),
         parameters: [
           {
@@ -1438,7 +1439,7 @@ export const openApiDocument = {
         summary: 'Branding a client contact should render',
         description: [
           'Resolved from the portal scope, so a contact always sees their own agency branding.',
-          'The workspace name is always present. The logo, colours and custom domain are only returned when the plan includes white labelling, and the custom domain only once its DNS record is verified.',
+          'The workspace name is always present. The logo and colours are returned when the plan includes branding.whitelabel (Harbor and above). The custom domain is returned only when the plan also includes branding.customDomain (Admiralty), and only once its DNS record is verified; customDomainLicensed says whether the plan includes it.',
         ].join(' '),
         responses: { 200: { description: 'Branding for the client facing surface.' }, ...standardErrors },
       },
@@ -2010,7 +2011,7 @@ export const openApiDocument = {
           'The four ladder plans with their limits, features and prices, followed by Fleet, which is billed per active domain. Public, so a pricing page can render before anyone signs up.',
           'Prices are returned in both USD cents and INR paise. The currency actually charged is whichever is selected at checkout.',
           'Mooring is free and covers two active domains. The paid prices are in the response, in USD and INR; this text does not repeat them so it cannot fall out of date.',
-          'Fleet is monthly only, has a minimum quantity, and grants exactly Harbor features: no white label, logo upload or SSO. The public API (api.access) is included from Harbor; white label and SSO from Admiralty.',
+          'Fleet is monthly only and grants exactly Harbor features, including the agency logo and colours, but not the custom domain or SSO. It is priced in volume bands: bands lists, in ascending order, each band upTo (the highest active-domain count it covers), its minimumQuantity and its unitMinor per currency. The bill is max(count, band minimum) times the band unit; prices and minimumQuantity are the first band. The public API (api.access) and logo and colours are included from Harbor; the custom domain and SSO from Admiralty. maxMembers is null where a plan has no team-size limit (Admiralty and Fleet).',
           'Data export and erasure are included on every plan, because the right to access and delete personal data cannot be paywalled.',
         ].join(' '),
         responses: { 200: { description: 'Plan catalog.' } },
@@ -2208,7 +2209,7 @@ export const openApiDocument = {
         tags: ['Billing'],
         summary: 'Whether this workspace can be refunded',
         description: [
-          'Evaluates the published 30 day money back guarantee against the recorded purchase date.',
+          'Evaluates the published 14 day money back guarantee against the recorded first payment. It applies once per customer: a refund already granted on any workspace the owner owns makes the rest ineligible.',
           'Read only, and safe to call during a support conversation. This exists because the guarantee was published with nothing to evaluate it against, so the only way to answer was to open a provider dashboard and read an invoice date.',
           'Returns an explicit refusal rather than a guess when no completed purchase is on record, and says which day the window ended when it has.',
         ].join(' '),
@@ -4348,7 +4349,7 @@ export const openApiDocument = {
             properties: {
               maxClients: { type: 'integer' },
               maxActiveDomains: { type: 'integer' },
-              maxMembers: { type: 'integer' },
+              maxMembers: { type: ['integer', 'null'], description: 'Null when the plan has no team-size limit.' },
             },
           },
           key: {

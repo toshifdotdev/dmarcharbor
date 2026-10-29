@@ -7,7 +7,7 @@ import { workspaceIdSchema } from '../models/auth.model.js';
 export const refundRouter = Router();
 
 /**
- * Refunds against the published 30 day guarantee.
+ * Refunds against the published 14 day guarantee.
  *
  * Staff credentialed, on the same reasoning as a plan change and an entitlement
  * override: paying money out is not something the permission table should be able

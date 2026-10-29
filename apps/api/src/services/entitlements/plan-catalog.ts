@@ -23,6 +23,7 @@ export type EntitlementKey =
   | 'reports.inbox'
   | 'reports.tlsrpt'
   | 'branding.logoUpload'
+  | 'branding.customDomain'
   | 'integrations.webhooks'
   | 'senders.owners'
   | 'dns.automation'
@@ -53,7 +54,9 @@ export const entitlementLabels: Record<EntitlementKey, string> = {
   digests: 'Scheduled report digests',
   'audit.trail': 'The audit trail',
   'portal.client': 'The client portal and client approvals',
-  'branding.whitelabel': 'White label',
+  // Logo and colours on client-facing pages and emails. The custom domain is a
+  // separate key, so the two can sit on different plans.
+  'branding.whitelabel': 'Your logo and colours for clients',
   'api.access': 'API access',
   'auth.sso': 'Single sign-on',
   'data.export': 'Data export',
@@ -63,6 +66,7 @@ export const entitlementLabels: Record<EntitlementKey, string> = {
   'reports.inbox': 'Report collection from your own mailbox',
   'reports.tlsrpt': 'TLS reports',
   'branding.logoUpload': 'Logo upload',
+  'branding.customDomain': 'Client pages on your own domain',
   'integrations.webhooks': 'Webhooks',
   'senders.owners': 'Sender owners',
   'dns.automation': 'Publish DNS records through Cloudflare',
@@ -92,6 +96,27 @@ export interface PlanPrice {
   annualMinor: number;
 }
 
+/** No cap. Serialises as null. */
+export const UNLIMITED = Number.POSITIVE_INFINITY;
+
+export function isUnlimited(limit: number | null | undefined): boolean {
+  return limit === null || limit === undefined || !Number.isFinite(limit);
+}
+
+/** A limit as a person reads it: "25", or "unlimited". */
+export function limitText(limit: number): string {
+  return isUnlimited(limit) ? 'unlimited' : String(limit);
+}
+
+export interface PerDomainBand {
+  /** The highest active-domain count this band covers. */
+  upTo: number;
+  /** The least count billed in this band. */
+  minimumQuantity: number;
+  /** Price per billed domain per month, in minor units. */
+  unitMinor: Record<BillingCurrency, number>;
+}
+
 export interface PlanDefinition {
   tier: PlanTier;
   label: string;
@@ -106,8 +131,23 @@ export interface PlanDefinition {
   intervals: ('monthly' | 'annual')[];
   /** The least quantity a per-domain plan bills. Null for a flat plan. */
   minimumQuantity: number | null;
+  /**
+   * Volume bands for a per-domain plan, in ascending order; null for a flat plan.
+   *
+   * The band is chosen by the measured active-domain count: the first band
+   * whose `upTo` holds it. The bill is max(count, band.minimumQuantity) × the
+   * band's unit price. Each band's minimum is set so the bill at the top of one
+   * band equals the bill at the bottom of the next, so adding a domain never
+   * lowers the bill. `prices` and `minimumQuantity` above are the first band's.
+   */
+  bands: PerDomainBand[] | null;
   maxClients: number;
   maxActiveDomains: number;
+  /**
+   * Team members per workspace. `UNLIMITED` (Infinity) where there is no cap:
+   * every comparison then holds without a special case, and JSON writes it as
+   * null, which is what the web app reads as "Unlimited".
+   */
   maxMembers: number;
   /**
    * How many workspaces this plan allows its owner to hold.
@@ -171,6 +211,7 @@ const allFeatures = (overrides: Partial<Record<EntitlementKey, boolean>> = {}): 
   'reports.inbox': true,
   'reports.tlsrpt': true,
   'branding.logoUpload': true,
+  'branding.customDomain': true,
   'integrations.webhooks': true,
   'senders.owners': true,
   'dns.automation': true,
@@ -233,8 +274,16 @@ const noPortal = { 'portal.client': false } as const;
  */
 const noApi = { 'api.access': false } as const;
 const noSso = { 'auth.sso': false } as const;
-// Logo upload ships with white labelling, so the two travel together.
-const noBrand = { 'branding.whitelabel': false, 'branding.logoUpload': false } as const;
+/**
+ * Branding for what clients see.
+ *
+ * Logo and colours start at Harbor, the plan with the client portal: a portal
+ * that carries someone else's look tells the agency's clients who the vendor
+ * is. Logo upload ships with them. The custom domain, which hides us entirely,
+ * stays Admiralty-only along with SSO, and is what Admiralty is bought for.
+ */
+const noBrand = { 'branding.whitelabel': false, 'branding.logoUpload': false, 'branding.customDomain': false } as const;
+const noCustomDomain = { 'branding.customDomain': false } as const;
 /**
  * Scheduled client digests start at Harbor.
  *
@@ -359,7 +408,28 @@ const noTlsRpt = { 'reports.tlsrpt': false } as const;
  * the first time either plan changed, and the promise is exactly that the two
  * grant the same things.
  */
-const harborFeatures = allFeatures({ ...noSso, ...noBrand, 'trust.center': true });
+const harborFeatures = allFeatures({ ...noSso, ...noCustomDomain, 'trust.center': true });
+
+/**
+ * Fleet's volume bands.
+ *
+ * Fleet is the step up from Harbor below 200 domains and the only plan above
+ * 300. Between 200 and 300 it costs about what Admiralty does ($400 against
+ * $399) without the custom domain and SSO, so Admiralty is the better buy
+ * where both fit. Above 300 the price per domain falls with volume. The
+ * minimums make each boundary continuous: 200 × $2.00 = 320 × $1.25 = $400,
+ * 500 × $1.25 = 625 × $1.00 = $625, 2,000 × $1.00 ≈ 2,667 × $0.75 = $2,000.
+ * INR is at the same parity as every other plan (about ₹84 to the dollar),
+ * each band rounded up to the next rupee where plain parity would make the
+ * bill fall by a few rupees at the boundary. A unit test walks every count
+ * from 1 to 5,000 in both currencies to keep it that way.
+ */
+const fleetBands: PerDomainBand[] = [
+  { upTo: 200, minimumQuantity: 75, unitMinor: { USD: 200, INR: 16900 } },
+  { upTo: 500, minimumQuantity: 320, unitMinor: { USD: 125, INR: 10600 } },
+  { upTo: 2000, minimumQuantity: 625, unitMinor: { USD: 100, INR: 8500 } },
+  { upTo: 5000, minimumQuantity: 2667, unitMinor: { USD: 75, INR: 6400 } },
+];
 
 export const planCatalog: Record<PlanTier, PlanDefinition> = {
   MOORING: {
@@ -370,10 +440,12 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     pricing: 'flat',
     intervals: ['monthly', 'annual'],
     minimumQuantity: null,
+    bands: null,
     maxClients: 1,
     maxActiveDomains: 2,
-      maxMembers: 1,
-      maxWorkspaces: 1,
+    // Two, so an owner can bring in the one technician who will look at it.
+    maxMembers: 2,
+    maxWorkspaces: 1,
     activeDomainWindowDays: 30,
     maxProspectReportsPerMonth: 0,
     features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noIntegrations, ...noDnsAutomation, ...noDnsHosted, ...noManagedSpf, ...noHostedBimi, ...noHostedMtaSts, ...noPsa, ...noProspects, ...noTlsRpt, ...off }),
@@ -385,14 +457,15 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     // around the policy. This said "Quarantine without rejection", which nothing
     // enforced and no customer could have relied on.
     descriptor: 'Alerts, forensic evidence and hosted DMARC for a small client book.',
-    prices: { USD: { monthlyMinor: 2900, annualMinor: 29000 }, INR: { monthlyMinor: 249900, annualMinor: 2499000 } },
+    prices: { USD: { monthlyMinor: 3900, annualMinor: 39000 }, INR: { monthlyMinor: 329900, annualMinor: 3299000 } },
     pricing: 'flat',
     intervals: ['monthly', 'annual'],
     minimumQuantity: null,
+    bands: null,
     maxClients: 5,
     maxActiveDomains: 20,
-      maxMembers: 3,
-      maxWorkspaces: 2,
+    maxMembers: 5,
+    maxWorkspaces: 2,
     activeDomainWindowDays: 365,
     maxProspectReportsPerMonth: 10,
     features: allFeatures({ ...noNamedForensic, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noDigests, ...noManagedSpf, ...noHostedBimi, ...noHostedMtaSts, ...noPsa }),
@@ -400,15 +473,16 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
   HARBOR: {
     tier: 'HARBOR',
     label: 'Harbor',
-    descriptor: 'Client portal and approvals, named forensic evidence, API and PSA for a full client book.',
+    descriptor: 'Client portal under your logo, named forensic evidence, API and PSA for a full client book.',
     prices: { USD: { monthlyMinor: 14900, annualMinor: 149000 }, INR: { monthlyMinor: 1249900, annualMinor: 12499000 } },
     pricing: 'flat',
     intervals: ['monthly', 'annual'],
     minimumQuantity: null,
+    bands: null,
     maxClients: 20,
     maxActiveDomains: 80,
-      maxMembers: 10,
-      maxWorkspaces: 3,
+    maxMembers: 25,
+    maxWorkspaces: 3,
     activeDomainWindowDays: 1095,
     maxProspectReportsPerMonth: 50,
     features: harborFeatures,
@@ -416,15 +490,18 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
   ADMIRALTY: {
     tier: 'ADMIRALTY',
     label: 'Admiralty',
-    descriptor: 'White label and SSO for large portfolios.',
+    descriptor: 'Client pages on your own domain, SSO and an unlimited team, up to 300 domains.',
     prices: { USD: { monthlyMinor: 39900, annualMinor: 399000 }, INR: { monthlyMinor: 3399900, annualMinor: 33999000 } },
     pricing: 'flat',
     intervals: ['monthly', 'annual'],
     minimumQuantity: null,
+    bands: null,
     maxClients: 75,
     maxActiveDomains: 300,
-      maxMembers: 25,
-      maxWorkspaces: 5,
+    // SSO adds people on their first sign-in, so a cap would refuse a new hire
+    // arriving through the agency's own identity provider.
+    maxMembers: UNLIMITED,
+    maxWorkspaces: 5,
     activeDomainWindowDays: 3650,
     maxProspectReportsPerMonth: 200,
     features: allFeatures(),
@@ -432,21 +509,23 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
   /**
    * Harbor's features for larger portfolios, billed per active domain.
    *
-   * Never cheaper than Harbor at the minimum, and never a route to white label
-   * or SSO: those stay Admiralty-only, which is what keeps the two plans from
-   * competing for the same buyer.
+   * Never cheaper than Harbor at the minimum, and never a route to the custom
+   * domain or SSO: those stay Admiralty-only, which is what keeps the two plans
+   * from competing for the same buyer.
    */
   FLEET: {
     tier: 'FLEET',
     label: 'Fleet',
-    descriptor: "Harbor's features for larger portfolios, billed per active domain.",
+    descriptor: "Harbor's features for larger portfolios, billed per active domain at a price that falls with volume.",
     prices: { USD: { monthlyMinor: 200, annualMinor: 0 }, INR: { monthlyMinor: 16900, annualMinor: 0 } },
     pricing: 'per_domain',
     intervals: ['monthly'],
     minimumQuantity: 75,
+    bands: fleetBands,
     maxClients: 1000,
     maxActiveDomains: 5000,
-    maxMembers: 25,
+    // Billed per domain, so seats are not a second meter.
+    maxMembers: UNLIMITED,
     maxWorkspaces: 5,
     activeDomainWindowDays: 30,
     maxProspectReportsPerMonth: 200,
@@ -516,8 +595,52 @@ export function formatPlanPrice(
     return formatPrice(plan, currency, interval);
   }
 
-  const qty = Math.max(1, Math.trunc(quantity ?? definition.minimumQuantity ?? 1));
-  return formatAmount(definition.prices[currency].monthlyMinor * qty, currency);
+  return formatAmount(perDomainBill(plan, quantity ?? definition.minimumQuantity ?? 1, currency).totalMinor, currency);
+}
+
+/**
+ * The band a count falls in, as its index. 0 for a flat plan.
+ *
+ * A count above the top band is billed in the top band, and a count below the
+ * first band's minimum is billed at that minimum, in the first band. Because
+ * every band's minimum sits inside its own range, the billed quantity always
+ * falls in the same band as the count it came from, so the band can be read
+ * back from a stored quantity alone.
+ */
+export function bandIndexFor(plan: PlanTier, count: number): number {
+  const bands = planCatalog[plan].bands;
+  if (!bands || bands.length === 0) return 0;
+  const n = Math.max(0, Math.trunc(count));
+  const index = bands.findIndex((band) => n <= band.upTo);
+  return index === -1 ? bands.length - 1 : index;
+}
+
+/** " (201 to 500 domains)" for a band of a per-domain plan, for provider plan names; "" otherwise. */
+export function bandSuffix(plan: PlanTier, band: number): string {
+  const bands = planCatalog[plan].bands;
+  const entry = bands?.[band];
+  if (!bands || !entry) return '';
+  const from = band === 0 ? 1 : (bands[band - 1]?.upTo ?? 0) + 1;
+  return ` (${from} to ${entry.upTo} domains)`;
+}
+
+/** What a measured count bills on a plan: the quantity, the band's unit price and the total. */
+export function perDomainBill(
+  plan: PlanTier,
+  count: number,
+  currency: BillingCurrency,
+): { band: number; quantity: number; minimum: number; unitMinor: number; totalMinor: number } {
+  const definition = planCatalog[plan];
+  if (definition.pricing !== 'per_domain') {
+    const unitMinor = definition.prices[currency].monthlyMinor;
+    return { band: 0, quantity: 1, minimum: 1, unitMinor, totalMinor: unitMinor };
+  }
+  const band = bandIndexFor(plan, count);
+  const entry = definition.bands?.[band];
+  const minimum = Math.max(1, entry?.minimumQuantity ?? definition.minimumQuantity ?? 1);
+  const unitMinor = entry?.unitMinor[currency] ?? definition.prices[currency].monthlyMinor;
+  const quantity = Math.max(minimum, Math.trunc(count));
+  return { band, quantity, minimum, unitMinor, totalMinor: unitMinor * quantity };
 }
 
 /**
@@ -574,6 +697,7 @@ export function previousTier(tier: PlanTier): PlanTier | null {
   return planOrder[index - 1] ?? null;
 }
 
+/** A limit for a quota; `UNLIMITED` where the plan has none. */
 export function quotaLimitFor(tier: PlanTier, quota: QuotaKey): number {
   const plan = planCatalog[tier];
   switch (quota) {

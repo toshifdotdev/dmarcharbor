@@ -1,7 +1,7 @@
 import { env } from '../config/env.js';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { ApiError, Environment, Paddle as PaddleSdk } from '@paddle/paddle-node-sdk';
-import { planOrder, type BillingCurrency } from '../services/entitlements/plan-catalog.js';
+import { bandIndexFor, bandSuffix, planOrder, type BillingCurrency } from '../services/entitlements/plan-catalog.js';
 import {
   assertValidQuantity,
   BillingProviderError,
@@ -151,6 +151,7 @@ export class PaddleBillingProvider implements BillingProvider {
       tier: input.plan,
       interval: input.interval,
       currency: input.currency,
+      band: bandIndexFor(input.plan, input.quantity),
     });
 
     const { providerCustomerId } = await this.ensureCustomer({
@@ -225,6 +226,7 @@ export class PaddleBillingProvider implements BillingProvider {
       tier: input.plan,
       interval: input.interval,
       currency,
+      band: bandIndexFor(input.plan, input.quantity),
     });
 
     // Direction is decided by tier order rather than by arithmetic on a decimal
@@ -252,7 +254,13 @@ export class PaddleBillingProvider implements BillingProvider {
 
     // Same plan and same quantity: nothing to send. A quantity change on the
     // same plan is still a real change, so it must not take this early exit.
-    if (currentRank !== -1 && currentRank === targetRank && remoteQuantity === input.quantity) {
+    // A band change on the same plan is a different price, so it is sent too.
+    if (
+      currentRank !== -1 &&
+      currentRank === targetRank &&
+      remoteQuantity === input.quantity &&
+      remotePriceId === target.providerPlanId
+    ) {
       return { ...live, cancelAtPeriodEnd: false };
     }
 
@@ -288,14 +296,16 @@ export class PaddleBillingProvider implements BillingProvider {
    * Changes the quantity for the next period without proration.
    *
    * `do_not_bill` is the provider's name for "the current period was paid at
-   * the old count and is not repriced". The price id is always FLEET's stored
-   * monthly price, in the subscription's own currency, so this cannot silently
-   * move a subscription onto a different product.
+   * the old count and is not repriced". The price id is FLEET's stored monthly
+   * price for the band the new quantity bills in, in the subscription's own
+   * currency, so a count that crosses a band changes the unit price in the same
+   * change and can never land on a different product.
    */
   async updateQuantity(input: {
     providerSubscriptionId: string;
     plan: PlanTier;
     quantity: number;
+    band?: number;
   }): Promise<void> {
     assertValidQuantity(input.quantity);
     void input.plan;
@@ -323,6 +333,7 @@ export class PaddleBillingProvider implements BillingProvider {
       tier: 'FLEET',
       interval: 'monthly',
       currency,
+      band: input.band ?? bandIndexFor('FLEET', input.quantity),
     });
 
     await this.call(() =>
@@ -481,6 +492,7 @@ async refund(input: {
         tier: entry.tier,
         interval: entry.interval,
         currency,
+        band: entry.band,
       });
       if (existing) {
         reused += 1;
@@ -494,7 +506,7 @@ async refund(input: {
       const price = await this.call(() =>
         paddle().prices.create({
           productId,
-          description: `DMARC Harbor ${entry.tier}, billed ${entry.interval}`,
+          description: `DMARC Harbor ${entry.tier}${bandSuffix(entry.tier, entry.band)}, billed ${entry.interval}`,
           type: 'standard',
           // Paddle is the merchant of record and collects tax itself. Which way
           // the price is presented is the business account's own setting, so
@@ -512,6 +524,7 @@ async refund(input: {
         tier: entry.tier,
         interval: entry.interval,
         currency,
+        band: entry.band,
         priceMinor: entry.priceMinor,
         providerPlanId: price.id,
       });

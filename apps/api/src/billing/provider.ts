@@ -150,6 +150,12 @@ export interface BillingProvider {
     providerSubscriptionId: string;
     plan: PlanTier;
     quantity: number;
+    /**
+     * The price band the quantity bills in. A count that crosses a band moves
+     * the subscription to that band's provider plan in the same change.
+     * Derived from the quantity when omitted (see `bandIndexFor`).
+     */
+    band?: number;
   }): Promise<void>;
 
   /**
@@ -167,7 +173,7 @@ export interface BillingProvider {
   /**
    * Refunds money back through the provider.
    *
-   * Exists because the refund policy promises a 30 day money back guarantee on every
+   * Exists because the refund policy promises a money back guarantee on the first
    * purchase and there was no code path that could honour it. Doing it from a
    * provider dashboard by hand also left no record here, so a second request for the
    * same purchase had nothing to detect.

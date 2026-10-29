@@ -181,9 +181,9 @@ export default async function PricingPage({
               Plans differ in how many clients and domains they hold and in what you can hand to clients. Reports are
               read and measured the same way on every plan.
             </p>
-            {/* Promised in the Refund Policy (30 days from the order date, monthly and annual alike). */}
+            {/* Promised in the Refund Policy: 14 days from the first payment, once per customer. */}
             <p className="text-ui text-fg-2" data-testid="pricing-money-back">
-              <span className="font-semibold text-fg">30-day money-back guarantee</span> on every paid plan.{" "}
+              <span className="font-semibold text-fg">14-day money-back guarantee</span> on your first payment.{" "}
               <Link href="/refunds" className="link">
                 How refunds work
               </Link>

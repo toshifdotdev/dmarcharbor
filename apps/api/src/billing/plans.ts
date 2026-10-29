@@ -58,15 +58,33 @@ export interface StoredPlan {
   currency: CurrencyCode;
   priceMinor: number;
   providerPlanId: string;
+  /** The volume band of a per-domain plan; 0 for a flat plan. */
+  band: number;
   active: boolean;
 }
 
-/** What the catalog says a plan should cost, for a given interval. */
-export function catalogPriceMinor(tier: PlanTier, interval: BillingInterval, currency: CurrencyCode): number {
-  const prices = planCatalog[tier].prices as Record<BillingCurrency, { monthlyMinor: number; annualMinor: number }>;
+/**
+ * What the catalog says a plan should cost, for a given interval and band.
+ *
+ * A per-domain plan's price is the band's unit price. A band the plan does not
+ * have is refused, so a stored row can never be checked against the wrong unit.
+ */
+export function catalogPriceMinor(tier: PlanTier, interval: BillingInterval, currency: CurrencyCode, band = 0): number {
+  const definition = planCatalog[tier];
+  const prices = definition.prices as Record<BillingCurrency, { monthlyMinor: number; annualMinor: number }>;
   const bucket = prices[currency];
   if (!bucket) {
     throw new BillingPlanError(`We do not sell ${tier} in ${currency}.`, 'CURRENCY_UNSUPPORTED', 400);
+  }
+  if (definition.bands) {
+    const entry = definition.bands[band];
+    if (!entry) {
+      throw new BillingPlanError(`${tier} has no price band ${band}.`, 'BAND_UNKNOWN', 400);
+    }
+    return entry.unitMinor[currency];
+  }
+  if (band !== 0) {
+    throw new BillingPlanError(`${tier} is a flat plan and has no price bands.`, 'BAND_UNKNOWN', 400);
   }
   return interval === 'monthly' ? bucket.monthlyMinor : bucket.annualMinor;
 }
@@ -78,17 +96,24 @@ export function catalogPriceMinor(tier: PlanTier, interval: BillingInterval, cur
  * Read from the catalog rather than a hand-written list: FLEET contributes its
  * monthly unit price and no annual plan, which a second list would forget.
  */
-export function expectedPlans(currency: CurrencyCode): { tier: PlanTier; interval: BillingInterval; priceMinor: number }[] {
+export function expectedPlans(
+  currency: CurrencyCode,
+): { tier: PlanTier; interval: BillingInterval; band: number; priceMinor: number }[] {
   const plans: PlanDefinition[] = catalogOrder
     .filter((tier) => tier !== 'MOORING')
     .map((tier) => planCatalog[tier]);
 
+  // One provider plan per band of a per-domain plan, because each band has its
+  // own unit price and customers sit in different bands at the same time.
   return plans.flatMap((plan) =>
-    plan.intervals.map((interval) => ({
-      tier: plan.tier,
-      interval,
-      priceMinor: catalogPriceMinor(plan.tier, interval, currency),
-    })),
+    plan.intervals.flatMap((interval) =>
+      (plan.bands ? plan.bands.map((_, band) => band) : [0]).map((band) => ({
+        tier: plan.tier,
+        interval,
+        band,
+        priceMinor: catalogPriceMinor(plan.tier, interval, currency, band),
+      })),
+    ),
   );
 }
 
@@ -97,14 +122,16 @@ export async function findStoredPlan(input: {
   tier: PlanTier;
   interval: BillingInterval;
   currency: CurrencyCode;
+  band?: number;
 }): Promise<StoredPlan | null> {
   const row = await prisma.billingPlan.findUnique({
     where: {
-      provider_tier_interval_currency: {
+      provider_tier_interval_currency_band: {
         provider: input.provider as never,
         tier: input.tier,
         interval: intervalToEnum[input.interval],
         currency: currencyToEnum[input.currency],
+        band: input.band ?? 0,
       },
     },
   });
@@ -125,11 +152,12 @@ export async function requireStoredPlan(input: {
   tier: PlanTier;
   interval: BillingInterval;
   currency: CurrencyCode;
+  band?: number;
 }): Promise<StoredPlan> {
   const stored = await findStoredPlan(input);
   if (!stored) {
     throw new BillingPlanError(
-      `${input.provider} has no ${input.interval} ${input.tier} plan stored in ${input.currency}. Run the plan sync before accepting payment for it.`,
+      `${input.provider} has no ${input.interval} ${input.tier} plan${input.band ? ` (band ${input.band})` : ''} stored in ${input.currency}. Run the plan sync before accepting payment for it.`,
       'PLAN_NOT_SYNCED',
       503,
     );
@@ -139,7 +167,7 @@ export async function requireStoredPlan(input: {
     throw new BillingPlanError(`That plan is no longer on sale.`, 'PLAN_RETIRED', 409);
   }
 
-  const expected = catalogPriceMinor(input.tier, input.interval, input.currency);
+  const expected = catalogPriceMinor(input.tier, input.interval, input.currency, input.band ?? 0);
   if (stored.priceMinor !== expected) {
     throw new BillingPlanError(
       `The stored price for ${input.tier} ${input.interval} in ${input.currency} does not match the catalog. Run the plan sync before accepting payment.`,
@@ -165,9 +193,11 @@ export async function saveStoredPlan(input: {
   currency: CurrencyCode;
   priceMinor: number;
   providerPlanId: string;
+  band?: number;
   active?: boolean;
 }): Promise<StoredPlan> {
-  const expected = catalogPriceMinor(input.tier, input.interval, input.currency);
+  const band = input.band ?? 0;
+  const expected = catalogPriceMinor(input.tier, input.interval, input.currency, band);
   if (input.priceMinor !== expected) {
     throw new BillingPlanError(
       `Refusing to store ${input.tier} ${input.interval} in ${input.currency} at ${input.priceMinor}, because the catalog says ${expected}.`,
@@ -178,11 +208,12 @@ export async function saveStoredPlan(input: {
 
   const row = await prisma.billingPlan.upsert({
     where: {
-      provider_tier_interval_currency: {
+      provider_tier_interval_currency_band: {
         provider: input.provider as never,
         tier: input.tier,
         interval: intervalToEnum[input.interval],
         currency: currencyToEnum[input.currency],
+        band,
       },
     },
     create: {
@@ -190,6 +221,7 @@ export async function saveStoredPlan(input: {
       tier: input.tier,
       interval: intervalToEnum[input.interval],
       currency: currencyToEnum[input.currency],
+      band,
       priceMinor: input.priceMinor,
       providerPlanId: input.providerPlanId,
       active: input.active ?? true,
@@ -223,14 +255,14 @@ export async function listStoredPlans(provider: string): Promise<StoredPlan[]> {
  * shown what it still has to create.
  */
 export async function planSyncReport(provider: string, currency: CurrencyCode): Promise<
-  { tier: PlanTier; interval: BillingInterval; priceMinor: number; providerPlanId: string | null; status: 'missing' | 'ready' | 'price_drift' }[]
+  { tier: PlanTier; interval: BillingInterval; band: number; priceMinor: number; providerPlanId: string | null; status: 'missing' | 'ready' | 'price_drift' }[]
 > {
   const expected = expectedPlans(currency);
   const stored = await listStoredPlans(provider);
-  const byKey = new Map(stored.map((plan) => [`${plan.tier}:${plan.interval}:${plan.currency}`, plan]));
+  const byKey = new Map(stored.map((plan) => [`${plan.tier}:${plan.interval}:${plan.currency}:${plan.band}`, plan]));
 
   return expected.map((plan) => {
-    const match = byKey.get(`${plan.tier}:${plan.interval}:${currency}`);
+    const match = byKey.get(`${plan.tier}:${plan.interval}:${currency}:${plan.band}`);
     if (!match) {
       return { ...plan, providerPlanId: null, status: 'missing' };
     }
@@ -249,6 +281,7 @@ function toStoredPlan(row: {
   currency: CurrencyEnum;
   priceMinor: number;
   providerPlanId: string;
+  band: number;
   active: boolean;
 }): StoredPlan {
   return {
@@ -259,6 +292,7 @@ function toStoredPlan(row: {
     currency: enumToCurrency[row.currency],
     priceMinor: row.priceMinor,
     providerPlanId: row.providerPlanId,
+    band: row.band,
     active: row.active,
   };
 }

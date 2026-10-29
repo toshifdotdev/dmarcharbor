@@ -284,6 +284,8 @@ async function sendPlanPausedFeaturesEmailImpl(input: {
   plan: Parameters<typeof planLabel>[0];
   hostedRecords: string[];
   sso: { connections: number; signInUntil: Date } | null;
+  /** A verified custom domain the new plan no longer serves. */
+  customDomain?: string | null;
   /** Makes repeated calls for one downgrade send one message. */
   idempotencyKey: string;
 }): Promise<void> {
@@ -296,6 +298,7 @@ async function sendPlanPausedFeaturesEmailImpl(input: {
         planLabel: planLabel(input.plan),
         hostedRecords: input.hostedRecords,
         sso: input.sso ? { connections: input.sso.connections, signInUntil: input.sso.signInUntil.toISOString() } : null,
+        customDomain: input.customDomain ?? null,
         appUrl: appUrl('/'),
         billingUrl: appUrl('/billing'),
       }),
