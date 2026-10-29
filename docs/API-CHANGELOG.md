@@ -249,6 +249,40 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-12-01 — Subdomains seen sending
+
+Each domain now lists the names below it that receivers reported as the From
+domain and that the workspace does not monitor: a marketing platform on
+`news.example.com` nobody listed, an old app server, or someone trying a name
+that looks internal. It is read from the domain's stored aggregate reports
+(`header_from`), with no DNS lookups, and is on every plan.
+
+- `GET /api/workspaces/{id}/domains/{domainId}/subdomains` (domain read).
+  Looks back 90 days by report period, returns at most 100 names, busiest
+  first, each with `messages`, `dmarcPassMessages`, `dmarcPassPercent`,
+  `sourceCount`, `firstSeenAt`, `lastSeenAt` and `dismissed`. Names are
+  lowercased and folded across spellings (case, a trailing dot). The domain
+  itself, other organisations and names already in the workspace are left
+  out.
+- `PUT /api/workspaces/{id}/domains/{domainId}/subdomains/dismissal` (domain
+  update), body `{ name, dismissed }`. `true` hides a name from the list and
+  `false` lists it again. The name must be below the domain (400) and must
+  have appeared in its reports (404 `SUBDOMAIN_NOT_FOUND`). Idempotent, and
+  audited as `SUBDOMAIN_DISMISSED` or `SUBDOMAIN_RESTORED` only when something
+  changed.
+
+To monitor a subdomain, add it to the client with the existing
+`POST /clients/{clientId}/domains`. It counts toward the plan's domain limit
+like any other domain. The web app's domain page has a Subdomains tab with
+both actions. Dismissals are included in the data export as
+`subdomainDismissals`.
+
+A report whose own policy domain is the subdomain (because it publishes its
+own DMARC record) is stored only once that subdomain is a verified domain, so
+until then the subdomain shows here only through the parent's reports.
+
+---
+
 ## 2026-12-01 — Monthly usage export per client
 
 One row per client for a complete UTC calendar month, for billing the agency's

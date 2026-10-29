@@ -64,6 +64,10 @@ unmeasured.
    yours and failing; the reason they fail is shown beside them.
 3. On Fairway and above, name an owner for each sender, so the person fixing it is
    recorded.
+4. Open the Subdomains tab. It lists names below the domain, such as
+   `news.example.com`, that sent mail in the last 90 days and that you do not
+   monitor. Monitor the ones that belong to the client (each counts as a domain on
+   the plan), and dismiss the rest.
 
 If SPF is over the 10-lookup limit, managed SPF (Harbor and above) publishes a
 flattened record from the services you list and keeps it current.

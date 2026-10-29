@@ -20,6 +20,7 @@ import {
   senderBreakdownController,
   setSenderOwnerController,
 } from '../controllers/sender.controller.js';
+import { dismissSubdomainController, listSubdomainsController } from '../controllers/subdomain.controller.js';
 
 const onboardingJsonParser = express.json({ limit: '16kb' });
 
@@ -57,6 +58,19 @@ onboardingRouter.put(
   requireFeature('senders.owners'),
   onboardingJsonParser,
   setSenderOwnerController,
+);
+onboardingRouter.get(
+  '/workspaces/:organizationId/domains/:domainId/subdomains',
+  requireSession,
+  requireOrganizationPermission('domain', 'read'),
+  listSubdomainsController,
+);
+onboardingRouter.put(
+  '/workspaces/:organizationId/domains/:domainId/subdomains/dismissal',
+  requireSession,
+  requireOrganizationPermission('domain', 'update'),
+  onboardingJsonParser,
+  dismissSubdomainController,
 );
 onboardingRouter.put(
   '/workspaces/:organizationId/clients/:clientId/senders/review',

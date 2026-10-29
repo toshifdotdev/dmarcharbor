@@ -20,6 +20,7 @@ import {
   getManagedSpf,
   getMailboxCompliance,
   getPlanCatalog,
+  getSubdomains,
   getTlsReportSummary,
   getTlsReports,
   getDomainRegistration,
@@ -51,6 +52,7 @@ import type {
   ReportRow,
   ScanRow,
   SourceAttribution,
+  SubdomainDiscovery,
   TlsReportPage,
   TlsReportSummary,
 } from "@/lib/types";
@@ -65,6 +67,7 @@ import { ManagedSpf } from "@/components/harbor/managed-spf";
 import { MailboxCompliance } from "@/components/harbor/mailbox-compliance";
 import { ScanHistory, toScanHistoryRow } from "@/components/harbor/scan-history";
 import { SendersTable } from "@/components/harbor/senders-table";
+import { SubdomainsTable } from "@/components/harbor/subdomains-table";
 import { TlsReports } from "@/components/harbor/tls-reports";
 import { PageHeader, SectionHead } from "@/components/harbor/page-header";
 import { RefreshButton } from "@/components/harbor/refresh-button";
@@ -81,7 +84,8 @@ import { Tabs } from "@/components/ui/tabs";
  *
  * Read top to bottom it answers, in order: what posture is this domain in and
  * why (header), how much was measured (readouts), how the volume moved and
- * whether the feed is still alive (chart), who is sending (senders, sources),
+ * whether the feed is still alive (chart), who is sending (senders, sources,
+ * and unmonitored subdomains),
  * what the receivers actually said (reports), and what DNS says right now
  * (scans). Policy readiness sits beside the tables at wide sizes because it is
  * the decision the evidence feeds.
@@ -106,6 +110,7 @@ export default async function DomainPage({
   let onboarding: OnboardingState | undefined;
   let reports: ReportRow[] = [];
   let clientName = "";
+  let clientId = "";
   let slug = domainId;
   // The URL carries a slug; the API calls below use the domain's id. Some API
   // reads resolve a slug for the domain but not for its child queries (senders
@@ -120,6 +125,7 @@ export default async function DomainPage({
       const hit = c.domains.find((d) => d.id === domainId || d.slug === domainId);
       if (hit) {
         clientName = c.name;
+        clientId = c.id;
         slug = hit.slug;
         id = hit.id;
         break;
@@ -170,7 +176,7 @@ export default async function DomainPage({
 
   // A scan history is a different claim from the report evidence, so it fails
   // on its own and renders as a failure, never as an empty history.
-  const [scanHistory, switchState, dnsChanges, serviceMeta, members, me, entitlements, catalog, dnsConnections, mailboxCompliance, hostedDmarc, managedSpf, hostedBimi, hostedMtaSts, tlsSummary, tlsReports, registration, policyProposals] = await Promise.all([
+  const [scanHistory, switchState, dnsChanges, serviceMeta, members, me, entitlements, catalog, dnsConnections, mailboxCompliance, hostedDmarc, managedSpf, hostedBimi, hostedMtaSts, tlsSummary, tlsReports, registration, policyProposals, subdomains] = await Promise.all([
     listDomainScans(active.id, id).then(
       (page) => ({ rows: page.rows, nextCursor: page.nextCursor, failed: false }),
       () => ({ rows: [] as ScanRow[], nextCursor: null as string | null, failed: true }),
@@ -231,6 +237,8 @@ export default async function DomainPage({
     ),
     // null when the read failed: the panel then says so, never "none sent".
     getPolicyProposals(active.id, id).catch(() => null as DomainPolicyProposals | null),
+    // null when the read failed: the tab then says so, never "none seen".
+    getSubdomains(active.id, id).catch(() => null as SubdomainDiscovery | null),
   ]);
 
   const role =
@@ -439,6 +447,23 @@ export default async function DomainPage({
                   label: "Sources",
                   count: insights.sources.length,
                   panel: <SourcesTable sources={insights.sources} />,
+                },
+                {
+                  id: "subdomains",
+                  label: "Subdomains",
+                  count: subdomains ? subdomains.subdomains.filter((row) => !row.dismissed).length : null,
+                  panel: (
+                    <SubdomainsTable
+                      organizationId={active.id}
+                      domainId={id}
+                      clientId={clientId}
+                      domainName={insights.domain.name}
+                      subdomains={subdomains?.subdomains ?? null}
+                      windowDays={subdomains?.windowDays ?? 90}
+                      failed={subdomains === null}
+                      canEdit={canEditDomain}
+                    />
+                  ),
                 },
                 {
                   id: "mailbox",

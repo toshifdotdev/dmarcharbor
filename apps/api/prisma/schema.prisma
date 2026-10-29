@@ -37,6 +37,7 @@ model User {
   acknowledgedDnsChanges  DnsChange[]             @relation("AcknowledgedDnsChanges")
   ownedSenderReviews      SenderReview[]          @relation("SenderReviewOwner")
   reviewedSenderReviews   SenderReview[]          @relation("SenderReviewer")
+  dismissedSubdomains     SubdomainDismissal[]    @relation("SubdomainDismissedBy")
   createdDnsConnections   DnsProviderConnection[] @relation("CreatedDnsConnections")
   dnsPublications         DnsPublication[]        @relation("DnsPublications")
     notificationPreference  NotificationPreference?
@@ -226,6 +227,7 @@ model Organization {
   dnsChanges            DnsChange[]
   monthlyReportSchedules MonthlyReportSchedule[]
   senderReviews         SenderReview[]
+  subdomainDismissals   SubdomainDismissal[]
   dnsConnections        DnsProviderConnection[]
   dnsPublications       DnsPublication[]
   hostedDmarcRecords    HostedDmarcRecord[]
@@ -402,6 +404,7 @@ model Domain {
   switch                 DomainSwitch?
   dnsChanges             DnsChange[]
   senderReviews          SenderReview[]
+  subdomainDismissals    SubdomainDismissal[]
   dnsPublications        DnsPublication[]
   hostedDmarc            HostedDmarcRecord?
   hostedSpf              HostedSpfRecord?
@@ -2658,6 +2661,8 @@ enum AuditAction {
   POLICY_PROPOSAL_WITHDRAWN
   POLICY_PROPOSAL_APPROVED
   POLICY_PROPOSAL_DECLINED
+  SUBDOMAIN_DISMISSED
+  SUBDOMAIN_RESTORED
 }
 
 enum AuditOutcome {
@@ -2735,6 +2740,27 @@ model SenderReview {
   @@unique([domainId, senderKey])
   @@index([organizationId])
   @@map("sender_review")
+}
+
+/// A subdomain seen sending in a domain's reports that the agency chose not
+/// to add to monitoring, so it stops being listed as discovered. No row means
+/// it is listed. Removing the row (restore) lists it again.
+model SubdomainDismissal {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// The monitored parent whose reports carried the subdomain.
+  domainId       String
+  domain         Domain       @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  /// Lowercase, no trailing dot, always ending in ".<parent name>".
+  name           String
+  dismissedById  String?
+  dismissedBy    User?        @relation("SubdomainDismissedBy", fields: [dismissedById], references: [id], onDelete: SetNull)
+  createdAt      DateTime     @default(now())
+
+  @@unique([domainId, name])
+  @@index([organizationId])
+  @@map("subdomain_dismissal")
 }
 
 model EmailDelivery {

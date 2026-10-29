@@ -802,6 +802,41 @@ check(
   JSON.stringify(sourcesAudit),
 );
 
+// 4b-2b. Subdomains seen sending. The seed's mail is from the domain itself,
+//        so the honest panel is the empty one; what is asserted is that the
+//        read succeeded (never the failure state) and the API agrees.
+const subdomainTabAudit = await waitForEval(
+  `(() => {
+    const tab = [...document.querySelectorAll('[role="tab"]')].find((t) => t.textContent.trim().startsWith('Subdomains'));
+    if (!tab) return { tab: false, panel: false };
+    const panel = document.querySelector('[data-testid="subdomains-table"]');
+    const visible = !!panel && !panel.closest('[role="tabpanel"]')?.hidden;
+    if (!visible) tab.click();
+    return {
+      tab: true,
+      panel: visible,
+      failed: !!document.querySelector('[data-testid="subdomains-load-failed"]'),
+      window: panel ? panel.textContent.includes('90 days') : false,
+    };
+  })()`,
+  (a) => a && (a.panel || a.failed),
+  45000,
+);
+const subdomainApi = senderDomainId
+  ? await evalJs(`(async () => {
+      const ws = await (await fetch('/api/workspaces', { credentials: 'include' })).json();
+      const res = await fetch('/api/workspaces/' + ws[0].id + '/domains/' + ${JSON.stringify(senderDomainId)} + '/subdomains', { credentials: 'include' });
+      const body = await res.json().catch(() => ({}));
+      return { status: res.status, windowDays: body.windowDays, list: Array.isArray(body.subdomains) };
+    })()`).catch((error) => ({ status: 0, error: String(error) }))
+  : { status: 0, error: "no domain" };
+check(
+  "Subdomains tab reads the domain's reports and says what window it covers",
+  Boolean(subdomainTabAudit?.panel && !subdomainTabAudit.failed && subdomainTabAudit.window) &&
+    subdomainApi.status === 200 && subdomainApi.windowDays === 90 && subdomainApi.list === true,
+  JSON.stringify({ subdomainTabAudit, subdomainApi }),
+);
+
 // 4b-3. Gmail, Yahoo and Outlook requirements. The tab click can land before
 //       hydration, so retry inside the poll until the panel exists.
 const mailboxTabAudit = await waitForEval(

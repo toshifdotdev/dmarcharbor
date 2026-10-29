@@ -151,6 +151,8 @@ const ACTION_SENTENCES: Record<AuditAction, string> = {
   POLICY_PROPOSAL_WITHDRAWN: "Approval request withdrawn",
   POLICY_PROPOSAL_APPROVED: "Client approved a stricter DMARC policy",
   POLICY_PROPOSAL_DECLINED: "Client declined a stricter DMARC policy",
+  SUBDOMAIN_DISMISSED: "Discovered subdomain dismissed",
+  SUBDOMAIN_RESTORED: "Discovered subdomain listed again",
 };
 
 /**
@@ -212,6 +214,7 @@ const TARGET_SENTENCES: Record<string, string> = {
   monthly_report_schedule: "Monthly report schedule",
   monthly_report_link: "Monthly report download link",
   usage_export: "Monthly usage export",
+  subdomain: "Subdomain",
   sender_review: "Sender review",
   sender_review_bulk: "Bulk sender review",
 };

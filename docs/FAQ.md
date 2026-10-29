@@ -199,6 +199,13 @@ sender you mark as not yours stops blocking, because stopping it is the point. O
 Fairway and above you can name an owner for each sender, so the person who fixes it
 is recorded.
 
+**Will I find out about subdomains nobody told me about?**
+Yes, on every plan. Each domain's Subdomains tab lists the names below it, such as
+`news.example.com`, that receivers reported sending mail in the last 90 days and
+that you do not monitor, with their volume and pass rate. Monitor a name to add it
+to the client as a domain, or dismiss it. A low pass rate there is either a service
+nobody set up or someone using a name that looks like the client's.
+
 **How do alerts work?**
 Create alert rules per domain, for example on failure rate, volume from one source,
 report silence or new unauthenticated sources. Alerts go by email, and to Slack or

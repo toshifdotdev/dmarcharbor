@@ -1689,7 +1689,9 @@ export type AuditAction =
   | "POLICY_PROPOSAL_CREATED"
   | "POLICY_PROPOSAL_WITHDRAWN"
   | "POLICY_PROPOSAL_APPROVED"
-  | "POLICY_PROPOSAL_DECLINED";
+  | "POLICY_PROPOSAL_DECLINED"
+  | "SUBDOMAIN_DISMISSED"
+  | "SUBDOMAIN_RESTORED";
 
 /**
  * AuditOutcome is SUCCESS or DENIED. There is no FAILED value: the trail records
@@ -2314,6 +2316,27 @@ export interface MailboxCheck {
   fix: string | null;
   whereToCheck: Array<{ label: string; url: string }>;
   perProvider: MailboxPerProvider[] | null;
+}
+
+/** One name below a domain seen as header_from in its reports, not monitored. */
+export interface DiscoveredSubdomain {
+  name: string;
+  messages: number;
+  dmarcPassMessages: number;
+  /** One decimal place; null without messages. */
+  dmarcPassPercent: number | null;
+  /** Distinct sending IP addresses. */
+  sourceCount: number;
+  firstSeenAt: string | null;
+  lastSeenAt: string | null;
+  dismissed: { at: string; by: { id: string; name: string } | null } | null;
+}
+
+/** GET /api/workspaces/:id/domains/:domainId/subdomains */
+export interface SubdomainDiscovery {
+  domain: { id: string; name: string };
+  windowDays: number;
+  subdomains: DiscoveredSubdomain[];
 }
 
 /** GET /api/workspaces/:id/domains/:domainId/mailbox-compliance */

@@ -183,7 +183,7 @@ export async function buildExportPayload(input: {
           ...(input.scope === 'CLIENT' && input.targetId ? { clientId: input.targetId } : {}),
         };
 
-  const [organization, clients, domains, users, members, sessions, reports, forensics, alertRules, alertEvents, shares, digests, monthlyReports, senderReviews, dnsConnections, dnsPublications, hostedDmarcRecords, hostedSpfRecords, hostedBimiRecords, hostedMtaStsRecords, psaConnection, psaMappings, psaTicketLinks, psaJobs, tlsReports, prospectReports, domainRegistrations, policyProposals, auditLog] =
+  const [organization, clients, domains, users, members, sessions, reports, forensics, alertRules, alertEvents, shares, digests, monthlyReports, senderReviews, subdomainDismissals, dnsConnections, dnsPublications, hostedDmarcRecords, hostedSpfRecords, hostedBimiRecords, hostedMtaStsRecords, psaConnection, psaMappings, psaTicketLinks, psaJobs, tlsReports, prospectReports, domainRegistrations, policyProposals, auditLog] =
     await Promise.all([
       prisma.organization.findUnique({
         where: { id: org },
@@ -398,6 +398,23 @@ export async function buildExportPayload(input: {
           reviewedAt: true,
           domain: { select: { name: true } },
           ownerUser: { select: { email: true } },
+        },
+        orderBy: { createdAt: 'asc' },
+        take: exportTableLimit,
+      }),
+      prisma.subdomainDismissal.findMany({
+        where: {
+          organizationId: org,
+          ...(input.scope === 'CLIENT' && input.targetId
+            ? { domain: { clientId: input.targetId } }
+            : {}),
+          ...(input.scope === 'DOMAIN' && input.targetId ? { domainId: input.targetId } : {}),
+        },
+        select: {
+          name: true,
+          createdAt: true,
+          domain: { select: { name: true } },
+          dismissedBy: { select: { email: true } },
         },
         orderBy: { createdAt: 'asc' },
         take: exportTableLimit,
@@ -961,6 +978,12 @@ export async function buildExportPayload(input: {
         note: row.note,
         ownerEmail: row.ownerUser?.email ?? null,
         reviewedAt: row.reviewedAt,
+      })),
+      subdomainDismissals: subdomainDismissals.map((row) => ({
+        domainName: row.domain.name,
+        subdomain: row.name,
+        dismissedByEmail: row.dismissedBy?.email ?? null,
+        dismissedAt: row.createdAt,
       })),
       dnsConnections: dnsConnections.map((row) => ({
         id: row.id,

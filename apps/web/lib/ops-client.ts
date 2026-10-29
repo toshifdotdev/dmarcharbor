@@ -996,6 +996,17 @@ export const setSenderOwner = (
     body: JSON.stringify(body),
   });
 
+/** Hide a discovered subdomain (dismissed true) or list it again (false). */
+export const setSubdomainDismissed = (
+  orgId: string,
+  domainId: string,
+  body: { name: string; dismissed: boolean },
+) =>
+  call<{ name: string; dismissed: boolean }>(wsPath(orgId, `/domains/${domainId}/subdomains/dismissal`), {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+
 // ─── monthly evidence reports ────────────────────────────────────────────────
 
 /**

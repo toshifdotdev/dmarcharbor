@@ -4112,6 +4112,43 @@ export const openApiDocument = {
         responses: { 200: { description: 'Insights payload.' }, ...standardErrors },
       },
     },
+    '/workspaces/{organizationId}/domains/{domainId}/subdomains': {
+      get: {
+        tags: ['Reports'],
+        summary: 'Subdomains seen sending',
+        description: [
+          'Names below this domain that appeared as header_from in its aggregate reports over the last 90 days (by report period) and are not domains in this workspace. At most 100, busiest first.',
+          'Each row carries messages, dmarcPassMessages, dmarcPassPercent (one decimal place, null without messages), sourceCount (distinct sending IPs), firstSeenAt, lastSeenAt and dismissed ({ at, by } or null). Dismissed rows are included so they can be restored.',
+          'Read from stored reports only, with no DNS lookups. Available on every plan. Requires domain read permission.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier or slug.')],
+        responses: { 200: { description: '{ domain: { id, name }, windowDays, subdomains }.' }, ...standardErrors },
+      },
+    },
+    '/workspaces/{organizationId}/domains/{domainId}/subdomains/dismissal': {
+      put: {
+        tags: ['Reports'],
+        summary: 'Dismiss or restore a discovered subdomain',
+        description: [
+          'Body: { name, dismissed }. dismissed true hides the subdomain from the discovered list; false lists it again. Idempotent, and audited (SUBDOMAIN_DISMISSED, SUBDOMAIN_RESTORED) only when something changed.',
+          'The name must be below this domain (400 INVALID_REQUEST otherwise) and must have appeared in its reports (404 SUBDOMAIN_NOT_FOUND otherwise). To monitor a subdomain instead, add it to the client as a domain. Requires domain update permission.',
+        ].join(' '),
+        parameters: [orgParam, idParam('domainId', 'Domain identifier or slug.')],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['name', 'dismissed'],
+                properties: { name: { type: 'string', maxLength: 253 }, dismissed: { type: 'boolean' } },
+              },
+            },
+          },
+        },
+        responses: { 200: { description: '{ name, dismissed }.' }, ...standardErrors },
+      },
+    },
     '/workspaces/{organizationId}/prospect-reports': {
       get: {
         tags: ['Reports'],

@@ -44,6 +44,7 @@ import type {
   HostedMtaStsView,
   IssuedApiKey,
   MailboxComplianceView,
+  SubdomainDiscovery,
   ManagedSpfView,
   MonthlyReportRow,
   MonthlyReportSchedule,
@@ -155,6 +156,16 @@ export function getMailboxCompliance(
 ): Promise<MailboxComplianceView> {
   return opsFetch<MailboxComplianceView>(
     `/api/workspaces/${organizationId}/domains/${domainId}/mailbox-compliance`,
+  );
+}
+
+/** GET /subdomains — names below this domain seen sending in its reports and not monitored. */
+export function getSubdomains(
+  organizationId: string,
+  domainId: string,
+): Promise<SubdomainDiscovery> {
+  return opsFetch<SubdomainDiscovery>(
+    `/api/workspaces/${organizationId}/domains/${domainId}/subdomains`,
   );
 }
 
