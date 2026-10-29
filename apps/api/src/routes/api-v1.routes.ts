@@ -27,6 +27,7 @@ import {
   createScanRateLimiter,
 } from '../middleware/rate-limit.middleware.js';
 import type { ApiScope } from '../services/api-key.service.js';
+import { apiUsageController } from '../controllers/usage-export.controller.js';
 
 // Mounted at /api/v1, and every path below is declared relative to that. The
 // contract in openapi.ts is keyed on '/v1/...' and the drift test applies this
@@ -97,6 +98,9 @@ apiV1Router.get('/domains/:domain/policy-readiness', ...apiRoute('read', apiPoli
 apiV1Router.get('/domains/:domain/tls-reports/summary', ...apiRoute('read', apiTlsSummaryController));
 
 apiV1Router.get('/alerts', ...apiRoute('read', apiListAlertsController));
+
+// Per-client usage for one month, for billing integrations (reports.usageExport).
+apiV1Router.get('/usage', ...apiRoute('read', apiUsageController));
 apiV1Router.post('/alerts/:alertId/acknowledge', ...apiRoute('write', apiAcknowledgeAlertController));
 
 apiV1Router.get('/dns-changes', ...apiRoute('read', apiListDnsChangesController));

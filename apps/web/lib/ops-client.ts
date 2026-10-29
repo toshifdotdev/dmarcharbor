@@ -1043,6 +1043,34 @@ export async function issueMonthlyReport(
   }
 }
 
+/**
+ * GET /usage?month=YYYY-MM&format=csv — one row per client for a complete
+ * month, for billing the agency's own clients. The response is the file.
+ */
+export async function downloadUsageExport(
+  orgId: string,
+  month: string,
+): Promise<
+  | { ok: true; data: { bytes: Blob; filename: string } }
+  | { ok: false; status: number; error: ApiErrorBody["error"] }
+> {
+  try {
+    const res = await fetch(wsPath(orgId, `/usage?month=${encodeURIComponent(month)}&format=csv`), { credentials: "include" });
+    if (!res.ok) {
+      const raw = await res.text().catch(() => "");
+      const ui = errorFromResponse(res.status, raw);
+      const code = extractErrorCode(raw) ?? String(res.status);
+      return { ok: false, status: ui.status, error: { code, message: ui.message } };
+    }
+    const disposition = res.headers.get("content-disposition") ?? "";
+    const filenameMatch = disposition.match(/filename="([^"]+)"/);
+    return { ok: true, data: { bytes: await res.blob(), filename: filenameMatch?.[1] ?? `dmarc-harbor-usage-${month}.csv` } };
+  } catch {
+    const network = networkUiError();
+    return { ok: false, status: network.status, error: { code: "NETWORK", message: network.message } };
+  }
+}
+
 export const saveMonthlyReportSchedule = (
   orgId: string,
   clientId: string,

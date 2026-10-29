@@ -32,7 +32,8 @@ export type EntitlementKey =
   | 'dns.hostedBimi'
   | 'dns.hostedMtaSts'
   | 'integrations.psa'
-  | 'prospects.reports';
+  | 'prospects.reports'
+  | 'reports.usageExport';
 
 export type QuotaKey = 'client' | 'activeDomain' | 'member';
 
@@ -76,6 +77,7 @@ export const entitlementLabels: Record<EntitlementKey, string> = {
   'dns.hostedMtaSts': 'Hosted MTA-STS policy',
   'integrations.psa': 'PSA ticketing',
   'prospects.reports': 'Prospect risk reports',
+  'reports.usageExport': 'Monthly usage export per client',
 };
 
 /**
@@ -221,6 +223,7 @@ const allFeatures = (overrides: Partial<Record<EntitlementKey, boolean>> = {}): 
   'dns.hostedMtaSts': true,
   'integrations.psa': true,
   'prospects.reports': true,
+  'reports.usageExport': true,
   ...overrides,
 });
 
@@ -398,6 +401,15 @@ const noPsa = { 'integrations.psa': false } as const;
  */
 const noProspects = { 'prospects.reports': false } as const;
 
+/**
+ * The monthly usage export starts at Harbor, with the API and PSA ticketing.
+ *
+ * It is what an MSP bills its clients from, so it belongs with the plan an
+ * agency resells a full client book on. The figures themselves are visible
+ * per domain on every plan; this is the per-client roll-up and the file.
+ */
+const noUsageExport = { 'reports.usageExport': false } as const;
+
 /** TLS-RPT viewing starts at Fairway; collection happens on every plan. */
 const noTlsRpt = { 'reports.tlsrpt': false } as const;
 
@@ -448,7 +460,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     maxWorkspaces: 1,
     activeDomainWindowDays: 30,
     maxProspectReportsPerMonth: 0,
-    features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noIntegrations, ...noDnsAutomation, ...noDnsHosted, ...noManagedSpf, ...noHostedBimi, ...noHostedMtaSts, ...noPsa, ...noProspects, ...noTlsRpt, ...off }),
+    features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noIntegrations, ...noDnsAutomation, ...noDnsHosted, ...noManagedSpf, ...noHostedBimi, ...noHostedMtaSts, ...noPsa, ...noProspects, ...noTlsRpt, ...noUsageExport, ...off }),
   },
   FAIRWAY: {
     tier: 'FAIRWAY',
@@ -468,7 +480,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     maxWorkspaces: 2,
     activeDomainWindowDays: 365,
     maxProspectReportsPerMonth: 10,
-    features: allFeatures({ ...noNamedForensic, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noDigests, ...noManagedSpf, ...noHostedBimi, ...noHostedMtaSts, ...noPsa }),
+    features: allFeatures({ ...noNamedForensic, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noDigests, ...noManagedSpf, ...noHostedBimi, ...noHostedMtaSts, ...noPsa, ...noUsageExport }),
   },
   HARBOR: {
     tier: 'HARBOR',

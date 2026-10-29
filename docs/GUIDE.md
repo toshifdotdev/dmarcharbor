@@ -97,6 +97,9 @@ SAML or OIDC single sign-on instead.
   without signing in, and expires when you choose.
 - **Digests and monthly reports** (Harbor and above): a scheduled email summary, and
   a PDF per client for each month.
+- **Usage for billing** (Harbor and above): on the Clients page, pick a finished
+  month and download a CSV with each client's domains, reports, messages and
+  alerts, so you can bill them for what they used.
 - **Trust Center and compliance pack** (Harbor and above): a public page and a
   signed PDF that state what data is held, by whom, and for how long.
 - **Your brand** (Harbor and above): your logo and colours on the portal,

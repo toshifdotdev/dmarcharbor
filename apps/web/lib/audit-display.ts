@@ -211,6 +211,7 @@ const TARGET_SENTENCES: Record<string, string> = {
   monthly_report: "Monthly report",
   monthly_report_schedule: "Monthly report schedule",
   monthly_report_link: "Monthly report download link",
+  usage_export: "Monthly usage export",
   sender_review: "Sender review",
   sender_review_bulk: "Bulk sender review",
 };

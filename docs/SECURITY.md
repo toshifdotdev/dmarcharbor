@@ -115,7 +115,8 @@ Every privileged action is recorded in an append-only log:
 - Policy approval requests, and the client's approval or decline under their own
   account
 - API keys, webhooks, PSA, Slack and Teams connections created, changed or removed
-- Data exports requested, downloaded and revoked
+- Data exports requested, downloaded and revoked, and monthly usage exports
+  downloaded
 - Data erasures requested, cancelled and completed
 
 Each entry records who, when, what, and a request identifier for correlation with

@@ -423,6 +423,24 @@ export const openApiDocument = {
         },
       },
     },
+    '/v1/usage': {
+      get: {
+        tags: ['API'],
+        summary: 'Per-client usage for one month',
+        description: [
+          'One row per client for a complete UTC calendar month, for billing an agency\'s own clients: domains, verified and active domains, aggregate reports, messages, DMARC pass messages and rate, forensic reports and alerts opened, plus totals.',
+          'Reports are attributed to the month their reporting period begins in, the same rule as the monthly client report. A domain is active for the month if it received a report for it or was added in it.',
+          'month is YYYY-MM, one of the last 12 complete months; without it, the last complete month. Requires the reports.usageExport entitlement (Harbor and above).',
+        ].join(' '),
+        security: [{ apiKeyAuth: [] }],
+        parameters: [{ name: 'month', in: 'query', required: false, schema: { type: 'string', pattern: '^\\d{4}-\\d{2}$' } }],
+        responses: {
+          ...apiErrors,
+          200: { description: 'period, generatedAt, clients[] and totals.' },
+          400: { description: 'INVALID_PERIOD, PERIOD_NOT_COMPLETE or PERIOD_TOO_OLD.' },
+        },
+      },
+    },
     '/v1/alerts': {
       get: {
         tags: ['API'],
@@ -2087,6 +2105,26 @@ export const openApiDocument = {
         ].join(' '),
         parameters: [orgParam, idParam('erasureId', 'Erasure request identifier.')],
         responses: { ...standardErrors, 200: { description: 'Completed, with the certificate.' }, 400: { description: 'Still inside the grace period and not confirmed.' } },
+      },
+    },
+    '/workspaces/{organizationId}/usage': {
+      get: {
+        tags: ['Reports'],
+        summary: 'Per-client usage for one month, as CSV or JSON',
+        description: [
+          'One row per client for a complete UTC calendar month, plus a totals row, for billing the agency\'s own clients. The same figures as GET /api/v1/usage.',
+          'Cells that a spreadsheet would run as a formula are prefixed with a quote. Requires billing read (owner, admin, analyst, viewer; never a portal contact) and the reports.usageExport entitlement (Harbor and above). Recorded in the audit trail.',
+        ].join(' '),
+        parameters: [
+          orgParam,
+          { name: 'month', in: 'query', required: false, schema: { type: 'string', pattern: '^\\d{4}-\\d{2}$' }, description: 'YYYY-MM, one of the last 12 complete months. Defaults to the last complete month.' },
+          { name: 'format', in: 'query', required: false, schema: { type: 'string', enum: ['csv', 'json'], default: 'csv' } },
+        ],
+        responses: {
+          ...standardErrors,
+          200: { description: 'The file, as an attachment.' },
+          400: { description: 'An invalid month or format.' },
+        },
       },
     },
     '/workspaces/{organizationId}/exports': {

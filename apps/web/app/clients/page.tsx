@@ -8,9 +8,21 @@ import { AppShell } from "@/components/harbor/app-shell";
 import { ClientBook, type ClientView } from "@/components/harbor/client-book";
 import { PageHeader } from "@/components/harbor/page-header";
 import { RefreshButton } from "@/components/harbor/refresh-button";
+import { UsageExport } from "@/components/harbor/usage-export";
 import { ErrorState } from "@/components/ui/states";
 
 export const metadata: Metadata = { title: "Clients" };
+
+/** The last twelve complete UTC months, newest first: what the usage export accepts. */
+function completeMonths(now = new Date()): Array<{ value: string; label: string }> {
+  return Array.from({ length: 12 }, (_, index) => {
+    const month = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1 - index, 1));
+    return {
+      value: `${month.getUTCFullYear()}-${String(month.getUTCMonth() + 1).padStart(2, "0")}`,
+      label: month.toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }),
+    };
+  });
+}
 
 function dateLabel(value: string | null): string | null {
   if (!value) return null;
@@ -29,7 +41,9 @@ function dateLabel(value: string | null): string | null {
  * rarely, remove a client who has left.
  *
  * Posture and report volume live on the Portfolio; this screen is about the
- * structure and the setup work, so it does not repeat measurements.
+ * structure and the setup work, so it does not repeat measurements. The one
+ * exception is the monthly usage file in the header, because billing clients
+ * is done from the client list.
  *
  * Three states, never two: a failed read is never "no clients yet".
  */
@@ -79,7 +93,12 @@ export default async function ClientsPage() {
                       : `${waiting} still need${waiting === 1 ? "s" : ""} the ownership record published.`
                   }`
           }
-          actions={<RefreshButton />}
+          actions={
+            <>
+              {clients && clients.length > 0 ? <UsageExport organizationId={active.id} months={completeMonths()} /> : null}
+              <RefreshButton />
+            </>
+          }
         />
         {clients === null ? (
           <ErrorState what="the client list" detail="This is a connection or API problem, not an empty workspace." />

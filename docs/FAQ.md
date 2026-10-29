@@ -99,7 +99,7 @@ comparison.
   scheduled digests, the API, PSA ticketing, managed SPF, hosted BIMI and
   MTA-STS, the Trust Center, compliance packs and monthly client reports, report
   collection from your own mailbox, your logo and colours on everything clients
-  see, and 50 prospect reports a month.
+  see, the monthly usage export per client, and 50 prospect reports a month.
 - **Admiralty:** client pages on your own domain, single sign-on, an unlimited
   team, and 200 prospect reports a month.
 - **Fleet:** everything in Harbor, including your logo and colours, for more
@@ -349,6 +349,14 @@ again.
 
 **Where is my data stored?**
 `[DATA_RESIDENCY_REGION]`. See the Sub-processors notice for who processes it.
+
+**How do I bill my clients for what they used?**
+On the Clients page, choose a month and download the usage CSV. It has one row per
+client: domains, verified and active domains, aggregate reports, messages, the DMARC
+pass rate, forensic reports and alerts opened, then a totals row. It covers complete
+months only, the last twelve, and counts each report in the month its reporting
+period starts, the same as the monthly client report. The same figures are at
+`GET /api/v1/usage` for a PSA or billing tool. Starts on Harbor.
 
 **Is there an API?**
 Yes, on Harbor and above. The workspace owner creates API keys with read or write

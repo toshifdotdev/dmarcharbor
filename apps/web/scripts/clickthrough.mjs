@@ -1682,6 +1682,44 @@ check(
   switchHref || "no switch link on the funnel client's row",
 );
 
+// 5b'. The usage export sits in the client book's header: twelve complete
+//     months, the previous one chosen, and the API answers with one row per
+//     client (or a 402 naming the plan when the workspace is below Harbor).
+const usageControl = await evalJs(
+  `(() => {
+    const select = document.querySelector('[data-testid="usage-month"]');
+    return {
+      months: select ? select.options.length : 0,
+      chosen: select ? select.value : '',
+      button: !!document.querySelector('[data-testid="usage-download"]'),
+    };
+  })()`,
+);
+const lastMonth = (() => {
+  const now = new Date();
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+})();
+check(
+  "usage export: the client book offers the last twelve complete months, last month first",
+  usageControl.button && usageControl.months === 12 && usageControl.chosen === lastMonth,
+  JSON.stringify(usageControl),
+);
+const usageAnswer = await evalJs(`(async () => {
+  const ws = await (await fetch('/api/workspaces', { credentials: 'include' })).json();
+  const orgId = ws[0].id;
+  const clients = await (await fetch('/api/workspaces/' + orgId + '/clients', { credentials: 'include' })).json();
+  const res = await fetch('/api/workspaces/' + orgId + '/usage?format=json', { credentials: 'include' });
+  const body = await res.json().catch(() => ({}));
+  return { status: res.status, rows: Array.isArray(body.clients) ? body.clients.length : -1, clients: clients.length, code: body.error?.code ?? null };
+})()`).catch((error) => ({ status: 0, error: String(error) }));
+check(
+  "usage export: one row per client, or a plan refusal below Harbor",
+  (usageAnswer.status === 200 && usageAnswer.rows === usageAnswer.clients) ||
+    (usageAnswer.status === 402 && usageAnswer.code === "FEATURE_NOT_IN_PLAN"),
+  JSON.stringify(usageAnswer),
+);
+
 if (switchHref) {
   const switchDomain = `switch-${stamp}.example`;
   await navigate(WEB + switchHref);

@@ -249,6 +249,34 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-12-01 — Monthly usage export per client
+
+One row per client for a complete UTC calendar month, for billing the agency's
+own clients: `domains`, `verifiedDomains`, `activeDomains`, `reports`,
+`messages`, `dmarcPassMessages`, `dmarcPassPercent`, `forensicReports` and
+`alertsOpened`, plus `totals`. Reports are counted in the month their reporting
+period begins, the same rule as the monthly client report. A domain is active
+for the month if it received a report for it or was added in it. `month` is
+`YYYY-MM`, one of the last 12 complete months, and defaults to the last one.
+A new entitlement, `reports.usageExport`, gates it, on Harbor and above.
+
+**`/api/v1` gains 1 route; existing routes are unchanged.**
+
+| Method | Path | Scope | Purpose |
+|---|---|---|---|
+| `GET` | `/api/v1/usage?month=YYYY-MM` | read | Per-client usage for a month (`reports.usageExport`) |
+
+Browser route:
+
+- `GET /api/workspaces/{id}/usage?month=YYYY-MM&format=csv|json` returns the
+  file as an attachment. It needs billing read, so a client portal contact
+  cannot use it. Cells a spreadsheet would run as a formula are prefixed with a
+  quote. Each download is recorded in the audit trail as `EXPORT_DOWNLOADED`
+  with target type `usage_export`.
+
+Errors: 400 `INVALID_PERIOD`, `PERIOD_NOT_COMPLETE` or `PERIOD_TOO_OLD`, and
+402 `FEATURE_NOT_IN_PLAN` below Harbor.
+
 ## 2026-11-30 — Pricing, team sizes, branding split and Fleet bands
 
 **Prices.** Fairway is $39 / ₹3,299 a month and $390 / ₹32,990 a year. Other

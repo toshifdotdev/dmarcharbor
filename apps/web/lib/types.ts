@@ -1382,7 +1382,8 @@ export type EntitlementKey =
   | "dns.hostedBimi"
   | "dns.hostedMtaSts"
   | "integrations.psa"
-  | "prospects.reports";
+  | "prospects.reports"
+  | "reports.usageExport";
 
 export type QuotaKey = "client" | "activeDomain" | "member";
 
