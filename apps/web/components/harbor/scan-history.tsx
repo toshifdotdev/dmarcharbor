@@ -41,17 +41,7 @@ import { ChevronDown } from "@/components/ui/icons";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { Table, TBody, Td, Th, THead, Tr, Nil } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
-
-export interface ScanHistoryRow {
-  id: string;
-  status: ScanRunStatus;
-  trigger: "MANUAL" | "SCHEDULED";
-  changeCount: number;
-  startedLabel: string;
-  completedLabel: string | null;
-  requestedBy: string;
-  error: string | null;
-}
+import { toScanHistoryRow, type ScanHistoryRow } from "@/lib/scan-history-view";
 
 const STATUS: Record<ScanRunStatus, { tone: Tone; label: string }> = {
   COMPLETED: { tone: "ok", label: "Completed" },
@@ -293,20 +283,6 @@ export function ScanHistory({
       ) : null}
     </div>
   );
-}
-
-/** The API row, in the strings the server already formatted. */
-export function toScanHistoryRow(scan: ScanRow): ScanHistoryRow {
-  return {
-    id: scan.id,
-    status: scan.status,
-    trigger: scan.trigger,
-    changeCount: scan.changeCount ?? 0,
-    startedLabel: instantLabel(scan.startedAt),
-    completedLabel: scan.completedAt ? instantLabel(scan.completedAt) : null,
-    requestedBy: scan.requestedBy?.name?.trim() || scan.requestedBy?.email?.trim() || "an automated job",
-    error: scan.error,
-  };
 }
 
 /** What a run established, in words: a found record is a measured policy; a
