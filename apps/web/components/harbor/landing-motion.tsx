@@ -6,9 +6,9 @@
  *
  * - useRide: messages riding a map's lines (SVG animateMotion). On only when
  *   the reader allows motion, and paused while the drawing is off screen.
- * - Reveal: a figure's lines draw themselves once as it scrolls into view.
- *   It arms only when the figure starts below the fold, so nothing already on
- *   screen ever blanks and redraws.
+ * - Reveal: a figure's lines draw themselves as it scrolls into view, and
+ *   again each time it comes back. Nothing on screen ever blanks or redraws:
+ *   the reset happens only while the figure is out of sight.
  */
 
 import { useEffect, useRef, useSyncExternalStore, type ReactNode, type RefObject } from "react";
@@ -50,10 +50,10 @@ export function useRide(svg: RefObject<SVGSVGElement | null>): boolean {
  * A wrapper whose `data-motion` goes "armed" (lines hidden) and then "run"
  * (lines drawn) as it scrolls into view. The stylesheet decides what draws.
  *
- * Scrolling back up until the figure is wholly below the window re-arms it,
- * so it draws again on the way down. The reset happens off screen, where it
- * cannot be seen. Leaving through the top of the window changes nothing: a
- * figure the reader has scrolled past stays drawn.
+ * Forward-only replay: once the figure has left the window, through the top
+ * or the bottom, it re-arms, and it draws again the next time it comes into
+ * view from either direction. Lines always draw in; they never un-draw while
+ * the reader can see them.
  */
 export function Reveal({ className, children }: { className?: string; children: ReactNode }) {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -61,23 +61,21 @@ export function Reveal({ className, children }: { className?: string; children: 
     const el = ref.current;
     if (!el || typeof IntersectionObserver === "undefined") return;
     if (!window.matchMedia(MOTION_OK).matches) return;
-    // A figure that starts on screen or above it is already drawn; only one
-    // still below the window starts armed.
-    if (el.getBoundingClientRect().top >= window.innerHeight) el.dataset.motion = "armed";
+    // A figure on screen at load is already drawn; one out of sight starts armed.
+    const box = el.getBoundingClientRect();
+    if (box.top >= window.innerHeight || box.bottom <= 0) el.dataset.motion = "armed";
 
-    // Draws when the figure is a fifth of the way up the window.
+    // Draws once the figure is in the top four fifths of the window. Coming
+    // back from above, that is as soon as it reappears.
     const draw = new IntersectionObserver(
       (entries) => {
         if (el.dataset.motion === "armed" && entries.some((e) => e.isIntersecting)) el.dataset.motion = "run";
       },
       { rootMargin: "0px 0px -20% 0px" },
     );
-    // Re-arms once the figure is entirely below the window again.
+    // Re-arms once the figure is wholly out of the window, either way.
     const rearm = new IntersectionObserver((entries) => {
-      for (const e of entries) {
-        const below = e.rootBounds ? e.boundingClientRect.top >= e.rootBounds.bottom : e.boundingClientRect.top > 0;
-        if (!e.isIntersecting && below) el.dataset.motion = "armed";
-      }
+      if (entries.some((e) => !e.isIntersecting)) el.dataset.motion = "armed";
     });
     draw.observe(el);
     rearm.observe(el);
