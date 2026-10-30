@@ -83,7 +83,7 @@ function Toast({ item, onDismiss }: { item: ToastItem; onDismiss: (id: number) =
   return (
     <div
       className={clsx(
-        "pointer-events-auto flex items-start gap-3 rounded-sheet border bg-paper-2 py-3 pl-3.5 pr-2 shadow-float",
+        "pointer-events-auto flex items-start gap-3 rounded-[12px] border bg-paper py-3 pl-3.5 pr-2 shadow-float",
         "[animation:hb-rise_160ms_ease-out]",
         item.tone === "fail" ? "border-fail/40" : "border-rule-2",
       )}
@@ -109,7 +109,7 @@ function Toast({ item, onDismiss }: { item: ToastItem; onDismiss: (id: number) =
         type="button"
         onClick={() => onDismiss(item.id)}
         aria-label="Dismiss"
-        className="grid size-6 shrink-0 place-items-center rounded-[2px] text-fg-3 hover:bg-paper-3 hover:text-fg"
+        className="grid size-6 shrink-0 place-items-center rounded-full text-fg-3 hover:bg-paper-3 hover:text-fg"
       >
         <Close size={12} />
       </button>

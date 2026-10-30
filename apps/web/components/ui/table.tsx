@@ -1,10 +1,10 @@
 /**
- * table.tsx — the Chart system table.
+ * table.tsx — the table, in the Routes language.
  *
- * Set like a printed table, not a spreadsheet: a heavy rule above the head, a
- * fine rule under it, hairlines between rows, a heavy rule to close. No vertical
- * rules, no zebra, no card around it. Every cell sits on the first line's
- * baseline so a domain, a posture word and a figure in the same row line up.
+ * Set like a timetable, not a spreadsheet: sentence-case column labels over a
+ * firmer rule, hairlines between rows, a hairline to close. No vertical rules,
+ * no zebra, no card around it. Every cell sits on the first line's baseline so
+ * a domain, a posture word and a figure in the same row line up.
  *
  * Figures are right-aligned in tabular numerals; identifiers (domains, IPs,
  * report ids) are set in the data face. The `numeric` and `mono` props are the
@@ -33,11 +33,14 @@ export function Table({
   minWidth?: number;
 }) {
   return (
-    <div className="overflow-x-auto">
+    // Positioned, so the visually hidden labels inside cells (position:
+    // absolute) are clipped by this scroller. Without it they are placed
+    // against the page instead and a scrolled table widens the whole page.
+    <div className="relative overflow-x-auto">
       <table
         data-dense={dense ? "" : undefined}
         className={clsx(
-          "group/table w-full border-collapse border-y border-fg text-left text-ui",
+          "group/table w-full border-collapse border-b border-rule text-left text-ui",
           className,
         )}
         style={minWidth ? { minWidth } : undefined}
@@ -73,7 +76,7 @@ export function Tr({
     <tr
       className={clsx(
         "border-b border-rule align-baseline",
-        interactive && "cursor-pointer transition-colors duration-75 hover:bg-paper-3/60",
+        interactive && "cursor-pointer transition-colors duration-75 hover:bg-paper-3/70",
         tone === "fail" && "shadow-[inset_2px_0_0_var(--color-fail)]",
         tone === "warn" && "shadow-[inset_2px_0_0_var(--color-warn-mark)]",
         tone === "void" && "shadow-[inset_2px_0_0_var(--color-void)]",
@@ -105,7 +108,7 @@ export function Th({
       scope="col"
       aria-sort={sort ? (sort.dir === "asc" ? "ascending" : sort.dir === "desc" ? "descending" : "none") : undefined}
       className={clsx(
-        "legend whitespace-nowrap px-2.5 py-2 align-bottom font-semibold group-data-[dense]/table:py-1.5",
+        "legend whitespace-nowrap px-2.5 pb-2 pt-2.5 align-bottom font-semibold group-data-[dense]/table:py-1.5",
         a === "right" && "text-right",
         a === "center" && "text-center",
         className,
@@ -117,7 +120,7 @@ export function Th({
           type="button"
           onClick={sort.onToggle}
           className={clsx(
-            "-mx-1 inline-flex items-center gap-1 rounded-[2px] px-1 uppercase hover:text-fg",
+            "-mx-1 inline-flex items-center gap-1 rounded-md px-1 hover:text-fg",
             a === "right" && "flex-row-reverse",
             sort.dir && "text-fg",
           )}

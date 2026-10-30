@@ -19,12 +19,12 @@ import type { MetadataRoute } from "next";
  * domain and on every agency's custom domain, so `/icons/...` resolves against
  * whichever host installed it. An absolute URL would claim a single host.
  *
- * `theme_color` is the Monolith ground (#0a0a0a, `--color-bg` in
- * app/globals.css), not the accent hue: it colours the status bar and splash,
- * and the product's own rule is that Monolith owns no hue.
+ * `theme_color` is the white ground every screen sits on (Routes,
+ * app/globals.css), not an accent hue: it colours the status bar and splash,
+ * which should read as the page continuing, not as a band of colour.
  */
 
-const BONE = "#0a0a0a";
+const GROUND = "#ffffff";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
@@ -37,8 +37,8 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: "/",
     scope: "/",
     display: "standalone",
-    background_color: BONE,
-    theme_color: BONE,
+    background_color: GROUND,
+    theme_color: GROUND,
     // Autorotate rather than portrait: this is read on a desktop as often as a
     // phone, and a portrait lock on a desktop install is a broken window.
     orientation: "any",

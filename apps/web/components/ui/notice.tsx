@@ -15,10 +15,10 @@ import type { ReactNode } from "react";
 type NoticeTone = "info" | "ok" | "warn" | "fail";
 
 const FRAME: Record<NoticeTone, string> = {
-  info: "border-rule-2 bg-paper-2",
-  ok: "border-ok/35 bg-ok-wash/70",
-  warn: "border-warn/35 bg-warn-wash/80",
-  fail: "border-fail/35 bg-fail-wash/80",
+  info: "border-rule bg-paper",
+  ok: "border-ok/30 bg-ok-wash",
+  warn: "border-warn/30 bg-warn-wash",
+  fail: "border-fail/30 bg-fail-wash",
 };
 
 function Mark({ tone }: { tone: NoticeTone }) {
@@ -54,7 +54,7 @@ export function Notice({
     <div
       role={role ?? (tone === "fail" ? "alert" : "status")}
       data-testid={testId}
-      className={clsx("flex flex-wrap items-start gap-x-3 gap-y-2 rounded-ctl border px-3 py-2.5", FRAME[tone], className)}
+      className={clsx("flex flex-wrap items-start gap-x-3 gap-y-2 rounded-[10px] border px-3.5 py-3", FRAME[tone], className)}
     >
       <Mark tone={tone} />
       <div className="min-w-0 flex-1 text-ui">
@@ -105,7 +105,7 @@ export function Kbd({ children, className }: { children: ReactNode; className?: 
   return (
     <kbd
       className={clsx(
-        "inline-grid h-[18px] min-w-[18px] place-items-center rounded-[3px] border border-rule-2 bg-paper-2 px-1 font-ui text-[10.5px] font-semibold text-fg-3 shadow-[0_1px_0_var(--color-rule-2)]",
+        "inline-grid h-[18px] min-w-[18px] place-items-center rounded-[5px] border border-rule-2 bg-paper px-1 font-ui text-[10.5px] font-semibold text-fg-3 shadow-[0_1px_0_var(--color-rule-2)]",
         className,
       )}
     >

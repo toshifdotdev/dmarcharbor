@@ -110,15 +110,17 @@ export async function AppShell({
     <div data-harbor data-host-brand={hostBrand.state} className="flex min-h-screen flex-col">
       <a
         href="#main"
-        className="sr-only z-50 rounded-ctl bg-cta px-3 py-2 text-ui font-semibold text-cta-ink focus:not-sr-only focus:fixed focus:left-3 focus:top-3"
+        className="sr-only z-50 rounded-full bg-cta px-4 py-2 text-ui font-semibold text-cta-ink focus:not-sr-only focus:fixed focus:left-3 focus:top-3"
       >
         Skip to content
       </a>
 
-      <header className="sticky top-0 z-30 border-b border-rule bg-paper/95 backdrop-blur-[6px]">
-        <div className="flex h-12 items-center gap-2 px-4 sm:px-6 lg:px-8">
+      {/* White and solid, never translucent: the bar is part of the page, not
+          a pane floating over it. */}
+      <header className="sticky top-0 z-30 border-b border-rule bg-paper">
+        <div className="flex h-[52px] items-center gap-2 px-4 sm:gap-3 sm:px-6 lg:px-8">
           <Brand brand={hostBrand} />
-          <span aria-hidden className="mx-1 h-5 w-px shrink-0 bg-rule-2" />
+          <span aria-hidden className="mx-0.5 h-5 w-px shrink-0 bg-rule" />
 
           <nav aria-label="Location" className="flex min-w-0 flex-1 items-center">
             <ol className="flex min-w-0 items-center gap-0.5">
@@ -136,14 +138,14 @@ export async function AppShell({
                       {t.href && !last ? (
                         <Link
                           href={t.href}
-                          className={`block truncate rounded-ctl px-1.5 py-1 text-ui font-medium text-fg-2 hover:bg-paper-3 hover:text-fg ${t.mono ? "data" : ""}`}
+                          className={`block truncate rounded-full px-2.5 py-1 text-ui font-medium text-fg-2 hover:bg-paper-3 hover:text-fg ${t.mono ? "data" : ""}`}
                         >
                           {t.label}
                         </Link>
                       ) : (
                         <span
                           aria-current={last ? "page" : undefined}
-                          className={`block truncate px-1.5 py-1 text-ui ${last ? "font-semibold text-fg" : "font-medium text-fg-2"} ${t.mono ? "data" : ""}`}
+                          className={`block truncate px-2.5 py-1 text-ui ${last ? "font-semibold text-fg" : "font-medium text-fg-2"} ${t.mono ? "data" : ""}`}
                         >
                           {t.label}
                         </span>
@@ -196,8 +198,8 @@ export async function AppShell({
         </main>
       </ToastProvider>
 
-      <footer className="border-t border-rule px-4 py-4 sm:px-6 lg:px-8">
-        <nav aria-label="Legal" className="flex flex-wrap gap-x-4 gap-y-1.5 text-meta">
+      <footer className="border-t border-rule px-4 py-5 sm:px-6 lg:px-8">
+        <nav aria-label="Legal" className="flex flex-wrap gap-x-5 gap-y-1.5 text-meta">
           {LEGAL_FOOTER_LINKS.map(([href, label]) => (
             <Link key={href} href={href} className="text-fg-3 hover:text-fg">
               {label}
@@ -210,21 +212,22 @@ export async function AppShell({
 }
 
 /**
- * The Pier mark takes the accent through currentColor, so a verified tenant's
- * colour reaches it untouched. A tenant's uploaded logo replaces it only on
- * their verified domain; only a platform-served object reaches the <img>.
+ * The Pier mark takes the accent through currentColor: ink for our own brand,
+ * and a verified tenant's colour reaches it untouched. A tenant's uploaded logo
+ * replaces it only on their verified domain; only a platform-served object
+ * reaches the <img>.
  */
 function Brand({ brand }: { brand: HostBrand }) {
   const branded = brand.state === "verified";
   const name = branded ? brand.workspaceName : "DMARC Harbor";
   return (
-    <Link href="/" className="flex shrink-0 items-center gap-2.5 text-act" aria-label={`${name}, portfolio`}>
+    <Link href="/" className="flex shrink-0 items-center gap-2.5 rounded-full text-act" aria-label={`${name}, portfolio`}>
       {branded && brand.logoUrl ? (
         <img src={brand.logoUrl} alt="" height={24} className="h-6 w-auto" />
       ) : (
-        <PierMark size={26} />
+        <PierMark size={22} />
       )}
-      <span className="wide hidden text-body font-bold tracking-[-0.01em] text-fg xl:block">{name}</span>
+      <span className="hidden text-[15.5px] font-bold tracking-[-0.01em] text-fg xl:block">{name}</span>
     </Link>
   );
 }

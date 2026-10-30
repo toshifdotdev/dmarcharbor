@@ -23,38 +23,25 @@
 
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
-import { Albert_Sans } from "next/font/google";
-import { HEX } from "@/lib/brand-vars";
 import { readHostBrand } from "@/lib/host-brand";
-import { LEGAL_FOOTER_LINKS } from "@/lib/site-links";
-import { PierMark } from "@/components/mark";
 import { AlertsMap } from "./landing-alerts-map";
 import { Reveal } from "./landing-motion";
 import { AGENCY, AGENCY_PORTAL, CLIENT, PortalMap } from "./landing-portal-map";
 import { RouteMap } from "./landing-route-map";
-import { brandName } from "./public-frame";
+import { brandName, PublicFooter, PublicHeader } from "./public-frame";
 import { RecordReading } from "./record-reading";
-import { HostUnverifiedBanner } from "./shell-banners";
 import s from "./landing.module.css";
-
-const sans = Albert_Sans({ subsets: ["latin"], variable: "--rt-sans", display: "swap" });
 
 export async function Landing() {
   const brand = await readHostBrand();
   const name = brandName(brand);
-  // On a verified agency domain with a brand colour, primary buttons take that
-  // colour (BrandApplier writes it as --hb-primary); otherwise they are ink.
-  const tenantPrimary = brand.state === "verified" && !!brand.primaryColor && HEX.test(brand.primaryColor);
 
+  // The header and footer are the shared public frame (public-frame.tsx), so
+  // this page and every page it links to wear the same one. Primary buttons
+  // are ink, or the agency's colour on its verified domain (--hb-primary).
   return (
-    <div
-      data-harbor
-      data-host-brand={brand.state}
-      data-tenant-primary={tenantPrimary ? "" : undefined}
-      className={`${s.root} ${sans.variable}`}
-    >
-      {brand.state === "unverified" ? <HostUnverifiedBanner /> : null}
-      <Header name={name} />
+    <div data-harbor data-host-brand={brand.state} className={s.root}>
+      <PublicHeader brand={brand} />
 
       <main id="main">
         <Hero />
@@ -66,36 +53,8 @@ export async function Landing() {
         <Close />
       </main>
 
-      <Footer name={name} />
+      <PublicFooter brand={brand} />
     </div>
-  );
-}
-
-/* ── Header ─────────────────────────────────────────────────────────────── */
-
-function Header({ name }: { name: string }) {
-  return (
-    <header>
-      <div className={s.headerInner}>
-        <Link href="/" className={s.brand} aria-label={`${name} home`}>
-          <PierMark size={22} />
-          <span>{name}</span>
-        </Link>
-        <nav aria-label="Site" className={s.nav}>
-          <Link href="/pricing">Pricing</Link>
-          <Link href="/guide">Setup guide</Link>
-          <Link href="/support">Support</Link>
-        </nav>
-        <div className={s.actions}>
-          <Link href="/sign-in" className={s.signin} data-testid="home-signin">
-            Sign in
-          </Link>
-          <Link href="/sign-up" className={s.start} data-testid="home-start">
-            Start free
-          </Link>
-        </div>
-      </div>
-    </header>
   );
 }
 
@@ -404,42 +363,3 @@ function Close() {
   );
 }
 
-/* ── Footer ────────────────────────────────────────────────────────────── */
-
-function Footer({ name }: { name: string }) {
-  return (
-    <footer className={s.footer}>
-      <div className={s.footerInner}>
-        <div>
-          <Link href="/" className={s.footerBrand}>
-            <PierMark size={20} />
-            <span>{name}</span>
-          </Link>
-          <p className={s.footerLine}>
-            DMARC monitoring for MSPs and agencies. It reads reports, never sends mail as anyone, and changes DNS only
-            when you ask.
-          </p>
-        </div>
-        <nav aria-label="Product">
-          <p className={s.footerHead}>Product</p>
-          <div className={s.footerLinks}>
-            <Link href="/pricing">Pricing</Link>
-            <Link href="/verify">Verify a pack</Link>
-            <Link href="/sign-in">Sign in</Link>
-            <Link href="/sign-up">Start free</Link>
-          </div>
-        </nav>
-        <nav aria-label="Legal">
-          <p className={s.footerHead}>Legal and support</p>
-          <div className={`${s.footerLinks} ${s.footerLegal}`}>
-            {LEGAL_FOOTER_LINKS.map(([href, label]) => (
-              <Link key={href} href={href}>
-                {label}
-              </Link>
-            ))}
-          </div>
-        </nav>
-      </div>
-    </footer>
-  );
-}

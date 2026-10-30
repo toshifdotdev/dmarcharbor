@@ -91,7 +91,7 @@ export function Tabs({
               tabIndex={on ? 0 : -1}
               onClick={() => select(t.id)}
               className={clsx(
-                "relative -mb-px inline-flex h-9 shrink-0 items-center gap-1.5 border-b-2 text-ui font-semibold transition-colors duration-100",
+                "relative -mb-px inline-flex h-10 shrink-0 items-center gap-1.5 border-b-[3px] text-ui font-semibold transition-colors duration-100",
                 on ? "border-act text-fg" : "border-transparent text-fg-3 hover:text-fg",
               )}
             >

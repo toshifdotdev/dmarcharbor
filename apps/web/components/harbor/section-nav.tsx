@@ -47,8 +47,9 @@ export function SectionNav() {
             className={clsx(
               "relative flex h-10 items-center whitespace-nowrap px-2.5 text-ui font-semibold transition-colors duration-75",
               on ? "text-fg" : "text-fg-3 hover:text-fg",
-              // The active mark sits ON the bar's bottom hairline.
-              on && "after:absolute after:inset-x-2.5 after:-bottom-px after:h-[2px] after:bg-act",
+              // The active mark is a short length of line sitting ON the bar's
+              // bottom hairline: you are on this stretch.
+              on && "after:absolute after:inset-x-2.5 after:-bottom-px after:h-[3px] after:rounded-full after:bg-act",
             )}
           >
             {item.label}

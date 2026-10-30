@@ -63,8 +63,8 @@ export function PageHeader({
           <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
             <h1
               className={clsx(
-                "min-w-0 break-words font-bold tracking-[-0.02em] text-fg",
-                titleMono ? "data text-[22px] leading-[28px] font-semibold tracking-[-0.03em] sm:text-h1" : "wide text-h1",
+                "min-w-0 break-words text-fg",
+                titleMono ? "data text-[22px] leading-[28px] font-semibold tracking-[-0.03em] sm:text-[26px] sm:leading-[32px]" : "display text-h1",
               )}
             >
               {title}

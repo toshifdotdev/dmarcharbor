@@ -56,14 +56,14 @@ export function Badge({
       className={clsx(
         "inline-flex items-center gap-1.5 whitespace-nowrap text-meta font-semibold",
         TONE_TEXT[tone],
-        boxed && "rounded-[2px] border px-1.5 py-px",
+        boxed && "rounded-full border px-2 py-px",
         boxed && tone === "ok" && "border-ok/30 bg-ok-wash",
         boxed && tone === "warn" && "border-warn/30 bg-warn-wash",
         boxed && tone === "fail" && "border-fail/30 bg-fail-wash",
         boxed && tone === "crit" && "border-crit bg-crit text-white",
         boxed && tone === "void" && "border-void/30 bg-void-wash",
         boxed && tone === "neutral" && "border-rule-2 bg-paper-3",
-        boxed && tone === "accent" && "border-act bg-paper-2",
+        boxed && tone === "accent" && "border-act bg-paper",
         className,
       )}
     >

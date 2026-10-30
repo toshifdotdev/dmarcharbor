@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Archivo, Atkinson_Hyperlegible_Mono, Inter } from "next/font/google";
+import { Albert_Sans, Atkinson_Hyperlegible_Mono } from "next/font/google";
 import { BrandApplier } from "@/components/brand-applier";
 import { StructuredData } from "@/components/structured-data-view";
 import { requestOrigin } from "@/lib/metadata-origin";
@@ -8,29 +8,16 @@ import { siteGraphJsonLd } from "@/lib/structured-data";
 import "./globals.css";
 
 /**
- * Inter is the product's UI face: a professional grotesque built for screens,
- * with true tabular figures so number columns scan vertically. Display
- * headings use the same family at heavier weight — one voice across the app.
- */
-const inter = Inter({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-inter",
-  display: "swap",
-});
-
-/**
- * The Chart system's two faces (globals.css, "CHART system"). Inter above stays
- * until Phase 2 moves the last Monolith screen.
+ * The Routes design's two faces (.kiro/steering/design-system.md).
  *
- * Archivo is loaded with its width axis: headings set wide, legends set narrow,
- * one family doing the work of two. Atkinson Hyperlegible Mono is the data face,
- * chosen because it is drawn to keep 0/O, 1/l/I and 5/S apart.
+ * Albert Sans is the one family for everything a person reads, headings to
+ * table cells, as a variable font (400 to 760). Atkinson Hyperlegible Mono is
+ * the data face for literal DNS and identifiers, chosen because it is drawn to
+ * keep 0/O, 1/l/I and 5/S apart.
  */
-const archivo = Archivo({
+const routes = Albert_Sans({
   subsets: ["latin"],
-  axes: ["wdth"],
-  variable: "--font-archivo",
+  variable: "--font-routes",
   display: "swap",
 });
 
@@ -103,7 +90,7 @@ export default async function RootLayout({
 }) {
   const origin = await requestOrigin();
   return (
-    <html lang="en" className={`${inter.variable} ${archivo.variable} ${hyperMono.variable}`}>
+    <html lang="en" className={`${routes.variable} ${hyperMono.variable}`}>
       <body>
         {/* Both of these emit a raw element - a <style> and a <script> - and
             they live INSIDE <body> on purpose.

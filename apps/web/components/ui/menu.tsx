@@ -27,7 +27,7 @@ export function MenuContent({ className, children, ...rest }: ComponentProps<typ
       sideOffset={6}
       collisionPadding={8}
       className={clsx(
-        "z-50 min-w-[220px] max-w-[360px] rounded-sheet border border-rule-2 bg-paper-2 p-1 text-ui text-fg shadow-float",
+        "z-50 min-w-[220px] max-w-[360px] rounded-[12px] border border-rule bg-paper p-1.5 text-ui text-fg shadow-float",
         "data-[side=bottom]:[animation:hb-rise_120ms_ease-out] data-[side=top]:[animation:hb-fade_120ms_ease-out]",
         className,
       )}
@@ -39,7 +39,7 @@ export function MenuContent({ className, children, ...rest }: ComponentProps<typ
 }
 
 const itemClass =
-  "relative flex cursor-pointer select-none items-center gap-2 rounded-[2px] px-2 py-1.5 outline-none " +
+  "relative flex cursor-pointer select-none items-center gap-2 rounded-lg px-2.5 py-2 outline-none " +
   "data-[highlighted]:bg-paper-3 data-[disabled]:cursor-not-allowed data-[disabled]:text-fg-3";
 
 export function MenuItem({

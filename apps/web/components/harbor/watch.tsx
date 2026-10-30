@@ -118,7 +118,7 @@ function WatchItem({
       data-state={reading.state}
       title={reading.state === "failed" ? "This could not be read just now. It is unknown, not zero." : undefined}
       className={clsx(
-        "flex h-8 items-center gap-1.5 whitespace-nowrap rounded-ctl px-2 text-meta font-semibold hover:bg-paper-3",
+        "flex h-9 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 text-meta font-semibold hover:bg-paper-3",
         live ? "text-fg" : "text-fg-3",
       )}
     >

@@ -1,10 +1,10 @@
 /**
- * icons.tsx — the handful of glyphs the Chart system draws itself.
+ * icons.tsx — the handful of glyphs the product draws itself.
  *
- * Drawn here rather than pulled from an icon set so they share the system's
- * stroke (1.5 at 16px), its square terminals, and nothing else. An instrument
- * has few icons; each one below names an action or a direction, never a mood.
- * All are decorative (aria-hidden): the control around them carries the name.
+ * Drawn here rather than pulled from an icon set so they share one stroke
+ * (1.5 at 16px) with round ends and joins, the way the map's lines end. Few
+ * icons; each one below names an action or a direction, never a mood. All are
+ * decorative (aria-hidden): the control around them carries the name.
  */
 
 import type { SVGProps } from "react";
@@ -20,8 +20,8 @@ function Glyph({ size = 16, children, ...rest }: IconProps & { children: React.R
       fill="none"
       stroke="currentColor"
       strokeWidth={1.5}
-      strokeLinecap="square"
-      strokeLinejoin="miter"
+      strokeLinecap="round"
+      strokeLinejoin="round"
       aria-hidden
       focusable="false"
       {...rest}
@@ -108,7 +108,7 @@ export const External = (p: IconProps) => (
 
 export const Lock = (p: IconProps) => (
   <Glyph {...p}>
-    <rect x="3.5" y="7" width="9" height="6.5" />
+    <rect x="3.5" y="7" width="9" height="6.5" rx="1.5" />
     <path d="M5.5 7V5.25a2.5 2.5 0 0 1 5 0V7" />
   </Glyph>
 );

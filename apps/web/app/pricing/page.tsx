@@ -112,7 +112,7 @@ export default async function PricingPage({
     return (
       <div data-harbor data-host-brand={brand.state}>
         <PublicHeader brand={brand} current="pricing" />
-        <main id="main" className="mx-auto w-full max-w-[1240px] px-5 pb-24 pt-14 sm:px-8">
+        <main id="main" className="page-wrap pb-24 pt-14">
           <h1 className="display text-[40px] leading-none text-fg">Pricing</h1>
           <p role="alert" className="mt-4 max-w-[62ch] text-body text-fg-2">
             The plan catalog did not load, so no prices are shown rather than old ones. Nothing is hidden: the request
@@ -170,7 +170,7 @@ export default async function PricingPage({
     <div data-harbor data-host-brand={brand.state}>
       <PublicHeader brand={brand} current="pricing" />
       <StructuredData data={offers} />
-      <main id="main" className="mx-auto w-full max-w-[1240px] px-5 pb-24 pt-12 sm:px-8 sm:pt-16">
+      <main id="main" className="page-wrap pb-24 pt-12 sm:pt-16">
         <header className="mb-10 grid gap-x-12 gap-y-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,440px)] lg:items-end">
           <div>
             <p className="legend">Pricing</p>

@@ -61,7 +61,7 @@ export function WorkspaceMenu({
         aria-label={`Workspace: ${active.name}. Switch workspace`}
         aria-busy={pending || undefined}
         className={clsx(
-          "group flex h-8 min-w-0 items-center gap-1.5 rounded-ctl px-2 text-left hover:bg-paper-3 data-[state=open]:bg-paper-3",
+          "group flex h-9 min-w-0 items-center gap-1.5 rounded-full px-3 text-left hover:bg-paper-3 data-[state=open]:bg-paper-3",
           pending && "opacity-60",
         )}
       >

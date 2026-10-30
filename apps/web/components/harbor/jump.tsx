@@ -241,7 +241,7 @@ export function Jump({
         onClick={show}
         aria-haspopup="dialog"
         aria-keyshortcuts="Control+K Meta+K /"
-        className="flex h-8 min-w-0 items-center gap-2 rounded-ctl border border-rule-2 bg-paper-2 px-2.5 text-left text-ui text-fg-3 hover:border-fg-4 hover:text-fg-2 sm:w-[260px]"
+        className="flex h-9 min-w-0 items-center gap-2 rounded-full border border-rule-2 bg-paper px-3.5 text-left text-ui text-fg-3 hover:border-fg-4 hover:text-fg-2 sm:w-[270px]"
       >
         <Search size={14} className="shrink-0" />
         <span className="hidden flex-1 truncate sm:block">Jump to a domain or client</span>
@@ -306,8 +306,8 @@ export function Jump({
                       onMouseMove={() => setCursor(i)}
                       onClick={r.go}
                       className={clsx(
-                        "flex cursor-pointer items-center gap-3 rounded-[2px] px-2.5 py-1.5",
-                        on ? "bg-paper-3 shadow-[inset_2px_0_0_var(--color-act)]" : "",
+                        "flex cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2",
+                        on ? "bg-paper-3 shadow-[inset_3px_0_0_var(--color-act)]" : "",
                       )}
                     >
                       <span className={clsx("min-w-0 flex-1 truncate text-ui font-semibold text-fg", r.kind === "domain" && "data")}>
@@ -333,7 +333,7 @@ export function Jump({
               ) : null}
             </ul>
 
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-rule bg-paper px-4 py-2 text-meta text-fg-3">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-rule bg-paper-3/60 px-4 py-2.5 text-meta text-fg-3">
               {loadState === "failed" ? (
                 <span role="status" className="font-semibold text-fail">
                   Clients could not be read, so domains are not listed. Screens still are.

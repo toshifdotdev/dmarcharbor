@@ -11,6 +11,9 @@
  * Field wires the ids itself: the label names the control, the hint and the
  * error describe it, and an error sets aria-invalid. A control with an error
  * that a screen reader cannot hear is not an error state.
+ *
+ * Routes: white controls on a hairline, an ink border and a soft ring on focus.
+ * Search fields are pills, like the home page's record check.
  */
 
 import { cloneElement, isValidElement, useId, type InputHTMLAttributes, type ReactElement, type ReactNode, type Ref, type SelectHTMLAttributes } from "react";
@@ -18,16 +21,16 @@ import { clsx } from "clsx";
 import { ChevronDown, Search } from "./icons";
 
 const control =
-  "w-full rounded-ctl border border-rule-2 bg-paper-2 text-fg placeholder:text-fg-4 " +
-  "shadow-[inset_0_1px_0_rgb(18_26_34/0.04)] transition-[border-color,box-shadow] duration-100 " +
-  "hover:border-fg-4 focus-visible:border-act focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-act-line " +
+  "w-full rounded-ctl border border-rule-2 bg-paper text-fg placeholder:text-fg-4 " +
+  "transition-[border-color,box-shadow] duration-100 " +
+  "hover:border-fg-4 focus-visible:border-act focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-act-line/35 " +
   "disabled:cursor-not-allowed disabled:bg-paper-3 disabled:text-fg-3 " +
-  "aria-[invalid=true]:border-fail aria-[invalid=true]:ring-fail/25";
+  "aria-[invalid=true]:border-fail aria-[invalid=true]:ring-fail/20";
 
 const controlSize = {
-  sm: "h-7 px-2 text-meta",
-  md: "h-8 px-2.5 text-ui",
-  lg: "h-10 px-3 text-body",
+  sm: "h-[30px] px-2.5 text-meta",
+  md: "h-9 px-3 text-ui",
+  lg: "h-11 px-3.5 text-body",
 } as const;
 
 export function Input({
@@ -52,8 +55,8 @@ export function SearchInput({
 }: Omit<InputHTMLAttributes<HTMLInputElement>, "size" | "type"> & { size?: keyof typeof controlSize }) {
   return (
     <span className={clsx("relative inline-flex items-center", className)}>
-      <Search className="pointer-events-none absolute left-2 text-fg-3" size={14} />
-      <input type="search" className={clsx(control, controlSize[size], "pl-7")} {...rest} />
+      <Search className="pointer-events-none absolute left-3 text-fg-3" size={14} />
+      <input type="search" className={clsx(control, controlSize[size], "rounded-full pl-8")} {...rest} />
     </span>
   );
 }
@@ -66,10 +69,10 @@ export function Select({
 }: Omit<SelectHTMLAttributes<HTMLSelectElement>, "size"> & { size?: keyof typeof controlSize }) {
   return (
     <span className={clsx("relative inline-flex items-center", className)}>
-      <select className={clsx(control, controlSize[size], "appearance-none pr-7")} {...rest}>
+      <select className={clsx(control, controlSize[size], "appearance-none pr-8")} {...rest}>
         {children}
       </select>
-      <ChevronDown className="pointer-events-none absolute right-2 text-fg-3" size={14} />
+      <ChevronDown className="pointer-events-none absolute right-2.5 text-fg-3" size={14} />
     </span>
   );
 }
@@ -121,7 +124,9 @@ export function Field({
 
 /**
  * Segmented control: two to four mutually exclusive views of the same data.
- * A radio group underneath, so arrow keys move between options natively.
+ * A radio group underneath, so arrow keys move between options natively. A
+ * pill track; the chosen option is filled in the accent, like the station a
+ * line stops at.
  */
 export function Segmented<T extends string>({
   label,
@@ -138,7 +143,7 @@ export function Segmented<T extends string>({
 }) {
   const name = useId();
   return (
-    <fieldset className="inline-flex rounded-ctl border border-rule-2 bg-paper-3 p-[2px]">
+    <fieldset className="inline-flex rounded-full border border-rule-2 bg-paper p-[3px]">
       <legend className="sr-only">{label}</legend>
       {options.map((o) => {
         const on = o.value === value;
@@ -146,10 +151,10 @@ export function Segmented<T extends string>({
           <label
             key={o.value}
             className={clsx(
-              "relative inline-flex cursor-pointer items-center rounded-[2px] font-semibold transition-colors duration-100",
-              "has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-act",
-              size === "sm" ? "h-6 px-2 text-meta" : "h-7 px-3 text-ui",
-              on ? "bg-paper-2 text-fg shadow-[0_0_0_1px_var(--color-rule-2)]" : "text-fg-3 hover:text-fg",
+              "relative inline-flex cursor-pointer items-center rounded-full font-semibold transition-colors duration-100",
+              "has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-act",
+              size === "sm" ? "h-[26px] px-3 text-meta" : "h-[30px] px-3.5 text-ui",
+              on ? "bg-act text-act-ink" : "text-fg-3 hover:text-fg",
             )}
           >
             <input

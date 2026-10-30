@@ -55,8 +55,8 @@ export function CopyButton({
       aria-label={label}
       data-testid={testId}
       className={clsx(
-        "inline-flex h-6 shrink-0 items-center rounded-[2px] border px-2 text-meta font-semibold transition-colors duration-75",
-        state === "copied" ? "border-ok/40 text-ok" : "border-rule-2 bg-paper-2 text-fg-2 hover:border-fg-3 hover:text-fg",
+        "inline-flex h-6 shrink-0 items-center rounded-full border px-2.5 text-meta font-semibold transition-colors duration-75",
+        state === "copied" ? "border-ok/40 text-ok" : "border-rule-2 bg-paper text-fg-2 hover:border-fg-3 hover:text-fg",
         className,
       )}
     >
@@ -68,7 +68,7 @@ export function CopyButton({
 /** One value an operator must reproduce exactly, with its copy control. */
 export function CopyValue({ value, label, className }: { value: string; label: string; className?: string }) {
   return (
-    <div data-copy-scope className={clsx("flex items-start gap-2 rounded-ctl border border-rule bg-paper-3 py-1.5 pl-2.5 pr-1.5", className)}>
+    <div data-copy-scope className={clsx("flex items-start gap-2 rounded-ctl border border-rule bg-paper-3 py-1.5 pl-3 pr-1.5", className)}>
       <code data-copy-value className="data min-w-0 flex-1 break-all pt-[3px] text-meta text-fg">
         {value}
       </code>

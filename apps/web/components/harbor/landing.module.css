@@ -31,10 +31,14 @@
      Not one of the sender colours, so it cannot be read as a sender. */
   --agency: #0f766e;
 
-  /* Primary actions: ink, or the tenant's colour on a verified domain. */
-  --cta: var(--ink);
-  --cta-ink: #ffffff;
-  --cta-hover: #2d3036;
+  /* Primary actions: ink, or the tenant's colour on a verified domain. The
+     shared --hb-primary tokens (globals.css) already make that choice. */
+  --cta: var(--hb-primary);
+  --cta-ink: var(--hb-primary-ink);
+  --cta-hover: var(--hb-primary-hover);
+
+  /* The one family, loaded once in the root layout. */
+  --rt-sans: var(--font-routes);
 
   /* The five sender lines side by side, 7 wide and 11 apart. */
   --bundle-v: linear-gradient(
@@ -71,12 +75,6 @@
   -webkit-font-smoothing: antialiased;
 }
 
-.root[data-harbor][data-tenant-primary] {
-  --cta: var(--hb-primary);
-  --cta-ink: var(--hb-primary-ink);
-  --cta-hover: var(--hb-primary-hover);
-}
-
 :global(html):has(.root[data-harbor]),
 :global(body):has(.root[data-harbor]) {
   background: #ffffff;
@@ -87,83 +85,6 @@
   outline: 2px solid var(--ink);
   outline-offset: 3px;
   border-radius: 6px;
-}
-
-/* ── Header ──────────────────────────────────────────────────────────── */
-
-.headerInner {
-  display: flex;
-  align-items: center;
-  gap: 40px;
-  max-width: 1320px;
-  height: 72px;
-  margin: 0 auto;
-  padding: 0 24px;
-}
-
-.brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--ink);
-  font-size: 17px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  white-space: nowrap;
-}
-
-.nav {
-  display: none;
-  gap: 30px;
-}
-
-.nav a {
-  color: var(--ink-2);
-  font-size: 15.5px;
-  font-weight: 500;
-  transition: color 120ms ease;
-}
-
-.nav a:hover {
-  color: var(--ink);
-}
-
-.actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-}
-
-.signin,
-.start {
-  display: inline-flex;
-  align-items: center;
-  height: 40px;
-  border-radius: 999px;
-  font-size: 15.5px;
-  font-weight: 600;
-  white-space: nowrap;
-  transition: background-color 120ms ease;
-}
-
-.signin {
-  padding: 0 16px;
-  color: var(--ink);
-}
-
-.signin:hover {
-  background: rgb(21 23 27 / 0.06);
-}
-
-.start {
-  padding: 0 18px;
-  background: var(--cta);
-  color: var(--cta-ink);
-}
-
-.start:hover {
-  background: var(--cta-hover);
 }
 
 /* ── Hero ────────────────────────────────────────────────────────────── */
@@ -756,66 +677,6 @@
   text-decoration-color: currentColor;
 }
 
-/* ── Footer ──────────────────────────────────────────────────────────── */
-
-/* The same contained hairline as every section above it. */
-.footer {
-  max-width: 1320px;
-  margin: 0 auto;
-  padding: 0 24px;
-}
-
-.footerInner {
-  display: grid;
-  gap: 40px;
-  padding: 56px 0 72px;
-  border-top: 1px solid var(--rule);
-}
-
-.footerBrand {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--ink);
-  font-size: 17px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
-
-.footerLine {
-  max-width: 26rem;
-  margin: 14px 0 0;
-  color: var(--ink-3);
-  font-size: 14.5px;
-}
-
-.footerHead {
-  margin: 0 0 12px;
-  font-size: 14px;
-  font-weight: 700;
-}
-
-.footerLinks {
-  display: grid;
-  gap: 8px;
-  justify-items: start;
-}
-
-.footerLinks a {
-  color: var(--ink-2);
-  font-size: 14.5px;
-  transition: color 120ms ease;
-}
-
-.footerLinks a:hover {
-  color: var(--ink);
-}
-
-.footerLegal {
-  grid-template-columns: repeat(2, max-content);
-  column-gap: 36px;
-}
-
 /* ── Widths ──────────────────────────────────────────────────────────── */
 
 @media (min-width: 640px) {
@@ -829,10 +690,6 @@
 }
 
 @media (min-width: 900px) {
-  .nav {
-    display: flex;
-  }
-
   .scale,
   .row {
     grid-template-columns: 250px minmax(0, 1fr) 280px;
@@ -846,17 +703,9 @@
     flex-direction: column;
     gap: 2px;
   }
-
-  .footerInner {
-    grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.6fr) minmax(0, 1fr);
-  }
 }
 
 @media (min-width: 1100px) {
-  .headerInner {
-    padding: 0 48px;
-  }
-
   .hero {
     grid-template-columns: minmax(0, 0.74fr) minmax(0, 1fr);
     align-items: center;
@@ -894,32 +743,10 @@
   .closeLinks {
     margin-left: calc(160px - 18px);
   }
-
-  .footer {
-    padding: 0 48px;
-  }
-
-  .footerInner {
-    padding: 64px 0 80px;
-  }
 }
 
 /* Narrow screens draw the maps smaller, so their labels are set larger. */
 @media (max-width: 640px) {
-  .headerInner {
-    gap: 12px;
-    height: 64px;
-    padding: 0 16px;
-  }
-
-  .signin {
-    padding: 0 10px;
-  }
-
-  .start {
-    padding: 0 14px;
-  }
-
   .hero {
     gap: 40px;
     padding: 24px 16px 64px;
@@ -982,19 +809,5 @@
 
   .jBody {
     font-size: 16px;
-  }
-
-  .footer {
-    padding: 0 16px;
-  }
-
-  .footerInner {
-    padding: 48px 0 64px;
-  }
-}
-
-@media (max-width: 380px) {
-  .brand span {
-    display: none;
   }
 }

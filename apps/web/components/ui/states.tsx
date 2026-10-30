@@ -3,7 +3,7 @@
 /**
  * states.tsx — every screen's other states, designed as carefully as the data.
  *
- *   loading     one hairline with a mark travelling along it. A waiting state
+ *   loading     a message riding a short line (ui/tide.tsx). A waiting state
  *               that looks like waiting, sized to where the content will be.
  *   empty       loaded, nothing here, and the next action. A first run is a
  *               starting point, so it teaches: what this place will hold and
@@ -29,9 +29,9 @@ import { TideMark } from "./tide";
 import { planRefusalText } from "@/lib/plan-features";
 
 /**
- * Waiting, shown as the Tide alone, centred. No visible word: the mark already
- * says it. The label is for screen readers. `rows` lays faint rules beneath,
- * so a table screen keeps its height while it loads.
+ * Waiting, shown as the riding mark alone, centred. No visible word: the mark
+ * already says it. The label is for screen readers. `rows` lays faint rules
+ * beneath, so a table screen keeps its height while it loads.
  */
 export function LoadingState({
   label = "Loading",
@@ -47,7 +47,7 @@ export function LoadingState({
     <div role="status" aria-live="polite" data-testid="state-loading" className={clsx("py-8", className)}>
       <span className="sr-only">{label}</span>
       <div className="flex justify-center" aria-hidden>
-        <TideMark size={52} />
+        <TideMark size={44} />
       </div>
       {rows > 0 ? (
         <div className="mt-5 flex flex-col" aria-hidden>
@@ -80,17 +80,25 @@ export function EmptyState({
     <section
       role="status"
       data-testid="state-empty"
-      className={clsx("border border-rule bg-paper-2 px-6 py-6", className)}
+      className={clsx("rounded-sheet border border-rule bg-paper px-6 py-6", className)}
     >
-      <h3 className="text-h3 font-semibold text-fg">{title}</h3>
+      <h3 className="text-h3 font-bold tracking-[-0.01em] text-fg">{title}</h3>
       <p className="mt-1.5 max-w-[68ch] text-body text-fg-2">{description}</p>
       {steps && steps.length > 0 ? (
-        <ol className="mt-5 grid max-w-[880px] gap-x-8 gap-y-4 sm:grid-cols-3">
+        // The steps are stations on one line: the first is where you are.
+        <ol className="mt-7 grid max-w-[880px] gap-y-6 sm:grid-cols-3">
           {steps.map((s, i) => (
-            <li key={s.title} className="border-t border-rule-2 pt-2">
-              <span className="tnum legend">{String(i + 1).padStart(2, "0")}</span>
-              <p className="mt-0.5 text-ui font-semibold text-fg">{s.title}</p>
-              <p className="mt-0.5 text-meta text-fg-2">{s.body}</p>
+            <li
+              key={s.title}
+              className={clsx(
+                "relative border-t-[3px] pr-6 pt-4",
+                i === 0 ? "border-fg" : "border-rule-2",
+                "before:absolute before:-top-[8.5px] before:left-0 before:size-[14px] before:rounded-full before:border-[3px] before:bg-paper before:content-['']",
+                i === 0 ? "before:border-fg" : "before:border-rule-2",
+              )}
+            >
+              <p className="text-ui font-bold text-fg">{s.title}</p>
+              <p className="mt-1 text-meta text-fg-2">{s.body}</p>
             </li>
           ))}
         </ol>
@@ -137,7 +145,7 @@ export function ErrorState({
     <section
       role="alert"
       data-testid="state-error"
-      className={clsx("border border-fail/35 bg-fail-wash/60 px-6 py-5", className)}
+      className={clsx("rounded-sheet border border-fail/30 bg-fail-wash px-6 py-5", className)}
     >
       <p className="legend text-fail!">Could not load</p>
       <p className="mt-1.5 text-body font-semibold text-fg">
@@ -166,7 +174,7 @@ export function PartialNotice({ children }: { children: ReactNode }) {
     <p
       role="status"
       data-testid="state-partial"
-      className="flex items-baseline gap-2 border-l-2 border-warn-mark bg-warn-wash/70 px-3 py-2 text-ui text-fg-2"
+      className="flex items-baseline gap-2 rounded-r-[10px] border-l-[3px] border-warn-mark bg-warn-wash px-3.5 py-2.5 text-ui text-fg-2"
     >
       <span className="legend shrink-0 text-warn!">Partial</span>
       <span>{children}</span>
@@ -184,7 +192,7 @@ export function PermissionState({
   back?: { label: string; href: string };
 }) {
   return (
-    <section role="status" data-testid="state-permission" className="border border-rule bg-paper-2 px-6 py-6">
+    <section role="status" data-testid="state-permission" className="rounded-sheet border border-rule bg-paper px-6 py-6">
       <p className="legend flex items-center gap-1.5">
         <Lock size={12} /> No access
       </p>
@@ -217,7 +225,7 @@ export function UpgradeNotice({
     <section
       role="status"
       data-feature={feature ?? "unknown"}
-      className="border border-rule-2 bg-paper-2 px-6 py-6"
+      className="rounded-sheet border border-rule bg-paper px-6 py-6"
     >
       <p className="legend text-fg!">Not on this workspace&rsquo;s plan</p>
       <p className="mt-1.5 text-body font-semibold text-fg">

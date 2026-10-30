@@ -32,15 +32,19 @@ export async function AuthFrame({
   return (
     <div data-harbor data-host-brand={brand.state} className="flex min-h-screen flex-col">
       {brand.state === "unverified" ? <HostUnverifiedBanner /> : null}
-      <header className="border-b border-rule">
-        <div className="mx-auto flex h-14 w-full max-w-[1240px] items-center gap-4 px-5 sm:px-8">
-          <Link href="/" className="flex items-center gap-2.5 text-act" aria-label={`${brandName(brand)} home`}>
+      {/* The brand sits exactly where the public header puts it (public-frame.tsx),
+          so following "Sign in" from the home page does not move it. */}
+      <header>
+        <div className="page-wrap flex h-16 items-center gap-4 sm:h-[72px]">
+          <Link href="/" className="inline-flex shrink-0 items-center gap-2.5 text-fg" aria-label={`${brandName(brand)} home`}>
             {branded && brand.logoUrl ? (
               <img src={brand.logoUrl} alt="" height={24} className="h-6 w-auto" />
             ) : (
-              <PierMark size={26} />
+              <PierMark size={22} />
             )}
-            <span className="wide text-body font-bold tracking-[-0.01em] text-fg">{brandName(brand)}</span>
+            <span className="whitespace-nowrap text-[17px] font-bold tracking-[-0.01em] text-fg max-[380px]:hidden">
+              {brandName(brand)}
+            </span>
           </Link>
           <div className="ml-auto flex items-center gap-2 text-ui">{aside}</div>
         </div>
@@ -54,8 +58,8 @@ export async function AuthFrame({
       >
         {children}
       </main>
-      <footer className="border-t border-rule">
-        <nav aria-label="Legal" className="mx-auto flex w-full max-w-[1240px] flex-wrap gap-x-4 gap-y-1.5 px-5 py-4 text-meta sm:px-8">
+      <footer className="page-wrap">
+        <nav aria-label="Legal" className="flex flex-wrap gap-x-4 gap-y-1.5 border-t border-rule py-4 text-meta">
           {LEGAL_FOOTER_LINKS.map(([href, label]) => (
             <Link key={href} href={href} className="text-fg-3 hover:text-fg">
               {label}

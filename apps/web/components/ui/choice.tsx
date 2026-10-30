@@ -25,7 +25,7 @@ export function Checkbox({
         <input
           type="checkbox"
           className={clsx(
-            "peer size-4 appearance-none rounded-[3px] border border-rule-2 bg-paper-2",
+            "peer size-4 appearance-none rounded-[5px] border border-rule-2 bg-paper",
             "checked:border-act checked:bg-act hover:border-fg-3 disabled:bg-paper-3 disabled:checked:bg-fg-3 disabled:checked:border-fg-3",
             "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-act",
           )}
@@ -80,8 +80,8 @@ export function Switch({
       <span
         aria-hidden
         className={clsx(
-          "block size-3.5 rounded-full shadow-[0_1px_1px_rgb(18_26_34/0.25)] transition-transform duration-100",
-          checked ? "translate-x-[18px] bg-white" : "translate-x-[2px] bg-paper-2 ring-1 ring-rule-2",
+          "block size-3.5 rounded-full transition-transform duration-100",
+          checked ? "translate-x-[18px] bg-white" : "translate-x-[2px] bg-paper ring-1 ring-rule-2",
         )}
       />
     </button>
@@ -96,8 +96,8 @@ export function Textarea({
   return (
     <textarea
       className={clsx(
-        "min-h-[88px] w-full rounded-ctl border border-rule-2 bg-paper-2 px-2.5 py-2 text-ui text-fg placeholder:text-fg-4",
-        "hover:border-fg-4 focus-visible:border-act focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-act-line",
+        "min-h-[88px] w-full rounded-ctl border border-rule-2 bg-paper px-3 py-2 text-ui text-fg placeholder:text-fg-4",
+        "hover:border-fg-4 focus-visible:border-act focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-act-line/35",
         "disabled:cursor-not-allowed disabled:bg-paper-3 disabled:text-fg-3 aria-[invalid=true]:border-fail",
         mono && "data",
         className,

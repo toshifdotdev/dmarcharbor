@@ -55,7 +55,7 @@ export async function DocumentFrame({
         <PublicHeader brand={brand} current={current ?? "legal"} />
       </div>
 
-      <main id="main" className="mx-auto w-full max-w-[1240px] px-5 pb-20 pt-10 sm:px-8 lg:pt-14">
+      <main id="main" className="page-wrap pb-20 pt-10 lg:pt-14">
         <header className="grid gap-6 border-b border-fg pb-8 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-12">
           <p className="legend lg:pt-3">
             {name} · {kicker}

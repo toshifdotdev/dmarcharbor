@@ -1,15 +1,15 @@
 /**
- * button.tsx — Chart system buttons and button-shaped links.
+ * button.tsx — buttons and button-shaped links, in the Routes language: pills.
  *
  * Four variants and no more:
- *   primary    the one action a screen is for. Accent fill, so a tenant's brand
- *              colour lands here (globals.css, ACCENT RULE).
- *   secondary  every other action. A sheet with a hairline.
+ *   primary    the one action a screen is for. Ink, or the tenant's brand
+ *              colour on their verified domain (globals.css, ACCENT).
+ *   secondary  every other action. White with a hairline.
  *   ghost      tertiary, in-table, toolbar.
  *   danger     destructive, and only behind a confirmation.
  *
- * Busy keeps its width. Label and the sounding indicator share one grid cell,
- * so the control never reflows under a double click: the bug ActionButton was
+ * Busy keeps its width. Label and the busy indicator share one grid cell, so
+ * the control never reflows under a double click: the bug ActionButton was
  * written to fix, kept fixed here.
  */
 
@@ -21,31 +21,33 @@ export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 export type ButtonSize = "sm" | "md" | "lg";
 
 const base =
-  "inline-grid shrink-0 select-none place-items-center whitespace-nowrap rounded-ctl font-ui font-semibold " +
+  "inline-grid shrink-0 select-none place-items-center whitespace-nowrap rounded-full font-ui font-semibold " +
   "transition-[background-color,border-color,color,box-shadow] duration-100 " +
   "disabled:cursor-not-allowed aria-disabled:cursor-not-allowed";
 
 const variants: Record<ButtonVariant, string> = {
   // Disabled is NEUTRAL and legible for every variant: a recessed face with
-  // label-grey text (5.8:1), never a faded copy of the enabled colour.
+  // grey text, never a faded copy of the enabled colour.
   primary:
     "border border-cta bg-cta text-cta-ink hover:border-cta-hover hover:bg-cta-hover hover:text-cta-ink " +
     "active:border-cta-press active:bg-cta-press " +
-    "disabled:border-rule-2 disabled:bg-paper-3 disabled:text-fg-3 aria-disabled:border-rule-2 aria-disabled:bg-paper-3 aria-disabled:text-fg-3",
+    "disabled:border-rule disabled:bg-paper-3 disabled:text-fg-3 aria-disabled:border-rule aria-disabled:bg-paper-3 aria-disabled:text-fg-3",
   secondary:
-    "border border-rule-2 bg-paper-2 text-fg shadow-[0_1px_0_rgb(18_26_34/0.04)] hover:border-fg-3 hover:bg-white " +
-    "active:bg-paper-3 disabled:bg-paper-3 disabled:text-fg-3 disabled:shadow-none disabled:hover:border-rule-2",
+    "border border-rule-2 bg-paper text-fg hover:border-fg-3 active:bg-paper-3 " +
+    "disabled:border-rule disabled:bg-paper-3 disabled:text-fg-3 disabled:hover:border-rule",
   ghost:
     "text-fg-2 hover:bg-paper-3 hover:text-fg active:bg-rule disabled:text-fg-3 disabled:hover:bg-transparent",
   danger:
     "border border-fail bg-fail text-white hover:border-crit hover:bg-crit hover:text-white " +
-    "disabled:border-rule-2 disabled:bg-paper-3 disabled:text-fg-3",
+    "disabled:border-rule disabled:bg-paper-3 disabled:text-fg-3",
 };
 
 const sizes: Record<ButtonSize, string> = {
-  sm: "h-7 gap-1.5 px-2.5 text-meta",
-  md: "h-8 gap-2 px-3.5 text-ui",
-  lg: "h-10 gap-2 px-5 text-body",
+  // sm is the in-table and toolbar size. It keeps the old 10px side padding:
+  // rows of four or five of these were laid out against it.
+  sm: "h-[30px] gap-1.5 px-2.5 text-meta",
+  md: "h-9 gap-2 px-4 text-ui",
+  lg: "h-11 gap-2 px-6 text-body",
 };
 
 export function buttonClass(variant: ButtonVariant = "secondary", size: ButtonSize = "md", extra?: string) {
@@ -71,18 +73,21 @@ function Inner({ busy, busyLabel, children }: { busy?: boolean; busyLabel?: stri
   );
 }
 
-/** Three marks taken in turn: the busy state, sized to sit inside a button. */
+/**
+ * Three stations lit in turn, like a line being travelled: the busy state,
+ * sized to sit inside a button.
+ */
 function Soundings() {
   return (
     // One svg rather than three spans, so the mark is a single box that can be
     // centred (and measured as centred) in the button.
-    <svg width="21" height="5" viewBox="0 0 21 5" className="block" aria-hidden>
+    <svg width="23" height="5" viewBox="0 0 23 5" className="block" aria-hidden>
       {[0, 1, 2].map((i) => (
-        <rect
+        <circle
           key={i}
-          x={i * 8}
-          width="5"
-          height="5"
+          cx={2.5 + i * 9}
+          cy="2.5"
+          r="2.5"
           fill="currentColor"
           style={{ animation: `hb-fade 0.9s ${i * 0.15}s ease-in-out infinite alternate` }}
         />
