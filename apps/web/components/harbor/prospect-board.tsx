@@ -210,13 +210,13 @@ export function ProspectBoard({
                 mono
                 value={domain}
                 onChange={(event) => setDomain(event.target.value)}
-                placeholder="acme.com"
+                placeholder="prospect.example"
                 data-testid="prospect-domain"
                 required
               />
             </Field>
             <Field label="Who it is for" hint="Optional. Shown at the top of the report.">
-              <Input value={prospectName} onChange={(event) => setProspectName(event.target.value)} placeholder="Acme Ltd" maxLength={120} />
+              <Input value={prospectName} onChange={(event) => setProspectName(event.target.value)} placeholder="Their company name" maxLength={120} />
             </Field>
             <Field label="A note from you" hint="Optional, up to 600 characters.">
               <Textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} maxLength={600} />
@@ -226,7 +226,7 @@ export function ProspectBoard({
                 type="email"
                 value={contactEmail}
                 onChange={(event) => setContactEmail(event.target.value)}
-                placeholder="sales@your-agency.com"
+                placeholder="sales@youragency.example"
               />
             </Field>
             {error?.scope === "form" ? <ActionRefusal error={error} /> : null}

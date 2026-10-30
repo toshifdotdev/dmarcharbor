@@ -72,7 +72,7 @@ const PROVIDERS: Array<{
 
 const FIELDS: Record<PsaProviderName, Array<{ key: string; label: string; secret?: boolean; optional?: boolean; hint?: string }>> = {
   HALOPSA: [
-    { key: "resourceServer", label: "Resource server", hint: "https://acme.halopsa.com" },
+    { key: "resourceServer", label: "Resource server", hint: "https://your-instance.halopsa.com" },
     { key: "clientId", label: "Client ID" },
     { key: "clientSecret", label: "Client secret", secret: true },
     { key: "authServer", label: "Authorisation server", optional: true, hint: "Defaults to <resource server>/auth" },

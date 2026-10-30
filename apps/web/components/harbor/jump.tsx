@@ -4,8 +4,8 @@
  * jump.tsx — go to any domain, client, workspace or screen by typing.
  *
  * An MSP operator's real navigation is by name: a client calls about
- * "billing@northwind", and the fastest path to the evidence is typing
- * "northw" anywhere in the product. Sections are a secondary way in. So the
+ * "billing@brisenhay", and the fastest path to the evidence is typing
+ * "brisen" anywhere in the product. Sections are a secondary way in. So the
  * location bar carries a Jump field, Ctrl K (⌘K) or "/" opens it from
  * anywhere, and it searches:
  *

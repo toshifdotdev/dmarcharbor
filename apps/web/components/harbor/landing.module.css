@@ -1,0 +1,1000 @@
+/*
+ * landing.module.css — the home page in the Routes language
+ * (.kiro/steering/design-system.md). White page, near-black type, colour only
+ * in the lines.
+ *
+ * The root rules are written as `.root[data-harbor]` on purpose. globals.css
+ * styles every `[data-harbor]` element (paper ground, Archivo, blue focus) and
+ * the order of that sheet and this module is not fixed in development. The
+ * extra attribute makes these win by specificity instead of by luck, while the
+ * tenant brand rules BrandApplier writes on `[data-harbor]` are left alone.
+ */
+
+.root[data-harbor] {
+  --ink: #15171b;
+  --ink-2: #41454d;
+  --ink-3: #6c717a;
+  --rule: #e7e9ed;
+  /* Closed stations, unbuilt segments, field borders. */
+  --rule-2: #c9cdd4;
+  --red: #d9342b;
+  --ok: #0f7a3b;
+  --warn: #9a5b00;
+
+  --blue: #1f5fd6;
+  --orange: #f07c1b;
+  --green: #13a050;
+  --yellow: #f2b705;
+  --purple: #8a3fd1;
+
+  /* The sample agency's brand colour, on its own line in the portal figure.
+     Not one of the sender colours, so it cannot be read as a sender. */
+  --agency: #0f766e;
+
+  /* Primary actions: ink, or the tenant's colour on a verified domain. */
+  --cta: var(--ink);
+  --cta-ink: #ffffff;
+  --cta-hover: #2d3036;
+
+  /* The five sender lines side by side, 7 wide and 11 apart. */
+  --bundle-v: linear-gradient(
+    90deg,
+    var(--blue) 0 7px,
+    transparent 7px 11px,
+    var(--orange) 11px 18px,
+    transparent 18px 22px,
+    var(--green) 22px 29px,
+    transparent 29px 33px,
+    var(--yellow) 33px 40px,
+    transparent 40px 44px,
+    var(--purple) 44px 51px
+  );
+  --bundle-h: linear-gradient(
+    180deg,
+    var(--blue) 0 7px,
+    transparent 7px 11px,
+    var(--orange) 11px 18px,
+    transparent 18px 22px,
+    var(--green) 22px 29px,
+    transparent 29px 33px,
+    var(--yellow) 33px 40px,
+    transparent 40px 44px,
+    var(--purple) 44px 51px
+  );
+
+  overflow-x: clip;
+  background: #ffffff;
+  color: var(--ink);
+  font-family: var(--rt-sans), system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.root[data-harbor][data-tenant-primary] {
+  --cta: var(--hb-primary);
+  --cta-ink: var(--hb-primary-ink);
+  --cta-hover: var(--hb-primary-hover);
+}
+
+:global(html):has(.root[data-harbor]),
+:global(body):has(.root[data-harbor]) {
+  background: #ffffff;
+}
+
+/* Inputs show focus on their field instead (record-reading.module.css). */
+.root[data-harbor] :focus-visible:not(input) {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────── */
+
+.headerInner {
+  display: flex;
+  align-items: center;
+  gap: 40px;
+  max-width: 1320px;
+  height: 72px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.nav {
+  display: none;
+  gap: 30px;
+}
+
+.nav a {
+  color: var(--ink-2);
+  font-size: 15.5px;
+  font-weight: 500;
+  transition: color 120ms ease;
+}
+
+.nav a:hover {
+  color: var(--ink);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.signin,
+.start {
+  display: inline-flex;
+  align-items: center;
+  height: 40px;
+  border-radius: 999px;
+  font-size: 15.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background-color 120ms ease;
+}
+
+.signin {
+  padding: 0 16px;
+  color: var(--ink);
+}
+
+.signin:hover {
+  background: rgb(21 23 27 / 0.06);
+}
+
+.start {
+  padding: 0 18px;
+  background: var(--cta);
+  color: var(--cta-ink);
+}
+
+.start:hover {
+  background: var(--cta-hover);
+}
+
+/* ── Hero ────────────────────────────────────────────────────────────── */
+
+.hero {
+  display: grid;
+  gap: 48px;
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 40px 24px 88px;
+}
+
+.copy {
+  align-self: center;
+  max-width: 34rem;
+}
+
+.headline {
+  margin: 0;
+  font-size: clamp(3rem, 1.5rem + 4.6vw, 5.9rem);
+  font-weight: 760;
+  line-height: 0.96;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+
+.line {
+  max-width: 30rem;
+  margin: 28px 0 0;
+  color: var(--ink-2);
+  font-size: 19px;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.ctaRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  margin-top: 36px;
+}
+
+.cta {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  height: 54px;
+  padding: 0 30px;
+  border-radius: 999px;
+  background: var(--cta);
+  color: var(--cta-ink);
+  font-size: 16.5px;
+  font-weight: 650;
+  white-space: nowrap;
+  transition: background-color 120ms ease;
+}
+
+.cta:hover {
+  background: var(--cta-hover);
+}
+
+.ctaNote {
+  color: var(--ink-3);
+  font-size: 15px;
+}
+
+/* ── Figures and maps ────────────────────────────────────────────────── */
+
+.figure {
+  min-width: 0;
+  margin: 0;
+}
+
+.figHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.figDomain {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+}
+
+.figMeta {
+  color: var(--ink-3);
+  font-size: 14px;
+}
+
+.map {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: 18px;
+  overflow: visible;
+}
+
+.caption {
+  margin-top: 14px;
+  color: var(--ink-3);
+  font-size: 13.5px;
+}
+
+.mOrigin,
+.mStation {
+  fill: #ffffff;
+  stroke: var(--ink);
+  stroke-width: 3;
+}
+
+.mFail {
+  fill: none;
+  stroke: var(--red);
+  stroke-width: 2.6;
+  stroke-linecap: round;
+}
+
+.mBar {
+  fill: var(--red);
+}
+
+.mMsg {
+  fill: #ffffff;
+  stroke-width: 2.5;
+}
+
+.mLbl {
+  fill: var(--ink);
+  font-family: var(--rt-sans), system-ui, sans-serif;
+  font-size: 14px;
+}
+
+.mName {
+  font-weight: 700;
+}
+
+.mKind {
+  fill: var(--ink-3);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.mLbl[data-forged] .mName {
+  fill: var(--red);
+}
+
+/* ── Sections ────────────────────────────────────────────────────────── */
+
+.section {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.inner {
+  padding: 96px 0;
+  border-top: 1px solid var(--rule);
+}
+
+.split {
+  display: grid;
+  gap: 48px;
+}
+
+.h2 {
+  max-width: 17ch;
+  margin: 0;
+  font-size: clamp(2.25rem, 1.3rem + 2.7vw, 3.75rem);
+  font-weight: 740;
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+
+.lead {
+  max-width: 34rem;
+  margin: 24px 0 0;
+  color: var(--ink-2);
+  font-size: 19px;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.lead + .lead {
+  margin-top: 14px;
+}
+
+/* ── The board ───────────────────────────────────────────────────────── */
+
+.boardFig {
+  margin: 56px 0 0;
+}
+
+.boardHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.boardTitle {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.boardMeta,
+.boardSort {
+  color: var(--ink-3);
+  font-size: 14px;
+}
+
+.boardSort {
+  margin-left: auto;
+}
+
+.scale,
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px 40px;
+}
+
+.scale {
+  padding: 20px 0 4px;
+}
+
+.scaleTrack {
+  position: relative;
+  height: 20px;
+  color: var(--ink-3);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.scaleTrack span {
+  position: absolute;
+  top: 0;
+  white-space: nowrap;
+}
+
+.scaleTrack span:nth-child(1) {
+  left: 0;
+}
+
+.scaleTrack span:nth-child(2) {
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.scaleTrack span:nth-child(3) {
+  right: 0;
+}
+
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  align-items: center;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.who {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  min-width: 0;
+  margin: 0;
+}
+
+.dom {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+}
+
+.client {
+  color: var(--ink-3);
+  font-size: 14px;
+}
+
+.state {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.state[data-tone="fail"] {
+  color: var(--red);
+  font-weight: 600;
+}
+
+.state[data-tone="ok"] {
+  color: var(--ok);
+}
+
+.state[data-tone="void"] {
+  color: var(--ink-3);
+}
+
+/* A strip map of the three policies. --at and --p are 0, 0.5 or 1. */
+.strip {
+  position: relative;
+  height: 24px;
+}
+
+.strip::before,
+.stripTravel,
+.stripPlan {
+  position: absolute;
+  top: 50%;
+  height: 5px;
+  margin-top: -2.5px;
+}
+
+.strip::before {
+  content: "";
+  right: 11px;
+  left: 11px;
+  border-radius: 3px;
+  background: var(--rule);
+}
+
+/* Not measured: the line is dotted, the stations closed. */
+.strip[data-void]::before {
+  background: repeating-linear-gradient(90deg, var(--rule-2) 0 4px, transparent 4px 10px);
+}
+
+.stripTravel {
+  left: 11px;
+  width: calc((100% - 22px) * var(--at));
+  border-radius: 3px;
+  background: var(--ink);
+  transform-origin: left center;
+}
+
+/* Ready but not taken: drawn dashed, the way a map draws a line being built. */
+.stripPlan {
+  left: calc(11px + (100% - 22px) * var(--at));
+  width: calc((100% - 22px) / 2);
+  background: repeating-linear-gradient(90deg, var(--ink) 0 8px, transparent 8px 14px);
+}
+
+.stripStop {
+  position: absolute;
+  top: 50%;
+  left: calc(11px + (100% - 22px) * var(--p));
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border: 3px solid var(--rule-2);
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+.stripStop[data-reached] {
+  border-color: var(--ink);
+}
+
+.stripStop[data-here] {
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  border-width: 4px;
+}
+
+.board[data-motion="armed"] .stripTravel {
+  transform: scaleX(0);
+}
+
+.board[data-motion="armed"] .stripPlan {
+  opacity: 0;
+}
+
+.board[data-motion="run"] .stripTravel {
+  transition: transform 800ms cubic-bezier(0.2, 0.7, 0.2, 1) calc(var(--i, 0) * 90ms);
+}
+
+.board[data-motion="run"] .stripPlan {
+  transition: opacity 260ms ease calc(var(--i, 0) * 90ms + 720ms);
+}
+
+/* ── How: the five lines run down through each stop ──────────────────── */
+
+.journey {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.jStop {
+  position: relative;
+  display: grid;
+  grid-template-columns: 67px minmax(0, 1fr);
+  column-gap: 28px;
+  padding-bottom: 48px;
+}
+
+.jStop:last-child {
+  padding-bottom: 0;
+}
+
+.jRail {
+  position: relative;
+}
+
+/* From this stop's station to the next one's: drawn on the stop itself, so it
+   spans the stop's bottom padding too and meets the next capsule. */
+.jStop::before {
+  content: "";
+  position: absolute;
+  top: 15px;
+  bottom: -15px;
+  left: 8px;
+  width: 51px;
+  background: var(--bundle-v);
+  transform-origin: top center;
+}
+
+.jStop:last-child::before {
+  content: none;
+}
+
+.jCap {
+  position: absolute;
+  top: 2px;
+  left: 0;
+  width: 67px;
+  height: 26px;
+  border: 3px solid var(--ink);
+  border-radius: 13px;
+  background: #ffffff;
+}
+
+/* The terminus is the larger capsule. */
+.jStop:last-child .jCap {
+  top: -2px;
+  height: 34px;
+  border-radius: 17px;
+}
+
+.jTitle {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 740;
+  line-height: 30px;
+  letter-spacing: -0.02em;
+}
+
+.jBody {
+  max-width: 30rem;
+  margin: 6px 0 0;
+  color: var(--ink-2);
+  font-size: 17px;
+  line-height: 1.5;
+}
+
+.jGate {
+  max-width: 30rem;
+  margin: 10px 0 0;
+  color: var(--ink-3);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.jGate b {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.journeyWrap[data-motion="armed"] .jStop::before {
+  transform: scaleY(0);
+}
+
+.journeyWrap[data-motion="run"] .jStop::before {
+  transition: transform 560ms cubic-bezier(0.3, 0.6, 0.2, 1) calc(var(--i, 0) * 380ms);
+}
+
+/* ── Portal: the agency's own line ───────────────────────────────────── */
+
+/* Drawn across from 640px; down the page below that. */
+.portalAcross {
+  display: none;
+}
+
+.portalDown {
+  display: block;
+  width: 100%;
+  max-width: 340px;
+  height: auto;
+  margin-top: 18px;
+  overflow: visible;
+}
+
+.agencyLine {
+  stroke: var(--agency);
+}
+
+.agencyOrigin,
+.agencyMsg {
+  stroke: var(--agency);
+}
+
+.pLbl {
+  fill: var(--ink);
+  font-family: var(--rt-sans), system-ui, sans-serif;
+  font-size: 14px;
+}
+
+.pLblBig {
+  font-size: 17px;
+}
+
+.pName {
+  font-weight: 700;
+}
+
+.pKind {
+  fill: var(--ink-3);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.pLblBig .pKind {
+  font-size: 15px;
+}
+
+.pLbl[data-agency] .pName {
+  fill: var(--agency);
+}
+
+/* ── Close: every line ends at one terminus ──────────────────────────── */
+
+.terminus {
+  --reach: 72px;
+  display: flex;
+  align-items: center;
+  margin-top: 44px;
+}
+
+/* From the left edge of the window to the button, which is the terminus. */
+.bundle {
+  flex: none;
+  width: calc(50vw - 50% + var(--reach));
+  height: 51px;
+  margin-right: -18px;
+  margin-left: calc(50% - 50vw);
+  background: var(--bundle-h);
+}
+
+.terminus .cta {
+  z-index: 1;
+}
+
+.closeLinks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 20px;
+  margin: 18px 0 0 calc(72px - 18px);
+  color: var(--ink-3);
+  font-size: 15px;
+}
+
+.textLink {
+  color: var(--ink);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 4px;
+  text-decoration-color: var(--rule-2);
+  transition: text-decoration-color 120ms ease;
+}
+
+.textLink:hover {
+  text-decoration-color: currentColor;
+}
+
+/* ── Footer ──────────────────────────────────────────────────────────── */
+
+/* The same contained hairline as every section above it. */
+.footer {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.footerInner {
+  display: grid;
+  gap: 40px;
+  padding: 56px 0 72px;
+  border-top: 1px solid var(--rule);
+}
+
+.footerBrand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.footerLine {
+  max-width: 26rem;
+  margin: 14px 0 0;
+  color: var(--ink-3);
+  font-size: 14.5px;
+}
+
+.footerHead {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.footerLinks {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+
+.footerLinks a {
+  color: var(--ink-2);
+  font-size: 14.5px;
+  transition: color 120ms ease;
+}
+
+.footerLinks a:hover {
+  color: var(--ink);
+}
+
+.footerLegal {
+  grid-template-columns: repeat(2, max-content);
+  column-gap: 36px;
+}
+
+/* ── Widths ──────────────────────────────────────────────────────────── */
+
+@media (min-width: 640px) {
+  .portalAcross {
+    display: block;
+  }
+
+  .portalDown {
+    display: none;
+  }
+}
+
+@media (min-width: 900px) {
+  .nav {
+    display: flex;
+  }
+
+  .scale,
+  .row {
+    grid-template-columns: 250px minmax(0, 1fr) 280px;
+  }
+
+  .scale .scaleTrack {
+    grid-column: 2;
+  }
+
+  .who {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .footerInner {
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.6fr) minmax(0, 1fr);
+  }
+}
+
+@media (min-width: 1100px) {
+  .headerInner {
+    padding: 0 48px;
+  }
+
+  .hero {
+    grid-template-columns: minmax(0, 0.74fr) minmax(0, 1fr);
+    align-items: center;
+    gap: 64px;
+    min-height: calc(100svh - 72px);
+    padding: 0 48px 24px;
+  }
+
+  .section {
+    padding: 0 48px;
+  }
+
+  .inner {
+    padding: 128px 0;
+  }
+
+  .split {
+    grid-template-columns: minmax(0, 0.74fr) minmax(0, 1fr);
+    align-items: center;
+    gap: 64px;
+  }
+
+  .split[data-flip] {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.74fr);
+  }
+
+  .split[data-flip] > :first-child {
+    order: 2;
+  }
+
+  .terminus {
+    --reach: 160px;
+  }
+
+  .closeLinks {
+    margin-left: calc(160px - 18px);
+  }
+
+  .footer {
+    padding: 0 48px;
+  }
+
+  .footerInner {
+    padding: 64px 0 80px;
+  }
+}
+
+/* Narrow screens draw the maps smaller, so their labels are set larger. */
+@media (max-width: 640px) {
+  .headerInner {
+    gap: 12px;
+    height: 64px;
+    padding: 0 16px;
+  }
+
+  .signin {
+    padding: 0 10px;
+  }
+
+  .start {
+    padding: 0 14px;
+  }
+
+  .hero {
+    gap: 40px;
+    padding: 24px 16px 64px;
+  }
+
+  .line,
+  .lead {
+    font-size: 17px;
+  }
+
+  .section {
+    padding: 0 16px;
+  }
+
+  .inner {
+    padding: 72px 0;
+  }
+
+  .mLbl {
+    font-size: 21px;
+  }
+
+  .mKind {
+    display: none;
+  }
+
+  .boardSort {
+    margin-left: 0;
+  }
+
+  .jStop {
+    grid-template-columns: 51px minmax(0, 1fr);
+    column-gap: 18px;
+  }
+
+  .jStop::before {
+    left: 6px;
+    width: 39px;
+    background: linear-gradient(
+      90deg,
+      var(--blue) 0 5px,
+      transparent 5px 8.5px,
+      var(--orange) 8.5px 13.5px,
+      transparent 13.5px 17px,
+      var(--green) 17px 22px,
+      transparent 22px 25.5px,
+      var(--yellow) 25.5px 30.5px,
+      transparent 30.5px 34px,
+      var(--purple) 34px 39px
+    );
+  }
+
+  .jCap {
+    width: 51px;
+  }
+
+  .jTitle {
+    font-size: 21px;
+  }
+
+  .jBody {
+    font-size: 16px;
+  }
+
+  .footer {
+    padding: 0 16px;
+  }
+
+  .footerInner {
+    padding: 48px 0 64px;
+  }
+}
+
+@media (max-width: 380px) {
+  .brand span {
+    display: none;
+  }
+}

@@ -130,11 +130,12 @@ async function main(): Promise<void> {
   await setOrganizationPlan(organization.id, 'ADMIRALTY');
 
   const client = await prisma.client.create({
-    data: { organizationId: organization.id, name: 'Northwind Trading', slug: 'northwind-trading' },
+    // An invented name, checked not to belong to a real business, on a reserved domain.
+    data: { organizationId: organization.id, name: 'Brisenhay Trading', slug: 'brisenhay-trading' },
     select: { id: true },
   });
 
-  const domainName = 'northwind-trading.test';
+  const domainName = 'brisenhay-trading.example';
   const domain = await prisma.domain.create({
     data: {
       clientId: client.id,
@@ -173,7 +174,7 @@ async function main(): Promise<void> {
             disposition: 'none',
             dkimResult: 'pass',
             spfResult: 'pass',
-            headerFrom: 'northwind-trading.test',
+            headerFrom: domainName,
           },
           {
             sourceIp: '45.83.12.9',
@@ -181,7 +182,7 @@ async function main(): Promise<void> {
             disposition: 'quarantine',
             dkimResult: 'fail',
             spfResult: 'fail',
-            headerFrom: 'northwind-trading.test',
+            headerFrom: domainName,
           },
         ],
       },

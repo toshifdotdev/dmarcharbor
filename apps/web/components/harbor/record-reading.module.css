@@ -1,0 +1,484 @@
+/*
+ * record-reading.module.css — the domain check in the Routes language.
+ *
+ * Reads the landing page's tokens (--ink, --rule, --cta, ...) from its root,
+ * which is the only place this component renders.
+ *
+ * Every region below has a FIXED height at each width, so the example and any
+ * real result occupy the same rows and the page never reflows on a lookup.
+ * Text that could run long is clamped to the lines its row allows.
+ */
+
+.check {
+  display: flex;
+  flex-direction: column;
+  max-width: 1120px;
+  margin-top: 48px;
+}
+
+.mono {
+  font-family: var(--font-hyper-mono), ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-variant-numeric: slashed-zero;
+}
+
+/* ── The query line ──────────────────────────────────────────────────── */
+
+.form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+}
+
+.field {
+  display: flex;
+  flex: 1 1 100%;
+  align-items: center;
+  min-width: 0;
+  height: 56px;
+  padding: 0 10px 0 22px;
+  border: 1.5px solid var(--rule-2);
+  border-radius: 999px;
+  background: #ffffff;
+  cursor: text;
+  transition: border-color 120ms ease;
+}
+
+.field:hover {
+  border-color: var(--ink-3);
+}
+
+.field:focus-within {
+  border-color: var(--ink);
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.prefix,
+.input {
+  font-family: var(--font-hyper-mono), ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 17px;
+}
+
+.prefix {
+  flex: none;
+  color: var(--ink-3);
+}
+
+.input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  outline: none;
+}
+
+/* Beats the Chart system's [data-harbor] :focus-visible ring: the field shows focus. */
+.field .input:focus-visible {
+  outline: none;
+}
+
+.input::placeholder {
+  color: var(--ink-3);
+  opacity: 1;
+}
+
+/* The shared Button keeps its busy behaviour; its look is set here. */
+.submit {
+  width: 100%;
+  height: 56px;
+  padding: 0 28px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--cta, #15171b);
+  color: var(--cta-ink, #ffffff);
+  font-family: inherit;
+  font-size: 16.5px;
+  font-weight: 650;
+  transition: background-color 120ms ease;
+}
+
+.submit:hover:not(:disabled) {
+  background: var(--cta-hover, #2d3036);
+}
+
+.submit:disabled {
+  background: var(--rule);
+  color: var(--ink-3);
+}
+
+/* ── The status line ─────────────────────────────────────────────────── */
+
+/* Room for the longest message at each width, so "Back to the example" is
+   never clipped: four lines on phones, two from 640px. */
+.message {
+  height: 84px;
+  padding-top: 10px;
+  overflow: hidden;
+}
+
+.note {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  color: var(--ink-3);
+  font-size: 13.5px;
+  line-height: 18px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.note[data-tone="warn"] {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.note[data-tone="fail"] {
+  color: var(--red);
+  font-weight: 600;
+}
+
+.note .mono {
+  color: var(--ink-2);
+}
+
+.back {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--rule-2);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.back:hover {
+  text-decoration-color: currentColor;
+}
+
+/* ── The readout ─────────────────────────────────────────────────────── */
+
+.readout {
+  transition: opacity 150ms ease;
+}
+
+.readout[data-busy] {
+  opacity: 0.35;
+}
+
+.answer {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  height: 92px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+}
+
+.answerLabel,
+.verdictLabel {
+  flex: none;
+  width: 72px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.answerLabel {
+  padding-top: 4px;
+}
+
+.record {
+  display: -webkit-box;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-family: var(--font-hyper-mono), ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.record[data-size="l"] {
+  font-size: 21px;
+  line-height: 28px;
+}
+
+.record[data-size="m"] {
+  font-size: 17px;
+  line-height: 24px;
+}
+
+.record[data-size="s"] {
+  font-size: 15px;
+  line-height: 21px;
+}
+
+.record[data-missing] {
+  color: var(--red);
+}
+
+/* Tag by tag: each row of tags is a line, each tag a station on it. A tag the
+   record sets is an open station on an ink line; an absent one is closed. */
+.tags {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  row-gap: 22px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tag {
+  position: relative;
+  height: 132px;
+  padding: 18px 16px 0 0;
+  border-top: 3px solid var(--rule-2);
+}
+
+.tag[data-has] {
+  border-top-color: var(--ink);
+}
+
+.tagStop {
+  position: absolute;
+  top: -8.5px;
+  left: 0;
+  width: 14px;
+  height: 14px;
+  border: 3px solid var(--rule-2);
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+.tag[data-has] .tagStop {
+  border-color: var(--ink);
+}
+
+.tagHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+}
+
+.tagName {
+  flex: none;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.tagValue {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-3);
+  font-family: var(--font-hyper-mono), ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag[data-has] .tagValue {
+  color: var(--ink);
+}
+
+.tagMeaning {
+  display: -webkit-box;
+  margin: 8px 0 0;
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 19px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+/* The other records the same lookup read. */
+.strips {
+  display: grid;
+  margin: 24px 0 0;
+  border-top: 1px solid var(--rule);
+}
+
+.stripRow {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+  height: 44px;
+  padding-top: 12px;
+}
+
+.stripKey {
+  flex: none;
+  width: 44px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.stripVal {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 14.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stripVal[data-mono] {
+  font-family: var(--font-hyper-mono), ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 13.5px;
+}
+
+.verdict {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  height: 96px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+}
+
+.verdictLabel {
+  padding-top: 2px;
+}
+
+.verdictBody {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.verdictText {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 23px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.findings {
+  margin: 4px 0 0;
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: 13.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* State words: colour always travels with the sentence that carries it. */
+.tagMeaning[data-tone="ok"],
+.stripVal[data-tone="ok"],
+.verdictText[data-tone="ok"] {
+  color: var(--ok);
+}
+
+.tagMeaning[data-tone="warn"],
+.stripVal[data-tone="warn"],
+.verdictText[data-tone="warn"] {
+  color: var(--warn);
+}
+
+.tagMeaning[data-tone="fail"],
+.stripVal[data-tone="fail"],
+.verdictText[data-tone="fail"] {
+  color: var(--red);
+}
+
+.tagMeaning[data-tone="void"],
+.stripVal[data-tone="void"],
+.verdictText[data-tone="void"] {
+  color: var(--ink-3);
+}
+
+.tagMeaning[data-tone="plain"],
+.stripVal[data-tone="plain"],
+.verdictText[data-tone="plain"] {
+  color: var(--ink-2);
+}
+
+.boundary {
+  margin: 14px 0 0;
+  color: var(--ink-3);
+  font-size: 13.5px;
+}
+
+/* ── Widths ──────────────────────────────────────────────────────────── */
+
+@media (min-width: 640px) {
+  .field {
+    flex-basis: 320px;
+  }
+
+  .submit {
+    width: auto;
+  }
+
+  .message {
+    height: 48px;
+  }
+
+  .note {
+    -webkit-line-clamp: 2;
+  }
+
+  .answer {
+    height: 104px;
+    padding-top: 18px;
+  }
+
+  .record[data-size="l"] {
+    font-size: 28px;
+    line-height: 36px;
+  }
+
+  .record[data-size="m"] {
+    font-size: 21px;
+    line-height: 28px;
+  }
+
+  .record[data-size="s"] {
+    font-size: 17px;
+    line-height: 24px;
+  }
+
+  .tags {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .tag {
+    height: 120px;
+  }
+
+  .tagMeaning {
+    -webkit-line-clamp: 3;
+  }
+
+  .strips {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .stripRow {
+    padding-right: 16px;
+  }
+
+  .verdict {
+    height: 72px;
+  }
+
+  .verdictText {
+    -webkit-line-clamp: 1;
+  }
+}

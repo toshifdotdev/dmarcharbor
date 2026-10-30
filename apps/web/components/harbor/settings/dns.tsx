@@ -180,8 +180,8 @@ export function DnsConnectionsBoard({
                 data-testid="dns-token"
               />
             </Field>
-            <Field label="Name this connection" hint="Optional. For example “Acme production Cloudflare”.">
-              <Input value={label} onChange={(event) => setLabel(event.target.value)} maxLength={80} placeholder="Acme production" data-testid="dns-label" />
+            <Field label="Name this connection" hint="Optional. For example “Main Cloudflare account”.">
+              <Input value={label} onChange={(event) => setLabel(event.target.value)} maxLength={80} placeholder="Main account" data-testid="dns-label" />
             </Field>
             <div>
               <Button type="submit" variant="primary" busy={busy} busyLabel="Checking the token with Cloudflare" data-testid="dns-connect">

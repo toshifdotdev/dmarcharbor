@@ -1,16 +1,19 @@
 "use client";
 
 /**
- * record-reading.tsx — the landing page's centrepiece: a DMARC record, read
+ * record-reading.tsx — the home page's domain check: a DMARC record, read
  * aloud, tag by tag.
  *
- * Every other product puts a domain-check box in a card beside its headline.
- * This one makes the record itself the hero: the query line is a real lookup
- * (`_dmarc.` + whatever you type), the answer is set large in the data face,
- * and every tag that matters is annotated underneath with what it makes a
- * receiving mail server do. Tags that are ABSENT are annotated too, with the
- * default the standard applies (RFC 9989), because the most important finding
- * on most domains is a tag that is not there: no rua, nobody reads the reports.
+ * The query line is a real lookup (`_dmarc.` + whatever you type), the answer
+ * is set large in the data face, and every tag that matters is annotated
+ * underneath with what it makes a receiving mail server do. Tags that are
+ * ABSENT are annotated too, with the default the standard applies (RFC 9989),
+ * because the most important finding on most domains is a tag that is not
+ * there: no rua, nobody reads the reports.
+ *
+ * Drawn in the Routes language (record-reading.module.css): each row of tags
+ * is a line and each tag a station on it, open when the record sets the tag
+ * and closed when it does not.
  *
  * Truth rules:
  * - Everything shown after a lookup is what POST /api/scan returned: the record
@@ -21,13 +24,13 @@
  * - A 429 is a pause, not a failure: the lookup is shared and rate limited.
  *
  * Layout is fixed-height: the example and any real result occupy the same
- * rows, so the hero never reflows on interaction (the clickthrough suite
+ * rows, so the page never reflows on interaction (the clickthrough suite
  * measures it). Test ids are the ones that suite reads.
  */
 
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
-import { clsx } from "clsx";
 import { Button } from "@/components/ui/button";
+import s from "./record-reading.module.css";
 
 type Lookup = "found" | "missing" | "error";
 interface ScanIssue {
@@ -224,8 +227,6 @@ const TAGS: Array<{
   },
 ];
 
-const TONE: Record<Tone, string> = { ok: "text-ok", warn: "text-warn", fail: "text-fail", void: "text-void", plain: "text-fg" };
-
 export function RecordReading() {
   const [domain, setDomain] = useState("");
   const [busy, setBusy] = useState(false);
@@ -274,21 +275,18 @@ export function RecordReading() {
   const shown = result ?? EXAMPLE;
   const state = result ? "result" : error ? "error" : paused ? "paused" : busy ? "busy" : "idle";
   const recordLen = shown.record?.length ?? 0;
+  const recordSize = recordLen > 90 ? "s" : recordLen > 55 ? "m" : "l";
 
   return (
-    <section data-testid="domain-check" data-state={state} aria-labelledby="reading-head" className="flex flex-col">
-      <h2 id="reading-head" className="sr-only">
+    <section data-testid="domain-check" data-state={state} aria-labelledby="reading-head" className={s.check}>
+      <h3 id="reading-head" className="sr-only">
         Read any domain&rsquo;s DMARC record
-      </h2>
+      </h3>
 
       {/* The query line: a real lookup, typed into the record name itself. */}
-      <form onSubmit={run} className="flex flex-wrap items-stretch gap-x-3 gap-y-2">
-        <label
-          htmlFor="reading-domain"
-          className="group flex min-w-0 flex-1 basis-full cursor-text items-center sm:basis-auto rounded-ctl border border-rule-2 bg-paper-2 pl-3 focus-within:border-act focus-within:ring-2 focus-within:ring-act-line"
-          onClick={() => input.current?.focus()}
-        >
-          <span className="data shrink-0 text-body text-fg-3 sm:text-lead" aria-hidden>
+      <form onSubmit={run} className={s.form}>
+        <label htmlFor="reading-domain" className={s.field} onClick={() => input.current?.focus()}>
+          <span className={s.prefix} aria-hidden>
             TXT&nbsp;_dmarc.
           </span>
           <span className="sr-only">Domain to read</span>
@@ -302,9 +300,9 @@ export function RecordReading() {
             spellCheck={false}
             value={domain}
             onChange={(e) => setDomain(e.target.value)}
-            placeholder="yourclient.com"
+            placeholder="yourclient.example"
             data-testid="domain-check-input"
-            className="data h-12 min-w-0 flex-1 bg-transparent pr-3 text-body text-fg outline-none placeholder:text-fg-4 sm:text-lead"
+            className={s.input}
           />
         </label>
         <Button
@@ -315,58 +313,52 @@ export function RecordReading() {
           busyLabel="Reading DNS"
           disabled={!domain.trim()}
           data-testid="domain-check-submit"
-          className="h-12 w-full px-6 sm:w-auto"
+          className={s.submit}
         >
           Read the record
         </Button>
       </form>
 
-      <div className="h-6 pt-1.5" data-testid="domain-check-message" aria-live="polite">
+      <div className={s.message} data-testid="domain-check-message" aria-live="polite">
         {paused ? (
-          <p role="status" className="text-meta font-semibold text-warn">
+          <p role="status" className={s.note} data-tone="warn">
             Too many lookups just now. Try again in a minute: the lookup is shared, which is why it stays free.
           </p>
         ) : error ? (
-          <p role="alert" className="text-meta font-semibold text-fail">
+          <p role="alert" className={s.note} data-tone="fail">
             {error}
           </p>
         ) : (
-          <p className="text-meta text-fg-3">
+          <p className={s.note}>
             {result ? (
               <>
-                Read <span className="data text-fg-2">_dmarc.{result.domain}</span> from public DNS just now. No account,
-                nothing stored about the domain.{" "}
-                <button type="button" className="link" onClick={() => { setResult(null); setDomain(""); input.current?.focus(); }}>
+                Read <span className={s.mono}>_dmarc.{result.domain}</span> from public DNS just now. No account, nothing
+                stored about the domain.{" "}
+                <button type="button" className={s.back} onClick={() => { setResult(null); setDomain(""); input.current?.focus(); }}>
                   Back to the example
                 </button>
               </>
             ) : (
               <>
-                Showing the record <span className="data text-fg-2">example.com</span> really publishes. Type any domain
-                to read its own.
+                Showing the record <span className={s.mono}>example.com</span> really publishes. Type any domain to read
+                its own.
               </>
             )}
           </p>
         )}
       </div>
 
-      <div className={clsx("transition-opacity duration-150", busy && "opacity-35")} aria-busy={busy || undefined}>
+      <div className={s.readout} data-busy={busy ? "" : undefined} aria-busy={busy || undefined}>
         {/* The answer, set large. Fixed height: two lines at most. */}
-        <div className="mt-4 flex h-[92px] items-start gap-4 border-t border-fg pt-4 sm:h-[104px]">
-          <span className="legend w-[64px] shrink-0 pt-1.5">{shown.example ? "Example" : "Answer"}</span>
-          <p
-            className={clsx(
-              "data line-clamp-2 min-w-0 flex-1 break-all font-semibold tracking-[-0.02em]",
-              shown.record ? "text-fg" : "text-fail",
-              recordLen > 90 ? "text-lead sm:text-h3" : recordLen > 55 ? "text-h3 sm:text-h2" : "text-h2 sm:text-[30px] sm:leading-[38px]",
-            )}
-          >
+        <div className={s.answer}>
+          <span className={s.answerLabel}>{shown.example ? "Example" : "Answer"}</span>
+          <p className={s.record} data-size={recordSize} data-missing={shown.record ? undefined : ""}>
             {shown.record ?? (shown.status === "missing" ? `no record at _dmarc.${shown.domain}` : "the lookup could not read the record")}
           </p>
         </div>
 
         {/* Tag by tag: what the record makes a receiver do. */}
-        <ol className="grid grid-cols-2 border-t border-rule sm:grid-cols-4" aria-label={`What ${shown.domain}'s record makes receivers do`}>
+        <ol className={s.tags} aria-label={`What ${shown.domain}'s record makes receivers do`}>
           {TAGS.map(({ tag, label, present, absent }) => {
             const value = shown.tags[tag];
             const has = value !== undefined && value !== "";
@@ -378,30 +370,35 @@ export function RecordReading() {
                   ? absent(shown.tags)
                   : absent;
             return (
-              <li key={tag} className="h-[104px] border-b border-r border-rule px-3 py-2.5 even:border-r-0 sm:even:border-r sm:[&:nth-child(4n)]:border-r-0">
-                <p className="flex items-baseline justify-between gap-2">
-                  <span className="legend shrink-0">{label}</span>
-                  <span title={has ? `${tag}=${value}` : undefined} className={clsx("data min-w-0 truncate text-meta font-semibold", has ? "text-fg" : "text-fg-4")}>
+              <li key={tag} className={s.tag} data-has={has ? "" : undefined}>
+                <span className={s.tagStop} aria-hidden />
+                <p className={s.tagHead}>
+                  <span className={s.tagName}>{label}</span>
+                  <span title={has ? `${tag}=${value}` : undefined} className={s.tagValue}>
                     {has ? `${tag}=${value}` : `${tag}= —`}
                   </span>
                 </p>
-                <p className={clsx("mt-1.5 line-clamp-3 text-ui", TONE[tone], tone === "plain" && "text-fg-2")}>{meaning}</p>
+                <p className={s.tagMeaning} data-tone={tone}>
+                  {meaning}
+                </p>
               </li>
             );
           })}
         </ol>
 
         {/* The other records the same lookup read, and the reading. */}
-        <dl className="grid border-b border-rule sm:grid-cols-3">
+        <dl className={s.strips}>
           <Strip k="SPF" line={shown.spf} />
           <Strip k="DKIM" line={shown.dkim} />
           <Strip k="MX" line={shown.mx} mono />
         </dl>
-        <div className="flex h-[88px] items-start gap-4 border-b border-fg py-3 sm:h-[64px]">
-          <span className="legend w-[64px] shrink-0 pt-0.5">Reading</span>
-          <div className="min-w-0 flex-1">
-            <p className={clsx("line-clamp-2 text-body font-bold sm:truncate", TONE[shown.verdict.tone])}>{shown.verdict.text}</p>
-            <p className="truncate text-meta text-fg-3">
+        <div className={s.verdict}>
+          <span className={s.verdictLabel}>Reading</span>
+          <div className={s.verdictBody}>
+            <p className={s.verdictText} data-tone={shown.verdict.tone}>
+              {shown.verdict.text}
+            </p>
+            <p className={s.findings}>
               {shown.findings.length > 0
                 ? shown.findings.map((f) => f.title).join(" · ")
                 : shown.example
@@ -412,7 +409,7 @@ export function RecordReading() {
         </div>
       </div>
 
-      <p data-testid="domain-check-boundary" className="pt-2.5 text-meta text-fg-3">
+      <p data-testid="domain-check-boundary" className={s.boundary}>
         One lookup is one moment. Monitoring reads every report receivers send about the domain, every day, and keeps
         the evidence.
       </p>
@@ -422,9 +419,9 @@ export function RecordReading() {
 
 function Strip({ k, line, mono }: { k: string; line: { text: string; tone: Tone }; mono?: boolean }): ReactNode {
   return (
-    <div className="flex h-[40px] items-baseline gap-3 border-rule px-0 py-2.5 sm:border-r sm:px-3 sm:first:pl-0 sm:last:border-r-0">
-      <dt className="legend w-[40px] shrink-0">{k}</dt>
-      <dd className={clsx("min-w-0 truncate text-ui", TONE[line.tone], line.tone === "plain" && "text-fg-2", mono && "data text-meta")}>
+    <div className={s.stripRow}>
+      <dt className={s.stripKey}>{k}</dt>
+      <dd className={s.stripVal} data-tone={line.tone} data-mono={mono ? "" : undefined}>
         {line.text}
       </dd>
     </div>

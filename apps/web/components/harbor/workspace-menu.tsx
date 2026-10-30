@@ -4,8 +4,8 @@
  * workspace-menu.tsx — the root of the location bar.
  *
  * The workspace is the first segment of "where am I", so it is drawn as the
- * first crumb, not as a separate widget: Harbor Dev Agency / Northwind Trading
- * / northwind-trading.test reads as one address. Switching writes the same
+ * first crumb, not as a separate widget: Harbor Dev Agency / Brisenhay Trading
+ * / brisenhay-trading.example reads as one address. Switching writes the same
  * `harbor.workspace` cookie every screen reads, then re-renders in place.
  *
  * Many workspaces: the menu's type-ahead jumps by name, and Jump (Ctrl K)
