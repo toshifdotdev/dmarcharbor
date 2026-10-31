@@ -803,9 +803,26 @@ export const openApiDocument = {
           'The whole portal surface for the signed in contact: their clients, their verified domains, their scores and published policy, and when the last report arrived.',
           'Scoped by the resolved grant list rather than by anything in the request, so a contact cannot widen their own view. An account with no grant is refused with a message explaining that they need an invitation.',
           'A contact invited by more than one workspace is answered 400 CHOOSE_WORKSPACE with the choices until organizationId is passed.',
+          'On an agency\'s own verified domain every portal route is scoped to that agency. The host is read from x-harbor-portal-host (set by the web server on its server-side portal calls) or else the first x-forwarded-host (set by its /api proxy), with the port dropped. There, no CHOOSE_WORKSPACE is offered; an organizationId naming another workspace is 403 FORBIDDEN "This report is not available at this address."; and a contact with no grant from that agency is 403 FORBIDDEN naming only that agency. The headers can only narrow a contact\'s view, never widen it.',
           'The plan is checked on every portal read: when the workspace plan no longer includes the client portal, every portal route answers 403 PORTAL_PAUSED with workspaceName. The grants are kept, so an upgrade restores access with nothing to set up.',
           'Contains no forensic evidence, no recipient data, no billing and no other workspace content.',
         ].join(' '),
+        parameters: [
+          {
+            name: 'organizationId',
+            in: 'query',
+            required: false,
+            schema: { type: 'string' },
+            description: 'Which workspace to open, for a contact invited by more than one. Ignored in favour of the host on an agency domain, and refused when it names another workspace there.',
+          },
+          {
+            name: 'x-harbor-portal-host',
+            in: 'header',
+            required: false,
+            schema: { type: 'string' },
+            description: 'The hostname the contact is on. Set by the web server; an agency\'s verified domain scopes the portal to that agency.',
+          },
+        ],
         responses: { 200: { description: 'The contact own clients and domains.' }, ...standardErrors },
       },
     },
@@ -825,20 +842,95 @@ export const openApiDocument = {
       get: {
         tags: ['White label'],
         summary: 'Stored white label settings',
-        description: 'The raw branding values held for this workspace, including the custom domain and whether its DNS record has been verified, and clientOrigin: the origin every link the workspace\'s clients receive is built on (https:// and the custom domain once the plan includes it and it is verified, APP_URL otherwise). Agency side.',
+        description: [
+          'The raw branding values held for this workspace, including the custom domain and whether its DNS record has been verified, and clientOrigin: the origin every link the workspace\'s clients receive is built on (https:// and the custom domain once the plan includes it and it is verified, APP_URL otherwise). Agency side.',
+          'Also brandSupportEmail and brandSupportUrl (the contact the agency publishes to its clients), and the sending domain: sendingAddress (the stored local@domain, verified or not, or null), sendingDomainStatus (the email provider\'s last status, or null), sendingDomainRecords (the DNS records to publish, each { record, type, name, value, priority, status }; [] when none), sendingDomainVerifiedAt and sendingDomainCheckedAt. The provider\'s own id for the domain is never returned.',
+        ].join(' '),
         parameters: [orgParam],
         responses: { 200: { description: 'Stored branding values.' }, ...standardErrors },
       },
       patch: {
         tags: ['White label'],
-        summary: 'Set the logo and colours',
+        summary: 'Set the logo, colours and support contact',
         description: [
           'An agency selling monitoring to its clients should not hand over reports headed with a product they do not own, so the client facing surface presents the agency logo and colours instead.',
           'The logo must be an https URL and the colours must be hex. Applied to client facing pages and emails only. The agency own interface deliberately keeps DMARC Harbor branding, so support stays unambiguous.',
+          'supportEmail and supportUrl are the contact the agency publishes to its clients. supportEmail must be one plain address (no display name, quotes, angle brackets, commas or line breaks; domain lowercased; at most 254 characters) and becomes the Reply-To on client mail. supportUrl must be an https address with no username or password, at most 500 characters. Both appear as one "Questions? Contact <agency> at ..." line on client mail and are returned on the portal and host branding. null or an empty string clears either. Changes are recorded as BRANDING_UPDATED.',
           'Requires the branding.whitelabel entitlement, which starts at Harbor and is on Fleet.',
         ].join(' '),
         parameters: [orgParam],
-        responses: { ...standardErrors, 200: { description: 'Branding updated.' }, 400: { description: 'The logo or colour is not usable.' } },
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  logoUrl: { type: ['string', 'null'], maxLength: 500 },
+                  primaryColor: { type: ['string', 'null'], maxLength: 7 },
+                  accentColor: { type: ['string', 'null'], maxLength: 7 },
+                  supportEmail: { type: ['string', 'null'], description: 'One plain address, for example help@youragency.example.' },
+                  supportUrl: { type: ['string', 'null'], description: 'An https page, for example https://youragency.example/help.' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          ...standardErrors,
+          200: { description: 'Branding updated; the resolved branding.' },
+          400: { description: 'The logo, a colour, the support email or the support page is not usable.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/branding/sending-domain': {
+      put: {
+        tags: ['White label'],
+        summary: 'Set the address client mail is sent from',
+        description: [
+          'Client mail from a white-labelled agency is sent from a shared address with the agency name in front. This sets the agency\'s own address instead, for example reports@mail.youragency.example.',
+          'The domain is added to the email provider with sending only (no receiving MX), and the answer carries the SPF and DKIM records to publish. Client mail keeps coming from the shared address until the provider reports the domain verified (see the verify path), and goes back to it if the provider stops doing so or the plan no longer includes it.',
+          'The address is lowercased; the part before the @ is letters, digits and . _ + -, starting and ending with a letter or digit; the domain is a plain hostname with at least one dot. A domain this service sends from or serves, a subdomain of one, or a parent of one is refused with 400.',
+          'The same domain with a new local part keeps its verification. A new domain replaces the old one, which is removed from the provider. address null or "" removes the sending address on any plan; setting one requires the branding.customDomain entitlement (Admiralty).',
+          'Answers { sendingAddress, status, records, verified, notice }. 409 SENDING_DOMAIN_TAKEN when another workspace uses the domain; 502 SENDING_DOMAIN_PROVIDER_ERROR when the provider refused it, with the provider\'s reason in the message.',
+        ].join(' '),
+        parameters: [orgParam],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['address'],
+                properties: { address: { type: ['string', 'null'], maxLength: 320 } },
+              },
+            },
+          },
+        },
+        responses: {
+          ...standardErrors,
+          200: { description: 'Saved, with the records to publish.' },
+          402: { description: 'The plan does not include branding.customDomain.' },
+          409: { description: 'SENDING_DOMAIN_TAKEN: another workspace sends from this domain.' },
+          502: { description: 'SENDING_DOMAIN_PROVIDER_ERROR: the email provider refused the domain or did not answer.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/branding/sending-domain/verify': {
+      post: {
+        tags: ['White label'],
+        summary: 'Check the sending domain records',
+        description: [
+          'Asks the email provider to check the published records and stores what it reports. The first time it reports the domain verified, client mail starts leaving from the agency address and SENDING_DOMAIN_VERIFIED is recorded in the audit trail. A domain that is no longer verified is marked so, and client mail goes back to the shared address.',
+          'Answers { sendingAddress, status, records, verified }. 400 when no sending address is set; 502 SENDING_DOMAIN_PROVIDER_ERROR when the provider did not answer. Requires the branding.customDomain entitlement (Admiralty).',
+        ].join(' '),
+        parameters: [orgParam],
+        responses: {
+          ...standardErrors,
+          200: { description: 'The provider\'s current answer.' },
+          402: { description: 'The plan does not include branding.customDomain.' },
+          502: { description: 'SENDING_DOMAIN_PROVIDER_ERROR: the email provider did not answer.' },
+        },
       },
     },
     '/workspaces/{organizationId}/branding/custom-domain': {
@@ -1367,6 +1459,7 @@ export const openApiDocument = {
         summary: 'Which agency serves this hostname',
         description: [
           'Resolves the agency for the hostname the request arrived on, so a white labelled portal knows whose brand to render before anybody has signed in.',
+          'The answer is the resolved branding: workspaceName, logoUrl, primaryColor, accentColor, customDomain, customDomainVerified, branded, customDomainLicensed, supportEmail and supportUrl (the contact the agency publishes to its clients) and sendingAddress (its own verified address for client mail, or null).',
           'No authentication is required and only branding is returned, never clients, domains or counts. An unknown hostname returns 404, and so does one whose workspace plan no longer includes branding.customDomain (Admiralty), so a domain kept after a downgrade does not keep serving the agency brand. A known hostname not yet verified is answered with customDomainVerified false.',
         ].join(' '),
         parameters: [
@@ -1391,6 +1484,7 @@ export const openApiDocument = {
         description: [
           'Resolved from the portal scope, so a contact always sees their own agency branding.',
           'The workspace name is always present. The logo and colours are returned when the plan includes branding.whitelabel (Harbor and above). The custom domain is returned only when the plan also includes branding.customDomain (Admiralty), and only once its DNS record is verified; customDomainLicensed says whether the plan includes it.',
+          'supportEmail and supportUrl are the contact the agency publishes to its clients, returned when the plan includes branding.whitelabel and null otherwise. sendingAddress is the agency\'s own address client mail is sent from, returned only when the plan includes branding.customDomain and the email provider has verified the domain; null otherwise.',
         ].join(' '),
         responses: { 200: { description: 'Branding for the client facing surface.' }, ...standardErrors },
       },
@@ -1399,7 +1493,7 @@ export const openApiDocument = {
       get: {
         tags: ['White label'],
         summary: 'Branding after licensing is applied',
-        description: 'Same resolution as the portal endpoint, for the agency interface, so a workspace on a plan without white labelling can be shown what clients actually see.',
+        description: 'Same resolution as the portal endpoint, for the agency interface, so a workspace on a plan without white labelling can be shown what clients actually see. Includes supportEmail, supportUrl and sendingAddress under the same rules.',
         parameters: [orgParam],
         responses: { 200: { description: 'Resolved branding.' }, ...standardErrors },
       },

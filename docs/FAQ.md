@@ -367,8 +367,13 @@ Admiralty and Fleet 200.
 **Can I use my own brand?**
 From Harbor, your agency's name, logo and colours appear in the client portal, on
 monthly reports, Trust Centers and prospect reports, and in the emails clients
-receive. Those emails come from your agency's name, sent by our mail service rather
-than from your own email domain. The pages open at our address.
+receive. Unless you send from your own address (see below), those emails come from
+our shared address with your agency's name in front. The pages open at our address.
+
+Also from Harbor, add a support email and a support page under Settings, White
+label, Client contact. Clients see them in the portal, and on the sign-in page once
+it is on your own domain. Replies to the emails they receive go to your support
+email.
 
 On Admiralty, add your own domain, such as `reports.youragency.example`, under
 Settings, White label, and verify it. From then on everything a client opens is on
@@ -377,6 +382,13 @@ reports, and the links in monthly report and password reset emails. Clients sign
 there with email and password, because Google and Microsoft sign-in only complete
 on our address. The browser tab shows your initial, and our pricing, guides and
 legal pages are not served on your domain.
+
+Admiralty can also send client emails from your own address, such as
+`reports@mail.youragency.example`. Add it under Settings, White label, Email from
+your domain, publish the DKIM and SPF records it shows, and check them. Use a
+subdomain such as `mail.youragency.example`, so the records never touch your main
+mail. Until the address is verified, and again if the records are later removed,
+client emails come from our shared address with your agency's name.
 
 ## Team and security
 

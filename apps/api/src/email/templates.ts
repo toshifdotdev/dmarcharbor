@@ -66,6 +66,77 @@ export interface RenderedEmail {
   text: string;
 }
 
+/**
+ * The contact an agency publishes to its clients, shown on its client mail as
+ * one line above the footer. Only ever the agency's own support address and
+ * page from its white label settings, never a staff member's sign-in address.
+ */
+export interface ContactLine {
+  agencyName: string;
+  email?: string | null;
+  url?: string | null;
+}
+
+/** Re-checked here because a template is the last step before a client reads it. */
+function usableContactEmail(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? '';
+  return /^[^\s@"<>,;()\\[\]]+@[^\s@"<>,;()\\[\]]+$/.test(trimmed) ? trimmed : null;
+}
+
+function usableContactUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const parsed = new URL(value.trim());
+    return parsed.protocol === 'https:' && !parsed.username && !parsed.password ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * "Questions? Contact Wistholm IT at help@wistholm.example or
+ * https://wistholm.example/help." with whichever parts exist, or null when the
+ * agency has published neither. The plain text form; the HTML form is built in
+ * `layout` from the same parts.
+ */
+export function contactSentence(contact: ContactLine | null | undefined): string | null {
+  if (!contact) return null;
+  const email = usableContactEmail(contact.email);
+  const url = usableContactUrl(contact.url);
+  const name = contact.agencyName.replace(/[\r\n]+/g, ' ').trim();
+  if (!name || (!email && !url)) return null;
+  const ways = [email, url].filter((part): part is string => Boolean(part)).join(' or ');
+  return `Questions? Contact ${name} at ${ways}.`;
+}
+
+/**
+ * The contact line for a client facing message, from the resolved branding.
+ * Null below white label, where the support fields are not presented at all,
+ * and when the agency has published neither an address nor a page.
+ */
+export function clientContact(
+  branding: { branded: boolean; workspaceName: string; supportEmail?: string | null; supportUrl?: string | null } | null | undefined,
+): ContactLine | null {
+  if (!branding?.branded || (!branding.supportEmail && !branding.supportUrl)) {
+    return null;
+  }
+  return { agencyName: branding.workspaceName, email: branding.supportEmail ?? null, url: branding.supportUrl ?? null };
+}
+
+function contactHtml(contact: ContactLine | null | undefined): string {
+  if (!contactSentence(contact) || !contact) return '';
+  const email = usableContactEmail(contact.email);
+  const url = usableContactUrl(contact.url);
+  const ways = [
+    email ? `<a href="mailto:${escapeHtml(email)}" style="color:#0f172a;">${escapeHtml(email)}</a>` : null,
+    url ? `<a href="${escapeHtml(url)}" style="color:#0f172a;word-break:break-all;">${escapeHtml(url)}</a>` : null,
+  ]
+    .filter(Boolean)
+    .join(' or ');
+  const name = escapeHtml(contact.agencyName.replace(/[\r\n]+/g, ' ').trim());
+  return `<p style="margin:24px 0 0;font-size:14px;line-height:1.6;color:#334155;">Questions? Contact ${name} at ${ways}.</p>`;
+}
+
 interface LayoutInput {
   title: string;
   preheader: string;
@@ -78,6 +149,11 @@ interface LayoutInput {
   brand?: BrandLook | null;
   /** Client facing mail uses the agency's brand; agency mail does not. */
   whiteLabel?: boolean;
+  /**
+   * The agency's published contact, as one line above the footer. Rendered
+   * only on white label mail, so a staff template cannot carry it by mistake.
+   */
+  contact?: ContactLine | null;
 }
 
 function layout(input: LayoutInput): RenderedEmail {
@@ -88,6 +164,7 @@ function layout(input: LayoutInput): RenderedEmail {
   const logo = useBrand ? input.brand!.logoUrl : null;
 
   const heading = input.heading.replace(productName, productName);
+  const contact = input.whiteLabel ? input.contact : null;
 
   const html = `<!doctype html>
 <html lang="en">
@@ -130,6 +207,7 @@ function layout(input: LayoutInput): RenderedEmail {
   </td></tr></table>`
         : ''
     }
+    ${contactHtml(contact)}
   </td></tr>
   <tr><td style="padding:18px 28px;background:#f8fafc;border-top:1px solid #e2e8f0;">
     <p style="margin:0;font-size:12px;line-height:1.6;color:#64748b;">${escapeHtml(input.footer)}</p>
@@ -146,6 +224,7 @@ function layout(input: LayoutInput): RenderedEmail {
     ...input.paragraphs.flatMap((paragraph) => [paragraph, '']),
     input.action ? `${input.action.label}: ${input.action.url}` : '',
     input.aside ? `${input.aside.heading}\n${input.aside.body}` : '',
+    contactSentence(contact) ?? '',
     '',
     input.footer,
   ]
@@ -189,6 +268,8 @@ export function portalAccessGranted(input: {
   clientName: string;
   signInUrl: string;
   agencyName: string;
+  /** The agency's published contact, when its white label is on. */
+  contact?: ContactLine | null;
 }): RenderedEmail {
   return layout({
     title: `You can now see DMARC reports for ${input.clientName}`,
@@ -206,6 +287,7 @@ export function portalAccessGranted(input: {
     footer: 'This message was sent because an IT provider added this address to a DMARC reporting account.',
     brand: input.brand,
     whiteLabel: true,
+    contact: input.contact ?? null,
   });
 }
 
@@ -228,6 +310,8 @@ export function policyApprovalRequestedEmail(input: {
   openPoints: string[];
   expiresAt: string;
   url: string;
+  /** The agency's published contact, when its white label is on. */
+  contact?: ContactLine | null;
 }): RenderedEmail {
   return layout({
     title: `${input.agencyName} asks your approval: ${input.headline}`,
@@ -253,6 +337,7 @@ export function policyApprovalRequestedEmail(input: {
     footer: 'This message was sent because an IT provider listed this address as a contact who can approve changes for this domain.',
     brand: input.brand,
     whiteLabel: true,
+    contact: input.contact ?? null,
   });
 }
 
@@ -360,6 +445,8 @@ export function monthlyReportEmail(input: {
   downloadUrl: string;
   reference: string;
   verifyUrl: string;
+  /** The agency's published contact. Shown only when `branded`. */
+  contact?: ContactLine | null;
 }): RenderedEmail {
   const subject = `${input.clientName} email authentication report, ${input.periodLabel}`;
   const totals =
@@ -383,6 +470,7 @@ export function monthlyReportEmail(input: {
       : `You are receiving this because a monthly report was prepared for ${input.clientName} using DMARC Harbor.`,
     brand: input.brand,
     whiteLabel: input.branded,
+    contact: input.branded ? (input.contact ?? null) : null,
   });
 }
 

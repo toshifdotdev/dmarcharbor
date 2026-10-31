@@ -199,6 +199,28 @@ model Organization {
   customDomain          String?               @unique
   customDomainToken     String?
   customDomainVerifiedAt DateTime?
+  /// The contact the agency publishes to its clients: the Reply-To on client
+  /// mail and the "Questions?" line in it. Never a staff sign-in address unless
+  /// the agency typed one in here itself.
+  brandSupportEmail     String?
+  /// An https page the agency's clients can use for help.
+  brandSupportUrl       String?
+  /// The agency's own sending domain for client mail, for example
+  /// `mail.wistholm.example`. Unique, because it is created in our email
+  /// provider's account and two workspaces cannot both own one entry there.
+  sendingDomain         String?               @unique
+  /// The part before the @, so the full address is `<local>@<sendingDomain>`.
+  sendingLocalPart      String?
+  /// The email provider's id for the domain. Never returned by any endpoint.
+  sendingDomainProviderId String?
+  /// The provider's last reported status, such as `pending` or `verified`.
+  sendingDomainStatus   String?
+  /// The DNS records the agency publishes, as last reported by the provider.
+  sendingDomainRecords  Json?
+  /// Set while the provider reports the domain verified. Client mail uses the
+  /// address only while this is set and the plan includes it.
+  sendingDomainVerifiedAt DateTime?
+  sendingDomainCheckedAt DateTime?
   members               Member[]
   invitations           Invitation[]
   portalAccessGrants    ClientPortalAccess[]
@@ -2672,6 +2694,9 @@ enum AuditAction {
   DOMAIN_MOVED
   /// The workspace itself was renamed.
   WORKSPACE_UPDATED
+  /// The email provider first reported the agency's own sending domain as
+  /// verified, so client mail started leaving from it.
+  SENDING_DOMAIN_VERIFIED
 }
 
 enum AuditOutcome {
@@ -2796,6 +2821,10 @@ model EmailDelivery {
   /// from a white-labelled agency. Stored on the row because the message may be
   /// delivered by a later pass, after the agency has been renamed.
   fromHeader     String?
+  /// The Reply-To for this message: the agency's published support address on
+  /// its client mail, and null everywhere else. Stored for the same reason as
+  /// fromHeader.
+  replyToHeader  String?
   createdAt      DateTime           @default(now())
 
   @@index([state, nextAttemptAt])

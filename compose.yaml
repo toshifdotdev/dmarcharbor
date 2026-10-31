@@ -53,6 +53,8 @@ services:
       CLIENT_EMAIL_FROM_ADDRESS: ${CLIENT_EMAIL_FROM_ADDRESS:-}
       EMAIL_PROVIDER: resend
       RESEND_API_KEY: ${RESEND_API_KEY:?RESEND_API_KEY must be set when EMAIL_PROVIDER=resend}
+      # Optional: a full-access Resend key used only for agency sending domains. Empty uses RESEND_API_KEY.
+      RESEND_DOMAINS_API_KEY: ${RESEND_DOMAINS_API_KEY:-}
 
       # Number of proxies in front of the API. Zero means every IP-keyed limiter
       # sees the load balancer's address and the sign-in limit becomes a single

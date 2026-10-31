@@ -125,6 +125,8 @@ Optional, for agencies with white label:
 
 ```
 CLIENT_EMAIL_FROM_ADDRESS=reports@mail-relay.example
+# Full-access Resend key, used only for agency sending domains (step 5b).
+RESEND_DOMAINS_API_KEY=...
 ```
 
 Client facing email from a white-labelled workspace (portal invitations,
@@ -148,9 +150,42 @@ otherwise.
   verify it in Resend, publish the SPF include and the DKIM records Resend gives
   for it, and give it a DMARC record. Without them, receivers fail every agency's
   client mail on DMARC. Pick a neutral domain that names neither us nor any one
-  agency, since all agencies send from it. There is no Reply-To on these
-  messages, so a reply goes to this address; route it somewhere a person reads,
-  or say in its auto-reply that it is not monitored.
+  agency, since all agencies send from it. A message has a Reply-To only when
+  the agency has set a support email in its white label settings; otherwise a
+  reply goes to this address, so route it somewhere a person reads, or say in
+  its auto-reply that it is not monitored.
+
+### 5b. Agency sending domains (Admiralty)
+
+An Admiralty agency can send its client mail from its own address, for example
+`reports@mail.youragency.example`, instead of the shared one. The API adds the
+domain to our Resend account with sending only, the agency publishes the records
+Resend returns, and the mail switches over once Resend reports the domain
+verified. Until then, and if it later stops being verified, client mail keeps
+coming from the shared address with the agency's name.
+
+- **Set `RESEND_DOMAINS_API_KEY`** to a full-access Resend key. It is used only
+  to add, check and remove agency sending domains, so `RESEND_API_KEY` can stay a
+  sending-only key. Unset, `RESEND_API_KEY` is used for the domain calls and must
+  then have full access, or every agency claim fails with Resend's permission
+  error (502 `SENDING_DOMAIN_PROVIDER_ERROR`).
+- **Check the Resend plan's domain allowance** covers every Admiralty agency
+  with a sending domain, plus our own domains. Pro includes 10 domains and
+  Scale 1,000, and a 100-domain add-on exists. A claim over the allowance fails
+  with Resend's message in the 502.
+- **What the agency publishes**, on a subdomain such as
+  `mail.youragency.example` rather than its main domain, so its existing mail
+  setup is untouched:
+  - the DKIM TXT record at `resend._domainkey.mail.youragency.example`;
+  - the SPF MX record and SPF TXT record at `send.mail.youragency.example`
+    (Resend's bounce domain).
+  No receiving MX is asked for. The agency's own DMARC record on
+  `youragency.example` covers the subdomain by alignment, so nothing else is
+  needed for the mail to pass DMARC as the agency.
+- Our own domains are refused as sending domains (the domains of `EMAIL_FROM`,
+  `CLIENT_EMAIL_FROM_ADDRESS` and the report addresses, and the hosts of
+  `APP_URL`, `BETTER_AUTH_URL`, `CORS_ORIGIN` and hosted DNS), as are their
+  subdomains and parents.
 
 ### 5a. Agency custom domains
 

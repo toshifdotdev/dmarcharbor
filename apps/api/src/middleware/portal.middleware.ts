@@ -1,7 +1,9 @@
 import type { NextFunction, Request, Response } from 'express';
+import { env } from '../config/env.js';
 import { prisma } from '../database/prisma.js';
+import { acceptableOrigin, lookupAgencyHost, type AgencyHost } from '../auth/agency-origin.js';
 import { EntitlementError, resolveEntitlements } from '../services/entitlements/entitlement.service.js';
-import { resolvePortalGrantsForEmail } from '../services/portal.service.js';
+import { resolvePortalGrantsForEmail, type PortalGrant } from '../services/portal.service.js';
 
 export class PortalAccessError extends Error {
   readonly status: number;
@@ -62,6 +64,45 @@ export async function requirePortalScope(
   }
 
   const grants = await resolvePortalGrantsForEmail(user.email);
+  const requested = typeof request.query.organizationId === 'string' ? request.query.organizationId : undefined;
+
+  /**
+   * On an agency's own verified domain, the portal is that agency's and no one
+   * else's.
+   *
+   * A contact whom two agencies both serve used to be offered both on either
+   * agency's domain, and could open the second agency's portal under the first
+   * one's brand and address. So the host the request came through decides the
+   * workspace: the agency it belongs to, with no choice offered, and a refusal
+   * that names only that agency when the contact holds nothing there.
+   *
+   * The host comes from `x-harbor-portal-host`, which the web server sets on
+   * its own server-side portal calls, or else the first `x-forwarded-host`,
+   * which its `/api` proxy sets on browser calls. Either can be chosen by a
+   * caller that is not our web app. That needs no further trust, because this
+   * can only narrow what the contact sees: the grants are still the contact's
+   * own, an agency host only ever removes the others, and a made-up host is not
+   * an agency and changes nothing.
+   */
+  const agency = await portalAgencyHost(request);
+  if (agency) {
+    if (requested && requested !== agency.organizationId) {
+      next(new PortalAccessError(403, 'FORBIDDEN', 'This report is not available at this address.'));
+      return;
+    }
+    if (!grants.some((grant) => grant.organizationId === agency.organizationId)) {
+      next(
+        new PortalAccessError(
+          403,
+          'FORBIDDEN',
+          `This account has not been given access to a client report from ${agency.workspaceName}.`,
+        ),
+      );
+      return;
+    }
+    await scopeTo(agency.organizationId, grants, response, next);
+    return;
+  }
 
   if (grants.length === 0) {
     next(
@@ -75,7 +116,6 @@ export async function requirePortalScope(
   }
 
   const organizations = new Set(grants.map((grant) => grant.organizationId ?? ''));
-  const requested = typeof request.query.organizationId === 'string' ? request.query.organizationId : undefined;
 
   if (organizations.size > 1 && !requested) {
     // The choices travel with the refusal, so the contact can pick one rather
@@ -107,7 +147,49 @@ export async function requirePortalScope(
     return;
   }
 
-  const organizationId = requested ?? grants[0]!.organizationId ?? '';
+  await scopeTo(requested ?? grants[0]!.organizationId ?? '', grants, response, next);
+}
+
+/** Our own web origins' hostnames, which are never an agency's, so they are not looked up. */
+function ownHostnames(): Set<string> {
+  const hostnames = new Set<string>();
+  for (const origin of [...env.CORS_ORIGINS, env.APP_URL]) {
+    try {
+      hostnames.add(new URL(origin).hostname.toLowerCase());
+    } catch {
+      // A malformed origin names no host to skip.
+    }
+  }
+  return hostnames;
+}
+
+/**
+ * The agency whose verified domain this portal request came through, or null.
+ * Cached per hostname by `lookupAgencyHost`, and never throws.
+ */
+async function portalAgencyHost(request: Request): Promise<AgencyHost | null> {
+  const explicit = request.get('x-harbor-portal-host')?.trim();
+  const forwarded = request.get('x-forwarded-host')?.split(',')[0]?.trim();
+  const host = explicit || forwarded;
+  if (!host) {
+    return null;
+  }
+  // Through the same normaliser Better Auth's origin rule uses: a plain
+  // hostname, no credentials, and the port dropped.
+  const accepted = acceptableOrigin(`https://${host}`);
+  if (!accepted || ownHostnames().has(accepted.hostname)) {
+    return null;
+  }
+  return lookupAgencyHost(accepted.hostname);
+}
+
+/** Narrows the request to one workspace's grants, checks its plan, and continues. */
+async function scopeTo(
+  organizationId: string,
+  grants: PortalGrant[],
+  response: Response,
+  next: NextFunction,
+): Promise<void> {
   const scoped = grants.filter((grant) => grant.organizationId === organizationId);
   const clientIds = [...new Set(scoped.map((grant) => grant.clientId))];
 

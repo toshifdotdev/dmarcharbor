@@ -3307,6 +3307,173 @@ if (agencySession) {
   });
 }
 
+// White label settings, still on the verified agency host and on Admiralty.
+// The browser reads and writes the workspace through our own host: on the
+// agency's plain-http test host the page's own fetches are upgraded to https
+// and fail (see readOnHost above).
+const brandingApi = `/api/workspaces/${customHostOrgId}/branding`;
+const readStoredBranding = `(async () => {
+  try {
+    const r = await fetch(${JSON.stringify(brandingApi)}, { credentials: 'include' });
+    return r.ok ? await r.json() : { status: r.status };
+  } catch (error) {
+    return { error: String(error) };
+  }
+})()`;
+// A run that stopped halfway may have left a contact or a sending address
+// behind; both are cleared first so this run starts from the empty form.
+async function clearWhiteLabelExtras() {
+  return evalJs(`(async () => {
+    const out = {};
+    const patch = await fetch(${JSON.stringify(brandingApi)}, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ supportEmail: null, supportUrl: null }),
+    });
+    out.contact = patch.status;
+    const stored = await (await fetch(${JSON.stringify(brandingApi)}, { credentials: 'include' })).json().catch(() => ({}));
+    if (stored.sendingAddress) {
+      const put = await fetch(${JSON.stringify(`${brandingApi}/sending-domain`)}, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ address: null }),
+      });
+      out.sending = put.status;
+    }
+    return out;
+  })()`);
+}
+await navigate(`${WEB}/settings/branding`);
+await clearWhiteLabelExtras();
+
+// 1. The client contact: saved through the form on our host, then shown under
+//    the sign-in form on the agency's domain (components/harbor/auth-frame.tsx).
+//    The host brand is not cached in this harness (HOST_BRAND_CACHE_FACTOR=0,
+//    and 0 in development), so the next request on the host carries it.
+const SUPPORT_EMAIL = "help@agency.example";
+await openSettingsSection("branding");
+await waitForEval(`!!document.querySelector('[data-testid="wl-support-email"]')`, (v) => v === true, 30000);
+let contactStored = null;
+// One click per attempt, only while the button is enabled and not busy: a
+// click storm re-submits while the first save is still in flight.
+for (let attempt = 0; attempt < 3 && contactStored?.brandSupportEmail !== SUPPORT_EMAIL; attempt++) {
+  await fillInput('[data-testid="wl-support-email"]', SUPPORT_EMAIL);
+  await evalJs(`(() => {
+    const b = document.querySelector('[data-testid="wl-contact-save"]');
+    if (b && !b.disabled && b.getAttribute('aria-busy') !== 'true') { b.click(); return 'clicked'; }
+    return 'not-ready';
+  })()`);
+  contactStored = await waitForEval(readStoredBranding, (b) => Boolean(b && b.brandSupportEmail === SUPPORT_EMAIL), 20000);
+}
+await navigate(`${CUSTOM_ORIGIN}/sign-in`);
+const agencyContactAudit = await waitForEval(
+  `(() => {
+    const el = document.querySelector('[data-testid="auth-agency-contact"]');
+    return {
+      host: location.host,
+      path: location.pathname,
+      shown: Boolean(el),
+      text: el ? el.textContent.trim() : '',
+      mailto: el?.querySelector('a[href^="mailto:"]')?.getAttribute('href') ?? '',
+    };
+  })()`,
+  (a) => Boolean(a && a.shown && a.text.includes(SUPPORT_EMAIL)),
+  45000,
+);
+await navigate(`${WEB}/settings/branding`);
+const contactCleared = await clearWhiteLabelExtras();
+const contactAfter = await evalJs(readStoredBranding);
+check(
+  "white label settings: the client contact saves and shows on the agency sign-in page",
+  Boolean(
+    contactStored?.brandSupportEmail === SUPPORT_EMAIL &&
+      agencyContactAudit?.shown &&
+      agencyContactAudit.text.includes(SUPPORT_EMAIL) &&
+      agencyContactAudit.mailto === `mailto:${SUPPORT_EMAIL}` &&
+      contactAfter &&
+      contactAfter.brandSupportEmail === null,
+  ),
+  JSON.stringify({
+    stored: contactStored?.brandSupportEmail ?? contactStored ?? null,
+    signIn: agencyContactAudit,
+    cleared: contactCleared,
+    after: contactAfter?.brandSupportEmail ?? contactAfter ?? null,
+  }),
+);
+
+// 2. An own sending address (Admiralty). The harness API sends through the
+//    console provider, which answers three placeholder records and never
+//    "verified" (apps/api/src/services/branding/sending-domain-provider.ts),
+//    so the panel lists three records and says it is waiting. Then removed
+//    through the confirm dialog, which brings the claim field back.
+const OWN_SENDING_ADDRESS = `reports@mail.agency-${stamp}.example`;
+await openSettingsSection("branding");
+await waitForEval(`!!document.querySelector('[data-testid="wl-sending-address"]')`, (v) => v === true, 30000);
+let sendingAudit = null;
+const sendingProbe = `(() => {
+  const panel = document.querySelector('[data-testid="wl-sending"]');
+  return {
+    list: !!document.querySelector('[data-testid="wl-sending-records"]'),
+    records: document.querySelectorAll('[data-testid^="wl-sending-record-"]').length,
+    waiting: !!document.querySelector('[data-testid="sending-waiting"]'),
+    verified: !!document.querySelector('[data-testid="sending-verified"]'),
+    address: (panel?.textContent ?? '').includes(${JSON.stringify(OWN_SENDING_ADDRESS)}),
+    check: !!document.querySelector('[data-testid="wl-sending-check"]'),
+    refusal: panel?.querySelector('[role="alert"]')?.textContent ?? null,
+  };
+})()`;
+for (let attempt = 0; attempt < 3; attempt++) {
+  await fillInput('[data-testid="wl-sending-address"]', OWN_SENDING_ADDRESS);
+  await evalJs(`(() => {
+    const b = document.querySelector('[data-testid="wl-sending-claim"]');
+    if (b && !b.disabled && b.getAttribute('aria-busy') !== 'true') { b.click(); return 'clicked'; }
+    return 'not-ready';
+  })()`);
+  sendingAudit = await waitForEval(sendingProbe, (s) => Boolean(s && ((s.records === 3 && s.waiting) || s.refusal)), 30000);
+  if (sendingAudit && ((sendingAudit.records === 3 && sendingAudit.waiting) || sendingAudit.refusal)) break;
+}
+const shotSending = await shot("29b-settings-sending-domain.png");
+// Remove: one click on the panel's button arms the dialog, one on its confirm
+// button sends the removal. Arm again only while no dialog is open.
+let sendingRemoveStep = "none";
+for (let i = 0; i < 40; i++) {
+  sendingRemoveStep = await evalJs(`(() => {
+    if (document.querySelector('[data-testid="wl-sending-address"]')) return 'removed';
+    const confirm = document.querySelector('[data-testid="wl-sending-remove-confirm-button"]');
+    if (confirm && confirm.closest('dialog[open]') && !confirm.disabled && confirm.getAttribute('aria-busy') !== 'true') { confirm.click(); return 'confirmed'; }
+    if (!document.querySelector('dialog[open]')) document.querySelector('[data-testid="wl-sending-remove"]')?.click();
+    return 'armed';
+  })()`);
+  if (sendingRemoveStep === "confirmed" || sendingRemoveStep === "removed") break;
+  await new Promise((res) => setTimeout(res, 700));
+}
+const claimFieldBack = await waitForEval(
+  `!!document.querySelector('[data-testid="wl-sending-address"]') && !document.querySelector('dialog[open]')`,
+  (v) => v === true,
+  30000,
+);
+const sendingAfter = await evalJs(readStoredBranding);
+check(
+  "white label settings: an own sending address lists the records to publish and says it is waiting",
+  Boolean(
+    sendingAudit &&
+      sendingAudit.list &&
+      sendingAudit.records === 3 &&
+      sendingAudit.waiting &&
+      !sendingAudit.verified &&
+      sendingAudit.address &&
+      claimFieldBack === true &&
+      sendingAfter &&
+      sendingAfter.sendingAddress === null,
+  ),
+  JSON.stringify({ claimed: sendingAudit, removeStep: sendingRemoveStep, claimFieldBack, after: sendingAfter?.sendingAddress ?? sendingAfter ?? null }),
+);
+// Belt and braces: whatever happened above, nothing is left for the next run.
+if (sendingAfter?.sendingAddress) await clearWhiteLabelExtras();
+console.log("white label settings shot:", shotSending);
+
 // And the honesty rule: an UNVERIFIED record must say so plainly rather than
 // serving half-branded.
 await writeCustomDomainState(customHostOrgId, {

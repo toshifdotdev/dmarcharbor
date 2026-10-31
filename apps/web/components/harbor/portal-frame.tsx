@@ -12,15 +12,19 @@
  *
  * The foot states the two boundaries the reader is owed: what this portal does
  * not show (message-level detail), and that export and erasure of their data
- * are available at no cost.
+ * are available at no cost. When the agency has published a support address
+ * or page (Settings, White label, Client contact), the foot says how to reach
+ * them.
  */
 
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
+import { agencyContact } from "@/lib/agency-contact";
 import { readHostBrand } from "@/lib/host-brand";
 import type { PortalBranding } from "@/lib/types";
 import { chartBrandVars } from "@/components/brand-applier";
 import { PierMark } from "@/components/mark";
+import { AgencyContactLine } from "./agency-contact";
 import { PortalSignOut } from "./portal-client";
 
 /**
@@ -53,6 +57,9 @@ export async function PortalFrame({
   // The host's colours are already on the page root (BrandApplier); only the
   // portal's own branding needs setting here.
   const vars = brand?.branded ? chartBrandVars(brand.primaryColor, brand.accentColor) : {};
+  // The agency's published contact, from the same source as the name: the
+  // portal's branding, or the host's on a notice page. Checked before use.
+  const contact = agencyContact(brand ?? hostAgency);
   return (
     <div data-harbor data-surface="portal" style={vars as CSSProperties} className="flex min-h-screen flex-col bg-paper">
       <header className="page-wrap print:max-w-none print:px-0">
@@ -100,6 +107,7 @@ export async function PortalFrame({
             You can ask {agency} for an export or erasure of the data held about you: export and erasure are available at
             no cost, on every plan.
           </p>
+          <AgencyContactLine lead="Questions?" agency={agency} contact={contact} className="max-w-[78ch]" testId="portal-agency-contact" />
           {!branded ? <p>Reports produced with DMARC Harbor.</p> : null}
         </div>
       </footer>

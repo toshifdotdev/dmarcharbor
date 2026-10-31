@@ -31,6 +31,7 @@ import type {
   HostedDmarcView,
   HostedMtaStsView,
   PolicyProposalRow,
+  PortalBranding,
   PortalPolicyProposal,
   ProspectReportRow,
   IssuedApiKey,
@@ -48,6 +49,7 @@ import type {
   PsaTicketSettings,
   PsaView,
   SenderReviewResult,
+  SendingDomainState,
   SpfUsage,
   PortalGrant,
   SlackDestination,
@@ -423,16 +425,53 @@ export const removeReportDigest = (orgId: string, digestId: string) =>
  */
 export const patchBranding = (
   orgId: string,
-  body: { brandPrimaryColor?: string | null; brandAccentColor?: string | null; logoUrl?: null },
+  body: {
+    brandPrimaryColor?: string | null;
+    brandAccentColor?: string | null;
+    logoUrl?: null;
+    /** The client contact. null or "" clears it; the API checks the shape and says why in a 400. */
+    brandSupportEmail?: string | null;
+    brandSupportUrl?: string | null;
+  },
 ) =>
-  call(wsPath(orgId, "/branding"), {
+  call<PortalBranding>(wsPath(orgId, "/branding"), {
     method: "PATCH",
     body: JSON.stringify({
       ...(body.brandPrimaryColor === undefined ? {} : { primaryColor: body.brandPrimaryColor }),
       ...(body.brandAccentColor === undefined ? {} : { accentColor: body.brandAccentColor }),
       // Only ever cleared from here: a logo is set by upload, never by URL.
       ...(body.logoUrl === null ? { logoUrl: null } : {}),
+      // Same rule as the colours: the write side names them without the prefix.
+      ...(body.brandSupportEmail === undefined ? {} : { supportEmail: body.brandSupportEmail }),
+      ...(body.brandSupportUrl === undefined ? {} : { supportUrl: body.brandSupportUrl }),
     }),
+  });
+
+/**
+ * Sets, changes or removes the agency's own sending address for client email
+ * (Admiralty to set; any plan to remove a kept one).
+ *
+ * The answer carries the DKIM and SPF records to publish. Nothing changes for
+ * clients until the provider has seen them: client email keeps coming from the
+ * shared address with the agency's name. `notice` is the API's sentence about
+ * what happens next, shown as it is.
+ */
+export const setSendingAddress = (orgId: string, address: string | null) =>
+  call<SendingDomainState>(wsPath(orgId, "/branding/sending-domain"), {
+    method: "PUT",
+    body: JSON.stringify({ address }),
+  });
+
+/**
+ * Asks the email provider to look at the published records now.
+ *
+ * The provider checks asynchronously: a 200 can still say `pending` for some
+ * minutes after the records are published, so `verified` and `status` are
+ * read, never the status code alone.
+ */
+export const checkSendingDomain = (orgId: string) =>
+  call<SendingDomainState>(wsPath(orgId, "/branding/sending-domain/verify"), {
+    method: "POST",
   });
 
 /**

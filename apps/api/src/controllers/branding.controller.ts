@@ -14,11 +14,28 @@ import { EntitlementError, assertFeature } from '../services/entitlements/entitl
 import { LogoStorageError, createLogoUploadUrl, publicLogoUrl, uploadLogoDirect } from '../services/branding/logo-storage.service.js';
 import { zodMessage } from '../utils/zod-messages.js';
 import { updateBranding as updateBrandingSettings } from '../services/branding.service.js';
+import {
+  checkSendingDomain,
+  setSendingAddress,
+  storedSendingAddress,
+  storedSendingDomainRecords,
+} from '../services/branding/sending-domain.service.js';
 
+/**
+ * The support fields are bounded loosely here and checked exactly in the
+ * service, so a value that is too long gets the service's plain sentence
+ * rather than this controller's generic one.
+ */
 const brandingSchema = z.object({
   logoUrl: z.string().max(500).nullable().optional(),
   primaryColor: z.string().max(7).nullable().optional(),
   accentColor: z.string().max(7).nullable().optional(),
+  supportEmail: z.string().max(320).nullable().optional(),
+  supportUrl: z.string().max(1000).nullable().optional(),
+});
+
+const sendingDomainSchema = z.object({
+  address: z.string().max(320).nullable(),
 });
 
 const domainSchema = z.object({
@@ -93,7 +110,12 @@ export async function getBrandingController(_request: Request, response: Respons
 export async function updateBrandingController(request: Request, response: Response): Promise<void> {
   const body = brandingSchema.safeParse(request.body);
   if (!body.success) {
-    response.status(400).json({ error: { code: 'INVALID_REQUEST', message: 'Provide a logo URL and hex colours.' } });
+    response.status(400).json({
+      error: {
+        code: 'INVALID_REQUEST',
+        message: 'Provide a logo URL, hex colours, a support email and a support page, each as text or null.',
+      },
+    });
     return;
   }
 
@@ -155,6 +177,63 @@ export async function verifyCustomDomainController(_request: Request, response: 
 }
 
 /**
+ * Sets, changes or removes the agency's own sending address for client mail.
+ *
+ * Claiming one needs the custom domain entitlement (Admiralty); removing a
+ * kept one is allowed on any plan, as for the custom domain. The answer carries
+ * the DNS records to publish, and client mail keeps leaving from the shared
+ * address until the provider has seen them.
+ */
+export async function setSendingDomainController(request: Request, response: Response): Promise<void> {
+  const body = sendingDomainSchema.safeParse(request.body);
+  if (!body.success) {
+    response.status(400).json({
+      error: {
+        code: 'INVALID_REQUEST',
+        message: 'Provide a sending address, for example reports@mail.youragency.example, or null to remove it.',
+      },
+    });
+    return;
+  }
+
+  const organizationId = response.locals.organizationId;
+
+  try {
+    if (body.data.address && body.data.address.trim() !== '') {
+      await assertFeature(organizationId, 'branding.customDomain');
+    }
+    const result = await setSendingAddress({
+      organizationId,
+      address: body.data.address,
+      actorUserId: response.locals.session?.user?.id,
+    });
+
+    response.json({
+      ...result,
+      notice: !result.sendingAddress
+        ? 'Client email comes from the shared address with your name again.'
+        : result.verified
+          ? `Client email comes from ${result.sendingAddress}.`
+          : 'Publish these records at your DNS host, then check them. Client email keeps coming from the shared address with your name until they are verified.',
+    });
+  } catch (error) {
+    sendBrandingError(response, error);
+  }
+}
+
+/** Asks the email provider to check the agency's sending domain records now. */
+export async function verifySendingDomainController(_request: Request, response: Response): Promise<void> {
+  const organizationId = response.locals.organizationId;
+
+  try {
+    await assertFeature(organizationId, 'branding.customDomain');
+    response.json(await checkSendingDomain(organizationId, response.locals.session?.user?.id));
+  } catch (error) {
+    sendBrandingError(response, error);
+  }
+}
+
+/**
  * What a client contact should render. Resolved from the portal scope, so a
  * contact always sees their own agency's branding and never another one.
  */
@@ -181,12 +260,37 @@ export async function getStoredBrandingController(_request: Request, response: R
         brandAccentColor: true,
         customDomain: true,
         customDomainVerifiedAt: true,
+        brandSupportEmail: true,
+        brandSupportUrl: true,
+        sendingDomain: true,
+        sendingLocalPart: true,
+        sendingDomainStatus: true,
+        sendingDomainRecords: true,
+        sendingDomainVerifiedAt: true,
+        sendingDomainCheckedAt: true,
       },
     }),
     clientOrigin(organizationId),
   ]);
 
-  response.json({ ...organization, clientOrigin: origin });
+  // Built field by field, so the provider's id for the sending domain, which
+  // is ours and not the agency's, can never reach the response by a wider select.
+  const hasSendingDomain = Boolean(organization.sendingDomain);
+  response.json({
+    brandLogoUrl: organization.brandLogoUrl,
+    brandPrimaryColor: organization.brandPrimaryColor,
+    brandAccentColor: organization.brandAccentColor,
+    customDomain: organization.customDomain,
+    customDomainVerifiedAt: organization.customDomainVerifiedAt,
+    brandSupportEmail: organization.brandSupportEmail,
+    brandSupportUrl: organization.brandSupportUrl,
+    sendingAddress: storedSendingAddress(organization),
+    sendingDomainStatus: hasSendingDomain ? organization.sendingDomainStatus : null,
+    sendingDomainRecords: hasSendingDomain ? storedSendingDomainRecords(organization.sendingDomainRecords) : [],
+    sendingDomainVerifiedAt: hasSendingDomain ? organization.sendingDomainVerifiedAt : null,
+    sendingDomainCheckedAt: hasSendingDomain ? organization.sendingDomainCheckedAt : null,
+    clientOrigin: origin,
+  });
 }
 
 /* ------------------------------------------------------------------- logo */

@@ -20,6 +20,20 @@ export interface ResolvedBranding {
   branded: boolean;
   /** True when the plan includes serving client pages on the agency's own domain. */
   customDomainLicensed: boolean;
+  /**
+   * The support address the agency publishes to its clients: the Reply-To on
+   * client mail and the "Questions?" line in it. Null below white label.
+   */
+  supportEmail: string | null;
+  /** The agency's https help page for its clients. Null below white label. */
+  supportUrl: string | null;
+  /**
+   * The agency's own address client mail is sent from, such as
+   * `reports@mail.wistholm.example`. Only once the email provider has
+   * verified the domain and the plan includes custom domains (Admiralty);
+   * null otherwise, and client mail then uses the shared address.
+   */
+  sendingAddress: string | null;
 }
 
 const hexColour = /^#[0-9a-f]{6}$/i;
@@ -79,6 +93,70 @@ export function validateCustomDomain(value: string): { domain: string } | { erro
   return { domain };
 }
 
+/** Letters, digits and hyphens per label, at least two labels, each 1 to 63 long. */
+const plainHostname = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
+
+/** True when a value holds a character below space or in the C1 range, which includes CR and LF. */
+function hasControlCharacter(value: string): boolean {
+  return Array.from(value).some((character) => {
+    const code = character.codePointAt(0) ?? 0;
+    return code < 0x20 || (code >= 0x7f && code <= 0x9f);
+  });
+}
+
+const supportEmailExample = 'The support email must be one address, for example help@youragency.example.';
+
+/**
+ * The support address an agency publishes to its clients.
+ *
+ * It goes into a Reply-To header on every client message, so it has to be one
+ * plain address and nothing a mail client could read as a second one: no
+ * display name, no quotes or angle brackets, no comma or semicolon, and no
+ * line break that could start another header. The domain is lowercased; the
+ * part before the @ is kept as typed, because some mail systems treat it as
+ * case sensitive.
+ */
+export function validateSupportEmail(value: string): { email: string } | { error: string } {
+  const trimmed = value.trim();
+  if (trimmed.length > 254 || hasControlCharacter(trimmed)) {
+    return { error: supportEmailExample };
+  }
+  const match = /^([^\s@"<>,;:()\\[\]]{1,64})@([^\s@"<>,;:()\\[\]]+)$/.exec(trimmed);
+  if (!match) {
+    return { error: supportEmailExample };
+  }
+  const domain = match[2]!.toLowerCase();
+  if (domain.length > 253 || !plainHostname.test(domain)) {
+    return { error: supportEmailExample };
+  }
+  return { email: `${match[1]}@${domain}` };
+}
+
+/** The https page an agency's clients can use for help. */
+export function validateSupportUrl(value: string): { url: string } | { error: string } {
+  const trimmed = value.trim();
+  if (trimmed.length > 500 || hasControlCharacter(trimmed)) {
+    return { error: 'The support page must be a full https address of 500 characters or fewer.' };
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return { error: 'The support page must be a full https address.' };
+  }
+  if (parsed.protocol !== 'https:') {
+    return { error: 'The support page must be a full https address.' };
+  }
+  if (parsed.username || parsed.password) {
+    return { error: 'The support page must not include a username or password.' };
+  }
+  const url = parsed.toString();
+  if (url.length > 500) {
+    return { error: 'The support page must be a full https address of 500 characters or fewer.' };
+  }
+  return { url };
+}
+
 export function customDomainVerificationValue(token: string): string {
   return `dmarc-harbor-branding=${token}`;
 }
@@ -92,6 +170,10 @@ export async function updateBranding(input: {
   logoUrl?: string | null;
   primaryColor?: string | null;
   accentColor?: string | null;
+  /** null or an empty string clears it. */
+  supportEmail?: string | null;
+  /** null or an empty string clears it. */
+  supportUrl?: string | null;
   actorUserId?: string | null;
 }): Promise<ResolvedBranding> {
   const data: Record<string, string | null> = {};
@@ -133,6 +215,32 @@ export async function updateBranding(input: {
         throw new BrandingError(checked.error);
       }
       data.brandAccentColor = checked.colour;
+    }
+  }
+
+  // The contact the agency publishes to its clients. Checked here, before
+  // anything is saved, so one bad field does not leave the others half written.
+  if (input.supportEmail !== undefined) {
+    if (input.supportEmail === null || input.supportEmail.trim() === '') {
+      data.brandSupportEmail = null;
+    } else {
+      const checked = validateSupportEmail(input.supportEmail);
+      if ('error' in checked) {
+        throw new BrandingError(checked.error);
+      }
+      data.brandSupportEmail = checked.email;
+    }
+  }
+
+  if (input.supportUrl !== undefined) {
+    if (input.supportUrl === null || input.supportUrl.trim() === '') {
+      data.brandSupportUrl = null;
+    } else {
+      const checked = validateSupportUrl(input.supportUrl);
+      if ('error' in checked) {
+        throw new BrandingError(checked.error);
+      }
+      data.brandSupportUrl = checked.url;
     }
   }
 
@@ -360,7 +468,7 @@ export class BrandingError extends Error {
  * never applied to the agency's own interface, only to what the client sees.
  */
 /** Prisma reports a unique violation as P2002. */
-function isUniqueConstraintViolation(error: unknown): boolean {
+export function isUniqueConstraintViolation(error: unknown): boolean {
   return (
     typeof error === 'object' &&
     error !== null &&
@@ -380,6 +488,11 @@ export async function resolveBranding(organizationId: string): Promise<ResolvedB
       brandAccentColor: true,
       customDomain: true,
       customDomainVerifiedAt: true,
+      brandSupportEmail: true,
+      brandSupportUrl: true,
+      sendingDomain: true,
+      sendingLocalPart: true,
+      sendingDomainVerifiedAt: true,
     },
   });
 
@@ -406,5 +519,16 @@ export async function resolveBranding(organizationId: string): Promise<ResolvedB
     customDomainVerified: domainLicensed ? domainVerified : false,
     branded: licensed,
     customDomainLicensed: domainLicensed,
+    // Published by the agency for its clients, so it is presented wherever the
+    // brand is, and not at all below white label.
+    supportEmail: licensed ? organization.brandSupportEmail : null,
+    supportUrl: licensed ? organization.brandSupportUrl : null,
+    // The same rule as the custom domain: the plan has to include it and the
+    // provider has to have verified it. A domain kept after a downgrade stops
+    // being used without being deleted, and mail goes back to the shared address.
+    sendingAddress:
+      domainLicensed && organization.sendingDomainVerifiedAt && organization.sendingDomain && organization.sendingLocalPart
+        ? `${organization.sendingLocalPart}@${organization.sendingDomain}`
+        : null,
   };
 }

@@ -1,6 +1,6 @@
 import { API_BASE, apiFetch } from "./api-fetch";
 import { sessionCookieHeader } from "./session-cookie";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import type {
   PortalBranding,
   PortalOverview,
@@ -32,6 +32,13 @@ export class PortalError extends Error {
   readonly workspaces: PortalWorkspaceChoice[];
   /** Sent with PORTAL_PAUSED: the provider whose plan no longer includes the portal. */
   readonly workspaceName: string | null;
+  /**
+   * The API's own sentence, or null when it sent none. On an agency's domain a
+   * refusal names that agency and no other ("This account has not been given
+   * access to a client report from Wistholm IT."), so the page can show it as
+   * it is.
+   */
+  readonly apiMessage: string | null;
 
   constructor(
     status: number,
@@ -46,6 +53,21 @@ export class PortalError extends Error {
     this.code = code;
     this.workspaces = workspaces;
     this.workspaceName = workspaceName;
+    this.apiMessage = typeof message === "string" && message.trim() ? message.trim() : null;
+  }
+}
+
+/**
+ * The Host this page was requested on, or null.
+ *
+ * Null during a static prerender, where no request exists and headers()
+ * throws: then there is no agency host to name.
+ */
+async function requestHost(): Promise<string | null> {
+  try {
+    return (await headers()).get("host")?.trim() || null;
+  } catch {
+    return null;
   }
 }
 
@@ -60,6 +82,17 @@ async function portalFetch<T>(path: string): Promise<T> {
   // Under either name: production's cookie carries the __Secure- prefix.
   const session = sessionCookieHeader(jar);
   if (session) header.set("cookie", session);
+
+  // The host the contact opened the portal on. On an agency's verified domain
+  // the API scopes every portal read to that agency (requirePortalScope): no
+  // provider choice is offered there, and a refusal names only that agency.
+  // This server-side call reaches the API directly rather than through the
+  // /api rewrite, so no x-forwarded-host says where the reader is; this
+  // header does. It can only narrow what a contact sees, never widen it: the
+  // grants are still the contact's own, and a host that is not an agency's
+  // changes nothing.
+  const host = await requestHost();
+  if (host) header.set("x-harbor-portal-host", host);
 
   const res = await apiFetch(`${API_BASE}${path}`, {
     headers: header,

@@ -4,8 +4,9 @@ import { queueEmail } from './email.service.js';
 import { planLabel } from '../services/entitlements/plan-catalog.js';
 import { resolveBranding } from '../services/branding.service.js';
 import { clientOriginFor } from '../services/client-origin.js';
-import { clientEmailFrom } from './sender.js';
+import { clientEmailHeaders } from './sender.js';
 import {
+  clientContact,
   domainVerificationNotice,
   erasureCompletedEmail,
   erasureScheduledEmail,
@@ -114,17 +115,19 @@ export async function sendPortalAccessGrantedEmailImpl(input: {
     accentColor: brand?.accentColor ?? null,
   };
 
-  const from = clientEmailFrom(brand);
+  // From the agency's name (and its own domain once verified), with Reply-To
+  // set to the support address it publishes, when its white label is on.
   queueEmail(
     portalAccessGranted({
       brand: look,
       clientName: client.name,
       agencyName: look.workspaceName,
       signInUrl: `${clientOriginFor(brand)}/portal`,
+      contact: clientContact(brand),
     }),
     input.contactEmail,
     undefined,
-    from ? { from } : {},
+    clientEmailHeaders(brand),
   );
 }
 
@@ -167,10 +170,11 @@ async function sendPolicyApprovalRequestedEmailImpl(input: { proposalId: string 
     expiresAt: portal.expiresAt,
     // Client facing: the agency's own domain when it has one.
     url: `${clientOriginFor(brand)}/portal/domain/${portal.domain.id}?org=${encodeURIComponent(found.organizationId)}`,
+    contact: clientContact(brand),
   });
-  const from = clientEmailFrom(brand);
+  const headers = clientEmailHeaders(brand);
   for (const contact of contacts) {
-    queueEmail(rendered, contact.email, `policy-proposal:${portal.id}:${contact.email}`, from ? { from } : {});
+    queueEmail(rendered, contact.email, `policy-proposal:${portal.id}:${contact.email}`, headers);
   }
 }
 

@@ -254,6 +254,95 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-12-05 — Support contact, the agency's own sending domain, and the portal on the agency's domain
+
+Three white-label additions on the browser routes under `/api`; `/api/v1` is
+unchanged. Every change is additive.
+
+### Support contact and Reply-To (Harbor and up)
+
+- **`supportEmail` and `supportUrl` on `PATCH /api/workspaces/{id}/branding`.**
+  Optional; `null` or `""` clears either. `supportEmail` must be one plain
+  address (no display name, quotes, angle brackets, commas or line breaks;
+  domain lowercased; at most 254 characters). `supportUrl` must be an https
+  address with no username or password, at most 500 characters. A bad value is
+  `400 INVALID_REQUEST` with a sentence saying what is wrong. Gated on
+  `branding.whitelabel` like the rest of the request, and recorded as
+  `BRANDING_UPDATED` with the changed fields.
+- **`supportEmail`, `supportUrl` on the resolved branding** (`GET
+  /api/portal/branding`, `GET /api/branding/host`, `GET
+  /api/workspaces/{id}/branding/resolved`, and the branding inside `GET
+  /api/portal`). Both are `null` when the plan does not include white label.
+  They are the contact the agency publishes to its clients, so they are meant to
+  reach those endpoints.
+- **`brandSupportEmail`, `brandSupportUrl` on `GET /api/workspaces/{id}/branding`**,
+  the stored values.
+- **Client mail carries the contact.** For a white-labelled workspace, the
+  portal invitation, approval requests, scheduled monthly reports, digests, and a
+  password reset or verification started on the agency's domain now set
+  `Reply-To` to the support email when there is one, and end with one line:
+  "Questions? Contact Wistholm IT at help@wistholm.example or
+  https://wistholm.example/help." (whichever parts exist; the reset and
+  verification messages name the email only). Mail to the agency's own staff
+  never carries either. With no support email there is still no Reply-To; it
+  is never guessed from a staff address.
+
+### The agency's own sending domain (Admiralty)
+
+- **`PUT /api/workspaces/{id}/branding/sending-domain`**, body `{ "address":
+  "reports@mail.youragency.example" }` or `{ "address": null }`. Answers
+  `{ sendingAddress, status, records, verified, notice }`, where `records` is
+  the list to publish, each `{ record, type, name, value, priority, status }`
+  (`record` is `SPF` or `DKIM`; `priority` is set for the MX record and `null`
+  otherwise). The domain is added to our email provider with sending only, so
+  no receiving MX is asked for. The same domain with a new local part keeps its
+  verification; a new domain replaces the old one. Setting needs
+  `branding.customDomain` (`402` otherwise); removing works on any plan. Errors:
+  `400 INVALID_REQUEST` (not one plain address, or a domain this service sends
+  from or serves, a subdomain of one or a parent of one), `409
+  SENDING_DOMAIN_TAKEN`, `502 SENDING_DOMAIN_PROVIDER_ERROR` with the
+  provider's reason in the message.
+- **`POST /api/workspaces/{id}/branding/sending-domain/verify`** asks the
+  provider to check the records and answers `{ sendingAddress, status, records,
+  verified }`. The first time the provider reports the domain verified,
+  `SENDING_DOMAIN_VERIFIED` is recorded. A domain the provider no longer reports
+  verified is marked unverified. Needs `branding.customDomain`.
+- **`GET /api/workspaces/{id}/branding`** adds `sendingAddress` (stored, verified
+  or not, or `null`), `sendingDomainStatus`, `sendingDomainRecords` (`[]` when
+  none), `sendingDomainVerifiedAt` and `sendingDomainCheckedAt`. The provider's id
+  for the domain is never returned.
+- **`sendingAddress` on the resolved branding**: the agency's own address, only
+  while the plan includes `branding.customDomain` and the provider has verified
+  the domain; `null` otherwise. Client mail is then sent as `"<workspace name>"
+  <sendingAddress>`. Without it, or after a downgrade, client mail uses the
+  shared address as before; nothing is deleted.
+- **A refused sender falls back.** If the provider refuses a message because its
+  From domain is not verified, it is sent once more from the shared address with
+  the same display name (and, when the message had one, an idempotency key
+  suffixed `:shared-from`). Any other provider error behaves as before.
+- **`AuditAction` gains `SENDING_DOMAIN_VERIFIED`.**
+- **Workspace deletion** (the erasure request and the delete route) also removes
+  the sending domain from the provider, best effort.
+
+### The portal on an agency's own domain
+
+On an agency's verified custom domain, every `/api/portal*` route is scoped to
+that agency. The host is read from `x-harbor-portal-host` (set by the web
+server on its server-side portal calls) or else the first `x-forwarded-host`
+(set by its `/api` proxy), without the port. There:
+
+- a contact whom several agencies serve gets this agency's portal directly, with
+  no `400 CHOOSE_WORKSPACE`;
+- `?organizationId=` naming another workspace is `403 FORBIDDEN` "This report is
+  not available at this address.";
+- a contact with no grant from this agency is `403 FORBIDDEN` "This account has
+  not been given access to a client report from <agency>.", which never names
+  another agency.
+
+On any other host the portal answers as before.
+
+---
+
 ## 2026-12-04 — Client links and sign-in on an agency's own domain
 
 An Admiralty agency whose custom domain is verified now has its clients sent
@@ -295,7 +384,8 @@ who opened the verifier on an agency's domain is not pointed at ours.
 For a workspace whose plan includes white label, client facing email (the
 portal invitation, approval requests, scheduled monthly reports and digests)
 is sent as `"<workspace name>" <CLIENT_EMAIL_FROM_ADDRESS>`, falling back to the
-address part of `EMAIL_FROM`. There is no Reply-To. Digests from such a
+address part of `EMAIL_FROM`. There is no Reply-To (from 2026-12-05, the
+agency's published support email when it sets one). Digests from such a
 workspace are tagged `[<workspace name>]` in the subject and no longer name
 DMARC Harbor. The portal invitation now says how to sign in: with the invited
 address, choosing Create an account the first time.

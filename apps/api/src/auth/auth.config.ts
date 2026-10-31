@@ -9,7 +9,7 @@ import { memberAllowance, memberLimitMessage, resolveEntitlements } from '../ser
 import { accessControl, organizationRoles } from './permissions.js';
 import { queueAuthEmail, queueEmail } from '../email/email.service.js';
 import { oneLine } from '../email/sender.js';
-import { workspaceInvitationEmail } from '../email/templates.js';
+import { contactSentence, workspaceInvitationEmail } from '../email/templates.js';
 import { agencyAuthLink } from './agency-auth-link.js';
 import { trustedOriginsFor } from './agency-origin.js';
 
@@ -84,6 +84,16 @@ export async function mfaSessionGuard(
   }
 
   return false;
+}
+
+/**
+ * Ends a reset or verification email sent in an agency's name with the support
+ * address the agency publishes, so a client who is stuck knows who to ask. Only
+ * when the link was rebuilt for the agency and it has published one.
+ */
+function withAgencyContact(text: string, agency: string | null, supportEmail: string | undefined): string {
+  const line = agency && supportEmail ? contactSentence({ agencyName: agency, email: supportEmail }) : null;
+  return line ? `${text}\n\n${line}` : text;
 }
 
 const securityEmailFooter =
@@ -287,8 +297,13 @@ export const auth = betterAuth({
       queueAuthEmail({
         to: user.email,
         subject: agency ? `Reset your password for ${agency}` : 'Reset your DMARC Harbor password',
-        text: `Reset your password using this link: ${link.url}\n\nIf you did not request this, you can ignore this email.`,
+        text: withAgencyContact(
+          `Reset your password using this link: ${link.url}\n\nIf you did not request this, you can ignore this email.`,
+          agency,
+          link.supportEmail,
+        ),
         ...(link.from ? { from: link.from } : {}),
+        ...(link.replyTo ? { replyTo: link.replyTo } : {}),
       });
     },
     /**
@@ -331,9 +346,14 @@ export const auth = betterAuth({
         to: user.email,
         subject: agency ? `Verify your email for ${agency}` : 'Verify your DMARC Harbor email',
         text: agency
-          ? `Verify your email address for ${agency} using this link: ${link.url}\n\nThe link expires in 24 hours.`
+          ? withAgencyContact(
+              `Verify your email address for ${agency} using this link: ${link.url}\n\nThe link expires in 24 hours.`,
+              agency,
+              link.supportEmail,
+            )
           : `Verify your email address using this link: ${link.url}\n\nThe link expires in 24 hours.`,
         ...(link.from ? { from: link.from } : {}),
+        ...(link.replyTo ? { replyTo: link.replyTo } : {}),
       });
     },
   },

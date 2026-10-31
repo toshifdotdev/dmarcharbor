@@ -21,7 +21,16 @@ const world = vi.hoisted(() => ({
   /** hostname -> claim */
   hosts: new Map<string, { organizationId: string; verified: boolean }>(),
   /** organizationId -> what resolveBranding presents */
-  branding: new Map<string, { workspaceName: string; customDomain: string | null; branded: boolean }>(),
+  branding: new Map<
+    string,
+    {
+      workspaceName: string;
+      customDomain: string | null;
+      branded: boolean;
+      supportEmail: string | null;
+      sendingAddress: string | null;
+    }
+  >(),
   /** Set to make the host lookup fail, as a database outage would. */
   failLookup: false,
   hostLookups: 0,
@@ -76,7 +85,17 @@ function headers(values: Record<string, string>): Request {
   return { headers: new Headers(values) } as unknown as Request;
 }
 
-function claim(host: string, input: { verified?: boolean; licensed?: boolean; organizationId?: string; name?: string } = {}) {
+function claim(
+  host: string,
+  input: {
+    verified?: boolean;
+    licensed?: boolean;
+    organizationId?: string;
+    name?: string;
+    supportEmail?: string | null;
+    sendingAddress?: string | null;
+  } = {},
+) {
   const organizationId = input.organizationId ?? `org_${host}`;
   world.hosts.set(host, { organizationId, verified: input.verified ?? true });
   world.branding.set(organizationId, {
@@ -84,6 +103,8 @@ function claim(host: string, input: { verified?: boolean; licensed?: boolean; or
     // resolveBranding only presents the domain when licensed and verified.
     customDomain: (input.licensed ?? true) && (input.verified ?? true) ? host : null,
     branded: true,
+    supportEmail: input.supportEmail ?? null,
+    sendingAddress: input.sendingAddress ?? null,
   });
   return organizationId;
 }
@@ -264,6 +285,35 @@ describe('emailed reset and verification links', () => {
     );
     expect(link.agency).toEqual({ organizationId, workspaceName: 'Wistholm IT' });
     expect(link.from).toBe(agencyFromHeader('Wistholm IT'));
+    // No support address published, so no Reply-To and no contact line.
+    expect(link.replyTo).toBeUndefined();
+    expect(link.supportEmail).toBeUndefined();
+  });
+
+  it("adds the agency's support address and its own verified sending address", async () => {
+    const organizationId = claim(agencyHost, {
+      supportEmail: 'help@wistholm.example',
+      sendingAddress: 'reports@mail.wistholm.example',
+    });
+    world.contacts.set(organizationId, [contact.email]);
+
+    const link = await agencyAuthLink(resetUrl(`${agencyOrigin}/sign-in`), contact);
+
+    expect(new URL(link.url).origin).toBe(agencyOrigin);
+    expect(link.from).toBe('"Wistholm IT" <reports@mail.wistholm.example>');
+    expect(link.replyTo).toBe('help@wistholm.example');
+    expect(link.supportEmail).toBe('help@wistholm.example');
+  });
+
+  it('never gives the support address to anyone the link was not rebuilt for', async () => {
+    claim(agencyHost, { supportEmail: 'help@wistholm.example' });
+    const stranger = { id: 'user_other', email: 'someone@elsewhere.example' };
+
+    const link = await agencyAuthLink(resetUrl(`${agencyOrigin}/sign-in`), stranger);
+
+    expect(link.agency).toBeNull();
+    expect(link.replyTo).toBeUndefined();
+    expect(link.supportEmail).toBeUndefined();
   });
 
   it('keeps the port and scheme of the local harness', async () => {

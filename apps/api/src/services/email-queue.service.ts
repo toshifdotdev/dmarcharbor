@@ -46,6 +46,8 @@ export interface QueueInput {
   organizationId?: string;
   /** A From header for this message only; absent sends from EMAIL_FROM. */
   from?: string;
+  /** A Reply-To for this message only; absent sends none. */
+  replyTo?: string;
 }
 
 /**
@@ -67,6 +69,7 @@ export async function enqueueEmail(input: QueueInput, now = new Date()): Promise
         // Kept with the message rather than worked out again at delivery, so a
         // retry hours later still says who sent it.
         fromHeader: input.from ?? null,
+        replyToHeader: input.replyTo ?? null,
         /**
          * Written from here rather than left to the column default.
          *
@@ -183,6 +186,7 @@ export async function drainEmailQueue(limit = 25, now = new Date()): Promise<Ema
         text: row.text,
         ...(row.idempotencyKey ? { idempotencyKey: row.idempotencyKey } : {}),
         ...(row.fromHeader ? { from: row.fromHeader } : {}),
+        ...(row.replyToHeader ? { replyTo: row.replyToHeader } : {}),
       });
 
       await prisma.emailDelivery.update({

@@ -1,7 +1,7 @@
 import { env } from '../config/env.js';
 
 /**
- * Who client facing email says it is from.
+ * Who client facing email says it is from, and where a reply goes.
  *
  * When an agency's white label is on, the display name is the agency's
  * workspace name and the address is CLIENT_EMAIL_FROM_ADDRESS, a neutral
@@ -9,10 +9,17 @@ import { env } from '../config/env.js';
  * has only ever seen the agency's brand receives mail from "DMARC Harbor" and
  * reasonably wonders who that is.
  *
- * There is no Reply-To. We hold no contact address for an agency, and guessing
- * one (the owner's sign-in address, say) would publish a staff member's email
- * to every client contact. A reply goes to the neutral address, as it does for
- * every other notification.
+ * An Admiralty agency can also send from its own domain, for example
+ * `reports@mail.wistholm.example`. That address is only ever used once the
+ * email provider reports the domain verified and the plan includes it
+ * (`ResolvedBranding.sendingAddress`); until then, and after a downgrade, the
+ * shared address is used with the agency's name in front, exactly as before.
+ *
+ * Reply-To is the support address the agency publishes to its clients under
+ * white label settings, and nothing else. It is never a staff sign-in address:
+ * guessing one (the owner's, say) would hand a staff member's email to every
+ * client contact. With no support address set there is no Reply-To, and a
+ * reply goes to the From address, as it does for every other notification.
  */
 
 /** Longer names are cut, so a long workspace name cannot fill the inbox column. */
@@ -62,32 +69,95 @@ export function oneLine(value: string): string {
 }
 
 /**
- * The full From header for an agency's client mail, for example
- * `"Wistholm IT" <reports@mail-relay.example>`.
+ * One plain address that is safe to put in a header as it is: no spaces,
+ * quotes, angle brackets, commas or control characters, and exactly one @.
  *
- * Falls back to the address part of EMAIL_FROM when CLIENT_EMAIL_FROM_ADDRESS is
- * unset, and to the bare address when the name has nothing left after cleaning.
- * Returns undefined when no address can be found, which sends from EMAIL_FROM.
+ * Every address that reaches a header here was validated when it was saved,
+ * but the header is where a CR or LF would do its damage, so it is checked
+ * again at the point of use and a value that fails is dropped rather than sent.
  */
-export function agencyFromHeader(agencyName: string): string | undefined {
-  const address = env.CLIENT_EMAIL_FROM_ADDRESS ?? addressOf(env.EMAIL_FROM);
-  if (!address) {
-    return undefined;
+function headerSafeAddress(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
   }
-  const name = safeDisplayName(agencyName);
-  return name ? `"${name}" <${address}>` : address;
+  const trimmed = value.trim();
+  return /^[^\s@"<>,;()\\[\]]+@[^\s@"<>,;()\\[\]]+$/.test(trimmed) && trimmed === oneLine(trimmed) ? trimmed : null;
+}
+
+/** The shared address every agency's client mail leaves from when it has no domain of its own. */
+function sharedAddress(): string | null {
+  return env.CLIENT_EMAIL_FROM_ADDRESS ?? addressOf(env.EMAIL_FROM);
 }
 
 /**
- * The From header for a client facing message, or undefined for our own.
+ * The full From header for an agency's client mail, for example
+ * `"Wistholm IT" <reports@mail-relay.example>`.
+ *
+ * `address` is the agency's own verified sending address when it has one
+ * (`ResolvedBranding.sendingAddress`); otherwise CLIENT_EMAIL_FROM_ADDRESS, and
+ * otherwise the address part of EMAIL_FROM. The bare address is used when the
+ * name has nothing left after cleaning. Returns undefined when no address can
+ * be found, which sends from EMAIL_FROM.
+ */
+export function agencyFromHeader(agencyName: string, address?: string | null): string | undefined {
+  const chosen = headerSafeAddress(address) ?? sharedAddress();
+  if (!chosen) {
+    return undefined;
+  }
+  const name = safeDisplayName(agencyName);
+  return name ? `"${name}" <${chosen}>` : chosen;
+}
+
+/**
+ * The same display name on the shared address, for a message whose own From
+ * was refused by the provider (see the fallback in email.service.ts).
+ *
+ * Undefined when the header has no display name to keep, or already uses the
+ * shared address, because then there is nothing different to retry with.
+ */
+export function sharedFromHeader(from: string): string | undefined {
+  const shared = sharedAddress();
+  const current = addressOf(from);
+  if (!shared || !current || current.toLowerCase() === shared.toLowerCase()) {
+    return undefined;
+  }
+  const quoted = /^\s*"([^"]*)"\s*</.exec(from);
+  const bare = /^\s*([^"<>]+?)\s*</.exec(from);
+  const name = safeDisplayName(quoted?.[1] ?? bare?.[1] ?? '');
+  return name ? `"${name}" <${shared}>` : undefined;
+}
+
+/** What client facing mail needs from the resolved branding. */
+export interface ClientEmailBranding {
+  branded: boolean;
+  workspaceName: string;
+  supportEmail?: string | null;
+  sendingAddress?: string | null;
+}
+
+/**
+ * The From and Reply-To headers for a client facing message, or neither for
+ * our own.
  *
  * Only a workspace whose plan includes white label (`branded`) sends under its
  * own name. Below that the client sees our name in the email anyway, so the
- * From line says the same thing.
+ * headers say the same thing and no Reply-To is added.
  */
-export function clientEmailFrom(branding: { branded: boolean; workspaceName: string } | null | undefined): string | undefined {
+export function clientEmailHeaders(
+  branding: ClientEmailBranding | null | undefined,
+): { from?: string; replyTo?: string } {
   if (!branding?.branded) {
-    return undefined;
+    return {};
   }
-  return agencyFromHeader(branding.workspaceName);
+  const from = agencyFromHeader(branding.workspaceName, branding.sendingAddress);
+  const replyTo = headerSafeAddress(branding.supportEmail);
+  return { ...(from ? { from } : {}), ...(replyTo ? { replyTo } : {}) };
+}
+
+/**
+ * The From header alone. Kept for callers that only need the From line;
+ * `clientEmailHeaders` is what client mail uses.
+ */
+export function clientEmailFrom(branding: ClientEmailBranding | null | undefined): string | undefined {
+  return clientEmailHeaders(branding).from;
 }

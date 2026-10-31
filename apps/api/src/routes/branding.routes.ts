@@ -7,9 +7,11 @@ import {
   portalBrandingController,
   resolveBrandingByHostController,
   setCustomDomainController,
+  setSendingDomainController,
   updateBrandingController,
   uploadLogoDirectController,
   verifyCustomDomainController,
+  verifySendingDomainController,
 } from '../controllers/branding.controller.js';
 import { requireSession } from '../middleware/auth.middleware.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
@@ -53,6 +55,19 @@ brandingRouter.post(
   requireSession,
   requireOrganizationPermission('organization', 'update'),
   verifyCustomDomainController,
+);
+/** The agency's own sending address for client mail (Admiralty to set; anyone to remove). */
+brandingRouter.put(
+  '/workspaces/:organizationId/branding/sending-domain',
+  requireSession,
+  requireOrganizationPermission('organization', 'update'),
+  setSendingDomainController,
+);
+brandingRouter.post(
+  '/workspaces/:organizationId/branding/sending-domain/verify',
+  requireSession,
+  requireOrganizationPermission('organization', 'update'),
+  verifySendingDomainController,
 );
 
 /** Client facing. Scoped like the rest of the portal. */

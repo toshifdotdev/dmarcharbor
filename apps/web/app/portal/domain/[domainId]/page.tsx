@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getSessionUser } from "@/lib/api";
 import { getPortalBranding, getPortalDomain, getPortalDomainProposals, PortalError } from "@/lib/api-portal";
+import { readHostBrand } from "@/lib/host-brand";
 import { dayLabel, policyKind, policyPlain, senderName, senderPlain, summaryText, verdictFor } from "@/lib/portal-verdict";
 import { portalHref } from "@/lib/route-hrefs";
 import { signInRedirect } from "@/lib/session";
@@ -77,6 +78,9 @@ export default async function PortalDomainPage({
       return <PortalPaused email={email} provider={e.workspaceName} />;
     }
     if (e instanceof PortalError) {
+      // On an agency's verified domain a refusal of the whole portal names that
+      // agency and no other (the API scopes it by host), so it is said as sent.
+      const scopedRefusal = e.status === 403 && e.apiMessage && (await readHostBrand()).state === "verified" ? e.apiMessage : null;
       return (
         <PortalNotice
           brand={brand}
@@ -84,9 +88,11 @@ export default async function PortalDomainPage({
           title={e.status === 404 || e.status === 403 ? "This domain is not in your report" : "This report is unavailable just now"}
         >
           <p>
-            {e.status === 404 || e.status === 403
-              ? "It may belong to another account, or it may have been removed. Your other domains are on the overview."
-              : "This is a problem reaching the report, not a problem with your email. Please try again in a few minutes."}
+            {scopedRefusal
+              ? scopedRefusal
+              : e.status === 404 || e.status === 403
+                ? "It may belong to another account, or it may have been removed. Your other domains are on the overview."
+                : "This is a problem reaching the report, not a problem with your email. Please try again in a few minutes."}
           </p>
         </PortalNotice>
       );

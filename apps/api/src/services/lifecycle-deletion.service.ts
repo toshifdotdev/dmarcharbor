@@ -14,6 +14,7 @@ import {
   hostedMtaStsSnapshotsForDomainIds,
   removeHostedMtaStsForDeletion,
 } from './hosted-dns/hosted-mta-sts.service.js';
+import { removeProviderDomainQuietly, sendingDomainProviderIdFor } from './branding/sending-domain.service.js';
 
 /**
  * lifecycle-deletion.ts — removing a domain, a client, or a whole workspace.
@@ -359,11 +360,14 @@ export async function deleteWorkspace(
   const domainIds = (
     await prisma.domain.findMany({ where: { client: { organizationId } }, select: { id: true } })
   ).map((domain) => domain.id);
-  const [hosted, spf, bimi, mtaSts] = await Promise.all([
+  const [hosted, spf, bimi, mtaSts, sendingDomainProviderId] = await Promise.all([
     hostedSnapshotsForDomainIds(domainIds),
     managedSpfSnapshotsForDomainIds(domainIds),
     hostedBimiSnapshotsForDomainIds(domainIds),
     hostedMtaStsSnapshotsForDomainIds(domainIds),
+    // The agency's sending domain is an entry in our email provider's account,
+    // which the cascade cannot reach. Read now, removed once the delete commits.
+    sendingDomainProviderIdFor(organization.id),
   ]);
 
   await prisma.$transaction(async (transaction) => {
@@ -397,5 +401,6 @@ export async function deleteWorkspace(
   await removeManagedSpfForDeletion(spf);
   await removeHostedBimiForDeletion(bimi);
   await removeHostedMtaStsForDeletion(mtaSts);
+  await removeProviderDomainQuietly(sendingDomainProviderId);
   return { ok: true, name: organization.name, summary };
 }

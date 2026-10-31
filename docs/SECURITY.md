@@ -73,10 +73,37 @@ is paying for.
   included, gets a link to our own address, so a token for a staff account is never
   sent to a host the agency points
 
+## Client mail sent in an agency's name
+
+- **Reply-To is only the agency's published support address.** An agency can set a
+  support email under its white label settings, and that address, and nothing
+  else, becomes the Reply-To on its client mail. It is never filled in from a
+  staff member's sign-in address. With none set there is no Reply-To. The address
+  is checked as one plain address with no line breaks before it is saved, and
+  again before it is put in a header
+- **An agency's own sending domain** (Admiralty) is added to our email provider's
+  account and later removed from it, so a domain we send from or serve, any
+  subdomain of one, and any parent of one are refused: the domains of our From
+  addresses and report mailboxes, and the hosts of our app, API, web origins and
+  hosted DNS. An agency cannot have us add or remove an entry our own mail
+  depends on. Mail uses the agency's address only after the provider reports its
+  domain verified; if the provider later refuses it, the message is sent once
+  more from the shared address with the agency's name
+- **The provider key for domains can be separate.** `RESEND_DOMAINS_API_KEY`, a
+  full-access key, is used only to add, check and remove sending domains, so the
+  key every message is sent with can stay sending-only
+
 ## Tenant isolation
 
 Every single query is scoped to a workspace. There is no combined view across
 workspaces available to any user, including our own staff.
+
+On an agency's own verified domain the client portal shows only that agency's
+reports. A contact whom two agencies serve is not offered the other agency there,
+cannot open it by naming its workspace, and a contact the agency does not serve is
+refused with a message that names no other agency. The host is taken from headers
+our web app sets; a caller who forges them can only narrow what a contact sees,
+never widen it, because the contact's own grants still decide what can be shown.
 
 We maintain one authoritative inventory of which data belongs to which workspace,
 client or domain. **The export feature and the erasure feature both read that same

@@ -14,15 +14,19 @@
  * On an agency's verified domain the foot carries only the agency's name: our
  * legal pages are about us and the proxy sends them to the portal there, so a
  * client signing in is never offered a link that lands somewhere else. The
- * brand links to the portal, the client's landing on that host.
+ * brand links to the portal, the client's landing on that host. When the
+ * agency has published a support address or page, a quiet line under the form
+ * says who to ask about signing in.
  */
 
 import Link from "next/link";
 import { clsx } from "clsx";
 import type { ReactNode } from "react";
+import { agencyContact } from "@/lib/agency-contact";
 import { readHostBrand } from "@/lib/host-brand";
 import { LEGAL_FOOTER_LINKS } from "@/lib/site-links";
 import { PierMark } from "@/components/mark";
+import { AgencyContactLine } from "./agency-contact";
 import { brandName } from "./public-frame";
 import { HostUnverifiedBanner } from "./shell-banners";
 
@@ -47,6 +51,9 @@ export async function AuthFrame({
 }) {
   const brand = await readHostBrand();
   const branded = brand.state === "verified";
+  // Only on the agency's verified domain: the reader is its client, and the
+  // agency, not us, is who helps them sign in.
+  const contact = branded ? agencyContact(brand) : null;
   return (
     <div data-harbor data-host-brand={brand.state} className="flex min-h-screen flex-col">
       {brand.state === "unverified" ? <HostUnverifiedBanner /> : null}
@@ -72,7 +79,16 @@ export async function AuthFrame({
         </div>
       </header>
       <main id="main" className="page-wrap flex flex-1 flex-col pb-20 pt-8 sm:pt-14 min-[1100px]:pt-[72px]">
-        <div className={clsx("mx-auto w-full", WIDTH[width])}>{children}</div>
+        <div className={clsx("mx-auto w-full", WIDTH[width])}>
+          {children}
+          <AgencyContactLine
+            lead="Trouble signing in?"
+            agency={brand.workspaceName}
+            contact={contact}
+            className="mt-8 text-meta text-fg-3"
+            testId="auth-agency-contact"
+          />
+        </div>
       </main>
       <footer className="page-wrap">
         {branded ? (

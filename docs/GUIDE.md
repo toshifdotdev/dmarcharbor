@@ -124,13 +124,21 @@ SAML or OIDC single sign-on instead.
   and state what data is held, by whom, and for how long.
 - **Your brand** (Harbor and above): your name, logo and colours on the portal,
   monthly reports, Trust Centers, prospect reports and client emails, which come
-  from your agency's name. These open at our address. On Admiralty, add your own
-  domain under Settings, White label, publish the TXT record it shows and point
-  the hostname at this service. Once it is verified, everything a client opens is
-  on your address: the portal and its sign-in, share links, Trust Centers,
-  prospect reports, and the links in monthly report and password reset emails.
+  from our shared address with your agency's name unless you send from your own
+  address (below). These open at our address. Under Settings, White label, Client
+  contact, add a support email and a support page: clients see them in the portal
+  and on the sign-in page on your own domain, and replies to client emails go to
+  your support email. On Admiralty, add your own domain under Settings, White
+  label, publish the TXT record it shows and point the hostname at this service.
+  Once it is verified, everything a client opens is on your address: the portal
+  and its sign-in, share links, Trust Centers, prospect reports, and the links in
+  monthly report and password reset emails.
   Clients sign in there with email and password; Google and Microsoft sign-in are
-  not offered on your domain.
+  not offered on your domain. Admiralty can also send client emails from your own
+  address: under Email from your domain, add one on a subdomain such as
+  `reports@mail.youragency.example`, publish the DKIM and SPF records it shows and
+  check them. Until it is verified, and if the records are later removed, client
+  emails come from our shared address with your agency's name.
 
 ## 8. Move to enforcement
 

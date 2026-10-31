@@ -35,7 +35,7 @@ async function signUpVerified(agent: ReturnType<typeof request.agent>, email: st
 }
 
 /** An agency workspace on `plan`, with `host` claimed and, unless told otherwise, verified. */
-async function agency(input: { plan?: 'ADMIRALTY' | 'HARBOR'; verified?: boolean } = {}) {
+async function agency(input: { plan?: 'ADMIRALTY' | 'HARBOR'; verified?: boolean; name?: string } = {}) {
   fixtureId += 1;
   const host = `reports-${fixtureId}.wistholm.example`;
   const agent = request.agent(app);
@@ -44,7 +44,7 @@ async function agency(input: { plan?: 'ADMIRALTY' | 'HARBOR'; verified?: boolean
   expect((await agent.post('/api/auth/sign-in/email').send({ email, password })).status).toBe(200);
 
   const workspace = await agent.post('/api/workspaces').send({
-    name: agencyName,
+    name: input.name ?? agencyName,
     slug: `wistholm-${Date.now()}-${fixtureId}`,
     tosAccepted: true,
     dpaHasRead: true,
@@ -306,6 +306,107 @@ describe('client links on an agency domain', () => {
       expect(created.body.report.url).toMatch(new RegExp(`^${origin.replace(/\./g, '\\.')}/prospect/`));
     } finally {
       setProspectScannerForTests(null);
+    }
+  });
+});
+
+/**
+ * A contact whom two agencies serve must only ever see, on one agency's
+ * domain, that agency. The host travels in `x-harbor-portal-host` (the web
+ * server's own portal calls) or `x-forwarded-host` (the browser's calls through
+ * the web app's proxy).
+ */
+describe('the portal on an agency domain', () => {
+  const otherAgency = 'Thrandle Build';
+
+  async function grant(agent: ReturnType<typeof request.agent>, organizationId: string, email: string) {
+    const client = await agent
+      .post(`/api/workspaces/${organizationId}/clients`)
+      .send({ name: 'Pellowyn Dental', slug: `pellowyn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` });
+    expect(client.status).toBe(201);
+    const granted = await agent.post(`/api/workspaces/${organizationId}/clients/${client.body.id}/portal-access`).send({ email });
+    expect(granted.status).toBeLessThan(300);
+  }
+
+  async function signedInContact(email: string) {
+    const contact = request.agent(app);
+    await signUpVerified(contact, email, 'Pellowyn IT');
+    expect((await contact.post('/api/auth/sign-in/email').send({ email, password })).status).toBe(200);
+    return contact;
+  }
+
+  it('shows a contact two agencies serve only the agency whose domain they are on', async () => {
+    const first = await agency();
+    const second = await agency({ name: otherAgency });
+    const contactEmail = `shared-${Date.now()}-${fixtureId}@pellowyn.example`;
+    await grant(first.agent, first.organizationId, contactEmail);
+    await grant(second.agent, second.organizationId, contactEmail);
+    const contact = await signedInContact(contactEmail);
+
+    // On our own address the choice is still offered.
+    const anywhere = await contact.get('/api/portal');
+    expect(anywhere.status).toBe(400);
+    expect(anywhere.body.error.code).toBe('CHOOSE_WORKSPACE');
+
+    const onFirst = await contact.get('/api/portal').set('x-harbor-portal-host', first.host);
+    expect(onFirst.status).toBe(200);
+    expect(onFirst.body.workspace.name).toBe(agencyName);
+    expect(JSON.stringify(onFirst.body)).not.toContain(otherAgency);
+
+    // The browser's path through the web app's proxy, with the port it passes on.
+    const proxied = await contact.get('/api/portal').set('x-forwarded-host', `${first.host}:3200`);
+    expect(proxied.status).toBe(200);
+    expect(proxied.body.workspace.name).toBe(agencyName);
+
+    const branding = await contact.get('/api/portal/branding').set('x-harbor-portal-host', first.host);
+    expect(branding.status).toBe(200);
+    expect(branding.body.workspaceName).toBe(agencyName);
+
+    // Naming the other agency's workspace on this one's domain is refused.
+    const other = await contact
+      .get(`/api/portal?organizationId=${second.organizationId}`)
+      .set('x-harbor-portal-host', first.host);
+    expect(other.status).toBe(403);
+    expect(other.body.error).toEqual({ code: 'FORBIDDEN', message: 'This report is not available at this address.' });
+
+    const onSecond = await contact.get('/api/portal').set('x-harbor-portal-host', second.host);
+    expect(onSecond.status).toBe(200);
+    expect(onSecond.body.workspace.name).toBe(otherAgency);
+  });
+
+  it('refuses a contact the agency does not serve, naming only that agency', async () => {
+    const first = await agency();
+    const second = await agency({ name: otherAgency });
+    const contactEmail = `elsewhere-${Date.now()}-${fixtureId}@pellowyn.example`;
+    await grant(second.agent, second.organizationId, contactEmail);
+    const contact = await signedInContact(contactEmail);
+
+    const refused = await contact.get('/api/portal').set('x-harbor-portal-host', first.host);
+    expect(refused.status).toBe(403);
+    expect(refused.body.error).toEqual({
+      code: 'FORBIDDEN',
+      message: `This account has not been given access to a client report from ${agencyName}.`,
+    });
+    expect(JSON.stringify(refused.body)).not.toContain(otherAgency);
+
+    // On our own address the contact still reaches the agency that serves them.
+    const anywhere = await contact.get('/api/portal');
+    expect(anywhere.status).toBe(200);
+    expect(anywhere.body.workspace.name).toBe(otherAgency);
+  });
+
+  it('changes nothing on a host that is not a verified agency domain', async () => {
+    const unverified = await agency({ verified: false });
+    const second = await agency({ name: otherAgency });
+    const contactEmail = `unproven-${Date.now()}-${fixtureId}@pellowyn.example`;
+    await grant(unverified.agent, unverified.organizationId, contactEmail);
+    await grant(second.agent, second.organizationId, contactEmail);
+    const contact = await signedInContact(contactEmail);
+
+    for (const host of [unverified.host, 'nobody.example', new URL(env.APP_URL).host]) {
+      const answered = await contact.get('/api/portal').set('x-harbor-portal-host', host);
+      expect(answered.status, host).toBe(400);
+      expect(answered.body.error.code, host).toBe('CHOOSE_WORKSPACE');
     }
   });
 });

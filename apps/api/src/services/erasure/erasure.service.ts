@@ -3,6 +3,7 @@ import { prisma } from '../../database/prisma.js';
 import { env } from '../../config/env.js';
 import { sendErasureCompletedEmail, sendErasureScheduledEmail } from '../../email/mailer.js';
 import { deleteStoredLogo, objectKeyFromLogoUrl } from '../branding/logo-storage.service.js';
+import { removeProviderDomainQuietly, sendingDomainProviderIdFor } from '../branding/sending-domain.service.js';
 import { recordAuditEvent } from '../audit.service.js';
 import {
   buildErasureCertificate,
@@ -503,10 +504,17 @@ export async function executeErasure(
       await deleteStoredLogo(objectKeyFromLogoUrl(branding.brandLogoUrl));
     }
 
+    // The agency's sending domain lives in our email provider's account, not in
+    // this database, so the cascade below cannot reach it. Its id is read while
+    // the row still exists and the entry removed once the row is gone; a failure
+    // there is logged and never stops the erasure.
+    const sendingDomainProviderId = await sendingDomainProviderIdFor(organizationId);
+
     // Organization deletion cascades to clients, domains, scans, reports,
     // forensic reports, alert rules, alert events, shares, digests, members,
     // invitations, overrides and the subscription.
     await prisma.organization.delete({ where: { id: organizationId } });
+    await removeProviderDomainQuietly(sendingDomainProviderId);
   } else {
     // Deleting the domains cascades their scans, reports, forensic reports,
     // alert rules, alert events, alert deliveries, shares and digests.

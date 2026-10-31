@@ -1,6 +1,7 @@
 import { prisma } from '../database/prisma.js';
 import { sendAuthEmail } from '../email/email.service.js';
-import { clientEmailFrom, oneLine } from '../email/sender.js';
+import { clientEmailHeaders, oneLine } from '../email/sender.js';
+import { clientContact, contactSentence } from '../email/templates.js';
 import { canCollectAggregateReports, hasAggregateReporting, readDmarcRecord } from '../scanner/dmarc-tags.js';
 import { getDomainInsights } from './report-intelligence.service.js';
 import { assessPolicyReadiness } from './onboarding.service.js';
@@ -311,12 +312,17 @@ async function sendDigest(digest: DigestWithRelations, now: Date): Promise<Diges
   }
 
   const recipients = digest.recipientEmails;
-  const from = clientEmailFrom(brand);
+  // From the agency's name, Reply-To its published support address, and the
+  // same "Questions?" line the HTML client mail carries, when its white label
+  // is on. The digest is plain text, so the line is appended to the text.
+  const headers = clientEmailHeaders(brand);
+  const contactLine = contactSentence(clientContact(brand));
+  const text = contactLine ? `${content.text}\n\n${contactLine}` : content.text;
   let sent = 0;
 
   for (const to of recipients) {
     try {
-      await sendAuthEmail({ to, subject: content.subject, text: content.text, ...(from ? { from } : {}) });
+      await sendAuthEmail({ to, subject: content.subject, text, ...headers });
       sent += 1;
     } catch {
       continue;
@@ -328,7 +334,7 @@ async function sendDigest(digest: DigestWithRelations, now: Date): Promise<Diges
     data: { lastSentAt: now },
   });
 
-  return { ...content, recipientCount: sent };
+  return { ...content, text, recipientCount: sent };
 }
 
 export interface DigestRunResult {

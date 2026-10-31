@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/api";
 import { getPortalDomain, getPortalMonthlyReports, getPortalOverview, getPortalProposals, PortalError } from "@/lib/api-portal";
+import { readHostBrand } from "@/lib/host-brand";
 import { dayLabel, policyPlain, verdictFor, type Verdict } from "@/lib/portal-verdict";
 import { portalDomainHref, portalHref } from "@/lib/route-hrefs";
 import { signInRedirect } from "@/lib/session";
@@ -73,18 +74,30 @@ export default async function PortalPage({
     if (e instanceof PortalError && e.code === "PORTAL_PAUSED") {
       return <PortalPaused email={user?.email ?? null} provider={e.workspaceName} />;
     }
+    // On an agency's verified domain the API scopes the portal to that agency
+    // (lib/api-portal.ts sends the host), so its refusal names that agency and
+    // no other, and no provider choice is ever offered there.
+    const hostBrand = await readHostBrand();
+    const agencyHost = hostBrand.state === "verified";
     if (e instanceof PortalError && e.status === 403) {
       return (
         <PortalNotice brand={null} email={user?.email ?? null} title="There is no report for this account yet">
-          <p>
-            You are signed in as <span className="data text-fg">{user?.email ?? "this account"}</span>, and no report has
-            been shared with that address. Reports are shared by the company that manages your email security: ask them to
-            invite this exact address.
-          </p>
+          {agencyHost && e.apiMessage ? (
+            <p data-testid="portal-refused">
+              {e.apiMessage} You are signed in as <span className="data text-fg">{user?.email ?? "this account"}</span>. If
+              you expected a report here, ask {hostBrand.workspaceName} to invite this exact address.
+            </p>
+          ) : (
+            <p>
+              You are signed in as <span className="data text-fg">{user?.email ?? "this account"}</span>, and no report has
+              been shared with that address. Reports are shared by the company that manages your email security: ask them to
+              invite this exact address.
+            </p>
+          )}
         </PortalNotice>
       );
     }
-    if (e instanceof PortalError && e.code === "CHOOSE_WORKSPACE" && e.workspaces.length > 0) {
+    if (e instanceof PortalError && e.code === "CHOOSE_WORKSPACE" && e.workspaces.length > 0 && !agencyHost) {
       return (
         <PortalNotice brand={null} email={user?.email ?? null} title="Which provider's report do you want to open?">
           <p>Your address has been invited by more than one company. Each keeps its own report; open one at a time.</p>

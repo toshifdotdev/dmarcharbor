@@ -95,6 +95,17 @@ const envSchema = z.object({
     z.string().trim().email().optional(),
   ),
   RESEND_API_KEY: optionalSecret,
+  /**
+   * A full-access Resend key used only to add, check and remove an agency's
+   * own sending domain (services/branding/sending-domain-provider.ts).
+   *
+   * Separate so the key that sends every message can stay sending-only: a
+   * sending key that leaks can send mail, while a full-access one can also
+   * delete every domain in the account. Unset, RESEND_API_KEY is used for the
+   * domain calls too, and must then have full access or every claim of a
+   * sending domain fails with the provider's permission error.
+   */
+  RESEND_DOMAINS_API_KEY: optionalSecret,
   GOOGLE_CLIENT_ID: optionalSecret,
   GOOGLE_CLIENT_SECRET: optionalSecret,
   MICROSOFT_CLIENT_ID: optionalSecret,

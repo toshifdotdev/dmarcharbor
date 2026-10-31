@@ -1,5 +1,6 @@
 import { prisma } from '../database/prisma.js';
-import { agencyFromHeader } from '../email/sender.js';
+import { agencyFromHeader, clientEmailHeaders } from '../email/sender.js';
+import { resolveBranding } from '../services/branding.service.js';
 import { appOrigin } from '../services/client-origin.js';
 import { agencyForOrigin, type AgencyHost } from './agency-origin.js';
 
@@ -40,6 +41,10 @@ export interface AuthLink {
   agency: AgencyHost | null;
   /** The agency's From header, when the link was rebuilt for one. */
   from?: string;
+  /** The agency's published support address as Reply-To, when it has one. */
+  replyTo?: string;
+  /** The same address, for the "Questions?" line at the end of the message. */
+  supportEmail?: string;
 }
 
 /** True for this agency's client contact with no seat in any workspace. */
@@ -71,11 +76,19 @@ export async function agencyAuthLink(url: string, user: { id: string; email: str
     }
 
     if (await agencyClientWithoutSeat(found.agency.organizationId, user)) {
-      const from = agencyFromHeader(found.agency.workspaceName);
+      // The agency's verified sending address and published support contact,
+      // read only once the contact has passed the check above. A branding read
+      // that fails still sends the link in the agency's name from the shared
+      // address, rather than losing the rebuilt link with it.
+      const branding = await resolveBranding(found.agency.organizationId).catch(() => null);
+      const headers: { from?: string; replyTo?: string } = branding?.branded
+        ? clientEmailHeaders(branding)
+        : { from: agencyFromHeader(found.agency.workspaceName) };
       return {
         url: `${found.origin}${link.pathname}${link.search}`,
         agency: found.agency,
-        ...(from ? { from } : {}),
+        ...(headers.from ? { from: headers.from } : {}),
+        ...(headers.replyTo ? { replyTo: headers.replyTo, supportEmail: headers.replyTo } : {}),
       };
     }
 

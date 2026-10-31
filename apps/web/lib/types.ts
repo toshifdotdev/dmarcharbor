@@ -1627,6 +1627,7 @@ export type AuditAction =
   | "PAYMENT_FAILED"
   | "BRANDING_UPDATED"
   | "CUSTOM_DOMAIN_VERIFIED"
+  | "SENDING_DOMAIN_VERIFIED"
   | "REPORT_INBOX_CONFIGURED"
   | "REPORT_INBOX_REMOVED"
   | "SSO_CONNECTION_CREATED"
@@ -1789,9 +1790,48 @@ export interface BrandingSettings {
   brandAccentColor: string | null;
   customDomain: string | null;
   customDomainVerifiedAt: string | null;
+  /** The contact the agency publishes to its clients (Harbor and up). Absent from an older API. */
+  brandSupportEmail?: string | null;
+  /** The agency's https help page for its clients. Absent from an older API. */
+  brandSupportUrl?: string | null;
+  /** The stored own sending address, `local@domain`, verified or not. */
+  sendingAddress?: string | null;
+  /** The email provider's last word on the sending domain: `not_started`,
+   *  `pending`, `verified`, `failed`, `partially_verified`, `partially_failed`. */
+  sendingDomainStatus?: string | null;
+  /** The DKIM and SPF records to publish; empty when no address is set. */
+  sendingDomainRecords?: SendingDomainRecord[];
+  /** Set while the provider reports the domain verified: client email comes from it. */
+  sendingDomainVerifiedAt?: string | null;
+  sendingDomainCheckedAt?: string | null;
   /** The absolute origin for client links: the verified custom domain when the
    *  plan serves it, else our own address. Absent from an older API. */
   clientOrigin?: string;
+}
+
+/** One DNS record an agency publishes for its own sending domain. */
+export interface SendingDomainRecord {
+  /** What the record is for: `SPF` or `DKIM`. */
+  record: string;
+  type: "TXT" | "MX" | "CNAME";
+  /** The full host name to publish it at. */
+  name: string;
+  value: string;
+  /** For an MX record; null otherwise. */
+  priority: number | null;
+  /** The provider's view of this one record, for example `pending` or `verified`. */
+  status: string;
+}
+
+/** PUT /branding/sending-domain and POST /branding/sending-domain/verify. */
+export interface SendingDomainState {
+  sendingAddress: string | null;
+  status: string | null;
+  records: SendingDomainRecord[];
+  /** True while the provider reports the domain verified. */
+  verified: boolean;
+  /** Display text from the API, sent with a claim or a removal. */
+  notice?: string;
 }
 
 export interface ReportInboxSettings {
@@ -2055,6 +2095,14 @@ export interface PortalBranding {
   customDomainVerified: boolean;
   /** True only when the portal should present the agency brand. */
   branded: boolean;
+  /** True when the plan serves client pages on the agency's own domain. Absent from an older API. */
+  customDomainLicensed?: boolean;
+  /** The agency's support address for its clients; null below white label. Absent from an older API. */
+  supportEmail?: string | null;
+  /** The agency's https help page for its clients; null below white label. */
+  supportUrl?: string | null;
+  /** The agency's own address client email comes from, only once verified and licensed. */
+  sendingAddress?: string | null;
 }
 
 // ─── DNS scans ────────────────────────────────────────────────────────────────

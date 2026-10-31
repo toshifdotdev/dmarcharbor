@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import http from "node:http";
+import { supportEmailOrNull, supportUrlOrNull } from "./lib/agency-contact";
 import { hasSessionCookie } from "./lib/session-cookie";
 import { isVendorRoute, signedOutPortalNext } from "./lib/white-label";
 
@@ -61,6 +62,9 @@ type CacheEntry = {
     logoUrl: string | null;
     primaryColor: string | null;
     accentColor: string | null;
+    /** The agency's client contact, for the portal foot and the sign-in page. */
+    supportEmail: string | null;
+    supportUrl: string | null;
   } | null;
   expires: number;
 };
@@ -114,6 +118,21 @@ function lookupBranding(host: string): Promise<string> {
   });
 }
 
+/**
+ * JSON with every character outside printable ASCII written as a \u escape,
+ * which JSON.parse reads back as the same text.
+ *
+ * A header value must be a byte string: Headers.set throws on a character
+ * above U+00FF, so an agency named "Łódź IT", or a support address with such
+ * a character before the @, would have failed every request on its domain.
+ */
+function headerSafeJson(value: unknown): string {
+  return JSON.stringify(value).replace(
+    /[^\x20-\x7e]/g,
+    (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+}
+
 async function resolveHost(host: string): Promise<CacheEntry> {
   const hit = cache.get(host);
   if (hit && hit.expires > Date.now()) return hit;
@@ -130,6 +149,8 @@ async function resolveHost(host: string): Promise<CacheEntry> {
       logoUrl?: string | null;
       primaryColor?: string | null;
       accentColor?: string | null;
+      supportEmail?: unknown;
+      supportUrl?: unknown;
     };
     const verified = parsed.branded === true && parsed.customDomainVerified === true;
     const entry: CacheEntry = {
@@ -143,6 +164,10 @@ async function resolveHost(host: string): Promise<CacheEntry> {
             logoUrl: parsed.logoUrl ?? null,
             primaryColor: parsed.primaryColor ?? null,
             accentColor: parsed.accentColor ?? null,
+            // Checked here and again where they are read (lib/host-brand.ts):
+            // only one plain address and a full https page are carried.
+            supportEmail: supportEmailOrNull(parsed.supportEmail),
+            supportUrl: supportUrlOrNull(parsed.supportUrl),
           }
         : null,
       expires: Date.now() + (verified ? TTL_VERIFIED_MS : TTL_UNVERIFIED_MS) * DEV_CACHE_FACTOR,
@@ -244,7 +269,7 @@ export async function proxy(request: NextRequest) {
     const entry = await resolveHost(host);
     requestHeaders.set("x-harbor-host-state", entry.state);
     if (entry.brand) {
-      requestHeaders.set("x-harbor-brand", JSON.stringify(entry.brand));
+      requestHeaders.set("x-harbor-brand", headerSafeJson(entry.brand));
     }
   }
 

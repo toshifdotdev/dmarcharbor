@@ -2,6 +2,7 @@ import { Resend } from 'resend';
 import { env } from '../config/env.js';
 import { enqueueEmail } from '../services/email-queue.service.js';
 import { EMAIL_SEND_TIMEOUT_MS, withGenericTimeout } from '../billing/provider-timeout.js';
+import { addressOf, sharedFromHeader } from './sender.js';
 import type { RenderedEmail } from './templates.js';
 
 /**
@@ -30,6 +31,28 @@ export interface EmailMessage {
    * agency's client mail. Absent sends from EMAIL_FROM.
    */
   from?: string | null;
+  /**
+   * A Reply-To for this message only: the agency's published support address
+   * on its client mail (`email/sender.ts`). Absent sends no Reply-To.
+   */
+  replyTo?: string | null;
+}
+
+/**
+ * True when Resend refused a message because its From domain is not verified
+ * in the account.
+ *
+ * Resend answers that case as a `validation_error` whose message reads "The
+ * <domain> domain is not verified". Matched on the words rather than on the
+ * status code, because the code (403) is shared with a dozen unrelated
+ * refusals that a retry from another address would not fix.
+ */
+export function isUnverifiedSenderDomain(error: { message?: string | null; name?: string | null }): boolean {
+  const message = error.message ?? '';
+  if (!/domain/i.test(message)) {
+    return false;
+  }
+  return /is not verified/i.test(message) || (error.name === 'validation_error' && /verif/i.test(message));
 }
 
 export async function sendEmail(message: EmailMessage): Promise<void> {
@@ -51,21 +74,47 @@ export async function sendEmail(message: EmailMessage): Promise<void> {
      * resets for every tenant on the system, and the heartbeat only reports the
      * email job stale after half an hour.
      */
-    const result = await withGenericTimeout(
-      () =>
-        resend.emails.send(
-          {
-            from: message.from || env.EMAIL_FROM,
-            to: message.to,
-            subject: message.subject,
-            html: message.html,
-            text: message.text,
-          },
-          message.idempotencyKey ? { idempotencyKey: message.idempotencyKey } : undefined,
-        ),
-      EMAIL_SEND_TIMEOUT_MS,
-      'Resend',
-    );
+    const attempt = (from: string, idempotencyKey: string | undefined) =>
+      withGenericTimeout(
+        () =>
+          resend.emails.send(
+            {
+              from,
+              to: message.to,
+              subject: message.subject,
+              html: message.html,
+              text: message.text,
+              ...(message.replyTo ? { replyTo: message.replyTo } : {}),
+            },
+            idempotencyKey ? { idempotencyKey } : undefined,
+          ),
+        EMAIL_SEND_TIMEOUT_MS,
+        'Resend',
+      );
+
+    let result = await attempt(message.from || env.EMAIL_FROM, message.idempotencyKey);
+
+    /**
+     * An agency's own sending domain that the provider no longer accepts.
+     *
+     * Client mail only leaves from an agency's domain once the provider has
+     * reported it verified, but the agency can unpublish its records the next
+     * day, and the provider then refuses every message from it. Losing a
+     * client's monthly report over the agency's DNS is the wrong outcome, so
+     * the message is sent once more from the shared address with the same
+     * display name, which is exactly what the agency had before it set a domain.
+     *
+     * The retry gets its own idempotency key: Resend refuses a key it has seen
+     * with a different payload, and the From line is part of the payload.
+     */
+    if (result.error && message.from && isUnverifiedSenderDomain(result.error)) {
+      const fallback = sharedFromHeader(message.from);
+      if (fallback) {
+        const refused = addressOf(message.from)?.split('@')[1] ?? 'the sender';
+        console.warn(`[email] ${refused} is not verified with the provider; sending from the shared address instead.`);
+        result = await attempt(fallback, message.idempotencyKey ? `${message.idempotencyKey}:shared-from` : undefined);
+      }
+    }
 
     if (result.error) {
       throw new Error(`Resend email delivery failed: ${result.error.message}`);
@@ -78,7 +127,11 @@ export async function sendEmail(message: EmailMessage): Promise<void> {
     throw new Error('Console email delivery is disabled in production.');
   }
 
-  console.info(`[email] ${message.subject} for ${message.to}${message.from ? ` from ${message.from}` : ''}\n${message.text}`);
+  console.info(
+    `[email] ${message.subject} for ${message.to}${message.from ? ` from ${message.from}` : ''}${
+      message.replyTo ? ` reply-to ${message.replyTo}` : ''
+    }\n${message.text}`,
+  );
 }
 
 /**
@@ -99,7 +152,7 @@ export function queueEmail(
   rendered: RenderedEmail,
   to: string,
   idempotencyKey?: string,
-  options: { from?: string } = {},
+  options: { from?: string; replyTo?: string } = {},
 ): void {
   void enqueueEmail({
     kind: 'notification',
@@ -109,11 +162,12 @@ export function queueEmail(
     text: rendered.text,
     ...(idempotencyKey ? { idempotencyKey } : {}),
     ...(options.from ? { from: options.from } : {}),
+    ...(options.replyTo ? { replyTo: options.replyTo } : {}),
   });
 }
 
 /** Kept so the auth flow's existing import keeps working. */
-export function queueAuthEmail(message: { to: string; subject: string; text: string; from?: string }): void {
+export function queueAuthEmail(message: { to: string; subject: string; text: string; from?: string; replyTo?: string }): void {
   /**
    * Auth email goes through the same durable queue as everything else.
    *
@@ -132,10 +186,17 @@ export function queueAuthEmail(message: { to: string; subject: string; text: str
       .join('')}</p>`,
     text: message.text,
     ...(message.from ? { from: message.from } : {}),
+    ...(message.replyTo ? { replyTo: message.replyTo } : {}),
   });
 }
 
-export async function sendAuthEmail(message: { to: string; subject: string; text: string; from?: string }): Promise<void> {
+export async function sendAuthEmail(message: {
+  to: string;
+  subject: string;
+  text: string;
+  from?: string;
+  replyTo?: string;
+}): Promise<void> {
   await sendEmail({
     to: message.to,
     subject: message.subject,
@@ -145,6 +206,7 @@ export async function sendAuthEmail(message: { to: string; subject: string; text
       .join('')}</p>`,
     text: message.text,
     ...(message.from ? { from: message.from } : {}),
+    ...(message.replyTo ? { replyTo: message.replyTo } : {}),
   });
 }
 
