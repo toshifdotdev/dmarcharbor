@@ -1,5 +1,6 @@
 import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { env } from '../src/config/env.js';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { createApiKey } from '../src/services/api-key.service.js';
@@ -205,7 +206,24 @@ describe('move a domain to another client', () => {
     expect(response.body.moves.reportDigests).toBe(1);
     expect(response.body.digestRecipients).toEqual(['owner@pellowyn.example']);
     expect(response.body.blockers).toEqual([]);
-    expect(response.body.reportAddress.next).not.toBe(response.body.reportAddress.previous);
+    // With subaddressing off (the default, and CI) every client shares one
+    // address, so there is nothing to change in the record.
+    expect(response.body.reportAddress.next).toBe(response.body.reportAddress.previous);
+    expect(response.body.reportAddress.recordNamesPrevious).toBe(false);
+
+    // With per-client addresses the new client's own address is the one to publish.
+    const mode = env.REPORT_ADDRESS_SUBADDRESSING;
+    env.REPORT_ADDRESS_SUBADDRESSING = 'plus';
+    try {
+      const perClient = await agent.get(
+        `/api/workspaces/${organizationId}/domains/${domainId}/move-preview?clientId=${clientB}`,
+      );
+      expect(perClient.status).toBe(200);
+      expect(perClient.body.reportAddress.next).not.toBe(perClient.body.reportAddress.previous);
+      expect(perClient.body.reportAddress.next).toContain('+');
+    } finally {
+      env.REPORT_ADDRESS_SUBADDRESSING = mode;
+    }
   });
 
   it('moves the domain with its share links, withdraws pending approval requests, and audits it', async () => {
