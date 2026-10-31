@@ -1,12 +1,21 @@
 /**
  * artefact-frame.tsx — the frame for documents that leave the product: a
- * shared report a client contact opens, a Trust Center an auditor opens.
+ * shared report a client contact opens, a Trust Center an auditor opens, a
+ * prospect's email security check, the public document verifier.
  *
  * No marketing header, no sign-up button, no operator chrome: the reader has
- * no account and did not come to be sold to. A masthead names who published
- * the document (the agency's own name on its verified custom domain), what the
- * document is, and offers print; the page prints as a document with its
- * address at the foot.
+ * no account and did not come to be sold to. The masthead is one line, set the
+ * way the map labels a line: who published the document in bold (the agency's
+ * own name and logo on its verified custom domain), and what the document is
+ * beside it in a lighter weight. Print sits at the other end. The meta line
+ * under it says what the reader is owed first: dates and scope.
+ *
+ * It prints as a document: the print control drops out, the masthead stays at
+ * the top, and a closing line names who published it. The link itself is
+ * never printed, because for a shared report the link is the key to it.
+ *
+ * Props are unchanged (kind, meta, children, testId, publisher), so the
+ * verifier page that also uses this frame renders as before.
  */
 
 import type { ReactNode } from "react";
@@ -15,6 +24,14 @@ import { chartBrandVars } from "@/lib/brand-vars";
 import { PierMark } from "@/components/mark";
 import { PrintButton } from "./legal-client";
 import { HostUnverifiedBanner } from "./shell-banners";
+
+/**
+ * "Shared report" reads as "shared report" beside a name; a proper name such
+ * as "Trust Center" keeps its capitals.
+ */
+function kindLabel(kind: string): string {
+  return /^[A-Z][a-z]*(?: [a-z][\w-]*)*$/.test(kind) ? kind.charAt(0).toLowerCase() + kind.slice(1) : kind;
+}
 
 export async function ArtefactFrame({
   kind,
@@ -51,32 +68,35 @@ export async function ArtefactFrame({
   // ours: the product mark appears only where the host is ours and unbranded.
   const showMark = !publisher && !hostBranded;
   const vars = publisher?.branded ? chartBrandVars(publisher.primaryColor, publisher.accentColor) : undefined;
+  const label = kindLabel(kind);
   return (
-    <div data-harbor data-host-brand={brand.state} data-testid={testId} style={vars}>
+    <div data-harbor data-host-brand={brand.state} data-testid={testId} style={vars} className="flex min-h-screen flex-col">
       {brand.state === "unverified" ? <HostUnverifiedBanner /> : null}
-      <header className="border-b border-rule">
-        <div className="mx-auto flex min-h-14 w-full max-w-[1120px] flex-wrap items-center gap-x-4 gap-y-2 px-5 py-2 sm:px-8">
-          <span className="flex items-center gap-2.5 text-act">
+      <header className="page-wrap print:max-w-none print:px-0">
+        <div className="flex min-h-16 flex-wrap items-center gap-x-6 gap-y-2 py-3 sm:min-h-[72px]">
+          <p className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-[16px] leading-[1.3] sm:text-[17px]">
             {logo ? (
-              <img src={logo} alt="" height={24} className="h-6 w-auto" />
+              <img src={logo} alt="" height={28} className="h-7 w-auto max-w-[160px] object-contain" />
             ) : showMark ? (
-              <PierMark size={24} />
+              <PierMark size={22} className="shrink-0 text-fg" />
             ) : null}
-            <span className="wide text-body font-bold text-fg">{name}</span>
-          </span>
-          <span aria-hidden className="h-5 w-px bg-rule-2" />
-          <span className="legend text-fg-2!">{kind}</span>
+            <span className="font-bold tracking-[-0.01em] text-fg">{name}</span>
+            <span className="text-fg-4">{label}</span>
+          </p>
           <span className="ml-auto">
             <PrintButton />
           </span>
         </div>
-        {meta ? (
-          <div className="mx-auto w-full max-w-[1120px] px-5 pb-2 text-meta text-fg-3 sm:px-8">{meta}</div>
-        ) : null}
+        <div className="border-t border-rule print:border-fg">
+          {meta ? <p className="max-w-[80ch] py-3 text-[13.5px] leading-[1.45] text-fg-4 print:text-[9pt]">{meta}</p> : null}
+        </div>
       </header>
-      <main id="main" className="mx-auto w-full max-w-[1120px] px-5 pb-20 pt-10 sm:px-8">
+      <main id="main" className="page-wrap flex-1 pb-24 pt-10 sm:pt-14 print:max-w-none print:px-0 print:pb-0 print:pt-6">
         {children}
       </main>
+      <p className="page-wrap hidden pb-2 text-[9pt] text-fg-2 print:block print:max-w-none print:px-0">
+        <span className="font-semibold text-fg">{name}</span> {label}. Printed from a read-only page.
+      </p>
     </div>
   );
 }

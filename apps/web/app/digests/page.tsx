@@ -9,6 +9,7 @@ import { resolveActiveWorkspace } from "@/lib/session";
 import { AppShell } from "@/components/harbor/app-shell";
 import { DigestBoard, type DigestView } from "@/components/harbor/digest-board";
 import { DigestForm } from "@/components/harbor/digest-form";
+import { OpsSection } from "@/components/harbor/ops-parts";
 import { PageHeader } from "@/components/harbor/page-header";
 import { PlanUnknown } from "@/components/harbor/plan-refusal";
 import { RefreshButton } from "@/components/harbor/refresh-button";
@@ -42,8 +43,14 @@ export default async function DigestsPage() {
   const forensicsOnPlan = featureOf(entitlements, "reports.forensic");
 
   const now = new Date();
+  // Departures order: due now first, then the soonest, paused last.
+  const order = new Map<string, number>();
   const views: DigestView[] = (digests?.items ?? []).map((d) => {
     const next = d.enabled ? nextDigestDue(d, now) : null;
+    order.set(
+      d.id,
+      next === null ? Number.POSITIVE_INFINITY : next === "now" ? Number.NEGATIVE_INFINITY : Number.isNaN(next.getTime()) ? Number.MAX_VALUE : next.getTime(),
+    );
     return {
       ...d,
       scheduleLabel: scheduleLabel(d),
@@ -60,23 +67,36 @@ export default async function DigestsPage() {
       lastSentLabel: d.lastSentAt ? instantLabel(d.lastSentAt) : null,
     };
   });
+  views.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0) || a.domain.name.localeCompare(b.domain.name));
   const enabled = views.filter((d) => d.enabled).length;
+  const dueNow = views.filter((d) => d.nextLabel === "now").length;
+  const clientsServed = new Set(views.filter((d) => d.enabled).map((d) => d.domain.client.id)).size;
   const domainGroups = (clients ?? [])
     .filter((c) => c.domains.length > 0)
     .map((c) => ({ clientName: c.name, domains: c.domains.map((d) => ({ id: d.id, name: d.name })) }));
 
   return (
     <AppShell workspaces={workspaces} activeWorkspace={active} trail={[{ label: "Digests" }]}>
-      <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-10">
         <PageHeader
           title="Digests"
           lede="A domain's report summary, emailed on a schedule to the people who need it: the client's IT contact, a colleague, the account manager. Weekly or monthly, at an hour in UTC."
           meta={
             digests && views.length > 0 ? (
-              <span>
-                <span className="tnum font-semibold text-fg-2">{enabled}</span> of <span className="tnum">{views.length}</span> scheduled digest
-                {views.length === 1 ? "" : "s"} active
-              </span>
+              <>
+                <span>
+                  <span className="tnum font-semibold text-fg-2">{enabled}</span> of <span className="tnum">{views.length}</span> scheduled digest
+                  {views.length === 1 ? "" : "s"} active
+                </span>
+                <span>
+                  <span className="tnum font-semibold text-fg-2">{clientsServed}</span> client{clientsServed === 1 ? "" : "s"} receiving one
+                </span>
+                {dueNow > 0 ? (
+                  <span>
+                    <span className="tnum font-semibold text-fg">{dueNow}</span> due now
+                  </span>
+                ) : null}
+              </>
             ) : null
           }
           actions={<RefreshButton />}
@@ -84,17 +104,18 @@ export default async function DigestsPage() {
 
         {entitlements === null ? <PlanUnknown what="scheduled digests" /> : null}
 
-        <div className="grid gap-x-10 gap-y-10 lg:grid-cols-[minmax(0,1fr)_380px]">
-          <section aria-labelledby="scheduled-head" className="flex min-w-0 flex-col gap-3">
-            <h2 id="scheduled-head" className="text-h2 font-bold tracking-[-0.02em] text-fg">
-              Scheduled
-            </h2>
+        <div className="grid gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,1fr)_380px]">
+          <OpsSection
+            id="scheduled-head"
+            title="Scheduled"
+            meta={digests && views.length > 0 ? "Soonest first" : null}
+          >
             {digests === null ? (
               <ErrorState what="the scheduled digests" detail="This is a connection or API problem, not an empty schedule." />
             ) : (
               <DigestBoard organizationId={active.id} digests={views} forensicsOnPlan={forensicsOnPlan === true} />
             )}
-          </section>
+          </OpsSection>
 
           <aside className="flex flex-col gap-3 self-start lg:sticky lg:top-[104px]">
             {digestsOnPlan === false ? (

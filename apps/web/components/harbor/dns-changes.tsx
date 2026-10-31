@@ -113,18 +113,28 @@ export function DnsChangesPanel({
     );
   }
 
+  // Filtering an empty history is pointless, unless a filter is what emptied it.
+  const filterable = rows.length > 0 || severity !== "ALL" || cursor !== null;
+  const unread = rows.filter((row) => row.severity !== "INFO" && !row.acknowledgedAt).length;
+
   return (
     <section aria-labelledby="dns-changes-head" className="flex flex-col gap-4 border-t border-rule-2 pt-4" data-testid="dns-changes">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 id="dns-changes-head" className="text-h3 font-bold tracking-[-0.01em]">
+          <h2 id="dns-changes-head" className="flex flex-wrap items-baseline gap-x-3 text-h3 font-bold tracking-[-0.01em]">
             DNS changes
+            {unread > 0 ? (
+              <span className="tnum text-ui font-semibold text-warn">
+                {unread} not acknowledged
+              </span>
+            ) : null}
           </h2>
           <p className="mt-1 max-w-[80ch] text-ui text-fg-2">
             What changed between checks of {domainName}&rsquo;s DMARC, SPF, DKIM and MX records. INFO changes are
             history only; WARNING and CRITICAL changes can also notify the workspace.
           </p>
         </div>
+        {filterable ? (
         <Field label="Severity" className="w-[170px]">
           <Select
             value={severity}
@@ -137,6 +147,7 @@ export function DnsChangesPanel({
             <option value="CRITICAL">Critical</option>
           </Select>
         </Field>
+        ) : null}
       </div>
 
       {error ? (
@@ -144,10 +155,12 @@ export function DnsChangesPanel({
       ) : null}
 
       {rows.length === 0 ? (
-        <section role="status" data-testid="dns-changes-empty" className="border-y border-rule py-6">
-          <h3 className="text-body font-semibold text-fg">No DNS changes recorded yet</h3>
-          <p className="mt-1 max-w-[70ch] text-ui text-fg-2">
-            DMARC Harbor re-checks this domain&rsquo;s DNS {schedule} and lists what changed here.
+        <section role="status" data-testid="dns-changes-empty" className="border-y border-rule py-3">
+          <p className="max-w-[90ch] text-ui text-fg-2">
+            <span className="font-semibold text-fg">
+              {severity === "ALL" ? "No DNS changes recorded yet." : "No change of this severity is recorded."}
+            </span>{" "}
+            This domain&rsquo;s DNS is re-checked {schedule}, and each change is listed here.
           </p>
         </section>
       ) : (

@@ -17,20 +17,26 @@
  * "Run the schedule now" asks the scheduler to do its pass for this workspace
  * immediately: digests that are due go out, the rest wait for their day. That
  * is what the endpoint does, so that is what the button says.
+ *
+ * Laid out as a departures board: each row leads with when it goes next, and
+ * the page hands the rows over in that order (due now, then soonest, paused
+ * last), so the account manager reads what each client receives next from
+ * the top down.
  */
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { clsx } from "clsx";
 import { patchReportDigest, removeReportDigest } from "@/lib/ops-client";
 import { parseRecipients } from "@/lib/digest-schedule";
 import { runAllReportDigests, sendReportDigestNow, type DigestSendResult } from "@/lib/notifications-client";
 import type { ReportDigestRow } from "@/lib/types";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox, Switch } from "@/components/ui/choice";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { Notice } from "@/components/ui/notice";
 import { RecipientsField, ScheduleFields, recipientsOk, type ScheduleValue } from "./digest-form";
+import { StateMark, StateWord, StepLine } from "./ops-parts";
 import { ActionRefusal, type ActionError } from "./plan-refusal";
 
 export interface DigestView extends ReportDigestRow {
@@ -114,26 +120,52 @@ export function DigestBoard({
       ) : null}
 
       {digests.length === 0 ? (
-        <div role="status" data-testid="state-empty" className="border-y border-rule py-6">
-          <p className="text-body font-semibold text-fg">No digests scheduled yet</p>
-          <p className="mt-1 max-w-[64ch] text-ui text-fg-2">
-            Create the first with the form beside this: pick a domain, a day and an hour, and who should receive its
-            summary. A weekly digest to the client&rsquo;s IT contact is the usual start.
-          </p>
+        <div role="status" data-testid="state-empty" className="flex flex-col gap-6 border-y border-rule py-6">
+          <div>
+            <p className="flex items-center gap-2 text-body font-semibold text-fg">
+              <StateMark shape="hatch" tone="void" />
+              No digests scheduled yet
+            </p>
+            <p className="mt-1 max-w-[64ch] pl-[17px] text-ui text-fg-2">
+              Create the first with the New digest form: pick a domain, a day and an hour, and who should receive its
+              summary. A weekly digest to the client&rsquo;s IT contact is the usual start.
+            </p>
+          </div>
+          <StepLine
+            className="pl-[17px]"
+            steps={[
+              { title: "Pick the domain", body: "One digest summarises one client domain." },
+              { title: "Choose when", body: "Weekly on a weekday, or monthly on a day up to the 28th, at an hour in UTC." },
+              { title: "Add who receives it", body: "The client's IT contact, a colleague, the account manager: up to 20." },
+            ]}
+          />
         </div>
       ) : (
         <>
-          <ul className="hb-stagger flex flex-col border-y border-fg">
-            {digests.map((d, i) => {
+          <div>
+          <div
+            aria-hidden
+            className="hidden border-b border-rule-2 pb-2 xl:grid xl:grid-cols-[36px_156px_minmax(0,1fr)_minmax(0,1.25fr)_190px] xl:gap-x-5"
+          >
+            <span />
+            <span className="legend">Next send</span>
+            <span className="legend">Domain</span>
+            <span className="legend">Schedule and recipients</span>
+            <span />
+          </div>
+          <ul className="flex flex-col border-y border-rule xl:border-t-0">
+            {digests.map((d) => {
               const { valid } = parseRecipients(d.recipientEmails.join(","));
               return (
                 <li
                   key={d.id}
                   data-digest-id={d.id}
-                  style={{ "--i": Math.min(i, 10) } as React.CSSProperties}
-                  className="grid gap-x-5 gap-y-2 border-b border-rule py-3 last:border-b-0 sm:grid-cols-[auto_minmax(0,1fr)_auto]"
+                  className={clsx(
+                    "grid grid-cols-[36px_minmax(0,1fr)] gap-x-4 gap-y-2 border-b border-rule py-3.5 last:border-b-0",
+                    "xl:grid-cols-[36px_156px_minmax(0,1fr)_minmax(0,1.25fr)_190px] xl:gap-x-5",
+                  )}
                 >
-                  <div className="pt-0.5">
+                  <div className="row-span-4 pt-[1px] xl:row-span-1">
                     <Switch
                       checked={d.enabled}
                       onChange={(next) => toggle(d, next)}
@@ -141,29 +173,48 @@ export function DigestBoard({
                       busy={toggling === d.id}
                     />
                   </div>
+
+                  {/* When it goes, the way a departures board leads with the time. */}
                   <div className="min-w-0">
-                    <p className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-                      <span className={d.enabled ? "data text-ui font-semibold text-fg" : "data text-ui font-semibold text-fg-3"}>
-                        {d.domain.name}
-                      </span>
-                      <span className="text-meta text-fg-3">{d.domain.client.name}</span>
-                      {!d.enabled ? <Badge tone="neutral">Paused</Badge> : null}
-                      {d.includeForensics ? <Badge tone="warn" title="Recipients see failure detail from individual messages">Forensic evidence included</Badge> : null}
+                    <p className="text-ui font-semibold">
+                      <span className="sr-only">Next send: </span>
+                      {d.nextLabel === null ? (
+                        <span className="text-fg-3">Paused</span>
+                      ) : d.nextLabel === "now" ? (
+                        <span className="inline-flex items-center gap-1.5 text-fg">
+                          <StateMark shape="dot" tone="ink" size={8} />
+                          Due now
+                        </span>
+                      ) : (
+                        <span className="tnum text-fg">{d.nextLabel}</span>
+                      )}
                     </p>
-                    <p className="mt-0.5 text-ui text-fg-2">{d.scheduleLabel}</p>
-                    <p className="mt-0.5 flex flex-wrap gap-x-4 gap-y-0.5 text-meta text-fg-3">
-                      <span>
-                        {d.nextLabel === null ? "Paused: not scheduled" : d.nextLabel === "now" ? <span className="font-semibold text-act">Due now</span> : `Next ${d.nextLabel}`}
-                      </span>
-                      <span>{d.lastSentLabel ? `Last sent ${d.lastSentLabel}` : "Not sent yet"}</span>
+                    <p className="tnum mt-0.5 text-meta text-fg-3">{d.lastSentLabel ? `Last sent ${d.lastSentLabel}` : "Not sent yet"}</p>
+                  </div>
+
+                  <div className="min-w-0">
+                    <p className={d.enabled ? "data truncate text-ui font-semibold text-fg" : "data truncate text-ui font-semibold text-fg-3"} title={d.domain.name}>
+                      {d.domain.name}
                     </p>
-                    <p className="data mt-1 text-meta text-fg-2" title={valid.join(", ")}>
-                      {valid.slice(0, 3).join(", ")}
-                      {valid.length > 3 ? <span className="text-fg-3"> and {valid.length - 3} more</span> : null}
+                    <p className="mt-0.5 text-meta text-fg-3">{d.domain.client.name}</p>
+                  </div>
+
+                  <div className="min-w-0">
+                    <p className={d.enabled ? "text-ui text-fg-2" : "text-ui text-fg-3"}>{d.scheduleLabel}</p>
+                    <p className="mt-0.5 text-meta text-fg-3" title={valid.join(", ")}>
+                      To <span className="data text-fg-2">{valid.slice(0, 2).join(", ")}</span>
+                      {valid.length > 2 ? <span> and {valid.length - 2} more</span> : null}
                     </p>
+                    {d.includeForensics ? (
+                      <p className="mt-1">
+                        <StateWord shape="ring" tone="warn" className="text-meta!" title="Recipients see failure detail from individual messages">
+                          Forensic evidence included
+                        </StateWord>
+                      </p>
+                    ) : null}
                     {rowError?.id === d.id ? <ActionRefusal error={rowError.error} className="mt-2" /> : null}
                   </div>
-                  <div className="flex flex-wrap items-start gap-1">
+                  <div className="col-start-2 flex flex-wrap items-start gap-1 xl:col-start-auto xl:justify-end">
                     <Button
                       size="sm"
                       onClick={() => {
@@ -192,6 +243,7 @@ export function DigestBoard({
               );
             })}
           </ul>
+          </div>
           <div className="flex flex-wrap items-center gap-3">
             <Button
               size="sm"

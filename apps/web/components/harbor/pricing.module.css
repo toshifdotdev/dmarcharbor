@@ -1,0 +1,998 @@
+/*
+ * pricing.module.css — /pricing in the Routes language
+ * (.kiro/steering/design-system.md).
+ *
+ * The plans are stations on one line: each stop carries everything before it,
+ * which is what "Everything in Fairway, plus" says in words. Across the page
+ * from 1100px, down the page below that, the way the home page's journey runs.
+ * Fleet is a second line whose stations are its volume bands. The comparison
+ * is a line diagram: a feature's line is built (ink) from the first plan that
+ * carries it, and unbuilt (rule) before that.
+ *
+ * Every colour is ink, grey or white. No sender colour appears here: a plan
+ * is not a sender.
+ */
+
+/* ── Head ────────────────────────────────────────────────────────────── */
+
+.head {
+  display: grid;
+  gap: 24px;
+  padding: 48px 0 40px;
+}
+
+.headline {
+  margin: 0;
+  color: var(--color-fg);
+  font-size: clamp(2.6rem, 1.55rem + 3.1vw, 4.4rem);
+  font-weight: 760;
+  line-height: 0.96;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+
+.lead {
+  max-width: 34rem;
+  color: var(--color-fg-2);
+  font-size: 17px;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.lead + .lead {
+  margin-top: 12px;
+}
+
+.guarantee {
+  margin-top: 16px;
+  color: var(--color-fg-2);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.guarantee b {
+  color: var(--color-fg);
+  font-weight: 650;
+}
+
+/* ── The two choices that change the figures ─────────────────────────── */
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 28px;
+}
+
+.control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.controlLabel {
+  color: var(--color-fg-2);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.track {
+  display: inline-flex;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 3px;
+  border: 1px solid var(--color-rule-2);
+  border-radius: 999px;
+  background: #ffffff;
+}
+
+.track:disabled {
+  opacity: 0.6;
+}
+
+.option {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 999px;
+  color: var(--color-fg-2);
+  font-size: 14.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.option:hover {
+  color: var(--color-fg);
+}
+
+.option[data-on] {
+  background: var(--color-act);
+  color: var(--color-act-ink);
+}
+
+.option:has(:focus-visible) {
+  outline: 2px solid var(--color-act);
+  outline-offset: 2px;
+}
+
+.option:has(:disabled) {
+  cursor: not-allowed;
+}
+
+.saving {
+  color: var(--color-fg-4);
+  font-weight: 500;
+}
+
+.option[data-on] .saving {
+  color: inherit;
+  opacity: 0.78;
+}
+
+/* One currency is not a choice: a plain pill, nothing filled. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--color-rule-2);
+  border-radius: 999px;
+  color: var(--color-fg);
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.note {
+  margin-top: 12px;
+  color: var(--color-fg-4);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.locked {
+  margin-top: 6px;
+  color: var(--color-warn);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.error {
+  margin-top: 6px;
+  color: var(--color-fail);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* ── The plan line ───────────────────────────────────────────────────── */
+
+.plans {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: 0;
+  margin-top: 56px;
+}
+
+/* Below 1100px the line runs down the left, one plan per stop. */
+.plan {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: 0 0 56px 46px;
+}
+
+.plan:last-child {
+  padding-bottom: 0;
+}
+
+.plan::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 8.5px;
+  width: 5px;
+  background: var(--color-fg);
+  transform-origin: top center;
+}
+
+.plan:first-child::before {
+  top: 14px;
+}
+
+.plan:last-child::before {
+  bottom: auto;
+  height: 14px;
+}
+
+.plan:only-child::before {
+  content: none;
+}
+
+.station {
+  position: absolute;
+  z-index: 1;
+  top: 3px;
+  left: 0;
+  width: 22px;
+  height: 22px;
+  border: 3px solid var(--color-fg);
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+/* The plan a signed-in workspace is on: the larger stop, as the home page's
+   strip marks where a domain is now. */
+.station[data-here] {
+  top: 0;
+  left: -3px;
+  width: 28px;
+  height: 28px;
+  border-width: 4px;
+}
+
+.name {
+  margin: 0;
+  color: var(--color-fg);
+  font-size: 26px;
+  font-weight: 740;
+  line-height: 28px;
+  letter-spacing: -0.025em;
+}
+
+.capacity {
+  margin-top: 6px;
+  color: var(--color-fg-4);
+  font-size: 15px;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+}
+
+.marker {
+  margin-top: 8px;
+  color: var(--color-fg);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.desc {
+  max-width: 32ch;
+  margin-top: 12px;
+  color: var(--color-fg-2);
+  font-size: 15px;
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+
+.figure {
+  display: flex;
+  align-items: baseline;
+  margin-top: 28px;
+  color: var(--color-fg);
+}
+
+.amountRow {
+  display: inline-flex;
+  align-items: baseline;
+}
+
+.symbol {
+  margin-right: 2px;
+  color: var(--color-fg-2);
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.amount {
+  font-size: clamp(2.5rem, 1rem + 2.7vw, 3.375rem);
+  font-weight: 740;
+  line-height: 1;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.terms {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 10px;
+  color: var(--color-fg-2);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.terms b {
+  color: var(--color-fg);
+  font-weight: 650;
+}
+
+.dim {
+  color: var(--color-fg-4);
+}
+
+.cta {
+  margin-top: 24px;
+}
+
+.limits {
+  margin-top: 28px;
+  border-top: 1px solid var(--color-rule);
+  font-size: 14.5px;
+}
+
+.limits > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-rule);
+}
+
+.limits dt {
+  color: var(--color-fg-2);
+}
+
+.limits dd {
+  color: var(--color-fg);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.adds {
+  margin-top: 26px;
+}
+
+.addsHead {
+  color: var(--color-fg);
+  font-size: 14.5px;
+  font-weight: 700;
+}
+
+.addsList {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 12px;
+  color: var(--color-fg-2);
+  font-size: 14.5px;
+  line-height: 1.4;
+}
+
+.addsList li {
+  position: relative;
+  padding-left: 16px;
+  break-inside: avoid;
+}
+
+.addsList li::before {
+  content: "";
+  position: absolute;
+  top: 0.58em;
+  left: 1px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-fg-4);
+}
+
+.addsList li[data-none]::before {
+  background: var(--color-rule-2);
+}
+
+.addsList li[data-none] {
+  color: var(--color-fg-4);
+}
+
+.notes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 62rem;
+  margin-top: 48px;
+  color: var(--color-fg-4);
+  font-size: 14.5px;
+  line-height: 1.5;
+}
+
+.notes b {
+  color: var(--color-fg-2);
+  font-weight: 650;
+}
+
+/* ── Fleet: a second line, its stops the volume bands ────────────────── */
+
+.fleet {
+  display: grid;
+  gap: 36px;
+  margin-top: 72px;
+  padding-top: 56px;
+  border-top: 1px solid var(--color-rule);
+}
+
+.fleetHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 16px;
+}
+
+.fleetName {
+  margin: 0;
+  color: var(--color-fg);
+  font-size: clamp(2.25rem, 1.3rem + 2.7vw, 3.75rem);
+  font-weight: 740;
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+}
+
+.fleetMinimum {
+  color: var(--color-fg-4);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.fleetDesc {
+  max-width: 34rem;
+  margin-top: 20px;
+  color: var(--color-fg-2);
+  font-size: 17px;
+  line-height: 1.5;
+}
+
+.fleetBase {
+  margin-top: 10px;
+  color: var(--color-fg-4);
+  font-size: 15px;
+}
+
+.fleetLimits {
+  max-width: 24rem;
+  margin-top: 28px;
+}
+
+.fleetPrice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  color: var(--color-fg);
+}
+
+.fleetPer {
+  color: var(--color-fg-2);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.fleetMinLine {
+  margin-top: 10px;
+  color: var(--color-fg-2);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.bandsWrap {
+  margin-top: 32px;
+}
+
+.bands {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.band {
+  position: relative;
+  padding: 0 0 22px 34px;
+}
+
+.band:last-child {
+  padding-bottom: 0;
+}
+
+.band::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 6.5px;
+  width: 5px;
+  background: var(--color-fg);
+  transform-origin: top center;
+}
+
+.band:first-child::before {
+  top: 9px;
+}
+
+.band:last-child::before {
+  bottom: auto;
+  height: 9px;
+}
+
+.band::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 0;
+  width: 18px;
+  height: 18px;
+  border: 3px solid var(--color-fg);
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+.bandRange {
+  color: var(--color-fg);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bandUnit {
+  margin-top: 4px;
+  color: var(--color-fg);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bandMin {
+  margin-top: 2px;
+  color: var(--color-fg-4);
+  font-size: 13.5px;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+
+.fleetBilling {
+  margin-top: 28px;
+  color: var(--color-fg-2);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.fleetBilling b {
+  color: var(--color-fg);
+  font-weight: 650;
+}
+
+.fleetAction {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 24px;
+  margin-top: 28px;
+}
+
+.fleetSupport {
+  max-width: 30rem;
+  color: var(--color-fg-2);
+  font-size: 14.5px;
+  line-height: 1.5;
+}
+
+/* ── Sections after the plans ────────────────────────────────────────── */
+
+.section {
+  margin-top: 72px;
+  padding-top: 72px;
+  border-top: 1px solid var(--color-rule);
+}
+
+.h2 {
+  max-width: 17ch;
+  margin: 0;
+  color: var(--color-fg);
+  font-size: clamp(2.25rem, 1.3rem + 2.7vw, 3.75rem);
+  font-weight: 740;
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+
+.h2 + .lead {
+  margin-top: 24px;
+}
+
+.floor {
+  display: grid;
+  gap: 40px;
+}
+
+.floorList {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  column-gap: 40px;
+  align-self: start;
+  border-top: 1px solid var(--color-rule);
+}
+
+.floorList li {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--color-rule);
+  color: var(--color-fg);
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+/* ── The comparison: a line diagram ──────────────────────────────────── */
+
+.compareNote {
+  max-width: 46rem;
+  margin-top: 20px;
+  color: var(--color-fg-2);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.scroll {
+  margin-top: 40px;
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  color: var(--color-fg);
+  font-size: 14.5px;
+  text-align: left;
+}
+
+.table thead th {
+  padding: 0 8px 14px;
+  border-bottom: 1px solid var(--color-fg);
+  font-size: 16px;
+  font-weight: 700;
+  text-align: center;
+  vertical-align: bottom;
+}
+
+.table thead th:first-child {
+  width: 34%;
+  text-align: left;
+}
+
+.yours {
+  display: block;
+  color: var(--color-fg-4);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rowHead {
+  position: sticky;
+  z-index: 2;
+  left: 0;
+  padding: 11px 16px 11px 0;
+  border-bottom: 1px solid var(--color-rule);
+  background: #ffffff;
+  color: var(--color-fg-2);
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.group {
+  position: sticky;
+  left: 0;
+  padding: 34px 0 10px;
+  border-bottom: 1px solid var(--color-rule);
+  background: #ffffff;
+  color: var(--color-fg);
+  font-size: 16px;
+  font-weight: 700;
+  text-align: left;
+}
+
+.value {
+  padding: 11px 8px;
+  border-bottom: 1px solid var(--color-rule);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.price {
+  font-weight: 700;
+}
+
+.cell {
+  position: relative;
+  height: 44px;
+  padding: 0;
+  border-bottom: 1px solid var(--color-rule);
+}
+
+/* Half a segment each side of the stop: the two halves of neighbouring
+   cells meet at the cell edge, so a run of included plans is one line. */
+.cell::before,
+.cell::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  height: 5px;
+  margin-top: -2.5px;
+  background: var(--color-rule);
+}
+
+.cell::before {
+  left: 0;
+  right: 50%;
+}
+
+.cell::after {
+  left: 50%;
+  right: 0;
+}
+
+.cell[data-l="on"]::before,
+.cell[data-r="on"]::after {
+  background: var(--color-fg);
+}
+
+.cell[data-l="none"]::before,
+.cell[data-r="none"]::after {
+  content: none;
+}
+
+.stop {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border: 3px solid var(--color-rule-2);
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+.stop[data-on] {
+  border-color: var(--color-fg);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+  margin-top: 20px;
+  color: var(--color-fg-4);
+  font-size: 14px;
+}
+
+.legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.legendLine {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 16px;
+}
+
+.legendLine::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: 5px;
+  margin-top: -2.5px;
+  border-radius: 3px;
+  background: var(--color-fg);
+}
+
+.legendLine[data-off]::before {
+  background: var(--color-rule);
+}
+
+.legendLine span {
+  position: absolute;
+  top: 0;
+  left: 12px;
+  width: 16px;
+  height: 16px;
+  border: 3px solid var(--color-fg);
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+.legendLine[data-off] span {
+  border-color: var(--color-rule-2);
+}
+
+/* ── Widths ──────────────────────────────────────────────────────────── */
+
+@media (min-width: 640px) {
+  .head {
+    padding: 72px 0 48px;
+  }
+
+  .lead {
+    font-size: 19px;
+  }
+
+  .fleetDesc {
+    font-size: 19px;
+  }
+
+  .floorList {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .section {
+    margin-top: 96px;
+    padding-top: 96px;
+  }
+
+  .fleet {
+    margin-top: 96px;
+    padding-top: 72px;
+  }
+}
+
+@media (min-width: 640px) and (max-width: 1099.98px) {
+  .addsList {
+    display: block;
+    columns: 2;
+    column-gap: 32px;
+  }
+
+  .addsList li + li {
+    margin-top: 7px;
+  }
+
+  .limits {
+    max-width: 30rem;
+  }
+}
+
+/* The bands run across from 900px. */
+@media (min-width: 900px) {
+  .bands {
+    grid-template-columns: repeat(var(--bands, 4), minmax(0, 1fr));
+  }
+
+  .band {
+    padding: 34px 20px 0 0;
+  }
+
+  .band::before {
+    top: 6.5px;
+    right: 0;
+    bottom: auto;
+    left: 0;
+    width: auto;
+    height: 5px;
+    transform-origin: left center;
+  }
+
+  .band:first-child::before {
+    top: 6.5px;
+    left: 9px;
+  }
+
+  .band:last-child::before {
+    right: auto;
+    width: 9px;
+    height: 5px;
+  }
+}
+
+@media (min-width: 1100px) {
+  .head {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 27rem);
+    align-items: end;
+    gap: 64px;
+    padding: 96px 0 56px;
+  }
+
+  /* Across the page: four stations on one line, every row of the four
+     columns on one shared track so the figures and buttons line up. */
+  .plans {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-rows: repeat(7, auto);
+    margin-top: 88px;
+  }
+
+  .plan {
+    display: grid;
+    grid-row: span 7;
+    grid-template-rows: subgrid;
+    padding: 50px 28px 0 0;
+  }
+
+  .plan:last-child {
+    padding-right: 0;
+  }
+
+  .plan::before {
+    top: 8.5px;
+    right: 0;
+    bottom: auto;
+    left: 0;
+    width: auto;
+    height: 5px;
+    transform-origin: left center;
+  }
+
+  .plan:first-child::before {
+    top: 8.5px;
+    left: 11px;
+  }
+
+  .plan:last-child::before {
+    right: auto;
+    width: 11px;
+    height: 5px;
+  }
+
+  .station {
+    top: 0;
+    left: 0;
+  }
+
+  .station[data-here] {
+    top: -3px;
+    left: -3px;
+  }
+
+  /* "Recommended" and "Your plan" are labels on the map, above the stop, so
+     no column's text moves down to make room for them. */
+  .marker {
+    position: absolute;
+    top: -34px;
+    left: 0;
+    margin: 0;
+    white-space: nowrap;
+  }
+
+  .fleet {
+    grid-template-columns: minmax(0, 0.74fr) minmax(0, 1fr);
+    gap: 64px;
+    margin-top: 128px;
+  }
+
+  .section {
+    margin-top: 128px;
+    padding-top: 128px;
+  }
+
+  .floor {
+    grid-template-columns: minmax(0, 0.74fr) minmax(0, 1fr);
+    gap: 64px;
+  }
+
+  /* The line draws in, stop by stop, when it scrolls into view
+     (landing-motion.tsx Reveal). Server HTML is the drawn line. */
+  .plans[data-motion="armed"] .plan::before {
+    transform: scaleX(0);
+  }
+
+  .plans[data-motion="run"] .plan::before {
+    transition: transform 360ms cubic-bezier(0.3, 0.6, 0.2, 1) calc(var(--i, 0) * 260ms);
+  }
+}
+
+@media (min-width: 900px) {
+  .bandsWrap[data-motion="armed"] .band::before {
+    transform: scaleX(0);
+  }
+
+  .bandsWrap[data-motion="run"] .band::before {
+    transition: transform 320ms cubic-bezier(0.3, 0.6, 0.2, 1) calc(var(--i, 0) * 200ms);
+  }
+}

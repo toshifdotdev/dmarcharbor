@@ -2,11 +2,12 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getWorkspaceEntitlements, listProspectReports, OpsError } from "@/lib/api-ops";
 import { featureOf } from "@/lib/entitlements";
+import { instantLabel } from "@/lib/instant";
 import { resolveActiveWorkspace } from "@/lib/session";
 import { AppShell } from "@/components/harbor/app-shell";
 import { PageHeader } from "@/components/harbor/page-header";
 import { PlanUnknown } from "@/components/harbor/plan-refusal";
-import { ProspectBoard } from "@/components/harbor/prospect-board";
+import { ProspectBoard, type ProspectView } from "@/components/harbor/prospect-board";
 import { RefreshButton } from "@/components/harbor/refresh-button";
 import { ErrorState, PermissionState, UpgradeNotice } from "@/components/ui/states";
 
@@ -33,10 +34,23 @@ export default async function ProspectsPage() {
   // The API checks the role on every write and answers a viewer with a 403,
   // which the board shows in words; the page does not guess the role here.
   const canManage = true;
+  // Timestamps are put into words here, on the server, so the board's first
+  // paint carries strings and the browser never disagrees with the HTML.
+  const dateOnly = (iso: string) =>
+    new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  const reports: ProspectView[] =
+    data && data !== "forbidden"
+      ? data.reports.map((r) => ({
+          ...r,
+          createdLabel: instantLabel(r.createdAt),
+          lastViewedLabel: r.lastViewedAt ? instantLabel(r.lastViewedAt) : null,
+          expiresLabel: dateOnly(r.expiresAt),
+        }))
+      : [];
 
   return (
     <AppShell workspaces={workspaces} activeWorkspace={active} trail={[{ label: "Prospects" }]}>
-      <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-10">
         <PageHeader
           title="Prospects"
           lede="Check the email security of a company you want to win, and send them a plain-language report under your name. Their domain does not need to be a client or verified: it reads public DNS only."
@@ -57,7 +71,7 @@ export default async function ProspectsPage() {
         ) : (
           <ProspectBoard
             organizationId={active.id}
-            reports={data.reports}
+            reports={reports}
             usage={data.usage}
             canCreate={onPlan === true && canManage}
             canManage={canManage}

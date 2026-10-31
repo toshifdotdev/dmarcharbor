@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { DnsRecord } from "@/components/ui/copy";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/field";
+import { Notice } from "@/components/ui/notice";
 
 export function DomainRemoval({
   organizationId,
@@ -27,6 +28,7 @@ export function DomainRemoval({
   domainName,
   hosted,
   managedSpf,
+  brand = "DMARC Harbor",
 }: {
   organizationId: string;
   domainId: string;
@@ -35,6 +37,8 @@ export function DomainRemoval({
   hosted: { value: string } | null;
   /** The unflattened SPF record to republish, when SPF is managed here. */
   managedSpf: { value: string } | null;
+  /** The product name on this host (the agency's on a verified custom domain). */
+  brand?: string;
 }) {
   const router = useRouter();
   const id = useId();
@@ -60,7 +64,7 @@ export function DomainRemoval({
   }
 
   return (
-    <section aria-labelledby={`${id}-head`} className="flex flex-col gap-3 border-t border-rule pt-5">
+    <section aria-labelledby={`${id}-head`} className="flex flex-col gap-4 border-t border-rule pt-6">
       <div>
         <h2 id={`${id}-head`} className="text-h3 font-bold tracking-[-0.01em] text-fg">
           Delete this domain
@@ -118,22 +122,24 @@ export function DomainRemoval({
             deleted. Live share links stop working. This cannot be undone.
           </p>
           {hosted ? (
-            <div className="border border-warn/40 bg-paper-2 p-3">
-              <p className="font-semibold text-fg">
-                This domain reads its DMARC record from DMARC Harbor. Publish this TXT at your DNS host and remove the
-                CNAME first, or the domain will have no DMARC record once it is deleted here.
-              </p>
-              <DnsRecord type="TXT" host={`_dmarc.${domainName}`} zone={domainName} value={hosted.value} />
-            </div>
+            <Notice
+              tone="warn"
+              title={`This domain reads its DMARC record from ${brand}. Publish this TXT at your DNS host and remove the CNAME first, or the domain will have no DMARC record once it is deleted here.`}
+            >
+              <div className="mt-2">
+                <DnsRecord type="TXT" host={`_dmarc.${domainName}`} zone={domainName} value={hosted.value} />
+              </div>
+            </Notice>
           ) : null}
           {managedSpf ? (
-            <div className="border border-warn/40 bg-paper-2 p-3">
-              <p className="font-semibold text-fg">
-                This domain&rsquo;s SPF record is managed by DMARC Harbor. Publish this TXT at your DNS host and remove
-                the redirect to DMARC Harbor first, or the domain will lose its SPF record once it is deleted here.
-              </p>
-              <DnsRecord type="TXT" host={domainName} zone={domainName} value={managedSpf.value} />
-            </div>
+            <Notice
+              tone="warn"
+              title={`This domain\u2019s SPF record is managed by ${brand}. Publish this TXT at your DNS host and remove the redirect to ${brand} first, or the domain will lose its SPF record once it is deleted here.`}
+            >
+              <div className="mt-2">
+                <DnsRecord type="TXT" host={domainName} zone={domainName} value={managedSpf.value} />
+              </div>
+            </Notice>
           ) : null}
           <label htmlFor={`${id}-confirm`} className="text-meta font-semibold text-fg-2">
             Type <span className="data text-fg">{domainName}</span> to confirm

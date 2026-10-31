@@ -4,17 +4,36 @@
  * psa.tsx — the PSA settings board.
  *
  * The product's job here is to file a ticket in the system a technician already
- * has open, under the right customer. That shapes three things:
+ * has open, under the right customer. That shapes the page:
  *
- * 1. Connecting is proven before it is stored: Save calls the provider, and a
- *    refusal is shown as the provider's own sentence.
- * 2. A client with no mapping is never defaulted to a company. The banner and
- *    the job log exist so "no ticket" is visible rather than silent.
- * 3. Every raw code the API can return is translated here. `/^[A-Z_]+$/` never
+ * 1. The line at the top says whether tickets are getting through, in a word,
+ *    with the last successful call as the evidence; the figures below it say
+ *    how many tickets are open and how many clients would get none.
+ * 2. Connecting is proven before it is stored: Save calls the provider, and a
+ *    refusal is shown as the provider's own sentence. The provider's own steps
+ *    are drawn beside the credentials.
+ * 3. A client with no mapping is never defaulted to a company. The mapping
+ *    table comes first once connected, and the job log exists so "no ticket" is
+ *    visible rather than silent.
+ * 4. Every raw code the API can return is translated here. `/^[A-Z_]+$/` never
  *    reaches the screen.
+ *
+ * The three ticket triggers apply the moment they are flipped, so they are
+ * switches; the queue, type, statuses and priority wait for Save.
+ *
+ * Test hooks: psa-connect, psa-providers, psa-provider-<id>, psa-credentials,
+ * psa-credential-<key>, psa-connect-save, psa-error, psa-status, psa-test,
+ * psa-pause, psa-resume, psa-replace, psa-replace-form, psa-replace-<key>,
+ * psa-replace-save, psa-disconnect, psa-settings, psa-load-options, psa-queue,
+ * psa-type, psa-open-status, psa-closed-status, psa-priority,
+ * psa-close-on-resolve, psa-ticket-on-alert, psa-ticket-on-dns,
+ * psa-save-settings, psa-skipped, psa-mappings, psa-map-<id>, psa-unmap-<id>,
+ * psa-search-<id>, psa-company-search, psa-company-<id>, psa-jobs,
+ * psa-ticket-<id>, psa-retry-<id>.
  */
 
 import { useEffect, useState } from "react";
+import { clsx } from "clsx";
 import { instantLabel } from "@/lib/instant";
 import type {
   PsaCompany,
@@ -22,6 +41,7 @@ import type {
   PsaMappingView,
   PsaOptions,
   PsaProviderName,
+  PsaTicketSettings,
   PsaView,
 } from "@/lib/types";
 import {
@@ -35,11 +55,17 @@ import {
   setPsaMapping,
   testPsa,
 } from "@/lib/ops-client";
+import { Badge, type Tone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input, Select } from "@/components/ui/field";
+import { Switch } from "@/components/ui/choice";
+import { Field, Input, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { ConfirmDialog } from "@/components/ui/dialog";
+import { Readout, ReadoutStrip } from "@/components/ui/readout";
 import { UpgradeNotice } from "@/components/ui/states";
+import { Nil, Table, TBody, Td, Th, THead, Tr } from "@/components/ui/table";
+import { ConnectionLine, SetupSteps, type LineState } from "./lines";
+import { Panel } from "./parts";
 
 const PROVIDERS: Array<{
   id: PsaProviderName;
@@ -99,12 +125,12 @@ const SKIP_WORDS: Record<string, string> = {
   not_applicable: "There was nothing to do.",
 };
 
-const STATUS_WORDS: Record<string, string> = {
-  PENDING: "Waiting",
-  IN_FLIGHT: "Sending",
-  DONE: "Done",
-  FAILED: "Failed",
-  SKIPPED: "Skipped",
+const STATUS_WORDS: Record<string, [string, Tone]> = {
+  PENDING: ["Waiting", "neutral"],
+  IN_FLIGHT: ["Sending", "accent"],
+  DONE: ["Done", "ok"],
+  FAILED: ["Failed", "fail"],
+  SKIPPED: ["Skipped", "warn"],
 };
 
 const KIND_WORDS: Record<string, string> = {
@@ -135,6 +161,8 @@ function settingsFrom(view: PsaView): {
     priority: settings?.priorityId ?? "",
   };
 }
+
+type Trigger = "closeOnResolve" | "ticketOnAlert" | "ticketOnCriticalDns";
 
 export function PsaBoard({
   organizationId,
@@ -174,7 +202,8 @@ export function PsaBoard({
 
   const connection = current.connection;
   const chosen = current.providers.find((entry) => entry.provider === provider);
-  const chosenLabel = PROVIDERS.find((entry) => entry.id === provider)?.label ?? "The PSA";
+  const chosenEntry = PROVIDERS.find((entry) => entry.id === provider) ?? PROVIDERS[0];
+  const chosenLabel = chosenEntry.label;
   const connectedProvider = connection ? PROVIDERS.find((entry) => entry.id === connection.provider) : null;
 
   function sync(next: PsaView): void {
@@ -268,6 +297,27 @@ export function PsaBoard({
     }
     sync(res.data);
     setNotice("Ticket settings saved.");
+  }
+
+  /** A trigger applies the moment it is flipped: the same write as before. */
+  function applyTrigger(key: Trigger, value: boolean): void {
+    if (!connection) return;
+    if (key === "closeOnResolve") {
+      setCurrent((previous) =>
+        previous.connection
+          ? { ...previous, connection: { ...previous.connection, settings: { ...previous.connection.settings, closeOnResolve: value } } }
+          : previous,
+      );
+    }
+    setBusy(`trigger:${key}`);
+    void patchPsa(organizationId, {
+      expectedVersion: connection.version,
+      settings: { [key]: value } as Partial<PsaTicketSettings>,
+    }).then((res) => {
+      setBusy(null);
+      if (res.ok) setCurrent(res.data);
+      else failedResult(res);
+    });
   }
 
   async function setEnabled(enabled: boolean): Promise<void> {
@@ -365,21 +415,38 @@ export function PsaBoard({
   }
 
   const unmappedCount = mappingRows?.filter((row) => !row.mapping).length ?? 0;
+  const mappedCount = mappingRows ? mappingRows.length - unmappedCount : null;
+  const skippedTotal = current.skippedUnmapped.reduce((n, entry) => n + entry.count, 0);
+
+  const lineState: LineState = !connection
+    ? "none"
+    : connection.status === "PAUSED"
+      ? "paused"
+      : connection.health.lastError
+        ? "failing"
+        : "live";
+  const lineWord = { none: "Not connected", paused: "Paused", failing: "Failing", live: "Connected", unknown: "Unknown" }[lineState];
+
+  // The refusal is shown where it was asked for: beside "Test and connect" while
+  // connecting, at the top once connected.
+  const errorNotice = error ? <Notice tone="fail" title={error} testId="psa-error" /> : null;
+  const credentialsShown = !connection && canManage && Boolean(chosen?.available);
 
   return (
-    <div className="flex flex-col gap-6">
-      {error ? <Notice tone="fail" title={error} testId="psa-error" /> : null}
+    <div className="flex flex-col gap-10">
+      {credentialsShown ? null : errorNotice}
       {notice ? <Notice tone="ok" title={notice} /> : null}
 
       {!connection ? (
-        <div className="flex flex-col gap-4" data-testid="psa-connect">
-          <div>
-            <h2 className="text-h3 font-bold tracking-[-0.01em] text-fg">Connect your PSA</h2>
-            <p className="mt-1 max-w-[72ch] text-ui text-fg-2">
-              One PSA per workspace. Once it is connected, map each client to a company in it — a ticket is only ever
-              filed under the company its client is mapped to.
-            </p>
-          </div>
+        <div className="flex flex-col gap-8" data-testid="psa-connect">
+          <ConnectionLine
+            state="none"
+            word="Not connected"
+            detail="No tickets are opened. Alerts and DNS changes still reach email, Slack and Teams."
+            label="Alerts and DNS changes to your PSA: not connected."
+            from={{ name: "Alerts and DNS changes", kind: "in this workspace" }}
+            to={{ name: "Your PSA", kind: "HaloPSA, ConnectWise or Autotask" }}
+          />
 
           {psaFeature === false ? (
             <UpgradeNotice
@@ -389,344 +456,182 @@ export function PsaBoard({
             />
           ) : null}
 
-          <fieldset className="flex flex-col gap-2" data-testid="psa-providers">
-            <legend className="legend">Which PSA?</legend>
-            {PROVIDERS.map((entry) => {
-              const availability = current.providers.find((candidate) => candidate.provider === entry.id);
-              return (
-                <label
-                  key={entry.id}
-                  className={
-                    availability?.available
-                      ? "flex cursor-pointer items-start gap-3 border border-rule-2 p-3 text-ui hover:border-fg-3"
-                      : "flex items-start gap-3 border border-rule-2 bg-paper-3 p-3 text-ui opacity-70"
-                  }
-                >
-                  <input
-                    type="radio"
-                    name="psa-provider"
-                    value={entry.id}
-                    data-testid={`psa-provider-${entry.id.toLowerCase()}`}
-                    checked={provider === entry.id}
-                    disabled={!availability?.available}
-                    onChange={() => {
-                      setProvider(entry.id);
-                      setCredentials({});
-                    }}
-                    className="mt-1"
-                  />
-                  <span className="flex flex-col gap-1">
-                    <span className="font-semibold text-fg">{entry.label}</span>
-                    <span className="text-meta text-fg-2">{entry.needs}</span>
-                    <span className="text-meta text-fg-3">
-                      {availability?.available ? entry.where : (availability?.reason ?? "Not available on this deployment.")}
-                    </span>
-                  </span>
-                </label>
-              );
-            })}
-          </fieldset>
-
-          {canManage && chosen?.available ? (
-            <div className="flex flex-col gap-3" data-testid="psa-credentials">
-              <p className="legend">Credentials</p>
-              {FIELDS[provider].map((field) => (
-                <label key={field.key} className="flex flex-col gap-1 text-meta text-fg-2">
-                  <span className="font-semibold text-fg">
-                    {field.label}
-                    {field.optional ? <span className="text-fg-3"> (optional)</span> : null}
-                  </span>
-                  <Input
-                    type={field.secret ? "password" : "text"}
-                    autoComplete="off"
-                    data-testid={`psa-credential-${field.key}`}
-                    value={credentials[field.key] ?? ""}
-                    placeholder={field.hint}
-                    onChange={(event) =>
-                      setCredentials((previous) => ({ ...previous, [field.key]: event.target.value }))
-                    }
-                  />
-                </label>
-              ))}
-              <p className="text-meta text-fg-3">
-                Credentials are encrypted before they are stored and are never shown again. A secret field is cleared
-                after saving.
-              </p>
+          <div className="grid gap-x-12 gap-y-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,17rem)]">
+            <div className="flex flex-col gap-6">
               <div>
-                <Button
-                  variant="primary"
-                  data-testid="psa-connect-save"
-                  busy={busy === "connect"}
-                  busyLabel="Testing"
-                  disabled={psaFeature === false}
-                  onClick={connect}
-                >
-                  Test and connect
-                </Button>
+                <h2 className="text-h3 font-bold tracking-[-0.01em] text-fg">Connect your PSA</h2>
+                <p className="mt-0.5 max-w-[72ch] text-ui text-fg-2">
+                  One PSA per workspace. Once it is connected, map each client to a company in it: a ticket is only ever
+                  filed under the company its client is mapped to.
+                </p>
               </div>
-            </div>
-          ) : (
-            <p className="text-meta text-fg-3">An owner or admin can connect the PSA for this workspace.</p>
-          )}
-        </div>
-      ) : (
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-ui">
-            <span className="font-semibold text-fg" data-testid="psa-status">
-              {connectedProvider?.label ?? connection.provider}
-            </span>
-            <span className="text-fg-3">{connection.status === "PAUSED" ? "Paused" : "Connected"}</span>
-            <span className="data text-meta text-fg-3">{connection.credentialHint}</span>
-            <span className="text-meta text-fg-3">
-              {connection.health.lastSuccessAt
-                ? `Last success ${instantLabel(connection.health.lastSuccessAt)}`
-                : "No successful call yet"}
-            </span>
-          </div>
 
-          {connection.status === "PAUSED" ? (
-            <Notice tone="warn" title="Ticketing is paused">
-              <div className="flex flex-col gap-2">
-                <p>{connection.pausedReason ?? "An administrator paused it."}</p>
-                {canManage ? (
+              <fieldset className="flex flex-col" data-testid="psa-providers">
+                <legend className="mb-1.5 text-meta font-semibold text-fg-2">Which PSA?</legend>
+                <div className="border-t border-rule">
+                  {PROVIDERS.map((entry) => {
+                    const availability = current.providers.find((candidate) => candidate.provider === entry.id);
+                    const on = provider === entry.id;
+                    return (
+                      <label
+                        key={entry.id}
+                        className={clsx(
+                          "relative flex items-start gap-3 border-b border-rule py-3 pl-3 pr-2 text-ui transition-colors duration-100",
+                          availability?.available ? "cursor-pointer hover:bg-paper-3/60" : "cursor-not-allowed",
+                          on && availability?.available && "before:absolute before:inset-y-2 before:left-0 before:w-[3px] before:rounded-full before:bg-fg",
+                        )}
+                      >
+                        <input
+                          type="radio"
+                          name="psa-provider"
+                          value={entry.id}
+                          data-testid={`psa-provider-${entry.id.toLowerCase()}`}
+                          checked={on}
+                          disabled={!availability?.available}
+                          onChange={() => {
+                            setProvider(entry.id);
+                            setCredentials({});
+                          }}
+                          className="mt-[3px] size-4 shrink-0 accent-[var(--color-fg)]"
+                        />
+                        <span className="flex min-w-0 flex-col gap-0.5">
+                          <span className={clsx("font-bold", availability?.available ? "text-fg" : "text-fg-3")}>{entry.label}</span>
+                          <span className="text-meta text-fg-2">
+                            {availability?.available ? entry.needs : (availability?.reason ?? "Not available on this deployment.")}
+                          </span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
+
+              {canManage && chosen?.available ? (
+                <div className="flex max-w-[640px] flex-col gap-4" data-testid="psa-credentials">
+                  <p className="text-ui font-bold text-fg">{chosenLabel} credentials</p>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {FIELDS[provider].map((field) => (
+                      <Field
+                        key={field.key}
+                        label={
+                          <>
+                            {field.label}
+                            {field.optional ? <span className="font-normal text-fg-3"> (optional)</span> : null}
+                          </>
+                        }
+                        className={field.key === "resourceServer" || field.key === "site" ? "sm:col-span-2" : undefined}
+                      >
+                        <Input
+                          type={field.secret ? "password" : "text"}
+                          mono={!field.secret && !(field.hint ?? "").includes(" ")}
+                          autoComplete="off"
+                          spellCheck={false}
+                          data-testid={`psa-credential-${field.key}`}
+                          value={credentials[field.key] ?? ""}
+                          placeholder={field.hint}
+                          onChange={(event) => setCredentials((previous) => ({ ...previous, [field.key]: event.target.value }))}
+                        />
+                      </Field>
+                    ))}
+                  </div>
+                  <p className="text-meta text-fg-3">
+                    Credentials are encrypted before they are stored and are never shown again. A secret field is cleared
+                    after saving.
+                  </p>
+                  {errorNotice}
                   <div>
-                    <Button data-testid="psa-resume" busy={busy === "enabled"} busyLabel="Resuming" onClick={() => setEnabled(true)}>
-                      Resume
+                    <Button
+                      variant="primary"
+                      data-testid="psa-connect-save"
+                      busy={busy === "connect"}
+                      busyLabel="Testing"
+                      disabled={psaFeature === false}
+                      onClick={connect}
+                    >
+                      Test and connect
                     </Button>
                   </div>
-                ) : null}
-              </div>
-            </Notice>
-          ) : null}
+                </div>
+              ) : (
+                <p className="text-meta text-fg-3">An owner or admin can connect the PSA for this workspace.</p>
+              )}
+            </div>
 
-          {connection.health.lastError && connection.status === "ACTIVE" ? (
-            <Notice tone="fail" title="The last attempt did not reach the PSA">
-              {connection.health.lastError}
-            </Notice>
-          ) : null}
+            <SetupSteps
+              title={`Getting ${chosenLabel} ready`}
+              className="lg:pt-1"
+              steps={[
+                { key: "where", name: `Create API access in ${chosenLabel}`, detail: chosenEntry.where },
+                { key: "needs", name: "Copy what it gives you", detail: chosenEntry.needs },
+                { key: "test", name: "Test and connect here", detail: "The PSA is called before anything is stored; a refusal is shown in its own words." },
+                { key: "map", name: "Map each client to its company", detail: "A client with no mapping gets no ticket." },
+              ]}
+            />
+          </div>
+        </div>
+      ) : (
+        <>
+          <section aria-label="PSA status" className="flex flex-col gap-4">
+            <ConnectionLine
+              testId="psa-status"
+              state={lineState}
+              word={lineWord}
+              detail={
+                connection.health.lastSuccessAt
+                  ? `Last successful call ${instantLabel(connection.health.lastSuccessAt)}.`
+                  : "No successful call yet."
+              }
+              label={`Alerts and DNS changes to ${connectedProvider?.label ?? connection.provider}: ${lineWord.toLowerCase()}.`}
+              aside={
+                <Button size="sm" data-testid="psa-test" busy={busy === "test"} busyLabel="Testing" onClick={runTest}>
+                  Test the connection
+                </Button>
+              }
+              from={{ name: "Alerts and DNS changes", kind: "the triggers below" }}
+              to={{ name: connectedProvider?.label ?? connection.provider, kind: <span className="data">{connection.credentialHint}</span> }}
+            />
 
-          <div className="flex flex-wrap items-center gap-3">
-            <Button data-testid="psa-test" busy={busy === "test"} busyLabel="Testing" onClick={runTest}>
-              Test the connection
-            </Button>
-            {canManage && connection.status === "ACTIVE" ? (
-              <Button data-testid="psa-pause" busy={busy === "enabled"} busyLabel="Pausing" onClick={() => setEnabled(false)}>
-                Pause ticketing
-              </Button>
-            ) : null}
-            {canManage ? (
-              <Button data-testid="psa-replace" onClick={() => setReplacing((value) => !value)}>
-                {replacing ? "Cancel" : "Replace credentials"}
-              </Button>
-            ) : null}
-            {canManage ? (
-              <Button
-                variant="ghost"
-                className="text-fail hover:text-fail"
-                data-testid="psa-disconnect"
-                onClick={() => setConfirmDisconnect(true)}
+            {connection.status === "PAUSED" ? (
+              <Notice
+                tone="warn"
+                title="Ticketing is paused"
+                action={
+                  canManage ? (
+                    <Button size="sm" data-testid="psa-resume" busy={busy === "enabled"} busyLabel="Resuming" onClick={() => setEnabled(true)}>
+                      Resume
+                    </Button>
+                  ) : null
+                }
               >
-                Disconnect
-              </Button>
+                {connection.pausedReason ?? "An administrator paused it."}
+              </Notice>
             ) : null}
-          </div>
 
-          {replacing && canManage ? (
-            <div className="flex flex-col gap-3 border border-rule-2 p-3" data-testid="psa-replace-form">
-              <p className="legend">New credentials for {connectedProvider?.label ?? connection.provider}</p>
-              {FIELDS[connection.provider].map((field) => (
-                <label key={field.key} className="flex flex-col gap-1 text-meta text-fg-2">
-                  <span className="font-semibold text-fg">{field.label}</span>
-                  <Input
-                    type={field.secret ? "password" : "text"}
-                    autoComplete="off"
-                    data-testid={`psa-replace-${field.key}`}
-                    value={credentials[field.key] ?? ""}
-                    onChange={(event) =>
-                      setCredentials((previous) => ({ ...previous, [field.key]: event.target.value }))
-                    }
-                  />
-                </label>
-              ))}
-              <div>
-                <Button
-                  variant="primary"
-                  data-testid="psa-replace-save"
-                  busy={busy === "replace"}
-                  busyLabel="Testing"
-                  onClick={replaceCredentials}
-                >
-                  Test and save
-                </Button>
-              </div>
-            </div>
-          ) : null}
-
-          {/* Ticket settings */}
-          <div className="flex flex-col gap-3 border-t border-rule pt-3" data-testid="psa-settings">
-            <div className="flex flex-wrap items-center gap-3">
-              <p className="legend">Ticket settings</p>
-              <Button data-testid="psa-load-options" busy={busy === "options"} busyLabel="Reading" onClick={loadOptions}>
-                {options ? "Reload from the PSA" : "Read the options from the PSA"}
-              </Button>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="flex flex-col gap-1 text-meta text-fg-2">
-                <span className="font-semibold text-fg">Board or queue</span>
-                <Select
-                  data-testid="psa-queue"
-                  value={draft.queue}
-                  onChange={(event) => setDraft((previous) => ({ ...previous, queue: event.target.value }))}
-                >
-                  <option value="">Use the provider default</option>
-                  {(options?.queues ?? []).map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.name}
-                    </option>
-                  ))}
-                </Select>
-              </label>
-              <label className="flex flex-col gap-1 text-meta text-fg-2">
-                <span className="font-semibold text-fg">Ticket type</span>
-                <Select
-                  data-testid="psa-type"
-                  value={draft.type}
-                  onChange={(event) => setDraft((previous) => ({ ...previous, type: event.target.value }))}
-                >
-                  <option value="">Use the provider default</option>
-                  {(options?.ticketTypes ?? []).map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.name}
-                    </option>
-                  ))}
-                </Select>
-              </label>
-              <label className="flex flex-col gap-1 text-meta text-fg-2">
-                <span className="font-semibold text-fg">Open status</span>
-                <Select
-                  data-testid="psa-open-status"
-                  value={draft.openStatus}
-                  onChange={(event) => setDraft((previous) => ({ ...previous, openStatus: event.target.value }))}
-                >
-                  <option value="">Use the provider default</option>
-                  {(options?.openStatuses ?? []).map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.name}
-                    </option>
-                  ))}
-                </Select>
-              </label>
-              <label className="flex flex-col gap-1 text-meta text-fg-2">
-                <span className="font-semibold text-fg">Closed status</span>
-                <Select
-                  data-testid="psa-closed-status"
-                  value={draft.closedStatus}
-                  onChange={(event) => setDraft((previous) => ({ ...previous, closedStatus: event.target.value }))}
-                >
-                  <option value="">Do not close tickets</option>
-                  {(options?.closedStatuses ?? []).map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.name}
-                    </option>
-                  ))}
-                </Select>
-              </label>
-              <label className="flex flex-col gap-1 text-meta text-fg-2">
-                <span className="font-semibold text-fg">Priority</span>
-                <Select
-                  data-testid="psa-priority"
-                  value={draft.priority}
-                  onChange={(event) => setDraft((previous) => ({ ...previous, priority: event.target.value }))}
-                >
-                  <option value="">Use the provider default</option>
-                  {(options?.priorities ?? []).map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.name}
-                    </option>
-                  ))}
-                </Select>
-              </label>
-            </div>
-
-            <div className="flex flex-col gap-2 text-ui text-fg-2">
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  data-testid="psa-close-on-resolve"
-                  checked={connection.settings.closeOnResolve}
-                  onChange={(event) => {
-                    const value = event.target.checked;
-                    setCurrent((previous) =>
-                      previous.connection
-                        ? { ...previous, connection: { ...previous.connection, settings: { ...previous.connection.settings, closeOnResolve: value } } }
-                        : previous,
-                    );
-                    void patchPsa(organizationId, {
-                      expectedVersion: connection.version,
-                      settings: { closeOnResolve: value },
-                    }).then((res) => {
-                      if (res.ok) setCurrent(res.data);
-                      else failedResult(res);
-                    });
-                  }}
-                />
-                Close the ticket when the alert resolves or every DNS change is acknowledged
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  data-testid="psa-ticket-on-alert"
-                  checked={connection.settings.ticketOnAlert}
-                  onChange={(event) => {
-                    const value = event.target.checked;
-                    void patchPsa(organizationId, {
-                      expectedVersion: connection.version,
-                      settings: { ticketOnAlert: value },
-                    }).then((res) => {
-                      if (res.ok) setCurrent(res.data);
-                      else failedResult(res);
-                    });
-                  }}
-                />
-                Open a ticket when an alert fires
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  data-testid="psa-ticket-on-dns"
-                  checked={connection.settings.ticketOnCriticalDns}
-                  onChange={(event) => {
-                    const value = event.target.checked;
-                    void patchPsa(organizationId, {
-                      expectedVersion: connection.version,
-                      settings: { ticketOnCriticalDns: value },
-                    }).then((res) => {
-                      if (res.ok) setCurrent(res.data);
-                      else failedResult(res);
-                    });
-                  }}
-                />
-                Open a ticket for critical DNS changes
-              </label>
-            </div>
-
-            {canManage ? (
-              <div>
-                <Button
-                  data-testid="psa-save-settings"
-                  variant="primary"
-                  busy={busy === "settings"}
-                  busyLabel="Saving"
-                  onClick={saveSettings}
-                >
-                  Save the ticket settings
-                </Button>
-              </div>
+            {connection.health.lastError && connection.status === "ACTIVE" ? (
+              <Notice tone="fail" title="The last attempt did not reach the PSA">
+                {connection.health.lastError}
+              </Notice>
             ) : null}
-          </div>
 
-          {/* Skipped because unmapped */}
+            <ReadoutStrip>
+              <Readout label="Tickets open" value={current.ticketCounts.open} note="Filed from this workspace." />
+              <Readout label="Tickets closed" value={current.ticketCounts.closed} note="Closed from this workspace." />
+              <Readout
+                label="Clients mapped"
+                value={mappedCount ?? <Nil label="not read" />}
+                unit={mappingRows ? `of ${mappingRows.length}` : undefined}
+                tone={unmappedCount > 0 ? "warn" : undefined}
+                note={unmappedCount > 0 ? `${unmappedCount} get no tickets.` : "Every client has a company."}
+              />
+              <Readout
+                label="Events not ticketed"
+                value={skippedTotal}
+                tone={skippedTotal > 0 ? "warn" : undefined}
+                note={skippedTotal > 0 ? "Their client is not mapped." : "Nothing skipped."}
+              />
+            </ReadoutStrip>
+          </section>
+
           {current.skippedUnmapped.length > 0 ? (
             <Notice tone="warn" title="Some events were not ticketed" testId="psa-skipped">
               <div className="flex flex-col gap-1">
@@ -741,157 +646,285 @@ export function PsaBoard({
             </Notice>
           ) : null}
 
-          {/* Mappings */}
-          <div className="flex flex-col gap-3 border-t border-rule pt-3" data-testid="psa-mappings">
-            <div>
-              <p className="legend">Clients and companies</p>
-              <p className="mt-1 max-w-[72ch] text-meta text-fg-3">
-                A ticket is only ever filed under the company its client is mapped to. An unmapped client gets no
-                ticket, which is safer than filing under the wrong customer.
-              </p>
-            </div>
-
-            {mappingRows === null ? (
-              <p className="text-ui text-fg-3">The client list could not be read.</p>
-            ) : mappingRows.length === 0 ? (
-              <p className="text-ui text-fg-3">This workspace has no clients yet.</p>
-            ) : (
-              <ul className="flex flex-col">
-                {mappingRows.map((row) => (
-                  <li key={row.clientId} className="flex flex-col gap-2 border-b border-rule py-2">
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-ui">
-                      <span className="font-semibold text-fg">{row.clientName}</span>
-                      {row.mapping ? (
-                        <span className="text-fg-2">→ {row.mapping.externalCompanyName}</span>
-                      ) : (
-                        <span className="text-fg-3">Not mapped</span>
-                      )}
-                      {canManage && psaFeature !== false ? (
-                        <span className="ml-auto flex gap-2">
-                          <button
-                            type="button"
-                            className="link text-meta"
-                            data-testid={`psa-map-${row.clientId}`}
-                            onClick={() => {
-                              setMappingFor(row.clientId === mappingFor ? null : row.clientId);
-                              setCompanyQuery("");
-                              setCompanies([]);
-                            }}
-                          >
-                            {row.mapping ? "Change" : "Map"}
-                          </button>
-                          {row.mapping ? (
-                            <button
-                              type="button"
-                              className="link text-meta text-fail"
-                              data-testid={`psa-unmap-${row.clientId}`}
-                              onClick={() => unmap(row.clientId)}
-                            >
-                              Remove
-                            </button>
-                          ) : null}
-                        </span>
-                      ) : null}
-                    </div>
-
-                    {mappingFor === row.clientId ? (
-                      <div className="flex flex-col gap-2 pl-4" data-testid={`psa-search-${row.clientId}`}>
-                        <Input
-                          aria-label={`Search companies for ${row.clientName}`}
-                          data-testid="psa-company-search"
-                          value={companyQuery}
-                          placeholder="Type at least two characters"
-                          onChange={(event) => setCompanyQuery(event.target.value)}
-                        />
-                        {companies.length > 0 ? (
-                          <ul className="flex flex-col border border-rule">
-                            {companies.map((company) => (
-                              <li key={company.id}>
-                                <button
-                                  type="button"
-                                  data-testid={`psa-company-${company.id}`}
-                                  className="block w-full px-2 py-1.5 text-left text-ui text-fg-2 hover:bg-paper-2 hover:text-fg"
-                                  onClick={() => mapCompany(row.clientId, company)}
-                                >
-                                  {company.name}
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : companyQuery.trim().length >= 2 ? (
-                          <p className="text-meta text-fg-3">No company matched.</p>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            )}
-            {unmappedCount > 0 ? (
-              <p className="text-meta text-fg-3">
-                {unmappedCount} {unmappedCount === 1 ? "client is" : "clients are"} not mapped and will not be
-                ticketed.
-              </p>
-            ) : null}
+          <div data-testid="psa-mappings">
+            <Panel
+              id="psa-map-head"
+              title="Clients and companies"
+              why="A ticket is only ever filed under the company its client is mapped to. An unmapped client gets no ticket, which is safer than filing under the wrong customer."
+              aside={mappingRows && mappingRows.length > 0 ? `${mappedCount} of ${mappingRows.length} mapped` : null}
+            >
+              {mappingRows === null ? (
+                <Notice tone="warn" title="The client list could not be read">
+                  This is not the same as having no clients. Reload to try again.
+                </Notice>
+              ) : mappingRows.length === 0 ? (
+                <p className="text-ui text-fg-3">This workspace has no clients yet.</p>
+              ) : (
+                <Table caption="Clients and the PSA company each is filed under" minWidth={560}>
+                  <THead>
+                    <tr>
+                      <Th>Client</Th>
+                      <Th>Files tickets under</Th>
+                      <Th align="right">
+                        <span className="sr-only">Actions</span>
+                      </Th>
+                    </tr>
+                  </THead>
+                  <TBody>
+                    {mappingRows.map((row) => (
+                      <MappingRow
+                        key={row.clientId}
+                        row={row}
+                        open={mappingFor === row.clientId}
+                        canEdit={canManage && psaFeature !== false}
+                        companies={companies}
+                        companyQuery={companyQuery}
+                        onQuery={setCompanyQuery}
+                        onToggle={() => {
+                          setMappingFor(row.clientId === mappingFor ? null : row.clientId);
+                          setCompanyQuery("");
+                          setCompanies([]);
+                        }}
+                        onPick={(company) => mapCompany(row.clientId, company)}
+                        onUnmap={() => unmap(row.clientId)}
+                      />
+                    ))}
+                  </TBody>
+                </Table>
+              )}
+            </Panel>
           </div>
 
-          {/* Job log */}
-          <div className="flex flex-col gap-3 border-t border-rule pt-3" data-testid="psa-jobs">
-            <p className="legend">Recent activity</p>
-            {jobRows === null ? (
-              <p className="text-ui text-fg-3">The job log could not be read.</p>
-            ) : jobRows.length === 0 ? (
-              <p className="text-ui text-fg-3">Nothing has been sent to the PSA yet.</p>
-            ) : (
-              <ul className="flex flex-col">
-                {jobRows.map((job) => (
-                  <li key={job.id} className="flex flex-col gap-1 border-b border-rule py-2 text-meta">
-                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                      <span className="font-semibold text-fg">{KIND_WORDS[job.kind] ?? job.kind}</span>
-                      <span
-                        className={
-                          job.status === "FAILED"
-                            ? "text-fail"
-                            : job.status === "SKIPPED"
-                              ? "text-warn"
-                              : "text-fg-2"
-                        }
+          <div data-testid="psa-settings">
+            <Panel
+              id="psa-settings-head"
+              title="Ticket settings"
+              why="Where tickets land in the PSA and what opens them. The triggers apply at once; the queue, type, statuses and priority wait for Save."
+              aside={
+                <Button size="sm" data-testid="psa-load-options" busy={busy === "options"} busyLabel="Reading" onClick={loadOptions}>
+                  {options ? "Reload from the PSA" : "Read the options from the PSA"}
+                </Button>
+              }
+            >
+              <div className="grid gap-x-12 gap-y-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,20rem)]">
+                <div className="flex flex-col gap-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field label="Board or queue">
+                      <Select data-testid="psa-queue" value={draft.queue} onChange={(event) => setDraft((previous) => ({ ...previous, queue: event.target.value }))}>
+                        <option value="">Use the provider default</option>
+                        {(options?.queues ?? []).map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {option.name}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    <Field label="Ticket type">
+                      <Select data-testid="psa-type" value={draft.type} onChange={(event) => setDraft((previous) => ({ ...previous, type: event.target.value }))}>
+                        <option value="">Use the provider default</option>
+                        {(options?.ticketTypes ?? []).map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {option.name}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    <Field label="Open status">
+                      <Select
+                        data-testid="psa-open-status"
+                        value={draft.openStatus}
+                        onChange={(event) => setDraft((previous) => ({ ...previous, openStatus: event.target.value }))}
                       >
-                        {STATUS_WORDS[job.status] ?? job.status}
-                      </span>
-                      <span className="text-fg-3">{instantLabel(job.createdAt)}</span>
-                      {job.ticket?.url ? (
-                        <a
-                          href={job.ticket.url}
-                          className="link"
-                          target="_blank"
-                          rel="noreferrer noopener"
-                          data-testid={`psa-ticket-${job.id}`}
-                        >
-                          Open the ticket
-                        </a>
-                      ) : null}
-                      {job.status === "FAILED" && canManage ? (
-                        <button
-                          type="button"
-                          className="link ml-auto"
-                          data-testid={`psa-retry-${job.id}`}
-                          onClick={() => retry(job.id)}
-                        >
-                          Retry
-                        </button>
-                      ) : null}
+                        <option value="">Use the provider default</option>
+                        {(options?.openStatuses ?? []).map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {option.name}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    <Field label="Closed status">
+                      <Select
+                        data-testid="psa-closed-status"
+                        value={draft.closedStatus}
+                        onChange={(event) => setDraft((previous) => ({ ...previous, closedStatus: event.target.value }))}
+                      >
+                        <option value="">Do not close tickets</option>
+                        {(options?.closedStatuses ?? []).map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {option.name}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    <Field label="Priority">
+                      <Select data-testid="psa-priority" value={draft.priority} onChange={(event) => setDraft((previous) => ({ ...previous, priority: event.target.value }))}>
+                        <option value="">Use the provider default</option>
+                        {(options?.priorities ?? []).map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {option.name}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                  </div>
+                  {canManage ? (
+                    <div>
+                      <Button data-testid="psa-save-settings" variant="primary" busy={busy === "settings"} busyLabel="Saving" onClick={saveSettings}>
+                        Save the ticket settings
+                      </Button>
                     </div>
-                    {job.skipReason ? (
-                      <p className="text-fg-3">{SKIP_WORDS[job.skipReason] ?? "There was nothing to do."}</p>
-                    ) : null}
-                    {job.lastError ? <p className="text-fail">{job.lastError}</p> : null}
-                  </li>
-                ))}
-              </ul>
-            )}
+                  ) : null}
+                </div>
+
+                <ul className="flex flex-col border-t border-rule">
+                  {(
+                    [
+                      ["ticketOnAlert", "psa-ticket-on-alert", "Open a ticket when an alert fires", connection.settings.ticketOnAlert],
+                      ["ticketOnCriticalDns", "psa-ticket-on-dns", "Open a ticket for critical DNS changes", connection.settings.ticketOnCriticalDns],
+                      [
+                        "closeOnResolve",
+                        "psa-close-on-resolve",
+                        "Close the ticket when the alert resolves or every DNS change is acknowledged",
+                        connection.settings.closeOnResolve,
+                      ],
+                    ] as Array<[Trigger, string, string, boolean]>
+                  ).map(([key, testId, text, on]) => (
+                    <li key={key} className="flex items-start justify-between gap-4 border-b border-rule py-3">
+                      <span className="text-ui text-fg">{text}</span>
+                      <span data-testid={testId} className="flex shrink-0 items-center gap-2 pt-px">
+                        <Switch
+                          checked={on}
+                          onChange={(next) => applyTrigger(key, next)}
+                          busy={busy === `trigger:${key}`}
+                          disabled={!canManage}
+                          label={text}
+                        />
+                        <span className="w-[22px] text-meta font-semibold text-fg-2">{on ? "On" : "Off"}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </Panel>
           </div>
-        </div>
+
+          <div data-testid="psa-jobs">
+            <Panel id="psa-jobs-head" title="Recent activity" why="What was sent to the PSA, newest first. A skipped job says why no ticket was filed.">
+              {jobRows === null ? (
+                <Notice tone="warn" title="The job log could not be read">
+                  This is not the same as nothing having been sent. Reload to try again.
+                </Notice>
+              ) : jobRows.length === 0 ? (
+                <p className="text-ui text-fg-3">Nothing has been sent to the PSA yet.</p>
+              ) : (
+                <Table caption="PSA jobs" minWidth={720} dense>
+                  <THead>
+                    <tr>
+                      <Th>When</Th>
+                      <Th>What</Th>
+                      <Th>Outcome</Th>
+                      <Th align="right">
+                        <span className="sr-only">Ticket and actions</span>
+                      </Th>
+                    </tr>
+                  </THead>
+                  <TBody>
+                    {jobRows.map((job) => {
+                      const [word, tone] = STATUS_WORDS[job.status] ?? [job.status, "neutral" as Tone];
+                      return (
+                        <Tr key={job.id} tone={job.status === "FAILED" ? "fail" : job.status === "SKIPPED" ? "warn" : undefined}>
+                          <Td className="tnum whitespace-nowrap text-meta">{instantLabel(job.createdAt)}</Td>
+                          <Td className="font-semibold">{KIND_WORDS[job.kind] ?? job.kind}</Td>
+                          <Td className="max-w-[360px]">
+                            <Badge tone={tone}>{word}</Badge>
+                            {job.skipReason ? (
+                              <span className="mt-0.5 block text-meta text-fg-3">{SKIP_WORDS[job.skipReason] ?? "There was nothing to do."}</span>
+                            ) : null}
+                            {job.lastError ? <span className="mt-0.5 block break-words text-meta text-fail">{job.lastError}</span> : null}
+                          </Td>
+                          <Td align="right" className="whitespace-nowrap text-meta">
+                            {job.ticket?.url ? (
+                              <a href={job.ticket.url} className="link" target="_blank" rel="noreferrer noopener" data-testid={`psa-ticket-${job.id}`}>
+                                Open the ticket
+                              </a>
+                            ) : null}
+                            {job.status === "FAILED" && canManage ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="ml-2"
+                                data-testid={`psa-retry-${job.id}`}
+                                busy={busy === `retry:${job.id}`}
+                                busyLabel="Queuing"
+                                onClick={() => retry(job.id)}
+                              >
+                                Retry
+                              </Button>
+                            ) : null}
+                          </Td>
+                        </Tr>
+                      );
+                    })}
+                  </TBody>
+                </Table>
+              )}
+            </Panel>
+          </div>
+
+          {canManage ? (
+            <section aria-labelledby="psa-conn-head" className="flex flex-col gap-3 border-t border-rule pt-5">
+              <div>
+                <h2 id="psa-conn-head" className="text-h3 font-bold tracking-[-0.01em] text-fg">
+                  The connection
+                </h2>
+                <p className="mt-0.5 max-w-[72ch] text-ui text-fg-2">
+                  Pause to stop new tickets for a while, replace the credentials when they are rotated in{" "}
+                  {connectedProvider?.label ?? "the PSA"}, or disconnect to remove the connection and its mappings.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {connection.status === "ACTIVE" ? (
+                  <Button data-testid="psa-pause" busy={busy === "enabled"} busyLabel="Pausing" onClick={() => setEnabled(false)}>
+                    Pause ticketing
+                  </Button>
+                ) : null}
+                <Button data-testid="psa-replace" onClick={() => setReplacing((value) => !value)}>
+                  {replacing ? "Cancel" : "Replace credentials"}
+                </Button>
+                <Button variant="ghost" className="text-fail hover:text-fail" data-testid="psa-disconnect" onClick={() => setConfirmDisconnect(true)}>
+                  Disconnect
+                </Button>
+              </div>
+
+              {replacing ? (
+                <div className="flex max-w-[640px] flex-col gap-4 border-t border-rule pt-4" data-testid="psa-replace-form">
+                  <p className="text-ui font-bold text-fg">New credentials for {connectedProvider?.label ?? connection.provider}</p>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {FIELDS[connection.provider].map((field) => (
+                      <Field key={field.key} label={field.label} className={field.key === "resourceServer" || field.key === "site" ? "sm:col-span-2" : undefined}>
+                        <Input
+                          type={field.secret ? "password" : "text"}
+                          mono={!field.secret && !(field.hint ?? "").includes(" ")}
+                          autoComplete="off"
+                          spellCheck={false}
+                          data-testid={`psa-replace-${field.key}`}
+                          value={credentials[field.key] ?? ""}
+                          onChange={(event) => setCredentials((previous) => ({ ...previous, [field.key]: event.target.value }))}
+                        />
+                      </Field>
+                    ))}
+                  </div>
+                  <div>
+                    <Button variant="primary" data-testid="psa-replace-save" busy={busy === "replace"} busyLabel="Testing" onClick={replaceCredentials}>
+                      Test and save
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+        </>
       )}
 
       <ConfirmDialog
@@ -901,10 +934,7 @@ export function PsaBoard({
         title="Disconnect this PSA?"
         body={
           <div className="flex flex-col gap-2">
-            <p>
-              The connection, the client mappings and the queued work are removed from DMARC Harbor. Nothing new will
-              be filed.
-            </p>
+            <p>The connection, the client mappings and the queued work are removed from this workspace. Nothing new will be filed.</p>
             <p>Tickets already in your PSA are not changed or deleted. They stay where they are.</p>
           </div>
         }
@@ -915,5 +945,92 @@ export function PsaBoard({
         testId="psa-disconnect"
       />
     </div>
+  );
+}
+
+function MappingRow({
+  row,
+  open,
+  canEdit,
+  companies,
+  companyQuery,
+  onQuery,
+  onToggle,
+  onPick,
+  onUnmap,
+}: {
+  row: PsaMappingView;
+  open: boolean;
+  canEdit: boolean;
+  companies: PsaCompany[];
+  companyQuery: string;
+  onQuery: (q: string) => void;
+  onToggle: () => void;
+  onPick: (company: PsaCompany) => void;
+  onUnmap: () => void;
+}) {
+  return (
+    <>
+      <Tr tone={row.mapping ? undefined : "warn"}>
+        <Td className="font-semibold">{row.clientName}</Td>
+        <Td>
+          {row.mapping ? (
+            row.mapping.externalCompanyName
+          ) : (
+            <Badge tone="warn">
+              <span aria-hidden className="size-2 rounded-full border-2 border-warn-mark" />
+              Not mapped: no tickets
+            </Badge>
+          )}
+        </Td>
+        <Td align="right" className="whitespace-nowrap">
+          {canEdit ? (
+            <span className="inline-flex items-center gap-1">
+              <Button size="sm" variant={row.mapping ? "ghost" : "secondary"} data-testid={`psa-map-${row.clientId}`} onClick={onToggle} aria-expanded={open}>
+                {open ? "Cancel" : row.mapping ? "Change" : "Map"}
+              </Button>
+              {row.mapping ? (
+                <Button size="sm" variant="ghost" className="text-fail hover:text-fail" data-testid={`psa-unmap-${row.clientId}`} onClick={onUnmap}>
+                  Remove
+                </Button>
+              ) : null}
+            </span>
+          ) : null}
+        </Td>
+      </Tr>
+      {open ? (
+        <tr className="border-b border-rule">
+          <td colSpan={3} className="px-2.5 pb-3 pt-1">
+            <div className="flex max-w-[480px] flex-col gap-2" data-testid={`psa-search-${row.clientId}`}>
+              <Input
+                aria-label={`Search companies for ${row.clientName}`}
+                data-testid="psa-company-search"
+                value={companyQuery}
+                placeholder="Type at least two characters of the company name"
+                onChange={(event) => onQuery(event.target.value)}
+              />
+              {companies.length > 0 ? (
+                <ul className="flex flex-col rounded-ctl border border-rule">
+                  {companies.map((company) => (
+                    <li key={company.id} className="border-b border-rule last:border-b-0">
+                      <button
+                        type="button"
+                        data-testid={`psa-company-${company.id}`}
+                        className="block w-full px-3 py-2 text-left text-ui text-fg-2 transition-colors duration-100 hover:bg-paper-3 hover:text-fg"
+                        onClick={() => onPick(company)}
+                      >
+                        {company.name}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : companyQuery.trim().length >= 2 ? (
+                <p className="text-meta text-fg-3">No company matched.</p>
+              ) : null}
+            </div>
+          </td>
+        </tr>
+      ) : null}
+    </>
   );
 }

@@ -45,7 +45,10 @@ export function HostedDmarc({
   failed,
   canEdit,
   hasFeature,
+  brand = "DMARC Harbor",
 }: {
+  /** The name on this host: the agency's on a verified custom domain. */
+  brand?: string;
   organizationId: string;
   domainId: string;
   domainName: string;
@@ -114,9 +117,9 @@ export function HostedDmarc({
     sync(res.data);
     setNotice(
       res.data.hosted?.status === "ACTIVE"
-        ? "The CNAME is in place. This domain now reads its DMARC record from DMARC Harbor."
+        ? `The CNAME is in place. This domain now reads its DMARC record from ${brand}.`
         : res.data.hosted?.status === "RELEASED"
-          ? "The CNAME is gone and your TXT is published. This domain no longer reads from DMARC Harbor."
+          ? `The CNAME is gone and your TXT is published. This domain no longer reads from ${brand}.`
           : "Checked just now. Nothing has changed yet.",
     );
     router.refresh();
@@ -195,7 +198,7 @@ export function HostedDmarc({
         </h2>
         {current?.available ? (
           <p className="mt-1 max-w-[72ch] text-ui text-fg-2">
-            Point _dmarc at DMARC Harbor once, and change the policy here from then on. Your current record is kept as it
+            Point _dmarc at {brand} once, and change the policy here from then on. Your current record is kept as it
             is.
           </p>
         ) : null}
@@ -257,7 +260,7 @@ export function HostedDmarc({
                 domain={domainName}
                 records={[
                   {
-                    purpose: "Delegate the DMARC record to DMARC Harbor",
+                    purpose: `Delegate the DMARC record to ${brand}`,
                     host: hosted.cname.host,
                     type: "CNAME",
                     value: hosted.cname.target,
@@ -433,7 +436,7 @@ export function HostedDmarc({
 
           {hosted.status === "RELEASED" ? (
             <p className="text-ui text-fg-2">
-              This domain no longer reads its DMARC record from DMARC Harbor. The TXT you published at _dmarc is the
+              This domain no longer reads its DMARC record from {brand}. The TXT you published at _dmarc is the
               record receivers use.
             </p>
           ) : null}

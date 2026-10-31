@@ -6,6 +6,10 @@
  * only ever returns a logo the platform itself serves), its name always. No
  * operator chrome: no workspace menu, no section row, no jump palette.
  *
+ * The masthead is set the way the map labels a line: the agency's name in
+ * bold, "client reports" beside it in a lighter weight. The signed-in address
+ * sits at the other end, so a shared computer is obvious.
+ *
  * The foot states the two boundaries the reader is owed: what this portal does
  * not show (message-level detail), and that export and erasure of their data
  * are available at no cost.
@@ -37,41 +41,47 @@ export function PortalFrame({
   const vars = brand?.branded ? chartBrandVars(brand.primaryColor, brand.accentColor) : {};
   return (
     <div data-harbor data-surface="portal" style={vars as CSSProperties} className="flex min-h-screen flex-col bg-paper">
-      <header className="border-b border-rule print:border-fg">
-        <div className="mx-auto flex min-h-14 w-full max-w-[1040px] flex-wrap items-center gap-x-4 gap-y-2 px-5 py-2 sm:px-8">
-          <Link href={home} className="flex items-center gap-2.5 text-act">
+      <header className="page-wrap print:max-w-none print:px-0">
+        <div className="flex min-h-16 flex-wrap items-center gap-x-6 gap-y-2 py-3 sm:min-h-[72px]">
+          <Link
+            href={home}
+            className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 rounded-md text-[16px] leading-[1.3] sm:text-[17px]"
+          >
             {brand?.branded && brand.logoUrl ? (
-              <img src={brand.logoUrl} alt="" height={26} className="h-[26px] w-auto" />
+              <img src={brand.logoUrl} alt="" height={28} className="h-7 w-auto max-w-[160px] object-contain" />
             ) : brand?.branded ? null : (
-              <PierMark size={24} />
+              <PierMark size={22} className="shrink-0 text-fg" />
             )}
-            <span className="wide text-body font-bold text-fg">{agency}</span>
+            <span className="font-bold tracking-[-0.01em] text-fg">{agency}</span>
+            <span className="text-fg-4">client reports</span>
           </Link>
-          <span aria-hidden className="hidden h-5 w-px bg-rule-2 sm:block" />
-          <span className="legend hidden text-fg-2! sm:inline">Client reports</span>
-          <div className="ml-auto flex items-center gap-3 print:hidden">
-            {email ? <span className="data hidden text-meta text-fg-3 md:inline">{email}</span> : null}
+          <div className="ml-auto flex min-w-0 items-center gap-3 print:hidden">
+            {email ? <span className="data hidden truncate text-[13px] text-fg-4 md:inline">{email}</span> : null}
             <PortalSignOut />
           </div>
         </div>
+        <div aria-hidden className="border-t border-rule print:border-fg" />
       </header>
 
-      <main id="main" className="mx-auto w-full max-w-[1040px] flex-1 px-5 pb-16 pt-8 sm:px-8 sm:pt-10">
+      <main id="main" className="page-wrap flex-1 pb-24 pt-8 sm:pt-12 print:max-w-none print:px-0 print:pb-0 print:pt-6">
         {back ? (
-          <Link href={back.href} className="link mb-5 inline-block text-ui font-semibold print:hidden">
-            ← {back.label}
+          <Link
+            href={back.href}
+            className="mb-8 inline-flex items-center gap-1.5 text-[15px] font-semibold text-fg-2 transition-colors duration-150 hover:text-fg print:hidden"
+          >
+            <span aria-hidden>←</span> {back.label}
           </Link>
         ) : null}
         {children}
       </main>
 
-      <footer className="border-t border-rule">
-        <div className="mx-auto flex w-full max-w-[1040px] flex-col gap-1.5 px-5 py-5 text-meta text-fg-3 sm:px-8">
-          <p>
+      <footer className="page-wrap print:max-w-none print:px-0">
+        <div className="flex flex-col gap-2 border-t border-rule pb-12 pt-8 text-[13.5px] leading-[1.55] text-fg-4 print:border-fg print:pb-0 print:text-[9pt]">
+          <p className="max-w-[78ch]">
             {agency} monitors these domains for you. The figures come from reports that mail servers around the world
             send about email claiming to be from your domains.
           </p>
-          <p>
+          <p className="max-w-[78ch]">
             Message-level detail (forensic reports, with the names of individual recipients) is not part of this portal.
             You can ask {agency} for an export or erasure of the data held about you: export and erasure are available at
             no cost, on every plan.
@@ -97,10 +107,9 @@ export function PortalNotice({
 }) {
   return (
     <PortalFrame brand={brand} email={email}>
-      <div className="flex min-h-[46vh] max-w-[62ch] flex-col justify-center gap-3">
-        <p className="legend">Client reports</p>
-        <h1 className="display text-h1 text-fg">{title}</h1>
-        <div className="text-body text-fg-2">{children}</div>
+      <div className="flex min-h-[46vh] max-w-[40rem] flex-col justify-center py-6">
+        <h1 className="text-[34px] font-[760] leading-[1] tracking-[-0.035em] text-fg [text-wrap:balance] sm:text-[46px]">{title}</h1>
+        <div className="mt-5 text-[17px] leading-[1.55] text-fg-2">{children}</div>
       </div>
     </PortalFrame>
   );

@@ -73,7 +73,10 @@ export function HostedBimi({
   failed,
   canEdit,
   hasFeature,
+  brand = "DMARC Harbor",
 }: {
+  /** The name on this host: the agency's on a verified custom domain. */
+  brand?: string;
   organizationId: string;
   domainId: string;
   domainName: string;
@@ -202,7 +205,7 @@ export function HostedBimi({
     sync(res.data);
     setNotice(
       res.data.hosted?.status === "ACTIVE"
-        ? "The CNAME points at DMARC Harbor."
+        ? `The CNAME points at ${brand}.`
         : res.data.hosted?.status === "RELEASED"
           ? "The CNAME is gone and the record is released."
           : "Checked just now. The CNAME has not been seen yet.",
@@ -275,7 +278,7 @@ export function HostedBimi({
                 busyLabel="Starting"
                 onClick={start}
               >
-                Host the logo with DMARC Harbor
+                Host the logo with {brand}
               </Button>
             </div>
           ) : (
@@ -331,7 +334,7 @@ export function HostedBimi({
             </Notice>
           ) : null}
           {hosted.status === "ACTIVE" && !hosted.delegated ? (
-            <Notice tone="warn" title="The CNAME at default._bimi no longer points at DMARC Harbor">
+            <Notice tone="warn" title={`The CNAME at default._bimi no longer points at ${brand}`}>
               The record is still published in our zone, but nothing resolves to it, so the logo will not show. If
               the CNAME moved on purpose, release the record.
             </Notice>
@@ -571,7 +574,7 @@ export function HostedBimi({
             ) : null}
 
             <p className="max-w-[72ch] text-meta text-fg-3">
-              DMARC Harbor does not check that the logo matches the one in the certificate. Upload the exact SVG your
+              {brand} does not check that the logo matches the one in the certificate. Upload the exact SVG your
               certificate authority approved.
             </p>
           </div>
@@ -607,7 +610,7 @@ export function HostedBimi({
           {hosted.status === "RELEASED" ? (
             <div className="flex flex-col gap-3">
               <p className="text-ui text-fg-2">
-                This domain no longer publishes its BIMI record from DMARC Harbor. The TXT is gone and the files are
+                This domain no longer publishes its BIMI record from {brand}. The TXT is gone and the files are
                 retired.
               </p>
               {canEdit && hasFeature !== false && !current.capacity.full ? (

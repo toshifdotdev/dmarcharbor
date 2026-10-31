@@ -11,8 +11,12 @@
  * when the window does not apply (silence and new-source rules measure their
  * own span).
  *
- * The sentence under the form is the rule as it will run: what fires it, how
- * often it reminds, and what happens when nobody answers.
+ * Under the fields the rule is drawn as the route it will run (ops-parts.tsx
+ * RouteList): the domain it watches, the station where it fires and who it
+ * tells, each reminder still to come dashed, and the workspace owner at the
+ * end, where an event nobody acknowledges rolls up. Level 1 is the first
+ * notice; each reminder adds one, up to the max level (the API's own ladder,
+ * alert.service.ts evaluateAlertRules).
  *
  * Only the three operators the API accepts are offered. The new-source metric
  * needs alerts.spoofing; when the plan lacks it the option is shown disabled
@@ -27,6 +31,7 @@ import type { AlertMetric, AlertOperator } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/choice";
 import { Field, Input, Select } from "@/components/ui/field";
+import { RouteList, StateMark } from "./ops-parts";
 import { ActionRefusal, type ActionError } from "./plan-refusal";
 
 export interface MemberChoice {
@@ -53,7 +58,7 @@ export function RecipientPicker({
       {members.length === 0 ? (
         <p className="text-meta text-fg-3">No workspace members could be listed.</p>
       ) : (
-        <div className="flex max-h-[160px] flex-col gap-2 overflow-y-auto rounded-ctl border border-rule-2 bg-paper-2 px-2.5 py-2">
+        <div className="flex max-h-[176px] flex-col gap-2.5 overflow-y-auto rounded-ctl border border-rule-2 bg-paper px-3 py-2.5">
           {members.map((m) => (
             <Checkbox
               key={m.userId}
@@ -119,6 +124,10 @@ export function AlertRuleForm({
 
   const meta = METRICS[metric];
   const domainName = domainGroups.flatMap((g) => g.domains).find((d) => d.id === domainId)?.name ?? "";
+  const clientName = domainGroups.find((g) => g.domains.some((d) => d.id === domainId))?.clientName ?? null;
+  const toldNames = members.filter((m) => recipients.includes(m.userId)).map((m) => m.label);
+  const toldLabel =
+    toldNames.length === 0 ? "nobody yet" : toldNames.length <= 2 ? toldNames.join(" and ") : `${toldNames[0]} and ${toldNames.length - 1} others`;
   const suggestedName = domainName ? `${meta.label} on ${domainName}` : meta.label;
   const effectiveName = nameTouched ? name : suggestedName.slice(0, LIMITS.name.max);
 
@@ -177,7 +186,7 @@ export function AlertRuleForm({
   if (!firstDomain) {
     return (
       <section className="flex flex-col gap-2">
-        <h2 className="text-h3 font-bold tracking-[-0.01em] text-fg">New alert rule</h2>
+        <h2 className="display text-h3 text-fg">New alert rule</h2>
         <p className="text-ui text-fg-3">A rule watches one domain. Add a domain on Clients first.</p>
       </section>
     );
@@ -188,9 +197,12 @@ export function AlertRuleForm({
 
   return (
     <section aria-labelledby={`${id}-head`} className="flex flex-col gap-3">
-      <h2 id={`${id}-head`} className="text-h3 font-bold tracking-[-0.01em] text-fg">
-        New alert rule
-      </h2>
+      <div>
+        <h2 id={`${id}-head`} className="display text-h3 text-fg">
+          New alert rule
+        </h2>
+        <p className="mt-0.5 text-meta text-fg-3">One domain, one condition, and who it wakes.</p>
+      </div>
       <form onSubmit={submit} className="flex flex-col gap-3.5">
         <Field label="Domain">
           <Select value={domainId} onChange={(e) => setDomainId(e.target.value)} className="w-full">
@@ -271,11 +283,11 @@ export function AlertRuleForm({
           </Field>
         </div>
 
-        <Field label="Max reminder level" hint="How many times an open event reminds before it only rolls up. 1 to 5.">
+        <Field label="Max reminder level" hint="Notices in all, counting the first. After the last one an open event only rolls up. 1 to 5.">
           <Select value={reminders} onChange={(e) => setReminders(e.target.value)} className="w-full">
             {[1, 2, 3, 4, 5].map((v) => (
               <option key={v} value={String(v)}>
-                {v} {v === 1 ? "reminder" : "reminders"}
+                {v === 1 ? "1: the first notice only" : `${v}: the first notice and ${v - 1} reminder${v === 2 ? "" : "s"}`}
               </option>
             ))}
           </Select>
@@ -296,27 +308,57 @@ export function AlertRuleForm({
 
         <RecipientPicker members={members} value={recipients} onChange={setRecipients} />
 
-        {/* The rule as it will run. */}
-        <p className="border-l-2 border-act pl-3 text-ui text-fg-2" aria-live="polite">
-          Fires when <span className="font-semibold text-fg">{meta.label.toLowerCase()}</span> on{" "}
-          <span className="data font-semibold text-fg">{domainName}</span> is {op?.label}{" "}
-          <span className="tnum font-semibold text-fg">
-            {threshold || "?"}
-            {meta.unit.suffix ? meta.unit.suffix : ` ${unit}`}
-          </span>
-          {meta.usesWindow && Number(windowMinutes) > 0 ? ` over ${minutesLabel(Number(windowMinutes))}` : ""}. Until
-          someone acknowledges it, it reminds every {minutesLabel(Number(cooldown))}, up to {reminders} time
-          {reminders === "1" ? "" : "s"}, and then rolls up to the workspace owner.
-        </p>
+        {/* The rule as it will run, drawn as its route: watched, fired, each
+            reminder still to come dashed, and the owner at the end. */}
+        <div className="flex flex-col gap-2 border-t border-rule pt-3.5" aria-live="polite">
+          <p className="text-meta font-semibold text-fg-2">How it will run</p>
+          <RouteList
+            label="How this rule will run"
+            stops={[
+              { key: "watch", shape: "origin", name: <span className="data">{domainName}</span>, kind: clientName ?? "watched" },
+              {
+                key: "fire",
+                shape: "station",
+                name: "Fires",
+                kind: (
+                  <>
+                    when {meta.label.charAt(0).toLowerCase() + meta.label.slice(1)} is {op?.label}{" "}
+                    <span className="tnum font-semibold text-fg-2">
+                      {threshold || "?"}
+                      {meta.unit.suffix ? meta.unit.suffix : ` ${unit}`}
+                    </span>
+                    {meta.usesWindow && Number(windowMinutes) > 0 ? ` over ${minutesLabel(Number(windowMinutes))}` : ""}, and
+                    tells {toldLabel} at once
+                  </>
+                ),
+              },
+              ...Array.from({ length: Math.max(0, Number(reminders) - 1) }, (_, i) => ({
+                key: `r${i + 2}`,
+                shape: "station" as const,
+                planned: true,
+                name: `Reminder ${i + 2}`,
+                kind: `after ${minutesLabel(Number(cooldown) * (i + 1))}, if nobody has acknowledged it`,
+              })),
+              {
+                key: "owner",
+                shape: "terminus",
+                planned: true,
+                name: "Workspace owner",
+                kind: Number(reminders) > 1 ? "the open event rolls up after the last reminder" : "the open event rolls up if nobody acknowledges it",
+              },
+            ]}
+          />
+        </div>
 
         <ActionRefusal error={error} />
         {created ? (
-          <p role="status" className="text-ui font-semibold text-ok [animation:hb-rise_200ms_ease-out]">
+          <p role="status" className="flex items-center gap-2 text-ui font-semibold text-ok">
+            <StateMark shape="square" tone="ok" />
             &ldquo;{created}&rdquo; is watching.
           </p>
         ) : null}
 
-        <Button type="submit" variant="primary" busy={busy} busyLabel="Creating the rule" disabled={!valid} className="self-start">
+        <Button type="submit" variant="primary" size="lg" busy={busy} busyLabel="Creating the rule" disabled={!valid} className="self-start">
           Create alert rule
         </Button>
       </form>

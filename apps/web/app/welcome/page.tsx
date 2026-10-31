@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { Fragment } from "react";
 import { ApiError, listWorkspaces, readWorkspaceAllowance, type WorkspaceAllowance } from "@/lib/api";
 import { signInRedirect } from "@/lib/session";
 import type { WorkspaceSummary } from "@/lib/types";
 import { AuthFrame } from "@/components/harbor/auth-frame";
 import { InvitationsForYou } from "@/components/harbor/invitations";
-import { SetupRail } from "@/components/harbor/setup-rail";
+import { SetupLayout } from "@/components/harbor/setup-rail";
 import { WorkspaceSetup, type WorkspaceFormState } from "@/components/harbor/workspace-setup";
 
 /**
@@ -80,74 +81,113 @@ export default async function WelcomePage() {
   const hasOne = workspaces.length > 0;
   const allowance: WorkspaceAllowance | null = await readWorkspaceAllowance().catch(() => null);
 
+  const form = (
+    <WorkspaceSetup
+      action={createWorkspaceAction}
+      disableSubmit={allowance ? !allowance.allowed : false}
+      limitReason={
+        allowance && !allowance.allowed
+          ? `All ${allowance.maxWorkspaces} workspaces your plan allows are in use. A higher plan allows more.`
+          : null
+      }
+    />
+  );
+
+  if (!hasOne) {
+    // The first workspace: stop three of six, beside the route.
+    return (
+      <AuthFrame width="route">
+        <SetupLayout current="workspace">
+          <div className="flex flex-col gap-8">
+            <InvitationsForYou />
+            <div>
+              <p className="flex items-center gap-2 text-meta font-semibold text-ok">
+                <span aria-hidden className="block size-2 bg-ok" />
+                Email verified. You are signed in.
+              </p>
+              <h1 className={`mt-3 ${HEADING}`}>Name your workspace</h1>
+              <p className="mt-3 text-lead text-fg-2">
+                It holds your clients, their domains, and every report receivers send about them. Next you add a first
+                client and domain, and get the records to publish.
+              </p>
+            </div>
+            {form}
+          </div>
+        </SetupLayout>
+      </AuthFrame>
+    );
+  }
+
+  const strip = allowance && allowance.maxWorkspaces > 0 && allowance.maxWorkspaces <= 12;
   return (
     <AuthFrame
-      width={hasOne ? "wide" : "narrow"}
+      width="wide"
       aside={
-        hasOne ? (
-          <Link href="/" className="link font-semibold">
-            Back to the portfolio
-          </Link>
-        ) : null
+        <Link href="/" className="link font-semibold">
+          Back to the portfolio
+        </Link>
       }
     >
-      {hasOne ? null : <SetupRail current="workspace" className="mb-10" />}
-
-      <div className={hasOne ? "grid gap-10 md:grid-cols-[minmax(0,1fr)_280px]" : ""}>
-        <div className="flex flex-col gap-6 [animation:hb-rise_240ms_ease-out]">
+      <div className="grid gap-12 md:grid-cols-[minmax(0,1fr)_280px] md:gap-16">
+        <div className="flex min-w-0 flex-col gap-8">
           <InvitationsForYou />
           <div>
-            {hasOne ? null : <p className="legend text-ok!">Email verified · you are signed in</p>}
-            <h1 className="display mt-2 text-[32px] leading-[1.05] text-fg">
-              {hasOne ? "Add another workspace" : "Name your workspace"}
-            </h1>
-            <p className="mt-2 text-body text-fg-2">
-              {hasOne
-                ? "A workspace holds its own clients, domains and measurements, and carries its own plan. Nothing is shared with the ones you already have."
-                : "It holds your clients, their domains, and every report receivers send about them. Next you add a first client and domain, and get the records to publish."}
+            <h1 className={HEADING}>Add another workspace</h1>
+            <p className="mt-3 text-lead text-fg-2">
+              A workspace holds its own clients, domains and measurements, and carries its own plan. Nothing is shared
+              with the ones you already have.
             </p>
           </div>
-          <WorkspaceSetup
-            action={createWorkspaceAction}
-            disableSubmit={allowance ? !allowance.allowed : false}
-            limitReason={
-              allowance && !allowance.allowed
-                ? `All ${allowance.maxWorkspaces} workspaces your plan allows are in use. A higher plan allows more.`
-                : null
-            }
-          />
+          {form}
         </div>
 
-        {hasOne ? (
-          <aside className="flex flex-col gap-3 border-t border-rule pt-4 md:border-l md:border-t-0 md:pl-6 md:pt-0">
-            <p className="legend">On this account</p>
-            {allowance ? (
-              <div data-testid="workspace-allowance">
-                <p className="tnum text-h2 font-semibold text-fg">
-                  {allowance.used}
-                  <span className="text-body font-medium text-fg-3"> of {allowance.maxWorkspaces} used</span>
-                </p>
-                <div className="mt-2 flex gap-1" aria-hidden>
+        <aside aria-labelledby="ws-held" className="flex flex-col gap-4 md:pt-2">
+          <div className="flex flex-wrap items-baseline gap-x-3 border-b border-rule pb-3">
+            <h2 id="ws-held" className="text-[15px] font-bold text-fg">
+              On this account
+            </h2>
+            <p className="text-ui text-fg-4">your workspaces</p>
+          </div>
+          {allowance ? (
+            <div data-testid="workspace-allowance">
+              <p className="text-body text-fg-3">
+                <span className="tnum text-h2 font-bold text-fg">{allowance.used}</span> of{" "}
+                <span className="tnum">{allowance.maxWorkspaces}</span> used
+              </p>
+              {strip ? (
+                // One station per workspace the plan allows: filled where one is in use.
+                <div aria-hidden className="mt-3 flex h-[14px] items-center">
                   {Array.from({ length: allowance.maxWorkspaces }, (_, i) => (
-                    <span key={i} className={i < allowance.used ? "h-1.5 flex-1 bg-act" : "h-1.5 flex-1 bg-rule"} />
+                    <Fragment key={i}>
+                      {i > 0 ? (
+                        <span className={`-mx-px h-[5px] flex-1 ${i < allowance.used ? "bg-act" : "bg-rule"}`} />
+                      ) : null}
+                      <span
+                        className={`relative z-[1] block size-[14px] shrink-0 rounded-full border-[3px] ${
+                          i < allowance.used ? "border-act bg-act" : "border-rule-2 bg-paper"
+                        }`}
+                      />
+                    </Fragment>
                   ))}
                 </div>
-                <p className="mt-2 text-meta text-fg-3">The limit comes from your strongest plan across your workspaces.</p>
-              </div>
-            ) : (
-              <p className="text-meta text-fg-3">The workspace allowance could not be read. The API checks it when you create one.</p>
-            )}
-            <ul className="mt-2 flex flex-col border-t border-rule">
-              {workspaces.map((w) => (
-                <li key={w.id} className="border-b border-rule py-2">
-                  <span className="block text-ui font-semibold text-fg">{w.name}</span>
-                  <span className="data block text-meta text-fg-3">{w.slug}</span>
-                </li>
-              ))}
-            </ul>
-          </aside>
-        ) : null}
+              ) : null}
+              <p className="mt-3 text-meta text-fg-3">The limit comes from your strongest plan across your workspaces.</p>
+            </div>
+          ) : (
+            <p className="text-meta text-fg-3">The workspace allowance could not be read. The API checks it when you create one.</p>
+          )}
+          <ul className="flex flex-col border-t border-rule">
+            {workspaces.map((w) => (
+              <li key={w.id} className="border-b border-rule py-2.5">
+                <span className="block text-ui font-semibold text-fg">{w.name}</span>
+                <span className="data block text-meta text-fg-3">{w.slug}</span>
+              </li>
+            ))}
+          </ul>
+        </aside>
       </div>
     </AuthFrame>
   );
 }
+
+const HEADING = "text-balance text-[34px] font-[760] leading-[1.02] tracking-[-0.035em] text-fg sm:text-[40px]";

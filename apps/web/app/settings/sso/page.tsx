@@ -5,7 +5,7 @@ import { settingsContext } from "@/lib/settings-context";
 import { mayChange } from "@/lib/settings-map";
 import type { SsoConnectionRow } from "@/lib/types";
 import { SettingsFrame } from "@/components/harbor/settings/frame";
-import { SsoBoard } from "@/components/harbor/settings/sso";
+import { SsoBoard, SsoExplainer } from "@/components/harbor/settings/sso";
 import { ErrorState, PermissionState, UpgradeNotice } from "@/components/ui/states";
 
 export const metadata: Metadata = { title: "Single sign-on" };
@@ -62,11 +62,14 @@ export default async function SsoPage() {
           canManage={ctx.role === null ? true : mayChange(ctx.role, "admin")}
         />
       ) : read.kind === "plan" ? (
-        <UpgradeNotice
-          message={read.message ?? "Single sign-on is not included in this workspace's plan."}
-          feature={read.feature}
-          context="Everyone keeps signing in with a password or a social account."
-        />
+        <>
+          <UpgradeNotice
+            message={read.message ?? "Single sign-on is not included in this workspace's plan."}
+            feature={read.feature}
+            context="Everyone keeps signing in with a password or a social account."
+          />
+          <SsoExplainer />
+        </>
       ) : read.kind === "forbidden" ? (
         <PermissionState
           what="single sign-on"

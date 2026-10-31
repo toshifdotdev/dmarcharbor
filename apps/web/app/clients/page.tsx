@@ -2,11 +2,13 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { listClients } from "@/lib/api";
 import { getWorkspaceEntitlements } from "@/lib/api-ops";
+import { readHostBrand } from "@/lib/host-brand";
 import { resolveActiveWorkspace } from "@/lib/session";
 import type { ClientRow } from "@/lib/types";
 import { AppShell } from "@/components/harbor/app-shell";
 import { ClientBook, type ClientView } from "@/components/harbor/client-book";
 import { PageHeader } from "@/components/harbor/page-header";
+import { brandName } from "@/components/harbor/public-frame";
 import { RefreshButton } from "@/components/harbor/refresh-button";
 import { UsageExport } from "@/components/harbor/usage-export";
 import { ErrorState } from "@/components/ui/states";
@@ -35,10 +37,11 @@ function dateLabel(value: string | null): string | null {
  * domains each one owns, and where each domain stands in setup.
  *
  * What an operator does here, in the order they do it: find a client (the
- * filter), see which of its domains still need DNS work (ownership state per
- * domain, the policy last seen in DNS), add a client or its domains (one, or a
- * pasted list with the ownership records handed back ready to send), and,
- * rarely, remove a client who has left.
+ * filter), copy the report address to hand to whoever runs its DNS, see which
+ * of its domains still need DNS work (ownership state per domain, the policy
+ * last read from DNS), add a client or its domains (one, or a pasted list with
+ * the ownership records handed back ready to send), and, rarely, remove a
+ * client who has left.
  *
  * Posture and report volume live on the Portfolio; this screen is about the
  * structure and the setup work, so it does not repeat measurements. The one
@@ -51,9 +54,10 @@ export default async function ClientsPage() {
   const { workspaces, active } = await resolveActiveWorkspace();
   if (!active) redirect("/welcome");
 
-  const [entitlements, clients] = await Promise.all([
+  const [entitlements, clients, brand] = await Promise.all([
     getWorkspaceEntitlements(active.id).catch(() => null),
     listClients(active.id).catch(() => null as ClientRow[] | null),
+    readHostBrand(),
   ]);
 
   const views: ClientView[] = (clients ?? []).map((c) => ({
@@ -79,7 +83,7 @@ export default async function ClientsPage() {
 
   return (
     <AppShell workspaces={workspaces} activeWorkspace={active} trail={[{ label: "Clients" }]}>
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-7">
         <PageHeader
           title="Clients"
           lede={
@@ -106,6 +110,7 @@ export default async function ClientsPage() {
           <ClientBook
             organizationId={active.id}
             clients={views}
+            productName={brandName(brand)}
             limits={
               entitlements
                 ? { plan: entitlements.label, maxClients: entitlements.maxClients, maxActiveDomains: entitlements.maxActiveDomains }

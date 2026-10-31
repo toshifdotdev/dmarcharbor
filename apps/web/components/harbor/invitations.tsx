@@ -64,20 +64,20 @@ export function InvitationsForYou() {
   return (
     <section
       data-testid="invitations-for-you"
-      className="flex flex-col gap-3 rounded-ctl border border-act/40 bg-paper-2 px-4 py-3.5 shadow-[0_0_0_3px_var(--color-act-line)] [animation:hb-rise_240ms_ease-out]"
+      aria-labelledby="invitations-head"
+      className="flex flex-col gap-3 rounded-sheet border border-rule-2 bg-paper px-5 py-4"
     >
       <div>
-        <p className="legend text-act!">Waiting for you</p>
-        <p className="mt-0.5 text-body font-semibold text-fg">
+        <p id="invitations-head" className="text-h3 font-bold tracking-[-0.01em] text-fg">
           {list.length === 1 ? "You have been invited to a workspace" : `You have been invited to ${list.length} workspaces`}
         </p>
-        <p className="mt-0.5 text-ui text-fg-2">Joining one may be all you need: you do not have to create your own.</p>
+        <p className="mt-1 text-ui text-fg-2">Joining one may be all you need: you do not have to create your own.</p>
       </div>
       <ul className="flex flex-col border-t border-rule">
         {list.map((inv) => (
-          <li key={inv.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-rule py-2.5">
+          <li key={inv.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-rule py-2.5 last:border-b-0 last:pb-0.5">
             <span className="min-w-0 flex-1">
-              <span className="block text-ui font-semibold text-fg">{inv.organizationName ?? "A workspace"}</span>
+              <span className="block text-ui font-bold text-fg">{inv.organizationName ?? "A workspace"}</span>
               <span className="block text-meta text-fg-3">
                 As <span className="capitalize">{inv.role}</span>
                 {inv.expiresAt ? `, until ${new Date(inv.expiresAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}` : ""}

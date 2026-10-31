@@ -1,9 +1,8 @@
 import Link from "next/link";
 import { notFound, redirect, unstable_rethrow } from "next/navigation";
-import type { CSSProperties } from "react";
-import { clsx } from "clsx";
 import { ApiError, getOnboardingState, getSessionUserId, listClients } from "@/lib/api";
 import { getDnsConnections, getHostedDmarc, getManagedSpf, listReportShares, listWorkspaceMembers, OpsError } from "@/lib/api-ops";
+import { readHostBrand } from "@/lib/host-brand";
 import { domainHref } from "@/lib/route-hrefs";
 import { resolveActiveWorkspace } from "@/lib/session";
 import { strongestRole } from "@/lib/settings-map";
@@ -12,6 +11,8 @@ import { AppShell } from "@/components/harbor/app-shell";
 import { DomainRecords } from "@/components/harbor/domain-records";
 import { DomainRemoval } from "@/components/harbor/domain-removal";
 import { PageHeader, SectionHead } from "@/components/harbor/page-header";
+import { brandName } from "@/components/harbor/public-frame";
+import { SetupSteps, StepStrip } from "@/components/harbor/setup-steps";
 import { ShareLinks, type ShareView } from "@/components/harbor/share-links";
 import { Badge, type Tone } from "@/components/ui/badge";
 import { ButtonLink } from "@/components/ui/button";
@@ -36,6 +37,11 @@ import { ErrorState } from "@/components/ui/states";
  * The URL carries a slug or an id. The API calls below use the id read from
  * the client list, because some API reads resolve a slug for the domain but not
  * for its child queries (a known backend defect, logged, not fixed here).
+ *
+ * Layout, for the technician who hands records to someone else: the records
+ * and the DNS check on the left, each record saying where it goes and whether
+ * it is live; the steps as stations on one line on the right (after the
+ * records on a phone); sharing and deletion last.
  */
 
 /** The retired pct canary step. The API no longer sends it (RFC 9989 retired
@@ -49,13 +55,6 @@ const STATE_BADGE: Record<OnboardingState["state"], { label: string; tone: Tone 
   AWAITING_REPORTS: { label: "Awaiting first reports", tone: "neutral" },
   MONITORING: { label: "Measuring", tone: "ok" },
   NEEDS_ATTENTION: { label: "Needs attention", tone: "fail" },
-};
-
-const STEP_WORD: Record<OnboardingState["steps"][number]["status"], string> = {
-  done: "Done",
-  pending: "To do",
-  blocked: "Waiting",
-  optional: "Optional",
 };
 
 function dateLabel(value: string): string {
@@ -217,53 +216,55 @@ export default async function OnboardingPage({ params }: { params: Promise<{ dom
     }
   })();
 
-  const pct = required.length > 0 ? (doneCount / required.length) * 100 : 0;
+  const brand = brandName(await readHostBrand());
+  const dmarcStep = steps.find((s) => s.id === "dmarc_published")?.status ?? null;
 
   return shell(
     <div className="flex flex-col gap-8">
-      <PageHeader
-        title={domain.name}
-        titleMono
-        status={
-          <Badge tone={badge.tone} boxed>
-            {badge.label}
-          </Badge>
-        }
-        lede={lede}
-        meta={
-          <>
-            <span>{clientName}</span>
-            <span>
-              Setup: <span className="tnum font-semibold text-fg-2">{doneCount}</span> of{" "}
-              <span className="tnum">{required.length}</span> steps done
-            </span>
-          </>
-        }
-        actions={
-          <ButtonLink href={domainHref(domain.slug)} variant={measuring ? "primary" : "secondary"}>
-            Open the domain page
-            <ArrowRight size={14} />
-          </ButtonLink>
-        }
-      />
-
-      <div aria-hidden className="h-[3px] w-full max-w-[520px] bg-rule">
-        <div
-          className="hb-rail-fill h-full bg-act"
-          style={{ "--from": "0%", "--to": `${pct}%`, width: `${pct}%` } as CSSProperties}
+      <div className="flex flex-col gap-5">
+        <PageHeader
+          title={domain.name}
+          titleMono
+          status={
+            <Badge tone={badge.tone} boxed>
+              {badge.label}
+            </Badge>
+          }
+          lede={lede}
+          meta={
+            <>
+              <span className="font-semibold text-fg-2">{clientName}</span>
+              <span>
+                Setup: <span className="tnum font-semibold text-fg-2">{doneCount}</span> of{" "}
+                <span className="tnum">{required.length}</span> steps done
+              </span>
+              {nextStep ? (
+                <span>
+                  Next: <span className="font-semibold text-fg">{nextStep.title}</span>
+                </span>
+              ) : null}
+            </>
+          }
+          actions={
+            <ButtonLink href={domainHref(domain.slug)} variant={measuring ? "primary" : "secondary"}>
+              Open the domain page
+              <ArrowRight size={14} />
+            </ButtonLink>
+          }
         />
+        <StepStrip steps={required} nextId={nextStep?.id ?? null} />
       </div>
 
       {/* Records first, then the steps, then sharing and deletion: on a phone
           the progress sits right after the work it measures, not under the
           delete button. On wide screens the steps are the right-hand column. */}
-      <div className="grid gap-x-10 gap-y-10 lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-[auto_1fr]">
+      <div className="grid gap-x-14 gap-y-12 border-t border-rule pt-8 lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-[auto_1fr]">
         <div className="flex min-w-0 flex-col gap-10 lg:col-start-1 lg:row-start-1">
-          <section aria-labelledby="records-head">
+          <section aria-labelledby="records-head" className="flex flex-col gap-3">
             <SectionHead
               id="records-head"
               title={measuring ? "Records" : "Records to publish"}
-              aside="TXT records, at the DNS host for this domain"
+              aside="At the DNS host for this domain"
             />
             <DomainRecords
               organizationId={active.id}
@@ -272,10 +273,12 @@ export default async function OnboardingPage({ params }: { params: Promise<{ dom
               slug={domain.slug}
               verified={verified}
               dmarc={onboarding.suggestedRecord ?? null}
+              dmarcStep={dmarcStep}
               tlsRpt={onboarding.tlsRpt}
               publishedPolicy={onboarding.reporting.publishedPolicy}
               canPublish={canPublish}
               connections={publishConnections}
+              brand={brand}
             />
           </section>
         </div>
@@ -284,53 +287,9 @@ export default async function OnboardingPage({ params }: { params: Promise<{ dom
           aria-labelledby="steps-head"
           className="flex flex-col gap-3 self-start lg:sticky lg:top-[104px] lg:col-start-2 lg:row-span-2 lg:row-start-1"
         >
-          <SectionHead id="steps-head" title="Setup steps" aside="The platform's own reading" />
-          <ol className="hb-stagger border-t border-rule">
-            {steps.map((s, i) => {
-              const isNext = s === nextStep;
-              return (
-                <li
-                  key={s.id}
-                  data-step={s.id}
-                  data-step-status={s.status}
-                  style={{ "--i": i } as CSSProperties}
-                  className={clsx(
-                    "grid grid-cols-[20px_minmax(0,1fr)] gap-x-2.5 border-b border-rule py-3",
-                    isNext && "border-l-2 border-l-act bg-paper-2 pl-2.5 pr-2",
-                  )}
-                >
-                  <StepMark status={s.status} />
-                  <div className="min-w-0">
-                    <p className="flex flex-wrap items-baseline justify-between gap-x-3">
-                      <span className={clsx("text-ui font-semibold", s.status === "blocked" ? "text-fg-3" : "text-fg")}>
-                        {s.title}
-                      </span>
-                      <span
-                        className={clsx(
-                          "text-meta font-semibold",
-                          s.status === "done" ? "text-ok" : isNext ? "text-act" : "text-fg-3",
-                        )}
-                      >
-                        {isNext ? "Next" : STEP_WORD[s.status]}
-                      </span>
-                    </p>
-                    <p className="mt-0.5 text-meta leading-[1.5] text-fg-2">
-                      {s.detail}
-                      {s.id === "aggregate_reporting" && s.status !== "done" && s.detail.includes("web endpoint") ? (
-                        <>
-                          {" "}
-                          <Link href="/settings/mailbox" className="link font-semibold" data-testid="rua-mailbox-link">
-                            Set up the report mailbox
-                          </Link>
-                        </>
-                      ) : null}
-                    </p>
-                  </div>
-                </li>
-              );
-            })}
-          </ol>
-          <p className="text-meta text-fg-3">
+          <SectionHead id="steps-head" title="Setup steps" aside="As the platform reads them" />
+          <SetupSteps steps={steps} nextId={nextStep?.id ?? null} />
+          <p className="border-t border-rule pt-3 text-meta text-fg-3">
             {measuring ? (
               <>
                 Policy changes from here are guided on the{" "}
@@ -345,7 +304,7 @@ export default async function OnboardingPage({ params }: { params: Promise<{ dom
           </p>
         </aside>
 
-        <div className="flex min-w-0 flex-col gap-10 lg:col-start-1 lg:row-start-2">
+        <div className="flex min-w-0 flex-col gap-14 lg:col-start-1 lg:row-start-2">
           {shareRows === null ? (
             <p className="border-y border-rule py-3 text-ui text-fg-3">
               Share links did not load just now. Reload to manage them; existing links keep working.
@@ -360,29 +319,11 @@ export default async function OnboardingPage({ params }: { params: Promise<{ dom
             domainName={domain.name}
             hosted={hosted?.hosted && hosted.hosted.status !== "RELEASED" ? { value: hosted.hosted.value } : null}
             managedSpf={spfRepublish}
+            brand={brand}
           />
         </div>
       </div>
     </div>,
     trail,
   );
-}
-
-function StepMark({ status }: { status: OnboardingState["steps"][number]["status"] }) {
-  if (status === "done") {
-    return (
-      <span aria-hidden className="mt-[3px] grid size-4 place-items-center rounded-full bg-ok">
-        <svg viewBox="0 0 16 16" className="hb-draw-check size-2.5 text-white">
-          <path d="M2.5 8.5 6.5 12.5 13.5 3.5" fill="none" stroke="currentColor" strokeWidth="2.6" />
-        </svg>
-      </span>
-    );
-  }
-  if (status === "pending") {
-    return <span aria-hidden className="mt-[3px] block size-4 rounded-full border-2 border-act" />;
-  }
-  if (status === "optional") {
-    return <span aria-hidden className="mt-[3px] block size-4 rounded-full border border-fg-4" />;
-  }
-  return <span aria-hidden className="mt-[3px] block size-4 rounded-full border border-rule-2 bg-paper-3" />;
 }

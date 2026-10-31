@@ -4,12 +4,12 @@ import { getSessionUserId } from "@/lib/api";
 import { safeNext } from "@/lib/session";
 import { AuthFrame } from "@/components/harbor/auth-frame";
 import { AuthPanel } from "@/components/harbor/auth-panel";
-import { SetupRail } from "@/components/harbor/setup-rail";
 
 /**
- * /sign-up — the first of six stops on the way to reports arriving, and the
- * rail says so, so a newcomer sees the whole route before typing anything.
- * Someone already signed in goes to the next stop instead.
+ * /sign-up — the first of six stops on the way to reports arriving. The form
+ * sits beside the whole route (the panel draws it, so it moves on to "Verify
+ * email" once the link is sent), so a newcomer sees what is ahead before
+ * typing anything. Someone already signed in goes to the next stop instead.
  */
 export default async function SignUpPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
   const { next: rawNext } = await searchParams;
@@ -19,6 +19,7 @@ export default async function SignUpPage({ searchParams }: { searchParams: Promi
 
   return (
     <AuthFrame
+      width="route"
       aside={
         <>
           <span className="hidden text-fg-3 sm:inline">Have an account?</span>
@@ -28,8 +29,7 @@ export default async function SignUpPage({ searchParams }: { searchParams: Promi
         </>
       }
     >
-      <SetupRail current="account" className="mb-10" />
-      <AuthPanel initialMode="sign-up" next={next} />
+      <AuthPanel initialMode="sign-up" next={next} route />
     </AuthFrame>
   );
 }

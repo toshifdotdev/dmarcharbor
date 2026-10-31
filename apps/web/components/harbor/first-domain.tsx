@@ -10,6 +10,11 @@
  * whoever holds the DNS, with the ownership check beside them. It ends with a
  * domain added and records ready to publish, and the setup page one click on.
  *
+ * Beside the form, the way from here to a filled portfolio is drawn as a line:
+ * the station you are at in ink, the steps ahead as a planned (dashed)
+ * segment, and the portfolio as the terminus. Real steps, in the order they
+ * happen; nothing on it is a figure.
+ *
  * Calls, all existing API:
  *   POST /clients                         when the client is new
  *   POST /clients/:id/domains/bulk        one domain; answers with the
@@ -20,6 +25,11 @@
  *
  * The domain is cleaned the way people paste it (a URL, an email address, a
  * trailing dot) and the cleaned name is shown before it is sent.
+ *
+ * Test hooks kept: state-empty (both states), continue-setup,
+ * ownership-record and suggested-record (through DnsHandoff). The heading
+ * "Add your first client and domain" and the workspace's name are read by the
+ * stranger path.
  */
 
 import Link from "next/link";
@@ -29,10 +39,12 @@ import { bulkCreateDomains, createClient, opsCall } from "@/lib/ops-client";
 import { onboardingHref } from "@/lib/route-hrefs";
 import type { OnboardingState } from "@/lib/types";
 import { Button, ButtonLink } from "@/components/ui/button";
+import { Field, Input, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { ArrowRight } from "@/components/ui/icons";
 import { DnsHandoff, type PublishRecord } from "./dns-handoff";
 import { OwnershipCheck } from "./ownership-check";
+import { RouteList } from "./route-list";
 import { SetupRail } from "./setup-rail";
 import { slugFrom } from "./workspace-setup";
 
@@ -59,6 +71,15 @@ interface Added {
   dmarc: { host: string; value: string; notes: string[] } | null;
   dmarcFailed: boolean;
 }
+
+/** The steps from an added domain to a measured one, as stations on one line. */
+const ROUTE: Array<{ name: string; kind: string }> = [
+  { name: "Add the domain", kind: "A client, and the domain in the From address of its mail." },
+  { name: "Publish two TXT records", kind: "One proves you manage the domain. One starts DMARC reporting with p=none, which blocks nothing." },
+  { name: "Check DNS", kind: "Here or on the setup page. Waiting a while for DNS is normal." },
+  { name: "Reports arrive", kind: "Usually within 24 to 48 hours of the DMARC record going live." },
+  { name: "The portfolio fills in", kind: "Each domain with its posture, and the most urgent at the top." },
+];
 
 export function FirstDomain({
   organizationId,
@@ -158,18 +179,24 @@ export function FirstDomain({
         : []),
     ];
     return (
-      <section aria-labelledby={`${ids}-done`} data-testid="state-empty" className="flex flex-col gap-8">
+      <section aria-labelledby={`${ids}-done`} data-testid="state-empty" className="flex flex-col gap-10">
         <SetupRail current="records" />
-        <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="flex min-w-0 flex-col gap-6">
-            <div className="[animation:hb-rise_240ms_ease-out]">
-              <p className="legend text-ok!">Added to {added.clientName}</p>
-              <h2 id={`${ids}-done`} className="data mt-1 break-all text-[26px] font-semibold tracking-[-0.03em] text-fg">
+        <div className="grid gap-12 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="flex min-w-0 flex-col gap-7">
+            <div>
+              <p className="flex items-center gap-2 text-ui text-fg-2">
+                <span aria-hidden className="block size-2 bg-ok" />
+                <span>
+                  <span className="font-semibold text-ok">Added</span> to {added.clientName}
+                </span>
+              </p>
+              <h2 id={`${ids}-done`} className="data mt-1.5 break-all text-[26px] font-semibold leading-[32px] tracking-[-0.03em] text-fg">
                 {added.name}
               </h2>
               <p className="mt-2 max-w-[64ch] text-body text-fg-2">
                 Publish {records.length === 1 ? "this record" : "these two records"} wherever {added.name}&rsquo;s DNS is
-                managed. Then check DNS here; reports usually start within 24 to 48 hours of the DMARC record going live.
+                managed, or send them to whoever manages it. Then check DNS here; reports usually start within 24 to 48
+                hours of the DMARC record going live.
               </p>
             </div>
             {added.dmarcFailed ? (
@@ -180,12 +207,12 @@ export function FirstDomain({
             <DnsHandoff domain={added.name} records={records} />
           </div>
 
-          <aside className="flex flex-col gap-5 self-start border-t border-rule pt-4 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
+          <aside className="flex flex-col gap-6 self-start border-t border-rule pt-5 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
             <div>
-              <p className="legend pb-2">Once it is published</p>
+              <p className="pb-2 text-ui font-semibold text-fg">Once it is published</p>
               <OwnershipCheck organizationId={organizationId} domainId={added.id} verified={false} refreshOnResult={false} />
             </div>
-            <div className="flex flex-col gap-2 border-t border-rule pt-4">
+            <div className="flex flex-col gap-2 border-t border-rule pt-5">
               <ButtonLink href={onboardingHref(added.slug)} variant="primary" data-testid="continue-setup">
                 Continue on the setup page
                 <ArrowRight size={14} />
@@ -211,15 +238,15 @@ export function FirstDomain({
   }
 
   return (
-    <section aria-labelledby={`${ids}-head`} data-testid="state-empty" className="flex flex-col gap-8">
+    <section aria-labelledby={`${ids}-head`} data-testid="state-empty" className="flex flex-col gap-10">
       <SetupRail current="domain" />
-      <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_340px]">
-        <form onSubmit={submit} className="flex max-w-[560px] flex-col gap-5">
+      <div className="grid gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,380px)]">
+        <form onSubmit={submit} className="flex max-w-[540px] flex-col gap-5">
           <div>
-            <h2 id={`${ids}-head`} className="display text-[28px] leading-[1.05] text-fg">
+            <h2 id={`${ids}-head`} className="display text-[26px] leading-[30px] text-fg [text-wrap:balance]">
               {clients.length === 0 ? "Add your first client and domain" : "Add a domain to start measuring"}
             </h2>
-            <p className="mt-2 text-body text-fg-2">
+            <p className="mt-2.5 text-body text-fg-2">
               {clients.length === 0
                 ? `${workspaceName} is empty. Add your first client: a company whose mail domains you look after.`
                 : `${workspaceName} has no domains yet. Pick the client a domain belongs to, or add a new one.`}{" "}
@@ -228,80 +255,75 @@ export function FirstDomain({
           </div>
 
           {clients.length > 0 ? (
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor={`${ids}-client`} className="text-meta font-semibold text-fg-2">
-                Client
-              </label>
-              <select
-                id={`${ids}-client`}
-                value={clientChoice}
-                onChange={(e) => setClientChoice(e.target.value)}
-                className="h-10 rounded-ctl border border-rule-2 bg-paper-2 px-3 text-body text-fg focus-visible:border-act focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-act-line"
-              >
+            <Field label="Client">
+              <Select size="lg" value={clientChoice} onChange={(e) => setClientChoice(e.target.value)} className="w-full">
                 {clients.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
                   </option>
                 ))}
                 <option value="new">A new client…</option>
-              </select>
-            </div>
+              </Select>
+            </Field>
           ) : null}
 
           {isNew ? (
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor={`${ids}-name`} className="text-meta font-semibold text-fg-2">
-                Client name
-              </label>
-              <input
-                id={`${ids}-name`}
+            <Field label="Client name" hint="The company, as you would name it to a colleague.">
+              <Input
+                size="lg"
                 value={clientName}
                 onChange={(e) => setClientName(e.target.value)}
                 required
                 minLength={2}
                 maxLength={120}
-                placeholder="The company, as you would name it to a colleague"
+                placeholder="Pellowyn Dental"
                 autoFocus={clients.length === 0}
-                className="h-10 rounded-ctl border border-rule-2 bg-paper-2 px-3 text-body text-fg placeholder:text-fg-4 focus-visible:border-act focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-act-line"
               />
-            </div>
+            </Field>
           ) : null}
 
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor={`${ids}-domain`} className="text-meta font-semibold text-fg-2">
-              Domain
-            </label>
-            <input
-              id={`${ids}-domain`}
+          <Field
+            label="Domain"
+            hint={
+              <span aria-live="polite">
+                {rawDomain.trim() === "" ? (
+                  "The domain in the From address of their mail. A URL or an email address works too."
+                ) : !domainOk ? (
+                  <span className="text-warn">That does not look like a domain yet.</span>
+                ) : cleaned ? (
+                  <>
+                    Will add <span className="data font-semibold text-fg">{domain}</span>
+                  </>
+                ) : (
+                  "Looks right."
+                )}
+              </span>
+            }
+          >
+            <Input
+              size="lg"
+              mono
               value={rawDomain}
               onChange={(e) => setRawDomain(e.target.value)}
               required
               inputMode="url"
               autoCapitalize="none"
               spellCheck={false}
-              placeholder="client.example"
-              aria-invalid={(rawDomain.trim() !== "" && !domainOk) || undefined}
-              className="data h-10 rounded-ctl border border-rule-2 bg-paper-2 px-3 text-body text-fg placeholder:text-fg-4 focus-visible:border-act focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-act-line aria-[invalid=true]:border-fail"
+              placeholder="pellowyn-dental.example"
             />
-            <p className="min-h-4 text-meta text-fg-3" aria-live="polite">
-              {rawDomain.trim() === "" ? (
-                "The domain in the From address of their mail. A URL or an email address works too."
-              ) : !domainOk ? (
-                <span className="text-warn">That does not look like a domain yet.</span>
-              ) : cleaned ? (
-                <>
-                  Will add <span className="data font-semibold text-fg">{domain}</span>
-                </>
-              ) : (
-                "Looks right."
-              )}
-            </p>
-          </div>
+          </Field>
 
           {error ? <Notice tone="fail" title={error} /> : null}
 
-          <div className="flex flex-wrap items-center gap-3">
-            <Button type="submit" variant="primary" size="lg" busy={busy} busyLabel="Adding the domain" disabled={!domainOk || (isNew && clientName.trim().length < 2)}>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-3 pt-1">
+            <Button
+              type="submit"
+              variant="primary"
+              size="lg"
+              busy={busy}
+              busyLabel="Adding the domain"
+              disabled={!domainOk || (isNew && clientName.trim().length < 2)}
+            >
               Add and get the records
             </Button>
             <Link href="/clients" className="link text-ui">
@@ -310,25 +332,14 @@ export function FirstDomain({
           </div>
         </form>
 
-        <aside className="flex flex-col gap-4 self-start border-t border-rule pt-4 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
-          <p className="legend">What happens next</p>
-          <ol className="flex flex-col gap-3 text-ui">
-            {[
-              ["Publish two TXT records", "One proves you manage the domain. One starts DMARC reporting with p=none, which blocks nothing."],
-              ["Check DNS", "Here or on the setup page. Waiting a while for DNS is normal."],
-              ["Reports arrive", "Usually within 24 to 48 hours. The portfolio fills in with each domain's posture."],
-            ].map(([k, v], i) => (
-              <li key={k} className="grid grid-cols-[22px_minmax(0,1fr)] gap-2">
-                <span className="tnum font-bold text-fg-3">{i + 1}</span>
-                <span>
-                  <span className="block font-semibold text-fg">{k}</span>
-                  <span className="text-fg-2">{v}</span>
-                </span>
-              </li>
-            ))}
-          </ol>
+        <aside aria-labelledby={`${ids}-route`} className="flex flex-col gap-5 self-start border-t border-rule pt-6 lg:border-t-0 lg:pt-1">
+          <p id={`${ids}-route`} className="text-ui font-semibold text-fg">
+            From here to a measured domain
+          </p>
+          {/* The first station is where the reader is; the rest is planned, the portfolio its terminus. */}
+          <RouteList steps={ROUTE} here={0} />
           {limits ? (
-            <p className="border-t border-rule pt-3 text-meta text-fg-3">
+            <p className="border-t border-rule pt-4 text-meta text-fg-3">
               The <span className="font-semibold text-fg-2">{limits.plan}</span> plan allows{" "}
               <span className="tnum">{limits.maxClients}</span> client{limits.maxClients === 1 ? "" : "s"} and{" "}
               <span className="tnum">{limits.maxActiveDomains}</span> active domain{limits.maxActiveDomains === 1 ? "" : "s"}.
@@ -339,3 +350,4 @@ export function FirstDomain({
     </section>
   );
 }
+

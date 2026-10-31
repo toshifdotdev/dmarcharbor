@@ -4,14 +4,17 @@
  * api-keys.tsx — issuing keys for the public API, and revoking them.
  *
  * Revocation is the decision that matters. A key acts with this workspace's
- * data for as long as it exists, so the page leads with what is live and when
- * each was last used: a key nobody has used in months is a key nobody will miss.
- * Revoking is immediate and permanent, and the confirmation says what stops.
+ * data for as long as it exists, so the page leads with the figures that pick
+ * out the keys to revoke (never used, able to change data, about to expire),
+ * then the live keys with when each was last used: a key nobody has used in
+ * months is a key nobody will miss. Revoking is immediate and permanent, and
+ * the confirmation says what stops.
  *
  * Issuing: the full key comes back once (only its hash is stored), so it is
  * shown once, with the API's own warning, until the person says it is stored.
  * There is no rotate endpoint; rotation is issue, switch, revoke, and the page
- * says that rather than offering a button that does less than it claims.
+ * draws those three stops rather than offering a button that does less than
+ * it claims.
  *
  * Test hooks: key-name, key-create, key-issued, key-dismiss, key-revoke.
  */
@@ -27,9 +30,11 @@ import { Checkbox } from "@/components/ui/choice";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
+import { Readout, ReadoutStrip } from "@/components/ui/readout";
 import { UpgradeNotice } from "@/components/ui/states";
 import { Table, TBody, Td, TEmptyRow, Th, THead, Tr } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
+import { SetupSteps } from "./lines";
 import { OnceSecret, Panel } from "./parts";
 
 export interface KeyView {
@@ -75,6 +80,9 @@ export function ApiKeysBoard({
   const toast = useToast();
   const live = keys.filter((k) => k.state === "live");
   const ended = keys.filter((k) => k.state !== "live");
+  const neverUsed = live.filter((k) => !k.lastUsedLabel).length;
+  const canWrite = live.filter((k) => k.scopes.includes("write")).length;
+  const expiringSoon = live.filter((k) => k.daysLeft !== null && k.daysLeft <= 30).length;
 
   const [name, setName] = useState("");
   const [read, setRead] = useState(true);
@@ -169,13 +177,32 @@ export function ApiKeysBoard({
         </OnceSecret>
       ) : null}
 
+      {live.length > 0 ? (
+      <ReadoutStrip>
+        <Readout label="Live keys" value={live.length} note="Each acts for the whole workspace." />
+        <Readout
+          label="Never used"
+          value={neverUsed}
+          tone={neverUsed > 0 ? "warn" : undefined}
+          note={neverUsed > 0 ? "Revoke any that nobody claims." : "Every live key has been used."}
+        />
+        <Readout label="Can change data" value={canWrite} note="Create clients and domains, run scans, acknowledge." />
+        <Readout
+          label="Expire within 30 days"
+          value={expiringSoon}
+          tone={expiringSoon > 0 ? "warn" : undefined}
+          note={expiringSoon > 0 ? "Issue a replacement before they stop." : "None about to stop."}
+        />
+      </ReadoutStrip>
+      ) : null}
+
       <Panel
         id="keys-live"
         title="Keys that work now"
         why="Each one reaches this workspace's data until it is revoked or expires. Revoke any key you cannot name the owner of."
         aside={`${live.length} live`}
       >
-        <Table caption="Live API keys" minWidth={760}>
+        <Table caption="Live API keys" minWidth={680}>
           <THead>
             <tr>
               <Th>Name</Th>
@@ -205,14 +232,14 @@ export function ApiKeysBoard({
                   <Td>
                     {k.lastUsedLabel ? (
                       <>
-                        {k.lastUsedLabel}
+                        <span className="tnum">{k.lastUsedLabel}</span>
                         {k.lastUsedIp ? <span className="data block text-meta text-fg-3">{k.lastUsedIp}</span> : null}
                       </>
                     ) : (
-                      <span className="text-fg-3">Never used</span>
+                      <span className="font-semibold text-warn">Never used</span>
                     )}
                   </Td>
-                  <Td className="whitespace-nowrap">
+                  <Td className="tnum whitespace-nowrap">
                     {k.expiresLabel ?? <span className="text-fg-3">not recorded</span>}
                     {k.daysLeft !== null && k.daysLeft <= 30 ? (
                       <span className="block text-meta font-semibold text-warn">
@@ -223,14 +250,14 @@ export function ApiKeysBoard({
                   <Td align="right">
                     <Button
                       size="sm"
-                      variant="danger"
+                      variant="secondary"
                       onClick={() => {
                         setRevokeError(null);
                         setRevoking(k);
                       }}
                       data-testid="key-revoke"
                     >
-                      Revoke
+                      Revoke…
                     </Button>
                   </Td>
                 </Tr>
@@ -238,72 +265,85 @@ export function ApiKeysBoard({
             )}
           </TBody>
         </Table>
-        <p className="text-meta text-fg-3">
-          To rotate a key: issue a new one, switch the integration to it, then revoke the old one. Until the last step both
-          work, so nothing breaks in between.
-        </p>
       </Panel>
 
-      <Panel id="keys-issue" title="Issue a key" why="Name it after the system that will hold it, so the list above says who to ask before revoking.">
-        {!canIssue ? (
-          <p className="text-ui text-fg-2">
-            Only the workspace owner issues keys, because a key acts with the whole workspace&rsquo;s access. You can revoke
-            any key above.
-          </p>
-        ) : issuing === false ? (
-          <UpgradeNotice
-            message="Issuing API keys is not included in this workspace's plan."
-            feature="api.access"
-            context="Keys issued before stay listed above and can still be revoked."
+      <div className="grid gap-x-12 gap-y-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,17rem)]">
+        <Panel id="keys-issue" title="Issue a key" why="Name it after the system that will hold it, so the list above says who to ask before revoking.">
+          {!canIssue ? (
+            <p className="text-ui text-fg-2">
+              Only the workspace owner issues keys, because a key acts with the whole workspace&rsquo;s access. You can revoke
+              any key above.
+            </p>
+          ) : issuing === false ? (
+            <UpgradeNotice
+              message="Issuing API keys is not included in this workspace's plan."
+              feature="api.access"
+              context="Keys issued before stay listed above and can still be revoked."
+            />
+          ) : (
+            <form onSubmit={issue} className="grid max-w-[640px] gap-4">
+              <Field label="Name" hint="Three to eighty characters. Two live keys cannot share a name.">
+                <Input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  maxLength={80}
+                  placeholder="PSA sync, nightly"
+                  data-testid="key-name"
+                  autoComplete="off"
+                />
+              </Field>
+              <fieldset className="flex flex-col gap-2.5">
+                <legend className="mb-1 text-meta font-semibold text-fg-2">What it may do</legend>
+                <Checkbox checked={read} onChange={(e) => setRead(e.target.checked)} label="Read" hint="List clients and domains, read a domain's scans, reports, senders, policy readiness and TLS summary, and read alerts and DNS changes." />
+                <Checkbox
+                  checked={write}
+                  onChange={(e) => setWrite(e.target.checked)}
+                  label="Change"
+                  hint="Create clients and domains, run a scan, and acknowledge alerts and DNS changes. Give this only to a system that needs it: a leaked key that can write can add domains under your plan."
+                />
+                {scopes.length === 0 ? <p className="text-meta font-medium text-fail">Choose at least one.</p> : null}
+              </fieldset>
+              <Field label="Stops working after" hint="A key with an end date fails safe if it is forgotten.">
+                <Select value={String(days)} onChange={(e) => setDays(Number(e.target.value))} className="w-full max-w-[320px]">
+                  {EXPIRY.map((o) => (
+                    <option key={o.days} value={o.days}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <ActionRefusal error={error} />
+              <div>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  busy={busy}
+                  busyLabel="Issuing the key"
+                  disabled={!nameOk || scopes.length === 0}
+                  data-testid="key-create"
+                >
+                  Issue key
+                </Button>
+              </div>
+            </form>
+          )}
+        </Panel>
+
+        <div className="flex flex-col gap-6 lg:pt-1">
+          <SetupSteps
+            title="Rotating a key"
+            steps={[
+              { key: "issue", name: "Issue a new key", detail: "Name it for the same system." },
+              { key: "switch", name: "Switch the integration to it", detail: "Both keys work in between, so nothing breaks." },
+              { key: "revoke", name: "Revoke the old one", detail: "Requests with it are refused from then on." },
+            ]}
           />
-        ) : (
-          <form onSubmit={issue} className="grid max-w-[640px] gap-4">
-            <Field label="Name" hint="Three to eighty characters. Two live keys cannot share a name.">
-              <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                maxLength={80}
-                placeholder="PSA sync, nightly"
-                data-testid="key-name"
-                autoComplete="off"
-              />
-            </Field>
-            <fieldset className="flex flex-col gap-2">
-              <legend className="mb-1 text-meta font-semibold text-fg-2">What it may do</legend>
-              <Checkbox checked={read} onChange={(e) => setRead(e.target.checked)} label="Read" hint="List clients and domains, read a domain's scans, reports, senders, policy readiness and TLS summary, and read alerts and DNS changes." />
-              <Checkbox
-                checked={write}
-                onChange={(e) => setWrite(e.target.checked)}
-                label="Change"
-                hint="Create clients and domains, run a scan, and acknowledge alerts and DNS changes. Give this only to a system that needs it: a leaked key that can write can add domains under your plan."
-              />
-              {scopes.length === 0 ? <p className="text-meta font-medium text-fail">Choose at least one.</p> : null}
-            </fieldset>
-            <Field label="Stops working after" hint="A key with an end date fails safe if it is forgotten.">
-              <Select value={String(days)} onChange={(e) => setDays(Number(e.target.value))} className="w-full max-w-[320px]">
-                {EXPIRY.map((o) => (
-                  <option key={o.days} value={o.days}>
-                    {o.label}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <ActionRefusal error={error} />
-            <div>
-              <Button
-                type="submit"
-                variant="primary"
-                busy={busy}
-                busyLabel="Issuing the key"
-                disabled={!nameOk || scopes.length === 0}
-                data-testid="key-create"
-              >
-                Issue key
-              </Button>
-            </div>
-          </form>
-        )}
-      </Panel>
+          <p className="text-meta text-fg-3">
+            Send a key as <code className="data text-fg-2">Authorization: Bearer &lt;key&gt;</code> to the API under{" "}
+            <code className="data text-fg-2">/api/v1</code>.
+          </p>
+        </div>
+      </div>
 
       {ended.length > 0 ? (
         <Panel
@@ -318,23 +358,38 @@ export function ApiKeysBoard({
             ) : null
           }
         >
-          <ul className="flex flex-col">
-            {ended.map((k) => (
-              <li key={k.id} className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-rule py-2 text-ui">
-                <span className="font-semibold text-fg-2">{k.name}</span>
-                <span className="data text-meta text-fg-3">{k.prefix}…</span>
-                <span className="text-meta text-fg-3">
-                  {k.state === "revoked" ? `Revoked ${k.endedLabel ?? ""}` : `Expired ${k.expiresLabel ?? ""}`}
-                </span>
-                <span className="flex-1" />
-                {k.state === "revoked" && canIssue ? (
-                  <button type="button" className="link text-meta" onClick={() => removeRecord(k)}>
-                    Remove record
-                  </button>
-                ) : null}
-              </li>
-            ))}
-          </ul>
+          <Table caption="Revoked and expired API keys" minWidth={560} dense>
+            <THead>
+              <tr>
+                <Th>Name</Th>
+                <Th>Key starts</Th>
+                <Th>Ended</Th>
+                <Th align="right">
+                  <span className="sr-only">Action</span>
+                </Th>
+              </tr>
+            </THead>
+            <TBody>
+              {ended.map((k) => (
+                <Tr key={k.id}>
+                  <Td className="font-semibold text-fg-2">{k.name}</Td>
+                  <Td mono muted className="whitespace-nowrap text-meta">
+                    {k.prefix}…
+                  </Td>
+                  <Td muted className="tnum text-meta">
+                    {k.state === "revoked" ? `Revoked ${k.endedLabel ?? ""}` : `Expired ${k.expiresLabel ?? ""}`}
+                  </Td>
+                  <Td align="right">
+                    {k.state === "revoked" && canIssue ? (
+                      <Button size="sm" variant="ghost" onClick={() => removeRecord(k)}>
+                        Remove record
+                      </Button>
+                    ) : null}
+                  </Td>
+                </Tr>
+              ))}
+            </TBody>
+          </Table>
           {cleanup ? <Notice tone="info" title={cleanup} /> : null}
         </Panel>
       ) : null}

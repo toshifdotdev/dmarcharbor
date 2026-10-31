@@ -27,7 +27,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { Field, Input } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
-import { Panel } from "@/components/harbor/settings/parts";
+import { Panel, StateMark, StepLine, type StepState } from "@/components/harbor/settings/parts";
 
 type Phase =
   | "idle"
@@ -41,15 +41,34 @@ function workspaceNames(security: MySecurity): string {
   return security.requiredBy.map((workspace) => workspace.name).join(", ");
 }
 
+/** Where the setup is, as stations on one line. */
+function SetupSteps({ at }: { at: 1 | 2 | 3 | 4 }) {
+  const state = (n: number): StepState => (n < at ? "done" : n === at ? "current" : "planned");
+  return (
+    <StepLine
+      label="Two-step verification setup"
+      steps={[
+        { key: "password", title: "Confirm your password", state: state(1) },
+        { key: "scan", title: "Add it to your app", state: state(2) },
+        { key: "code", title: "Enter a code", state: state(3) },
+        { key: "codes", title: "Save backup codes", state: state(4) },
+      ]}
+    />
+  );
+}
+
 export function AccountSecurityBoard({
   initial,
   email,
   requiredArrival,
+  serviceName = "this service",
 }: {
   initial: MySecurity;
   email: string | null;
   /** True when the workspace gate sent the person here. */
   requiredArrival: boolean;
+  /** The product's name as this host shows it (readHostBrand), never hard-coded. */
+  serviceName?: string;
 }) {
   const router = useRouter();
   const [security, setSecurity] = useState(initial);
@@ -241,14 +260,21 @@ export function AccountSecurityBoard({
       ) : null}
 
       <Panel
-        title="Two-step verification"
+        title="Your authenticator app"
         why="A second step after your password. An authenticator app generates a six-digit code every 30 seconds; ten backup codes cover a lost phone."
         aside={
-          <span data-testid="mfa-status" className={security.twoFactorEnabled ? "font-semibold text-ok" : "font-semibold text-fg-2"}>
-            {security.twoFactorEnabled ? "On" : "Off"}
+          <span className="inline-flex items-center gap-1.5 text-ui">
+            <StateMark shape={security.twoFactorEnabled ? "square" : "closed"} tone={security.twoFactorEnabled ? "ok" : "void"} />
+            <span data-testid="mfa-status" className={security.twoFactorEnabled ? "font-semibold text-ok" : "font-semibold text-fg-2"}>
+              {security.twoFactorEnabled ? "On" : "Off"}
+            </span>
           </span>
         }
       >
+        {phase === "setup-password" ? <SetupSteps at={1} /> : null}
+        {phase === "setup-scan" ? <SetupSteps at={2} /> : null}
+        {phase === "setup-confirm" ? <SetupSteps at={3} /> : null}
+        {phase === "codes" && codesContext === "setup" ? <SetupSteps at={4} /> : null}
         {notice ? <Notice tone="ok" title={notice} /> : null}
         {error ? <Notice tone="fail" title={error} /> : null}
 
@@ -335,13 +361,20 @@ export function AccountSecurityBoard({
                 Scan this with your authenticator app, or add the setup key by hand. Then enter the six-digit code it shows.
               </p>
               {qrDataUrl ? (
-                <img data-testid="mfa-qr" src={qrDataUrl} alt="QR code that adds DMARC Harbor to an authenticator app" width={220} height={220} className="border border-rule bg-white p-2" />
+                <img
+                  data-testid="mfa-qr"
+                  src={qrDataUrl}
+                  alt={`QR code that adds ${serviceName} to an authenticator app`}
+                  width={220}
+                  height={220}
+                  className="rounded-ctl border border-rule bg-white p-2"
+                />
               ) : (
                 <p className="text-meta text-fg-3">Preparing the QR code…</p>
               )}
               <div>
                 <p className="legend">Setup key</p>
-                <code data-testid="mfa-setup-key" className="data mt-1 block break-all border border-rule bg-paper-3 px-2.5 py-2 text-meta text-fg">
+                <code data-testid="mfa-setup-key" className="data mt-1 block max-w-[460px] break-all rounded-ctl border border-rule bg-paper-3 px-2.5 py-2 text-meta text-fg">
                   {setupKey}
                 </code>
               </div>
@@ -381,7 +414,7 @@ export function AccountSecurityBoard({
                 backup codes at the end.
               </p>
               <p className="max-w-[72ch] text-meta text-fg-3">
-                Once it is on, Google and Microsoft sign-in is turned off for this account, because DMARC Harbor cannot
+                Once it is on, Google and Microsoft sign-in is turned off for this account, because {serviceName} cannot
                 see whether they asked for a second step. Sign in with your email, password and authenticator instead.
               </p>
               <div>
@@ -407,7 +440,7 @@ export function AccountSecurityBoard({
             ) : null}
             <p className="max-w-[72ch] text-meta text-fg-3">
               Once two-step verification is on, Google and Microsoft sign-in is turned off for this account, because
-              DMARC Harbor cannot see whether they asked for a second step.
+              {` ${serviceName} `}cannot see whether they asked for a second step.
             </p>
             {email ? (
               <div className="flex flex-wrap items-center gap-3">
@@ -426,7 +459,7 @@ export function AccountSecurityBoard({
           title={codesContext === "regenerate" ? "Your new backup codes" : "Save your backup codes"}
           why="Each code signs you in once. They are shown only now. Store them somewhere separate from your password."
         >
-          <ol data-testid="mfa-backup-list" className="data grid max-w-[460px] grid-cols-2 gap-x-8 gap-y-1 border border-rule bg-paper-3 px-4 py-3 text-ui text-fg">
+          <ol data-testid="mfa-backup-list" className="data grid max-w-[460px] grid-cols-2 gap-x-8 gap-y-1 rounded-ctl border border-rule bg-paper-3 px-4 py-3 text-ui text-fg">
             {codes.map((backup) => (
               <li key={backup}>{backup}</li>
             ))}

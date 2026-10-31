@@ -20,6 +20,8 @@ import Link from "next/link";
 import { useActionState, useState } from "react";
 import { clsx } from "clsx";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/choice";
+import { Input } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 
 export type WorkspaceFormState = {
@@ -59,15 +61,18 @@ export function WorkspaceSetup({
   const slugValid = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(effectiveSlug);
   const allTicked = ticks.tos && ticks.read && ticks.auth;
 
+  const left = 3 - Number(ticks.tos) - Number(ticks.read) - Number(ticks.auth);
+
   return (
     <form action={formAction} className="flex flex-col gap-6">
       <div className="flex flex-col gap-1.5">
         <label htmlFor="ws-name" className="text-meta font-semibold text-fg-2">
           Workspace name
         </label>
-        <input
+        <Input
           id="ws-name"
           name="name"
+          size="lg"
           required
           minLength={2}
           maxLength={80}
@@ -76,18 +81,22 @@ export function WorkspaceSetup({
           placeholder="Your agency's name"
           autoFocus
           aria-invalid={state.field === "name" || undefined}
-          className="h-10 w-full rounded-ctl border border-rule-2 bg-paper-2 px-3 text-body text-fg placeholder:text-fg-4 hover:border-fg-4 focus-visible:border-act focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-act-line aria-[invalid=true]:border-fail"
+          aria-describedby="ws-name-hint"
         />
-        <p className="text-meta text-fg-3">Usually your agency or MSP. Clients and their domains live inside it.</p>
+        <p id="ws-name-hint" className="text-meta text-fg-3">
+          Usually your agency or MSP. Clients and their domains live inside it.
+        </p>
       </div>
 
       <div className="flex flex-col gap-1.5">
         <label htmlFor="ws-slug" className="text-meta font-semibold text-fg-2">
           Slug
         </label>
-        <input
+        <Input
           id="ws-slug"
           name="slug"
+          size="lg"
+          mono
           required
           minLength={2}
           pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
@@ -97,10 +106,10 @@ export function WorkspaceSetup({
             setSlug(e.target.value.toLowerCase());
           }}
           aria-invalid={state.field === "slug" || (effectiveSlug.length > 0 && !slugValid) || undefined}
+          aria-describedby="ws-slug-hint"
           spellCheck={false}
-          className="data h-10 w-full rounded-ctl border border-rule-2 bg-paper-2 px-3 text-body text-fg hover:border-fg-4 focus-visible:border-act focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-act-line aria-[invalid=true]:border-fail"
         />
-        <p className="text-meta text-fg-3">
+        <p id="ws-slug-hint" className={clsx("text-meta", effectiveSlug.length > 0 && !slugValid ? "text-fail" : "text-fg-3")}>
           {effectiveSlug.length > 0 && !slugValid
             ? "Lowercase letters, digits and single hyphens only."
             : slugTouched
@@ -109,26 +118,52 @@ export function WorkspaceSetup({
         </p>
       </div>
 
-      <fieldset className="flex flex-col gap-3 border-t border-rule pt-5">
+      <fieldset className="flex flex-col gap-3.5 border-t border-rule pt-5">
         <legend className="sr-only">Agreements</legend>
-        <p className="text-ui font-semibold text-fg">Before the workspace is created</p>
-        <Tick name="tos-accept" checked={ticks.tos} onChange={(v) => setTicks((t) => ({ ...t, tos: v }))} invalid={state.field === "tos"}>
-          I have read and accept the{" "}
-          <Link href="/terms" target="_blank" className="link">
-            Terms of Service
-          </Link>
-          .
-        </Tick>
-        <Tick name="dpa-accept" checked={ticks.read} onChange={(v) => setTicks((t) => ({ ...t, read: v }))} invalid={state.field === "dpa"}>
-          I have read and accept the{" "}
-          <Link href="/dpa" target="_blank" className="link">
-            Data Processing Agreement
-          </Link>
-          .
-        </Tick>
-        <Tick name="dpa-authorised" checked={ticks.auth} onChange={(v) => setTicks((t) => ({ ...t, auth: v }))} invalid={state.field === "dpa"}>
-          I am authorised to accept these on behalf of this organisation.
-        </Tick>
+        <p className="text-ui">
+          <span className="font-bold text-fg">Before the workspace is created</span>{" "}
+          <span className="text-fg-3">three boxes, none ticked for you</span>
+        </p>
+        <Checkbox
+          name="tos-accept"
+          required
+          checked={ticks.tos}
+          onChange={(e) => setTicks((t) => ({ ...t, tos: e.target.checked }))}
+          aria-invalid={(state.field === "tos" && !ticks.tos) || undefined}
+          label={
+            <>
+              I have read and accept the{" "}
+              <Link href="/terms" target="_blank" className="link">
+                Terms of Service
+              </Link>
+              .
+            </>
+          }
+        />
+        <Checkbox
+          name="dpa-accept"
+          required
+          checked={ticks.read}
+          onChange={(e) => setTicks((t) => ({ ...t, read: e.target.checked }))}
+          aria-invalid={(state.field === "dpa" && !ticks.read) || undefined}
+          label={
+            <>
+              I have read and accept the{" "}
+              <Link href="/dpa" target="_blank" className="link">
+                Data Processing Agreement
+              </Link>
+              .
+            </>
+          }
+        />
+        <Checkbox
+          name="dpa-authorised"
+          required
+          checked={ticks.auth}
+          onChange={(e) => setTicks((t) => ({ ...t, auth: e.target.checked }))}
+          aria-invalid={(state.field === "dpa" && !ticks.auth) || undefined}
+          label="I am authorised to accept these on behalf of this organisation."
+        />
         <p className="text-meta text-fg-3">
           Both documents open in a new tab. The acceptance is recorded against this workspace with the document version.
         </p>
@@ -137,7 +172,7 @@ export function WorkspaceSetup({
       {state.error ? <Notice tone="fail" title={state.error} /> : null}
       {disableSubmit && limitReason ? <Notice tone="warn" title={limitReason} /> : null}
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <Button
           type="submit"
           variant="primary"
@@ -149,47 +184,11 @@ export function WorkspaceSetup({
           {disableSubmit ? "Workspace limit reached" : "Create workspace"}
         </Button>
         {!allTicked && !disableSubmit ? (
-          <span className="text-meta text-fg-3">
-            {3 - Number(ticks.tos) - Number(ticks.read) - Number(ticks.auth)} box
-            {3 - Number(ticks.tos) - Number(ticks.read) - Number(ticks.auth) === 1 ? "" : "es"} left to tick
+          <span className="tnum text-meta text-fg-3">
+            {left} box{left === 1 ? "" : "es"} left to tick
           </span>
         ) : null}
       </div>
     </form>
-  );
-}
-
-function Tick({
-  name,
-  checked,
-  onChange,
-  invalid,
-  children,
-}: {
-  name: string;
-  checked: boolean;
-  onChange: (v: boolean) => void;
-  invalid?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className={clsx("flex cursor-pointer items-start gap-2.5 text-ui text-fg-2", invalid && !checked && "text-fail")}>
-      <span className="relative mt-[2px] grid size-4 shrink-0 place-items-center">
-        <input
-          type="checkbox"
-          name={name}
-          required
-          checked={checked}
-          onChange={(e) => onChange(e.target.checked)}
-          className="peer size-4 appearance-none rounded-[3px] border border-rule-2 bg-paper-2 checked:border-act checked:bg-act hover:border-fg-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-act"
-        />
-        {checked ? (
-          <svg viewBox="0 0 16 16" className="hb-draw-check pointer-events-none absolute size-3 text-act-ink" aria-hidden>
-            <path d="M3.5 8.5 6.5 11.5 12.5 4.5" fill="none" stroke="currentColor" strokeWidth="2" />
-          </svg>
-        ) : null}
-      </span>
-      <span>{children}</span>
-    </label>
   );
 }

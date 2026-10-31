@@ -1,0 +1,81 @@
+/*
+ * verify.module.css — the public document check, in the Routes language
+ * (.kiro/steering/design-system.md).
+ *
+ * The check is drawn as a short route: the reference is the origin, the
+ * SHA-256 of the file is the station, and a copy whose bytes match ends at
+ * the terminus. A changed copy is turned away on a dashed red line to a short
+ * red bar, the way the home page turns away a forged sender. Ink, white and
+ * that one red; nothing else.
+ */
+
+.map {
+  display: block;
+  width: 100%;
+  max-width: 300px;
+  height: auto;
+  overflow: visible;
+}
+
+.line {
+  fill: none;
+  stroke: var(--color-fg);
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+
+.branch {
+  fill: none;
+  stroke: var(--color-fail);
+  stroke-width: 5;
+  stroke-dasharray: 8 6;
+  stroke-linejoin: round;
+}
+
+.origin,
+.station {
+  fill: #ffffff;
+  stroke: var(--color-fg);
+  stroke-width: 3;
+}
+
+.bar {
+  fill: var(--color-fail);
+}
+
+.lbl {
+  fill: var(--color-fg);
+  font-family: var(--font-ui);
+  font-size: 14px;
+}
+
+.name {
+  font-weight: 700;
+}
+
+.kind {
+  fill: var(--color-fg-4);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.lbl[data-fail] .name {
+  fill: var(--color-fail);
+}
+
+/* A digest, set in groups of eight so two can be compared by eye. The groups
+   are spaced by margin, not by characters, so the copied and searched text is
+   the digest exactly. */
+.digest {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 0;
+}
+
+.digest > span {
+  margin-right: 0.6ch;
+}
+
+.digest > span:last-child {
+  margin-right: 0;
+}

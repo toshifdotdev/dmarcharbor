@@ -4,11 +4,16 @@
  * client-book.tsx — the client book: every client, its domains, and where each
  * domain stands in setup.
  *
- * One table, grouped by client, because an operator scans it like a ledger:
- * the client's name, then its domains beneath, each with its ownership state
- * and the DMARC policy last read from DNS. Two things narrow it at once: a
- * filter over client and domain names, and "Needs DNS work", which leaves only
- * the domains whose ownership record is not live yet: the morning's to-do list.
+ * One table, grouped by client, because an operator scans it like a ledger.
+ * Each client is drawn as a line, the way the map draws a sender: an origin at
+ * the client's name, and a station for each of its domains beneath, filled in
+ * ink once the ownership record is live and hollow until it is. The client's
+ * rua address sits under its name with a copy control, because handing that
+ * address to whoever runs a client's DNS is the most common job on this page.
+ *
+ * Two things narrow it at once: a filter over client and domain names, and
+ * "Needs DNS work", which leaves only the domains whose ownership record is
+ * not live yet: the morning's to-do list.
  *
  * Beside it, the two forms that build the book (client-forms.tsx). "Add
  * domains" on a client row points the domain form at that client and puts the
@@ -19,11 +24,17 @@
  * any, and reports back what the API says it removed. A client whose contact
  * still holds portal access is refused by the API; the refusal says where to
  * revoke it.
+ *
+ * Test hooks kept: client-usage, data-client-id, data-domain-id,
+ * copy-report-address-<id>, switch-domains-<id> (in the same row as the
+ * client's name), monthly-reports-<id>, delete-client, delete-client-confirm,
+ * delete-client-confirm-button, delete-client-error, state-empty.
  */
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { clsx } from "clsx";
 import {
   deleteClient,
   previewWorkspaceDeletion,
@@ -33,7 +44,6 @@ import {
 } from "@/lib/ops-client";
 import { domainHref, onboardingHref } from "@/lib/route-hrefs";
 import type { DomainStatus } from "@/lib/types";
-import { Badge, type Tone } from "@/components/ui/badge";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { CopyButton, DnsRecord } from "@/components/ui/copy";
 import { Dialog } from "@/components/ui/dialog";
@@ -42,6 +52,7 @@ import { External, Plus } from "@/components/ui/icons";
 import { Notice } from "@/components/ui/notice";
 import { Nil } from "@/components/ui/table";
 import { AddClient, AddDomains } from "./client-forms";
+import { PolicyStrip } from "./policy-strip";
 
 export interface DomainView {
   id: string;
@@ -63,10 +74,10 @@ export interface ClientView {
   domains: DomainView[];
 }
 
-const OWNERSHIP: Record<DomainStatus, { label: string; tone: Tone; hint: string }> = {
-  VERIFIED: { label: "Verified", tone: "ok", hint: "The ownership record is live." },
-  PENDING: { label: "Awaiting ownership record", tone: "warn", hint: "Publish the ownership TXT record, then check DNS on the setup page." },
-  FAILED: { label: "Ownership record gone", tone: "fail", hint: "It was verified, and the record has since been removed from DNS." },
+const OWNERSHIP: Record<DomainStatus, { label: string; hint: string }> = {
+  VERIFIED: { label: "Verified", hint: "The ownership record is live." },
+  PENDING: { label: "Awaiting ownership record", hint: "Publish the ownership TXT record, then check DNS on the setup page." },
+  FAILED: { label: "Ownership record gone", hint: "It was verified, and the record has since been removed from DNS." },
 };
 
 const SUMMARY_WORDS: Array<[keyof DeletionSummary, string, string]> = [
@@ -86,14 +97,20 @@ function summarise(s: DeletionSummary): string {
   return parts.length ? parts.join(", ") : "nothing else was attached";
 }
 
+/* The client line's geometry, in px from the cell's left edge. */
+const LINE = "left-[14.5px] w-[3px]";
+
 export function ClientBook({
   organizationId,
   clients,
   limits,
+  productName = "this service",
 }: {
   organizationId: string;
   clients: ClientView[];
   limits: { plan: string; maxClients: number; maxActiveDomains: number } | null;
+  /** The product's name as this host shows it (white label), for the deletion warnings. */
+  productName?: string;
 }) {
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<"all" | "dns">("all");
@@ -136,18 +153,13 @@ export function ClientBook({
   }
 
   return (
-    <div className="grid gap-x-10 gap-y-10 lg:grid-cols-[minmax(0,1fr)_340px]">
+    <div className="grid gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="flex min-w-0 flex-col gap-4">
         {limits ? (
-          <p className="flex flex-wrap gap-x-5 gap-y-1 text-meta text-fg-3" data-testid="client-usage">
-            <span>
-              Clients <span className="tnum font-semibold text-fg-2">{clients.length}</span> of{" "}
-              <span className="tnum">{limits.maxClients}</span>
-            </span>
-            <span>
-              Domains <span className="tnum font-semibold text-fg-2">{domainTotal}</span>; the {limits.plan} plan allows{" "}
-              <span className="tnum">{limits.maxActiveDomains}</span> active
-            </span>
+          <p className="tnum text-meta text-fg-3" data-testid="client-usage">
+            <span className="font-semibold text-fg-2">{clients.length}</span> of {limits.maxClients} clients and{" "}
+            <span className="font-semibold text-fg-2">{domainTotal}</span> domains; the {limits.plan} plan allows{" "}
+            {limits.maxActiveDomains} active domains.
           </p>
         ) : null}
 
@@ -158,16 +170,16 @@ export function ClientBook({
         ) : null}
 
         {clients.length === 0 ? (
-          <section role="status" data-testid="state-empty" className="border-y border-rule py-8">
-            <h2 className="text-h3 font-semibold text-fg">No clients yet</h2>
-            <p className="mt-1.5 max-w-[60ch] text-body text-fg-2">
+          <section role="status" data-testid="state-empty" className="flex flex-col gap-3 border-t border-rule pt-6">
+            <h2 className="text-h3 font-bold text-fg">No clients yet</h2>
+            <p className="max-w-[60ch] text-body text-fg-2">
               A client is a company whose mail domains you look after. Add the first one with the form beside this, then
               its domains: each one gets two records to publish, and the Portfolio fills in as reports arrive.
             </p>
           </section>
         ) : (
           <>
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <SearchInput
                 aria-label="Filter clients and domains"
                 placeholder="Filter clients and domains"
@@ -186,30 +198,30 @@ export function ClientBook({
                 ]}
               />
               {q || scope === "dns" ? (
-                <span className="text-meta text-fg-3" aria-live="polite">
+                <span className="tnum text-meta text-fg-3" aria-live="polite">
                   {visible.length} of {clients.length} client{clients.length === 1 ? "" : "s"}
                 </span>
               ) : null}
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] border-collapse border-y border-fg text-left text-ui">
+            <div className="relative overflow-x-auto">
+              <table className="w-full min-w-[720px] border-collapse text-left text-ui">
                 <caption className="sr-only">Clients and their domains</caption>
                 <thead className="border-b border-rule-2">
                   <tr>
-                    <th scope="col" className="legend px-2.5 py-2 font-semibold">
-                      Domain
+                    <th scope="col" className="legend py-2 pl-9 pr-2.5 align-bottom font-semibold">
+                      Client and domains
                     </th>
-                    <th scope="col" className="legend px-2.5 py-2 font-semibold">
+                    <th scope="col" className="legend w-[190px] px-2.5 py-2 align-bottom font-semibold">
                       Ownership
                     </th>
-                    <th scope="col" className="legend px-2.5 py-2 font-semibold">
+                    <th scope="col" className="legend w-[250px] px-2.5 py-2 align-bottom font-semibold">
                       Policy in DNS
                     </th>
-                    <th scope="col" className="legend px-2.5 py-2 font-semibold">
+                    <th scope="col" className="legend w-[104px] px-2.5 py-2 align-bottom font-semibold">
                       Added
                     </th>
-                    <th scope="col" className="px-2.5 py-2">
+                    <th scope="col" className="w-[130px] px-2.5 py-2">
                       <span className="sr-only">Actions</span>
                     </th>
                   </tr>
@@ -223,134 +235,25 @@ export function ClientBook({
                     </tr>
                   </tbody>
                 ) : (
-                  visible.map((c, ci) => (
-                    <tbody key={c.id} data-client-id={c.id} className="hb-stagger" style={{ "--i": Math.min(ci, 8) } as React.CSSProperties}>
-                      <tr className="border-b border-rule bg-paper-2/60">
-                        <th scope="rowgroup" colSpan={4} className="px-2.5 py-2.5 text-left">
-                          <span className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-                            <span className="text-body font-bold text-fg">{c.name}</span>
-                            <span className="data text-meta font-normal text-fg-3">{c.slug}</span>
-                            <span className="text-meta font-normal text-fg-3">
-                              <span className="tnum">{clients.find((x) => x.id === c.id)?.domains.length ?? 0}</span> domain
-                              {(clients.find((x) => x.id === c.id)?.domains.length ?? 0) === 1 ? "" : "s"}
-                            </span>
-                            {c.trustSlug ? (
-                              <a
-                                href={`/trust/${c.trustSlug}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="link inline-flex items-center gap-1 text-meta font-semibold"
-                              >
-                                Trust Center <External size={11} />
-                              </a>
-                            ) : null}
-                          </span>
-                          <span data-copy-scope className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-meta font-normal text-fg-3">
-                            <span className="legend">rua</span>
-                            <code data-copy-value className="data break-all text-fg">
-                              {c.reportAddress}
-                            </code>
-                            <CopyButton
-                              value={c.reportAddress}
-                              label={`Copy the report address for ${c.name}`}
-                              testId={`copy-report-address-${c.id}`}
-                            />
-                            <span>Put this address in rua for this client&rsquo;s domains.</span>
-                          </span>
-                        </th>
-                        <td className="whitespace-nowrap px-2.5 py-2 text-right">
-                          <ButtonLink
-                            href={`/clients/switch?client=${encodeURIComponent(c.id)}`}
-                            size="sm"
-                            variant="ghost"
-                            data-testid={`switch-domains-${c.id}`}
-                          >
-                            Switch domains from another provider
-                          </ButtonLink>
-                          <ButtonLink
-                            href={`/clients/reports?client=${encodeURIComponent(c.id)}`}
-                            size="sm"
-                            variant="ghost"
-                            data-testid={`monthly-reports-${c.id}`}
-                          >
-                            Monthly reports
-                          </ButtonLink>
-                          <Button size="sm" variant="ghost" onClick={() => addDomainsTo(c.id)} aria-label={`Add domains to ${c.name}`}>
-                            <Plus size={13} /> Add domains
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setRemoving(clients.find((x) => x.id === c.id) ?? c)}
-                            data-testid="delete-client"
-                            aria-label={`Delete ${c.name}`}
-                          >
-                            Delete
-                          </Button>
-                        </td>
-                      </tr>
-                      {c.domains.length === 0 ? (
-                        <tr className="border-b border-rule">
-                          <td colSpan={5} className="px-2.5 py-2.5 pl-6 text-meta text-fg-3">
-                            No domains yet.{" "}
-                            <button type="button" className="link font-semibold" onClick={() => addDomainsTo(c.id)}>
-                              Add the first
-                            </button>
-                          </td>
-                        </tr>
-                      ) : (
-                        c.domains.map((d) => {
-                          const own = OWNERSHIP[d.status];
-                          return (
-                            <tr
-                              key={d.id}
-                              data-domain-id={d.id}
-                              className="border-b border-rule align-baseline"
-                              style={d.status === "VERIFIED" ? undefined : { boxShadow: `inset 2px 0 0 var(--color-${d.status === "FAILED" ? "fail" : "warn-mark"})` }}
-                            >
-                              <td className="py-2 pl-6 pr-2.5">
-                                <Link
-                                  href={d.status === "VERIFIED" ? domainHref(d.slug) : onboardingHref(d.slug)}
-                                  className="data font-semibold text-fg hover:text-act hover:underline"
-                                >
-                                  {d.name}
-                                </Link>
-                              </td>
-                              <td className="px-2.5 py-2">
-                                <Badge tone={own.tone} title={own.hint}>
-                                  {own.label}
-                                </Badge>
-                              </td>
-                              <td className="px-2.5 py-2">
-                                {d.policy ? (
-                                  <span className="data text-meta text-fg" title={d.scannedLabel ? `Read from DNS on ${d.scannedLabel}` : undefined}>
-                                    p={d.policy}
-                                  </span>
-                                ) : (
-                                  <Nil label="not scanned yet" />
-                                )}
-                              </td>
-                              <td className="tnum whitespace-nowrap px-2.5 py-2 text-meta text-fg-3">{d.addedLabel ?? <Nil label="not recorded" />}</td>
-                              <td className="whitespace-nowrap px-2.5 py-2 text-right text-meta">
-                                <Link href={onboardingHref(d.slug)} className="link font-semibold">
-                                  Setup
-                                </Link>
-                                <span aria-hidden className="px-1.5 text-fg-4">
-                                  ·
-                                </span>
-                                <Link href={domainHref(d.slug)} className="link font-semibold">
-                                  Evidence
-                                </Link>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  ))
+                  visible.map((c) => {
+                    const all = clients.find((x) => x.id === c.id) ?? c;
+                    return (
+                      <ClientGroup
+                        key={c.id}
+                        client={c}
+                        total={all.domains.length}
+                        onAddDomains={() => addDomainsTo(c.id)}
+                        onDelete={() => setRemoving(all)}
+                      />
+                    );
+                  })
                 )}
               </table>
             </div>
+            <p className="max-w-[90ch] text-meta text-fg-3">
+              Each client&rsquo;s report address goes in the rua tag of the DMARC record on every domain under it.
+              Domains whose ownership record is not live yet open on their setup page.
+            </p>
           </>
         )}
       </div>
@@ -369,7 +272,7 @@ export function ClientBook({
             setTarget(c.id);
           }}
         />
-        <div className="border-t border-rule pt-6">
+        <div className="border-t border-rule pt-7">
           <AddDomains ref={domainInput} organizationId={organizationId} clients={choices} target={effectiveTarget} onTarget={setTarget} />
         </div>
       </div>
@@ -377,6 +280,7 @@ export function ClientBook({
       <DeleteClientDialog
         organizationId={organizationId}
         client={removing}
+        productName={productName}
         onClose={() => setRemoving(null)}
         onDeleted={(line) => {
           setRemoving(null);
@@ -387,14 +291,193 @@ export function ClientBook({
   );
 }
 
+/**
+ * One client: its heading row (origin, name, rua address, actions) and a row
+ * per domain, joined by the client's line. The switch link must stay in the
+ * heading row, the first row that names the client.
+ */
+function ClientGroup({
+  client: c,
+  total,
+  onAddDomains,
+  onDelete,
+}: {
+  client: ClientView;
+  /** Every domain the client has, whatever the filter leaves. */
+  total: number;
+  onAddDomains: () => void;
+  onDelete: () => void;
+}) {
+  const hasRows = c.domains.length > 0;
+  return (
+    <tbody data-client-id={c.id}>
+      <tr>
+        <th scope="rowgroup" colSpan={5} className="relative px-2.5 pb-1.5 pl-9 pt-6 text-left align-top font-normal">
+          {/* The client's line runs down from its origin to the last domain. */}
+          <span aria-hidden className={clsx("absolute bottom-[-1px] top-[33px]", LINE, hasRows ? "bg-fg" : "border-l-[3px] border-dashed border-fg-4")} />
+          <span aria-hidden className="absolute left-[9px] top-[27px] size-[14px] rounded-full border-[3px] border-fg bg-paper" />
+          <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2">
+            <div className="min-w-0">
+              <p className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
+                <span className="text-body font-bold text-fg">{c.name}</span>
+                <span className="tnum text-meta text-fg-3">
+                  {total} domain{total === 1 ? "" : "s"}
+                </span>
+                {c.trustSlug ? (
+                  <a
+                    href={`/trust/${c.trustSlug}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="link inline-flex items-center gap-1 text-meta font-semibold"
+                  >
+                    Trust Center <External size={11} />
+                  </a>
+                ) : null}
+              </p>
+              <p data-copy-scope className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-meta">
+                <span className="text-fg-3">Report address</span>
+                <code data-copy-value className="data break-all text-fg">
+                  {c.reportAddress}
+                </code>
+                <CopyButton value={c.reportAddress} label={`Copy the report address for ${c.name}`} testId={`copy-report-address-${c.id}`} />
+              </p>
+            </div>
+            <div className="-mr-1 flex flex-wrap items-center gap-0.5">
+              <Button size="sm" variant="ghost" onClick={onAddDomains} aria-label={`Add domains to ${c.name}`}>
+                <Plus size={13} /> Add domains
+              </Button>
+              <ButtonLink
+                href={`/clients/reports?client=${encodeURIComponent(c.id)}`}
+                size="sm"
+                variant="ghost"
+                data-testid={`monthly-reports-${c.id}`}
+                aria-label={`Monthly reports for ${c.name}`}
+              >
+                Monthly reports
+              </ButtonLink>
+              <ButtonLink
+                href={`/clients/switch?client=${encodeURIComponent(c.id)}`}
+                size="sm"
+                variant="ghost"
+                data-testid={`switch-domains-${c.id}`}
+                aria-label={`Switch provider for ${c.name}: move its domains from another DMARC provider`}
+                title="Move this client's domains from another DMARC provider"
+              >
+                Switch provider
+              </ButtonLink>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={onDelete}
+                data-testid="delete-client"
+                aria-label={`Delete ${c.name}`}
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
+        </th>
+      </tr>
+      {hasRows ? (
+        c.domains.map((d, i) => <DomainRow key={d.id} domain={d} last={i === c.domains.length - 1} />)
+      ) : (
+        <tr className="border-b border-rule">
+          <td colSpan={5} className="relative py-2.5 pl-9 pr-2.5 text-meta text-fg-3">
+            <span aria-hidden className={clsx("absolute top-[-1px] h-[16px] border-l-[3px] border-dashed border-fg-4", LINE)} />
+            <span aria-hidden className="absolute left-[11px] top-[13px] size-[10px] rounded-full border-[2.5px] border-rule-2 bg-paper" />
+            No domains yet.{" "}
+            <button type="button" className="link font-semibold" onClick={onAddDomains}>
+              Add the first
+            </button>
+          </td>
+        </tr>
+      )}
+    </tbody>
+  );
+}
+
+function DomainRow({ domain: d, last }: { domain: DomainView; last: boolean }) {
+  const own = OWNERSHIP[d.status];
+  const live = d.status === "VERIFIED";
+  return (
+    <tr data-domain-id={d.id} className="border-b border-rule align-baseline">
+      <td className="relative py-2 pl-9 pr-2.5">
+        <span aria-hidden className={clsx("absolute top-[-1px] bg-fg", LINE, last ? "h-[19px]" : "bottom-[-1px]")} />
+        <span
+          aria-hidden
+          className={clsx(
+            "absolute left-[11px] top-[12px] size-[10px] rounded-full border-[2.5px] bg-paper",
+            live ? "border-fg" : "border-rule-2",
+          )}
+        />
+        <Link
+          href={live ? domainHref(d.slug) : onboardingHref(d.slug)}
+          className="data font-semibold text-fg hover:text-act hover:underline"
+        >
+          {d.name}
+        </Link>
+      </td>
+      <td className="px-2.5 py-2">
+        <OwnershipWord status={d.status} label={own.label} hint={own.hint} />
+      </td>
+      <td className="px-2.5 py-2">
+        <PolicyStrip
+          inline
+          policy={d.policy}
+          emptyLabel="not scanned yet"
+          title={d.scannedLabel ? `Read from DNS on ${d.scannedLabel}` : "DNS has not been scanned for this domain yet"}
+        />
+      </td>
+      <td className="tnum whitespace-nowrap px-2.5 py-2 text-meta text-fg-3">{d.addedLabel ?? <Nil label="not recorded" />}</td>
+      <td className="whitespace-nowrap px-2.5 py-2 text-right text-meta">
+        <Link href={onboardingHref(d.slug)} className="link font-semibold">
+          Setup
+        </Link>
+        <span aria-hidden className="px-1.5 text-fg-4">
+          ·
+        </span>
+        <Link href={domainHref(d.slug)} className="link font-semibold">
+          Evidence
+        </Link>
+      </td>
+    </tr>
+  );
+}
+
+/** Ownership as a state word with its shape: square live, ring awaited, diamond gone. */
+function OwnershipWord({ status, label, hint }: { status: DomainStatus; label: string; hint: string }) {
+  return (
+    <span
+      title={hint}
+      className={clsx(
+        "inline-flex items-center gap-1.5 whitespace-nowrap text-meta font-semibold",
+        status === "VERIFIED" ? "text-ok" : status === "FAILED" ? "text-fail" : "text-warn",
+      )}
+    >
+      <span
+        aria-hidden
+        className={clsx(
+          "block shrink-0",
+          status === "VERIFIED" && "size-2 bg-ok",
+          status === "FAILED" && "size-[7px] rotate-45 bg-fail",
+          status === "PENDING" && "size-[9px] rounded-full border-2 border-warn-mark",
+        )}
+      />
+      {label}
+    </span>
+  );
+}
+
 function DeleteClientDialog({
   organizationId,
   client,
+  productName,
   onClose,
   onDeleted,
 }: {
   organizationId: string;
   client: ClientView | null;
+  productName: string;
   onClose: () => void;
   onDeleted: (line: string) => void;
 }) {
@@ -490,8 +573,8 @@ function DeleteClientDialog({
                 ))}
               </ul>
               {hosted.length > 0 ? (
-                <div className="border border-warn/40 bg-paper-2 p-3">
-                  <p className="font-semibold text-fg">These domains read their DMARC record from DMARC Harbor.</p>
+                <div className="rounded-[10px] border border-warn/30 bg-warn-wash p-3">
+                  <p className="font-semibold text-fg">These domains read their DMARC record from {productName}.</p>
                   <p className="mt-1 text-meta text-fg-2">
                     Publish this TXT at your DNS host and remove the CNAME first, or the domain will have no DMARC record
                     once it is deleted here.
@@ -499,7 +582,7 @@ function DeleteClientDialog({
                   <div className="mt-3 flex flex-col gap-3">
                     {hosted.map((record) => (
                       <div key={record.domain}>
-                        <p className="mb-1 text-meta font-semibold text-fg">{record.domain}</p>
+                        <p className="data mb-1 text-meta font-semibold text-fg">{record.domain}</p>
                         <DnsRecord
                           type="TXT"
                           host={record.republish.host}
@@ -512,16 +595,16 @@ function DeleteClientDialog({
                 </div>
               ) : null}
               {managedSpf.length > 0 ? (
-                <div className="border border-warn/40 bg-paper-2 p-3">
-                  <p className="font-semibold text-fg">These domains&rsquo; SPF records are managed by DMARC Harbor.</p>
+                <div className="rounded-[10px] border border-warn/30 bg-warn-wash p-3">
+                  <p className="font-semibold text-fg">These domains&rsquo; SPF records are managed by {productName}.</p>
                   <p className="mt-1 text-meta text-fg-2">
-                    Publish this TXT at your DNS host and remove the redirect to DMARC Harbor first, or the domain will
+                    Publish this TXT at your DNS host and remove the redirect to {productName} first, or the domain will
                     lose its SPF record once it is deleted here.
                   </p>
                   <div className="mt-3 flex flex-col gap-3">
                     {managedSpf.map((record) => (
                       <div key={record.domain}>
-                        <p className="mb-1 text-meta font-semibold text-fg">{record.domain}</p>
+                        <p className="data mb-1 text-meta font-semibold text-fg">{record.domain}</p>
                         <DnsRecord
                           type="TXT"
                           host={record.republish.host}

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * error.tsx — the domain evidence boundary, on the Chart system. A throw in the
+ * error.tsx — the domain evidence boundary, in the Routes language. A throw in the
  * domain detail replaces THIS page only: the portfolio and every other route
  * stay reachable. It names what failed, says nothing was deleted, and offers
  * the retry beside the way back. It never names a cause it has not seen.
@@ -23,7 +23,7 @@ export default function DomainsError({
         <p role="alert" className="legend text-fail!">
           Something broke
         </p>
-        <h1 className="wide text-h1 font-bold tracking-[-0.02em]">This domain could not be shown.</h1>
+        <h1 className="display text-h1 text-fg">This domain could not be shown.</h1>
         <p className="text-body text-fg-2">
           Nothing was deleted or hidden: this request failed. Retrying is safe, and the rest of the app is still
           reachable.

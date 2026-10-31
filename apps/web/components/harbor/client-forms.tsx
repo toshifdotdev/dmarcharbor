@@ -115,7 +115,7 @@ export function AddClient({
             minLength={2}
             maxLength={100}
             required
-            placeholder="Example Freight"
+            placeholder="Pellowyn Dental"
             data-testid="client-name"
             disabled={atLimit}
           />
@@ -155,8 +155,11 @@ export function AddClient({
         ) : null}
         <ActionRefusal error={error} />
         {done ? (
-          <p role="status" className="text-ui font-semibold text-ok [animation:hb-rise_200ms_ease-out]">
-            {done} added. Its domains go in below.
+          <p role="status" className="flex items-baseline gap-2 text-ui text-fg-2">
+            <span aria-hidden className="block size-2 shrink-0 translate-y-[-1px] bg-ok" />
+            <span>
+              <span className="font-semibold text-ok">{done} added.</span> Its domains go in below.
+            </span>
           </p>
         ) : null}
         <Button
@@ -270,7 +273,8 @@ export const AddDomains = forwardRef<
         <h2 id={`${id}-head`} className="text-h3 font-bold tracking-[-0.01em] text-fg">
           Add domains
         </h2>
-        <fieldset className="inline-flex rounded-ctl border border-rule-2 bg-paper-3 p-[2px]">
+        {/* The shared Segmented control, drawn here because each option carries a test id. */}
+        <fieldset className="inline-flex rounded-full border border-rule-2 bg-paper p-[3px]">
           <legend className="sr-only">How many domains</legend>
           {(
             [
@@ -282,9 +286,9 @@ export const AddDomains = forwardRef<
               key={value}
               data-testid={testId}
               className={clsx(
-                "inline-flex h-6 cursor-pointer items-center rounded-[2px] px-2.5 text-meta font-semibold",
-                "has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-act",
-                mode === value ? "bg-paper-2 text-fg shadow-[0_0_0_1px_var(--color-rule-2)]" : "text-fg-3 hover:text-fg",
+                "inline-flex h-[26px] cursor-pointer items-center rounded-full px-3 text-meta font-semibold transition-colors duration-100",
+                "has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-act",
+                mode === value ? "bg-act text-act-ink" : "text-fg-3 hover:text-fg",
               )}
             >
               <input
@@ -400,8 +404,9 @@ export const AddDomains = forwardRef<
       </form>
 
       {outcome?.kind === "single" ? (
-        <div role="status" className="flex flex-col gap-2 border-t border-rule pt-3 [animation:hb-rise_220ms_ease-out]">
+        <div role="status" className="flex flex-col gap-2.5 border-t border-rule pt-3">
           <p className="text-ui text-fg-2">
+            <span aria-hidden className="mr-2 inline-block size-2 translate-y-[-1px] bg-ok" />
             <span className="font-semibold text-ok">Added</span>{" "}
             <span className="data font-semibold text-fg">{outcome.name}</span> to {outcome.clientName}. Its two records
             are on the setup page.
@@ -434,7 +439,7 @@ function BulkResult({ clientName, result }: { clientName: string; result: BulkDo
   const mailto = `mailto:?subject=${encodeURIComponent(`Ownership records for ${clientName}`)}&body=${encodeURIComponent(body)}`;
 
   return (
-    <div role="status" data-testid="bulk-result" className="flex flex-col gap-3 border-t border-rule pt-3 [animation:hb-rise_220ms_ease-out]">
+    <div role="status" data-testid="bulk-result" className="flex flex-col gap-3 border-t border-rule pt-3">
       <p className="text-ui text-fg-2">
         <span className="tnum font-semibold text-ok">{result.created}</span> added to {clientName}
         {result.failed > 0 ? (

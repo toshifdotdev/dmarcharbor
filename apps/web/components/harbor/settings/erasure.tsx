@@ -6,10 +6,12 @@
  *
  * Irreversible once it runs, so everything here is arranged so nobody runs it
  * by accident or without knowing exactly what goes: the API's own preview of
- * every record class (deleted, anonymised, or kept, and why), the grace period
- * the API holds a request for, a typed ERASE, and a pending request that can be
- * cancelled until the grace period ends. Dangerous, stated plainly, without
- * alarm: the colour marks the edge, the words carry it.
+ * every record class (deleted, anonymised, or kept, and why) as figures and a
+ * table, the grace period the API holds a request for drawn as the line a
+ * request travels (scheduled, then the grace period, then erased), a typed
+ * ERASE, and a pending request that can be cancelled until the grace period
+ * ends. Dangerous, stated plainly, without alarm: the colour marks the edge,
+ * the words carry it.
  *
  * Test hooks: erasure-preview, erasure-confirm, erasure-submit, erasure-pending,
  * erasure-cancel.
@@ -21,13 +23,14 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { cancelErasureJob, previewErasure, requestErasureJob } from "@/lib/ops-client";
 import type { ErasurePreview } from "@/lib/types";
 import { ActionRefusal, type ActionError } from "@/components/harbor/plan-refusal";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/choice";
 import { Field, Input, Segmented, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
-import { Table, TBody, Td, Th, THead, Tr } from "@/components/ui/table";
+import { Readout, ReadoutStrip } from "@/components/ui/readout";
+import { Table, TBody, Td, TEmptyRow, Th, THead, Tr } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
+import { LineStateWord, StopLine } from "./lines";
 import { DangerZone, Panel } from "./parts";
 
 type Scope = "ORGANIZATION" | "CLIENT" | "DOMAIN";
@@ -44,22 +47,20 @@ export interface ErasureView {
 }
 
 const ACTION_WORDS = {
-  delete: ["Deleted", "fail"],
-  anonymize: ["Anonymised", "warn"],
-  retain: ["Kept", "neutral"],
+  delete: ["Deleted", "font-bold text-fg"],
+  anonymize: ["Anonymised", "font-semibold text-fg-2"],
+  retain: ["Kept", "font-medium text-fg-3"],
 } as const;
 
 function PreviewTable({ preview }: { preview: ErasurePreview }) {
   const rows = preview.actions.filter((a) => a.count > 0 || a.action !== "retain");
   return (
-    <div data-testid="erasure-preview" className="flex flex-col gap-2 [animation:hb-fade_160ms_ease-out]">
-      <p className="tnum text-ui text-fg">
-        <span className="font-semibold text-fail">{preview.totals.recordsDeleted.toLocaleString("en-GB")} deleted</span>
-        {" · "}
-        <span className="font-semibold text-warn">{preview.totals.recordsAnonymised.toLocaleString("en-GB")} anonymised</span>
-        {" · "}
-        <span className="text-fg-2">{preview.totals.evidenceRetained.toLocaleString("en-GB")} kept</span>
-      </p>
+    <div data-testid="erasure-preview" className="flex flex-col gap-4">
+      <ReadoutStrip>
+        <Readout label="Deleted" value={preview.totals.recordsDeleted.toLocaleString("en-GB")} unit="records" note="Gone for good once it runs." />
+        <Readout label="Anonymised" value={preview.totals.recordsAnonymised.toLocaleString("en-GB")} unit="records" note="Kept, with identifying fields cleared." />
+        <Readout label="Kept" value={preview.totals.evidenceRetained.toLocaleString("en-GB")} unit="records" note="For the reasons given below." />
+      </ReadoutStrip>
       <Table caption="What the erasure would do, by record type" minWidth={680} dense>
         <THead>
           <tr>
@@ -71,7 +72,7 @@ function PreviewTable({ preview }: { preview: ErasurePreview }) {
         </THead>
         <TBody>
           {rows.map((a) => {
-            const [word, tone] = ACTION_WORDS[a.action];
+            const [word, cls] = ACTION_WORDS[a.action];
             return (
               <Tr key={a.key}>
                 <Td>
@@ -80,7 +81,7 @@ function PreviewTable({ preview }: { preview: ErasurePreview }) {
                 </Td>
                 <Td numeric>{a.count.toLocaleString("en-GB")}</Td>
                 <Td>
-                  <Badge tone={tone}>{word}</Badge>
+                  <span className={`text-ui ${cls}`}>{word}</span>
                 </Td>
                 <Td className="max-w-[380px] text-meta text-fg-2">
                   {a.reason}
@@ -133,6 +134,7 @@ export function ErasureBoard({
   const alreadyScheduled = pending.some((r) => r.scope === scope && (scope === "ORGANIZATION" || r.targetId === targetId));
   const past = requests.filter((r) => r.state === "COMPLETED" || r.state === "CANCELLED");
   const graceDays = preview?.graceDays ?? null;
+  const graceWords = graceDays === null ? "several days" : `${graceDays} day${graceDays === 1 ? "" : "s"}`;
 
   useEffect(() => {
     // The server already read the workspace preview; re-read only when the
@@ -194,12 +196,16 @@ export function ErasureBoard({
       {pending.length > 0 ? (
         <section
           data-testid="erasure-pending"
-          className="flex flex-col gap-2 rounded-ctl border border-fail/40 bg-fail-wash/50 px-4 py-3.5 [animation:hb-rise_220ms_ease-out]"
+          aria-labelledby="er-pending-head"
+          className="flex flex-col gap-2 rounded-sheet border border-fail/40 bg-fail-wash px-4 py-3.5"
         >
-          <p className="legend text-fail!">Scheduled · inside the grace period</p>
+          <h2 id="er-pending-head" className="flex items-center gap-2 text-ui font-bold text-fail">
+            <span aria-hidden className="size-2 rotate-45 bg-fail" />
+            Scheduled, inside the grace period
+          </h2>
           <ul className="flex flex-col">
             {pending.map((r) => (
-              <li key={r.id} className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-fail/20 py-2 last:border-b-0">
+              <li key={r.id} className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-t border-fail/20 py-2.5">
                 <span className="text-body font-semibold text-fg">{r.scopeLabel}</span>
                 <span className="text-ui text-fg-2">
                   {r.state === "EXECUTING" ? "Running now: it can no longer be cancelled." : `Runs after ${r.runsAfterLabel}. Until then, cancelling it erases nothing.`}
@@ -222,38 +228,40 @@ export function ErasureBoard({
         title="What would be erased"
         why="The API's own count, for the scope chosen. Reports and forensic samples are deleted with the domains; audit and billing records are kept with identifying fields cleared, as the record of what was done."
       >
-        <Segmented
-          label="Erase personal data for"
-          value={scope}
-          onChange={setScope}
-          options={[
-            { value: "ORGANIZATION", label: "The whole workspace" },
-            { value: "CLIENT", label: "One client" },
-            { value: "DOMAIN", label: "One domain" },
-          ]}
-        />
-        {scope === "CLIENT" ? (
-          <Field label="Client">
-            <Select value={clientId} onChange={(e) => setClientId(e.target.value)} className="w-full max-w-[420px]">
-              {clients.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        ) : null}
-        {scope === "DOMAIN" ? (
-          <Field label="Domain">
-            <Select value={domainId} onChange={(e) => setDomainId(e.target.value)} className="w-full max-w-[420px]">
-              {domains.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name} ({d.clientName})
-                </option>
-              ))}
-            </Select>
-          </Field>
-        ) : null}
+        <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
+          <Segmented
+            label="Erase personal data for"
+            value={scope}
+            onChange={setScope}
+            options={[
+              { value: "ORGANIZATION", label: "The whole workspace" },
+              { value: "CLIENT", label: "One client" },
+              { value: "DOMAIN", label: "One domain" },
+            ]}
+          />
+          {scope === "CLIENT" ? (
+            <Field label="Client" className="min-w-[min(100%,260px)]">
+              <Select value={clientId} onChange={(e) => setClientId(e.target.value)} className="w-full max-w-[420px]">
+                {clients.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          ) : null}
+          {scope === "DOMAIN" ? (
+            <Field label="Domain" className="min-w-[min(100%,260px)]">
+              <Select value={domainId} onChange={(e) => setDomainId(e.target.value)} className="w-full max-w-[420px]">
+                {domains.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name} ({d.clientName})
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          ) : null}
+        </div>
         {previewing ? <p className="text-ui text-fg-3">Counting for the scope chosen…</p> : null}
         {previewError ? (
           <Notice tone="fail" title="What it would erase could not be read">
@@ -273,8 +281,7 @@ export function ErasureBoard({
           <>
             <p>
               Erasure is destructive and irreversible once it runs: real customer data is deleted, and nobody, including
-              us, can bring it back. It waits a grace period of {graceDays ?? "several"} day{graceDays === 1 ? "" : "s"} first,
-              and can be cancelled until then.
+              us, can bring it back. It waits a grace period of {graceWords} first, and can be cancelled until then.
             </p>
             <p className="mt-1">
               Free on every plan. If anyone will need the data,{" "}
@@ -286,6 +293,16 @@ export function ErasureBoard({
           </>
         }
       >
+        <StopLine
+          label="What happens to an erasure request"
+          className="my-2 max-w-[640px]"
+          segments={["planned", "planned"]}
+          stops={[
+            { key: "scheduled", name: "Scheduled", note: "By the owner, with ERASE typed" },
+            { key: "grace", name: "Grace period", note: `${graceWords}: cancel it and nothing is erased` },
+            { key: "erased", name: "Erased", note: "Cannot be undone", terminus: true },
+          ]}
+        />
         {isOwner === false ? (
           <p className="text-ui text-fg-3">Only the workspace owner can schedule an erasure.</p>
         ) : (
@@ -310,17 +327,37 @@ export function ErasureBoard({
       </DangerZone>
 
       {past.length > 0 ? (
-        <Panel id="er-past" title="Earlier requests">
-          <ul className="flex flex-col border-t border-rule">
-            {past.map((r) => (
-              <li key={r.id} className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-rule py-2 text-ui">
-                <span className="font-semibold text-fg">{r.scopeLabel}</span>
-                {r.state === "COMPLETED" ? <Badge tone="fail">Erased</Badge> : <Badge tone="void">Cancelled</Badge>}
-                <span className="text-meta text-fg-3">Requested {r.requestedLabel ?? "at a time not recorded"}</span>
-                {r.reason ? <span className="text-meta text-fg-3">Reason: {r.reason}</span> : null}
-              </li>
-            ))}
-          </ul>
+        <Panel id="er-past" title="Earlier requests" why="The record of every erasure asked for here, and what became of it.">
+          <Table caption="Earlier erasure requests" minWidth={620} dense>
+            <THead>
+              <tr>
+                <Th>Requested</Th>
+                <Th>Scope</Th>
+                <Th>Outcome</Th>
+                <Th>Reason</Th>
+              </tr>
+            </THead>
+            <TBody>
+              {past.length === 0 ? (
+                <TEmptyRow colSpan={4}>No earlier request.</TEmptyRow>
+              ) : (
+                past.map((r) => (
+                  <Tr key={r.id}>
+                    <Td className="tnum whitespace-nowrap text-meta">{r.requestedLabel ?? "not recorded"}</Td>
+                    <Td className="font-semibold">{r.scopeLabel}</Td>
+                    <Td>
+                      {r.state === "COMPLETED" ? (
+                        <span className="text-ui font-bold text-fg">Erased</span>
+                      ) : (
+                        <LineStateWord state="none">Cancelled</LineStateWord>
+                      )}
+                    </Td>
+                    <Td className="max-w-[360px] text-meta text-fg-2">{r.reason ?? <span className="text-fg-4">none given</span>}</Td>
+                  </Tr>
+                ))
+              )}
+            </TBody>
+          </Table>
         </Panel>
       ) : null}
     </div>

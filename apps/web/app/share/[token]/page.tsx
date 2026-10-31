@@ -1,5 +1,6 @@
 import { getPublicShareReport } from "@/lib/api-phase7";
 import { ArtefactFrame } from "@/components/harbor/artefact-frame";
+import { DocumentUnavailable } from "@/components/harbor/artefact-states";
 import { ShareDocument } from "@/components/harbor/share-document";
 
 /**
@@ -18,13 +19,12 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
   if (!report) {
     return (
       <ArtefactFrame kind="Shared report">
-        <div data-testid="share-unavailable" className="mx-auto flex min-h-[50vh] max-w-[60ch] flex-col justify-center gap-3">
-          <h1 className="display text-[30px] leading-[1.05]">This report is no longer available.</h1>
-          <p className="text-body text-fg-2">
+        <DocumentUnavailable testId="share-unavailable" closed title="This report is no longer available.">
+          <p>
             The link has expired or was withdrawn by the team that shared it, and a withdrawn link is never served
             again. Ask whoever sent it for a current link.
           </p>
-        </div>
+        </DocumentUnavailable>
       </ArtefactFrame>
     );
   }

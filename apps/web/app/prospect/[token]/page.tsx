@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getProspectReport, PublicError } from "@/lib/api-public";
 import { ArtefactFrame } from "@/components/harbor/artefact-frame";
+import { DocumentUnavailable } from "@/components/harbor/artefact-states";
 import { ProspectDocument } from "@/components/harbor/prospect-document";
 
 export const metadata: Metadata = { title: "Email security check", robots: { index: false, follow: false } };
@@ -25,19 +26,17 @@ export default async function ProspectPage({ params }: { params: Promise<{ token
   if (!report) {
     return (
       <ArtefactFrame kind="Email security check">
-        <div
-          data-testid={failed ? "prospect-failed" : "prospect-unavailable"}
-          className="mx-auto flex min-h-[50vh] max-w-[60ch] flex-col justify-center gap-3"
+        <DocumentUnavailable
+          testId={failed ? "prospect-failed" : "prospect-unavailable"}
+          closed={!failed}
+          title={failed ? "This report could not be loaded just now." : "This report is no longer available."}
         >
-          <h1 className="display text-[30px] leading-[1.05]">
-            {failed ? "This report could not be loaded just now." : "This report is no longer available."}
-          </h1>
-          <p className="text-body text-fg-2">
+          <p>
             {failed
               ? "Nothing is wrong with the link. Reload the page in a minute."
               : "The link has expired or was withdrawn by the team that sent it. Ask them for a current one."}
           </p>
-        </div>
+        </DocumentUnavailable>
       </ArtefactFrame>
     );
   }
@@ -53,7 +52,7 @@ export default async function ProspectPage({ params }: { params: Promise<{ token
       kind="Email security check"
       publisher={report.preparedBy}
       testId="prospect-page"
-      meta={<>Prepared by {report.preparedBy.workspaceName}. This link is valid until {expires}.</>}
+      meta={<>Read from public DNS only. This link is valid until {expires}.</>}
     >
       <ProspectDocument report={report} />
     </ArtefactFrame>

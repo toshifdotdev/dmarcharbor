@@ -71,7 +71,7 @@ export default async function RootPage() {
         />
         {/* Invitations into other workspaces, for someone who already has one. Renders nothing when there are none. */}
         <InvitationsForYou />
-        <Suspense fallback={<LoadingState label="Reading the portfolio" rows={8} />}>
+        <Suspense fallback={<LoadingState label="Loading the portfolio" rows={8} />}>
           <PortfolioData organizationId={active ? active.id : ""} workspaceName={active?.name ?? "This workspace"} />
         </Suspense>
       </div>
@@ -154,42 +154,73 @@ async function PortfolioData({ organizationId, workspaceName }: { organizationId
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <Summary rows={rows} />
+    <div className="flex flex-col gap-7">
+      <Summary rows={rows} clientCount={clientCount} />
       <PortfolioBoard rows={rows} clientCount={clientCount} />
     </div>
   );
 }
 
-/** The one-line answer to "what needs me today", from the same counts as the board. */
-function Summary({ rows }: { rows: BoardRow[] }) {
+/**
+ * The answer to "what needs me today", from the same counts as the board: a
+ * headline that says it, the breakdown beside it, and one line of scale (how
+ * many domains, and how far they have gone towards p=reject).
+ */
+function Summary({ rows, clientCount }: { rows: BoardRow[]; clientCount: number }) {
   const n = (p: Posture) => rows.filter((r) => r.posture === p).length;
   const block = n("block");
   const unverified = n("unverified");
   const stale = n("stale");
   const unmeasured = n("unmeasured");
   const pass = n("pass");
+  const unread = rows.filter((r) => r.posture === null).length;
   const attention = block + unverified;
+  const silent = stale + unmeasured;
   const plural = (k: number, word: string) => `${k} ${word}${k === 1 ? "" : "s"}`;
 
-  let line: string;
+  let headline: string;
+  let detail: string | null;
   if (attention > 0) {
     const parts = [block ? `${block} blocking` : null, unverified ? `${unverified} unverified` : null].filter(Boolean);
-    line = `${plural(attention, "domain")} need${attention === 1 ? "s" : ""} attention: ${parts.join(", ")}.`;
-  } else if (stale + unmeasured > 0) {
-    line = `Nothing is blocking or unverified. ${stale + unmeasured} of ${rows.length} prove nothing either way yet: ${stale} stale, ${unmeasured} not measured.`;
+    headline = `${plural(attention, "domain")} need${attention === 1 ? "s" : ""} you today.`;
+    detail = `${parts.join(", ")}.${
+      silent > 0 ? ` ${silent} more ${silent === 1 ? "has" : "have"} no current measurement: ${stale} stale, ${unmeasured} not measured.` : ""
+    }`;
+  } else if (silent > 0) {
+    headline = "Nothing is blocking or unverified.";
+    detail = `${silent} of ${rows.length} prove nothing either way yet: ${stale} stale, ${unmeasured} not measured.`;
   } else if (pass === rows.length) {
-    line = `All ${plural(pass, "domain")} aligned within their current report windows.`;
+    headline = `All ${plural(pass, "domain")} aligned.`;
+    detail = "Within each domain's current report window.";
   } else {
-    line = "Some domains could not be read just now; their posture is unknown, not aligned.";
+    headline = "Some domains could not be read just now.";
+    detail = "Their posture is unknown, not aligned.";
   }
 
+  // How far the portfolio has gone towards enforcement, by the policy each row shows.
+  const policyCount = (p: string) => rows.filter((r) => r.policy?.toLowerCase() === p).length;
+  const atReject = policyCount("reject");
+  const atQuarantine = policyCount("quarantine");
+  const atNone = policyCount("none");
+  const noRecord = policyCount("unknown");
+  const notObserved = rows.length - atReject - atQuarantine - atNone - noRecord;
+  const policyParts = [
+    atReject ? `${atReject} at p=reject` : null,
+    atQuarantine ? `${atQuarantine} at p=quarantine` : null,
+    atNone ? `${atNone} at p=none` : null,
+    noRecord ? `${noRecord} with no DMARC record in DNS` : null,
+    notObserved ? `${notObserved} with no policy observed yet` : null,
+  ].filter(Boolean);
+
   return (
-    <p className="max-w-[90ch] border-l-2 border-fg pl-3 text-lead font-medium text-fg" data-testid="portfolio-summary">
-      {line}
-      {attention > 0 && stale + unmeasured > 0 ? (
-        <span className="text-fg-3"> {stale + unmeasured} more have no current measurement.</span>
-      ) : null}
-    </p>
+    <div className="flex flex-col gap-1" data-testid="portfolio-summary">
+      <p className="display text-h2 text-fg">{headline}</p>
+      {detail ? <p className="max-w-[80ch] text-lead text-fg-2">{detail}</p> : null}
+      <p className="tnum mt-1 text-meta text-fg-3">
+        {plural(rows.length, "domain")} across {plural(clientCount, "client")}
+        {policyParts.length > 0 ? `: ${policyParts.join(", ")}` : ""}.
+        {unread > 0 ? ` ${unread} could not be read just now.` : ""}
+      </p>
+    </div>
   );
 }

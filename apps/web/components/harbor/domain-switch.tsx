@@ -22,6 +22,7 @@ import { Table, TBody, Td, Th, THead, Tr } from "@/components/ui/table";
 import { DnsHandoff } from "./dns-handoff";
 import type { DnsPublishContext } from "./dns-publish";
 import { ActionRefusal, type ActionError } from "./plan-refusal";
+import { StationStrip } from "./station-strip";
 
 const STEP_ORDER: DomainSwitchStatus[] = ["PLANNED", "DUAL_REPORTING", "CUT_OVER"];
 const STEP_LABEL: Record<DomainSwitchStatus, string> = {
@@ -188,29 +189,21 @@ export function DomainSwitchPanel({
         </p>
       ) : null}
 
-      <ol className="grid grid-cols-3 border border-rule-2" aria-label="Switch progress">
-        {STEP_ORDER.map((step, index) => {
-          const active = index === stepIndex;
-          const passed = index < stepIndex;
-          return (
-            <li
-              key={step}
-              aria-current={active ? "step" : undefined}
-              className={
-                active
-                  ? "bg-fg px-3 py-2 text-paper"
-                  : "border-l border-rule px-3 py-2 first:border-l-0"
-              }
-            >
-              <span className={active ? "legend text-paper-3!" : "legend"}>step {index + 1}</span>
-              <span className="mt-0.5 block text-ui font-semibold">{STEP_LABEL[step]}</span>
-              <span className={active ? "mt-0.5 block text-[10.5px] font-semibold uppercase tracking-[0.06em]" : "mt-0.5 block text-[10.5px] font-semibold uppercase tracking-[0.06em] text-fg-3"}>
-                {active ? "current" : passed ? "done" : "not yet"}
-              </span>
-            </li>
-          );
-        })}
-      </ol>
+      {/* The switch as three stations on one line: ink behind, dashed to the
+          next stop once readiness says it is safe, grey beyond. */}
+      <StationStrip
+        label="Switch progress"
+        className="max-w-[560px]"
+        stations={STEP_ORDER.map((step, index) => ({
+          key: step,
+          name: STEP_LABEL[step],
+          note: index === stepIndex ? "current" : index < stepIndex ? "done" : "not yet",
+          state: index === stepIndex ? "here" : index < stepIndex ? "passed" : "ahead",
+        }))}
+        segments={[0, 1].map((index) =>
+          index < stepIndex ? "built" : index === stepIndex && ready && !cutOver ? "planned" : "unbuilt",
+        )}
+      />
 
       {current.issues.length > 0 ? (
         <div data-testid="switch-issues">

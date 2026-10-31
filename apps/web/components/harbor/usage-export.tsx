@@ -75,7 +75,15 @@ export function UsageExport({
             </option>
           ))}
         </Select>
-        <Button size="sm" variant="secondary" onClick={download} busy={busy} busyLabel="Preparing the file" data-testid="usage-download">
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={download}
+          busy={busy}
+          busyLabel="Preparing the file"
+          data-testid="usage-download"
+          title="One row per client for the chosen month: domains, reports, messages, pass rate and alerts, to bill clients from"
+        >
           Usage CSV
         </Button>
       </div>

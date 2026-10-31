@@ -15,7 +15,12 @@
  * off, only high-risk alerts (every metric except report silence), and quiet
  * hours in a chosen timezone, during which alert emails are skipped rather
  * than held. The in-app copy always arrives. A person can change only their
- * own preferences; the API enforces it and the panel says so.
+ * own preferences; the API enforces it and the panel says so. The quiet hours
+ * are drawn as the day's line, dotted and grey where emails are skipped.
+ *
+ * Rows lead with their time, set like a timetable under the day's heading;
+ * an unread row is bold with a filled mark (a red diamond for an
+ * unacknowledged reminder), a read one is quiet with a hollow mark.
  */
 
 import Link from "next/link";
@@ -128,9 +133,9 @@ export function Inbox() {
   }, [shown]);
 
   return (
-    <div className="grid gap-x-10 gap-y-10 lg:grid-cols-[minmax(0,1fr)_340px]">
-      <section aria-labelledby="inbox-head" className="flex min-w-0 flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-3">
+    <div className="grid gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <section aria-labelledby="inbox-head" className="flex min-w-0 flex-col gap-4">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <h2 id="inbox-head" className="sr-only">
             Inbox
           </h2>
@@ -147,8 +152,12 @@ export function Inbox() {
           <Button size="sm" variant="secondary" onClick={markAll} busy={busy === "all"} busyLabel="Marking" disabled={!unread} data-testid="mark-all-read">
             Mark all read
           </Button>
-          <span className="text-meta text-fg-3" aria-live="polite">
-            {checkedAt ? `Checked at ${timeOf(checkedAt)}; re-reads every minute.` : null}
+          <span className="text-meta text-fg-3 sm:ml-auto" aria-live="polite">
+            {checkedAt ? (
+              <>
+                Checked at <span className="tnum">{timeOf(checkedAt)}</span>; re-reads every minute.
+              </>
+            ) : null}
           </span>
         </div>
 
@@ -165,19 +174,41 @@ export function Inbox() {
           error ? null : <LoadingState label="Reading the inbox" rows={5} />
         ) : shown.length === 0 ? (
           <div role="status" data-testid="state-empty" className="border-y border-rule py-6">
-            <p className="text-body font-semibold text-fg">{view === "unread" && rows.length > 0 ? "Nothing unread." : "No notifications yet."}</p>
-            <p className="mt-1 max-w-[64ch] text-ui text-fg-2">
+            <p className="flex items-center gap-2 text-body font-semibold text-fg">
+              <span className={clsx("block size-2.5 rounded-full border-2", rows.length > 0 ? "border-fg-3" : "border-rule-2")} aria-hidden />
+              {view === "unread" && rows.length > 0 ? "Nothing unread." : "No notifications yet."}
+            </p>
+            <p className="mt-1 max-w-[64ch] pl-[18px] text-ui text-fg-2">
               {view === "unread" && rows.length > 0
                 ? "Everything here has been read. Switch to All to see it again."
-                : "Alerts you are a recipient of, and their reminders, arrive here as they fire."}
+                : "Alerts you are a recipient of, and their reminders, arrive here as they fire. To receive one, add yourself as a recipient of an alert rule on Alerts."}
             </p>
+            {rows.length === 0 ? (
+              <p className="mt-2 pl-[18px] text-meta">
+                <Link href="/alerts" className="link font-semibold">
+                  Open alerts
+                </Link>
+              </p>
+            ) : null}
           </div>
         ) : (
-          <div className="flex flex-col gap-5">
-            {groups.map((g) => (
-              <div key={g.heading}>
-                <p className="legend pb-1.5">{g.heading}</p>
-                <ol className="flex flex-col border-y border-rule">
+          <div className="flex flex-col gap-6">
+            {groups.map((g) => {
+              const unreadHere = g.rows.filter((r) => !r.readAt).length;
+              return (
+              <section key={g.heading} aria-label={g.heading}>
+                <p className="flex items-baseline gap-2 border-b border-rule-2 pb-1.5">
+                  <span className="text-ui font-semibold text-fg">{g.heading}</span>
+                  <span className="text-meta text-fg-3">
+                    <span className="tnum">{g.rows.length}</span> notification{g.rows.length === 1 ? "" : "s"}
+                    {view === "all" && unreadHere > 0 ? (
+                      <>
+                        , <span className="tnum">{unreadHere}</span> unread
+                      </>
+                    ) : null}
+                  </span>
+                </p>
+                <ol className="flex flex-col border-b border-rule">
                   {g.rows.map((r) => {
                     const isUnread = !r.readAt;
                     const sev = r.severity ?? "";
@@ -187,16 +218,17 @@ export function Inbox() {
                         key={r.id}
                         data-notification-id={r.id}
                         data-unread={isUnread || undefined}
-                        className={clsx(
-                          "grid grid-cols-[14px_minmax(0,1fr)_auto] gap-x-3 border-b border-rule py-3 last:border-b-0 [animation:hb-rise_200ms_ease-out]",
-                          isUnread && "bg-paper-2/70",
-                        )}
+                        className="grid grid-cols-[44px_12px_minmax(0,1fr)] gap-x-3 gap-y-1.5 border-b border-rule py-3 last:border-b-0 sm:grid-cols-[52px_12px_minmax(0,1fr)_auto]"
                       >
-                        <span aria-hidden className="mt-[7px] grid size-2.5 place-items-center">
+                        {/* The time leads, the way a timetable sets it. */}
+                        <span className={clsx("tnum pt-[1px] text-meta", isUnread ? "font-semibold text-fg" : "text-fg-3")}>
+                          {timeOf(new Date(r.createdAt))}
+                        </span>
+                        <span aria-hidden className="mt-[5px] grid size-3 place-items-center">
                           {isUnread ? (
                             <span className={clsx("block size-2", sev === "CRITICAL" ? "rotate-45 bg-fail" : "rounded-full bg-act")} />
                           ) : (
-                            <span className="block size-1.5 rounded-full bg-fg-4" />
+                            <span className="block size-2 rounded-full border-[1.5px] border-fg-4" />
                           )}
                         </span>
                         <div className="min-w-0">
@@ -204,13 +236,12 @@ export function Inbox() {
                             {r.title}
                             {isUnread ? <span className="sr-only"> (unread)</span> : null}
                           </p>
-                          {r.body ? <p className="mt-0.5 max-w-[90ch] text-ui text-fg-2">{r.body}</p> : null}
+                          {r.body ? <p className={clsx("mt-0.5 max-w-[90ch] text-ui", isUnread ? "text-fg-2" : "text-fg-3")}>{r.body}</p> : null}
                           <p className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-meta text-fg-3">
                             <span>
                               {KIND[r.kind] ?? r.kind}
                               {sev === "CRITICAL" ? <span className="font-semibold text-fail"> · unacknowledged reminder</span> : null}
                             </span>
-                            <span className="tnum">{timeOf(new Date(r.createdAt))}</span>
                             {slug ? (
                               <Link href={domainHref(slug)} className="link font-semibold" data-testid="notification-domain-link">
                                 Open the domain
@@ -223,9 +254,9 @@ export function Inbox() {
                             ) : null}
                           </p>
                         </div>
-                        <div className="self-start">
+                        <div className="col-start-3 self-start empty:hidden sm:col-start-4">
                           {isUnread ? (
-                            <Button size="sm" variant="ghost" onClick={() => markRead(r.id)} busy={busy === r.id} busyLabel="Marking">
+                            <Button size="sm" variant="ghost" onClick={() => markRead(r.id)} busy={busy === r.id} busyLabel="Marking" className="-ml-2.5 sm:ml-0">
                               Mark read
                             </Button>
                           ) : null}
@@ -234,8 +265,9 @@ export function Inbox() {
                     );
                   })}
                 </ol>
-              </div>
-            ))}
+              </section>
+              );
+            })}
             {rows.length >= 100 ? <p className="text-meta text-fg-3">Showing the latest 100.</p> : null}
           </div>
         )}
@@ -244,6 +276,82 @@ export function Inbox() {
       <aside className="self-start lg:sticky lg:top-[104px]">
         <Preferences />
       </aside>
+    </div>
+  );
+}
+
+function minutesOf(hhmm: string | null): number | null {
+  const m = hhmm ? /^(\d{1,2}):(\d{2})/.exec(hhmm) : null;
+  if (!m) return null;
+  const v = Number(m[1]) * 60 + Number(m[2]);
+  return v >= 0 && v <= 1440 ? v : null;
+}
+
+/**
+ * The day as a line from midnight to midnight: solid where alert emails go
+ * out, dotted and grey across the quiet span where they are skipped. Quiet
+ * hours that run past midnight wrap round both ends. Drawn from the draft, so
+ * it moves as the times are typed.
+ */
+function QuietDay({ start, end, off }: { start: string | null; end: string | null; off: boolean }) {
+  const X0 = 8;
+  const X1 = 290;
+  const Y = 12;
+  const x = (min: number) => Math.round((X0 + ((X1 - X0) * min) / 1440) * 100) / 100;
+  const s = minutesOf(start);
+  const e = minutesOf(end);
+  const quiet: Array<[number, number]> =
+    off ? [[0, 1440]] : s === null || e === null || s === e ? [] : s < e ? [[s, e]] : [[s, 1440], [0, e]];
+  const sent: Array<[number, number]> = [];
+  let cursor = 0;
+  for (const [a, b] of [...quiet].sort((p, q) => p[0] - q[0])) {
+    if (a > cursor) sent.push([cursor, a]);
+    cursor = Math.max(cursor, b);
+  }
+  if (cursor < 1440) sent.push([cursor, 1440]);
+  const words = off
+    ? "Alert emails are off: none are sent at any hour."
+    : quiet.length === 0
+      ? "No quiet hours: alert emails go out at any hour."
+      : `Alert emails are skipped from ${start} until ${end}, and go out at every other hour.`;
+
+  return (
+    <div className="pt-1">
+      <svg viewBox="0 0 298 34" className="block h-auto w-full" role="img" aria-label={words}>
+        {sent.map(([a, b]) => (
+          <line key={`s${a}`} x1={x(a)} y1={Y} x2={x(b)} y2={Y} stroke="var(--color-fg)" strokeWidth={5} strokeLinecap="round" />
+        ))}
+        {quiet.map(([a, b]) => (
+          <line
+            key={`q${a}`}
+            x1={x(a)}
+            y1={Y}
+            x2={x(b)}
+            y2={Y}
+            stroke="var(--color-rule-2)"
+            strokeWidth={5}
+            strokeLinecap="round"
+            strokeDasharray="0.1 8"
+          />
+        ))}
+        {!off && quiet.length > 0
+          ? [s as number, e as number].map((m, i) => (
+              <circle key={`b${i}`} cx={x(m % 1440)} cy={Y} r={5} fill="var(--color-paper)" stroke="var(--color-rule-2)" strokeWidth={2.5} />
+            ))
+          : null}
+        {[0, 360, 720, 1080, 1440].map((m) => (
+          <text
+            key={`t${m}`}
+            x={x(m)}
+            y={31}
+            textAnchor={m === 0 ? "start" : m === 1440 ? "end" : "middle"}
+            fill="var(--color-fg-3)"
+            style={{ fontSize: 10.5, fontVariantNumeric: "tabular-nums" }}
+          >
+            {String(m / 60).padStart(2, "0")}:00
+          </text>
+        ))}
+      </svg>
     </div>
   );
 }
@@ -313,7 +421,7 @@ function Preferences() {
   return (
     <section aria-labelledby="prefs-head" className="flex flex-col gap-3">
       <div>
-        <h2 id="prefs-head" className="text-h3 font-bold tracking-[-0.01em] text-fg">
+        <h2 id="prefs-head" className="display text-h3 text-fg">
           How you are emailed
         </h2>
         <p className="mt-1 text-meta text-fg-3">
@@ -372,6 +480,7 @@ function Preferences() {
                 />
               </Field>
             </div>
+            <QuietDay start={draft.emailAlerts ? draft.quietHoursStart : null} end={draft.emailAlerts ? draft.quietHoursEnd : null} off={!draft.emailAlerts} />
             <p className={clsx("text-meta", quietHalf ? "text-warn" : "text-fg-3")}>
               {quietHalf
                 ? "Set both times, or clear both: one on its own does nothing."

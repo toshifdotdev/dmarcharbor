@@ -3,8 +3,10 @@ import Link from "next/link";
 import { listClients } from "@/lib/api";
 import { getDpaAcceptance, getWorkspaceEntitlements } from "@/lib/api-ops";
 import { settingsContext } from "@/lib/settings-context";
+import { readHostBrand } from "@/lib/host-brand";
+import { brandName } from "@/components/harbor/public-frame";
 import { SettingsFrame } from "@/components/harbor/settings/frame";
-import { Panel } from "@/components/harbor/settings/parts";
+import { Panel, StateWord } from "@/components/harbor/settings/parts";
 import { WorkspaceDeletion } from "@/components/harbor/settings/workspace";
 import { CopyValue } from "@/components/ui/copy";
 import { KeyValue } from "@/components/ui/notice";
@@ -19,13 +21,18 @@ export const metadata: Metadata = { title: "Workspace" };
  */
 export default async function WorkspacePage() {
   const ctx = await settingsContext();
-  const [entitlements, clients, dpa] = await Promise.all([
+  const [entitlements, clients, dpa, hostBrand] = await Promise.all([
     getWorkspaceEntitlements(ctx.active.id).catch(() => null),
     listClients(ctx.active.id).catch(() => null),
     getDpaAcceptance(ctx.active.id).catch(() => null),
+    readHostBrand(),
   ]);
   const domains = clients ? clients.reduce((n, c) => n + c.domains.length, 0) : null;
-  const unread = <span className="text-fg-3">could not be read</span>;
+  const unread = (
+    <StateWord shape="hatch" tone="void">
+      Could not be read
+    </StateWord>
+  );
 
   return (
     <SettingsFrame
@@ -35,6 +42,7 @@ export default async function WorkspacePage() {
     >
       <Panel id="ws-facts" title="This workspace">
         <KeyValue
+          className="-mt-4 border-t-0!"
           labelWidth={200}
           rows={[
             ["Name", <span key="n" className="font-semibold">{ctx.active.name}</span>],
@@ -86,20 +94,28 @@ export default async function WorkspacePage() {
             [
               "Data Processing Agreement",
               dpa ? (
-                <span key="d">
+                <span key="d" className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                   {dpa.accepted && dpa.version ? (
-                    <>
-                      Version <span className="data">{dpa.version}</span> accepted
-                      {dpa.requiresReconsent ? (
-                        <span className="ml-2 font-semibold text-warn">version {dpa.currentVersion} is current and needs accepting</span>
-                      ) : (
-                        <span className="ml-2 text-fg-3">the current version</span>
-                      )}
-                    </>
+                    dpa.requiresReconsent ? (
+                      <StateWord shape="ring" tone="warn">
+                        Version {dpa.version} accepted; version {dpa.currentVersion} is current and needs accepting
+                      </StateWord>
+                    ) : (
+                      <span className="inline-flex items-baseline gap-2">
+                        <StateWord shape="square" tone="ok">
+                          Accepted
+                        </StateWord>
+                        <span className="text-fg-2">
+                          version <span className="data">{dpa.version}</span>, the current one
+                        </span>
+                      </span>
+                    )
                   ) : (
-                    <span className="font-semibold text-warn">Not accepted for this workspace</span>
+                    <StateWord shape="ring" tone="warn">
+                      Not accepted for this workspace
+                    </StateWord>
                   )}
-                  <Link href="/dpa" className="link ml-2 text-meta">
+                  <Link href="/dpa" className="link text-meta">
                     Read it
                   </Link>
                 </span>
@@ -116,6 +132,7 @@ export default async function WorkspacePage() {
         name={ctx.active.name}
         slug={ctx.active.slug}
         isOwner={ctx.role === null ? null : ctx.role === "owner"}
+        serviceName={brandName(hostBrand)}
       />
     </SettingsFrame>
   );

@@ -7,11 +7,16 @@ import {
   listMonthlyReports,
 } from "@/lib/api-ops";
 import { featureOf } from "@/lib/entitlements";
+import { instantLabel } from "@/lib/instant";
 import { settingsContext } from "@/lib/settings-context";
 import { mayChange } from "@/lib/settings-map";
 import type { ClientRow, MonthlyReportRow, MonthlyReportSchedule } from "@/lib/types";
 import { AppShell } from "@/components/harbor/app-shell";
-import { MonthlyReportClientPicker, MonthlyReportsBoard } from "@/components/harbor/monthly-reports";
+import {
+  MonthlyReportClientPicker,
+  MonthlyReportsBoard,
+  type MonthlyReportView,
+} from "@/components/harbor/monthly-reports";
 import { PageHeader } from "@/components/harbor/page-header";
 import { PlanUnknown } from "@/components/harbor/plan-refusal";
 import { EmptyState, ErrorState, UpgradeNotice } from "@/components/ui/states";
@@ -79,7 +84,7 @@ export default async function MonthlyReportsPage({
   const feature = featureOf(entitlements, "reports.compliancePack");
   const canManage = ctx.role === null || mayChange(ctx.role, "admin");
 
-  let reports: MonthlyReportRow[] | null = null;
+  let reports: MonthlyReportView[] | null = null;
   let schedule: MonthlyReportSchedule | null = null;
   let scheduleFailed = false;
   let reportsFailed = false;
@@ -97,7 +102,8 @@ export default async function MonthlyReportsPage({
       ),
     ]);
     if (reportResult.ok) {
-      reports = reportResult.result.reports;
+      // Issue times in words on the server, so the board's first paint is a string.
+      reports = reportResult.result.reports.map((r: MonthlyReportRow) => ({ ...r, issuedLabel: instantLabel(r.issuedAt) }));
     } else if (reportResult.error instanceof OpsError && reportResult.error.status === 402) {
       planBlocked = true;
     } else {
@@ -120,10 +126,18 @@ export default async function MonthlyReportsPage({
       activeWorkspace={active}
       trail={[{ label: "Clients", href: "/clients" }, { label: "Monthly reports" }]}
     >
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-10">
         <PageHeader
           title="Monthly reports"
           lede="One branded PDF a month for each client: what happened to its domains' email authentication in the previous complete month, with the evidence and a public fingerprint."
+          meta={
+            selected ? (
+              <span>
+                <span className="font-semibold text-fg-2">{selected.name}</span>{" "}
+                <span className="tnum">{selected.domains.length}</span> domain{selected.domains.length === 1 ? "" : "s"} in each report
+              </span>
+            ) : null
+          }
           actions={
             clients && clients.length > 1 && selected ? (
               <MonthlyReportClientPicker

@@ -18,7 +18,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { LIMITS, METRICS, conditionLabel, minutesLabel } from "@/lib/alert-rules";
+import { LIMITS, METRICS, OPERATORS, conditionLabel, minutesLabel, valueWithUnit } from "@/lib/alert-rules";
 import { patchAlertRule, removeAlertRule } from "@/lib/ops-client";
 import { domainHref } from "@/lib/route-hrefs";
 import type { AlertRuleRow } from "@/lib/types";
@@ -28,6 +28,7 @@ import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/field";
 import { KeyValue } from "@/components/ui/notice";
 import { RecipientPicker, type MemberChoice } from "./alert-rule-form";
+import { StateMark } from "./ops-parts";
 import { ActionRefusal, type ActionError } from "./plan-refusal";
 
 export interface RuleView extends AlertRuleRow {
@@ -35,6 +36,18 @@ export interface RuleView extends AlertRuleRow {
   lastFiredLabel: string | null;
   recipientNames: string[];
   cooldownLabel: string;
+  /** The client that owns the domain, when the client list was readable. */
+  clientName?: string | null;
+}
+
+/** "Fires when report silence is greater than 48h": the rule as a sentence. */
+function ruleSentence(r: Pick<AlertRuleRow, "metric" | "operator" | "threshold" | "windowMinutes">): string {
+  const meta = METRICS[r.metric];
+  if (!meta) return conditionLabel(r);
+  const op = OPERATORS.find((o) => o.value === r.operator)?.label ?? r.operator.toLowerCase().replace(/_/g, " ");
+  const what = meta.label.charAt(0).toLowerCase() + meta.label.slice(1);
+  const over = meta.usesWindow ? `, over ${minutesLabel(r.windowMinutes)}` : "";
+  return `Fires when ${what} is ${op} ${valueWithUnit(r.metric, r.threshold)}${over}`;
 }
 
 export function AlertRules({
@@ -42,11 +55,14 @@ export function AlertRules({
   rules,
   members,
   editable,
+  unwatched,
 }: {
   organizationId: string;
   rules: RuleView[];
   members: MemberChoice[];
   editable: boolean;
+  /** Domains no enabled rule watches, by name. */
+  unwatched?: string[];
 }) {
   const router = useRouter();
   const [toggling, setToggling] = useState<string | null>(null);
@@ -85,11 +101,20 @@ export function AlertRules({
   if (rules.length === 0) {
     return (
       <div role="status" className="border-y border-rule py-6">
-        <p className="text-body font-semibold text-fg">No alert rules yet</p>
-        <p className="mt-1 max-w-[64ch] text-ui text-fg-2">
+        <p className="flex items-center gap-2 text-body font-semibold text-fg">
+          <StateMark shape="hatch" tone="void" />
+          No alert rules yet
+        </p>
+        <p className="mt-1 max-w-[64ch] pl-[17px] text-ui text-fg-2">
           Nothing is watching. A first rule worth having on every domain: report silence over 48 hours, so a feed that
           stops is noticed rather than mistaken for a quiet week.
         </p>
+        {editable ? (
+          <p className="mt-2 max-w-[64ch] pl-[17px] text-meta text-fg-3">
+            In the form: pick the domain, set Metric to <span className="font-semibold text-fg-2">Report silence</span>{" "}
+            and keep <span className="font-semibold text-fg-2">greater than 48</span>. Then do the same for the next domain.
+          </p>
+        ) : null}
       </div>
     );
   }
@@ -99,10 +124,14 @@ export function AlertRules({
       {!editable ? (
         <p className="text-meta text-fg-3">Rules are read-only here: changing them needs alerting on the plan.</p>
       ) : null}
-      <ul className="flex flex-col border-y border-fg">
+      <ul className="flex flex-col border-y border-rule">
         {rules.map((r) => (
-          <li key={r.id} data-rule-id={r.id} className="grid gap-x-5 gap-y-2 border-b border-rule py-3 last:border-b-0 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
-            <div className="pt-0.5">
+          <li
+            key={r.id}
+            data-rule-id={r.id}
+            className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 border-b border-rule py-3.5 last:border-b-0 sm:grid-cols-[auto_minmax(0,1fr)_auto]"
+          >
+            <div className="pt-[1px]">
               <Switch
                 checked={r.enabled}
                 onChange={(next) => toggle(r, next)}
@@ -112,34 +141,37 @@ export function AlertRules({
               />
             </div>
             <div className="min-w-0">
-              <p className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+              <p className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
                 <span className={r.enabled ? "text-ui font-semibold text-fg" : "text-ui font-semibold text-fg-3"}>{r.name}</span>
                 {r.domainSlug ? (
-                  <Link href={domainHref(r.domainSlug)} className="data text-meta text-fg-2 hover:text-act hover:underline">
+                  <Link href={domainHref(r.domainSlug)} className="data text-meta text-fg-3 hover:text-act hover:underline">
                     {r.domain.name}
                   </Link>
                 ) : (
-                  <span className="data text-meta text-fg-2">{r.domain.name}</span>
+                  <span className="data text-meta text-fg-3">{r.domain.name}</span>
                 )}
+                {r.clientName ? <span className="text-meta text-fg-3">{r.clientName}</span> : null}
                 {!r.enabled ? <span className="text-meta font-semibold text-fg-3">Paused</span> : null}
               </p>
-              <p className="mt-0.5 text-ui text-fg-2">{conditionLabel(r)}</p>
-              <p className="mt-0.5 flex flex-wrap gap-x-4 gap-y-0.5 text-meta text-fg-3">
-                <span>
-                  Reminds every {r.cooldownLabel}, up to {r.maxReminderLevel} time{r.maxReminderLevel === 1 ? "" : "s"}
-                </span>
+              <p className={r.enabled ? "mt-0.5 text-ui text-fg-2" : "mt-0.5 text-ui text-fg-3"}>{ruleSentence(r)}</p>
+              <p className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-meta text-fg-3">
                 {r.recipientNames.length ? (
-                  <span>To {r.recipientNames.join(", ")}</span>
+                  <span>
+                    Wakes <span className="font-semibold text-fg-2">{r.recipientNames.join(", ")}</span>
+                  </span>
                 ) : (
                   <span className="font-semibold text-warn" data-testid="rule-no-recipients">
                     No recipients: it records events, but nobody is told{editable ? ". Edit to add someone." : "."}
                   </span>
                 )}
-                <span>{r.lastFiredLabel ? `Last fired ${r.lastFiredLabel}` : "Has not fired"}</span>
+                <span>
+                  Reminds every {r.cooldownLabel} until acknowledged, {r.maxReminderLevel} notice{r.maxReminderLevel === 1 ? "" : "s"} at most
+                </span>
+                <span className="tnum">{r.lastFiredLabel ? `Last fired ${r.lastFiredLabel}` : "Has not fired"}</span>
               </p>
               {rowError?.id === r.id ? <ActionRefusal error={rowError.error} className="mt-2" /> : null}
             </div>
-            <div className="flex items-start gap-1">
+            <div className="col-start-2 flex items-start gap-1 sm:col-start-3">
               <Button size="sm" variant="ghost" onClick={() => setEditing(r)} disabled={!editable}>
                 Edit
               </Button>
@@ -159,6 +191,22 @@ export function AlertRules({
           </li>
         ))}
       </ul>
+
+      {unwatched && unwatched.length > 0 ? (
+        <p className="flex items-baseline gap-2 text-meta text-fg-3" data-testid="rules-unwatched">
+          <span className="relative top-[1px]">
+            <StateMark shape="hatch" tone="void" />
+          </span>
+          <span>
+            <span className="font-semibold text-fg-2">
+              {unwatched.length} domain{unwatched.length === 1 ? " has" : "s have"} no enabled rule:
+            </span>{" "}
+            <span className="data">{unwatched.slice(0, 8).join(", ")}</span>
+            {unwatched.length > 8 ? ` and ${unwatched.length - 8} more` : ""}. A report-silence rule is the one every
+            domain should have.
+          </span>
+        </p>
+      ) : null}
 
       <EditRule organizationId={organizationId} rule={editing} members={members} onClose={() => setEditing(null)} />
 

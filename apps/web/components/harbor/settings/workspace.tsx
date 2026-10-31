@@ -46,12 +46,15 @@ export function WorkspaceDeletion({
   name,
   slug,
   isOwner,
+  serviceName = "this service",
 }: {
   organizationId: string;
   name: string;
   slug: string;
   /** null: the role could not be read; the API decides. */
   isOwner: boolean | null;
+  /** The product's name as this host shows it (readHostBrand), never hard-coded. */
+  serviceName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [summary, setSummary] = useState<DeletionSummary | null>(null);
@@ -160,18 +163,22 @@ export function WorkspaceDeletion({
           {summary ? (
             <div>
               <p className="font-semibold text-fg">This deletes, permanently:</p>
-              <ul className="mt-1 grid grid-cols-2 gap-x-6 gap-y-0.5 tnum">
+              <ul className="mt-1.5 grid grid-cols-1 border-t border-rule tnum sm:grid-cols-2 sm:gap-x-6">
                 {LINES.map(([k, one, many]) => (
-                  <li key={k} className={summary[k] === 0 ? "text-fg-4" : "text-fg"}>
-                    {summary[k].toLocaleString("en-GB")} {summary[k] === 1 ? one : many}
+                  <li
+                    key={k}
+                    className={`flex items-baseline justify-between gap-3 border-b border-rule py-1 ${summary[k] === 0 ? "text-fg-4" : "text-fg"}`}
+                  >
+                    <span>{summary[k] === 1 ? one : many}</span>
+                    <span className="font-semibold">{summary[k] === 0 ? "none" : summary[k].toLocaleString("en-GB")}</span>
                   </li>
                 ))}
               </ul>
             </div>
           ) : null}
           {hosted.length > 0 ? (
-            <div className="border border-warn/40 bg-paper-2 p-3">
-              <p className="font-semibold text-fg">These domains read their DMARC record from DMARC Harbor.</p>
+            <div className="rounded-ctl border border-warn/40 bg-warn-wash p-3">
+              <p className="font-semibold text-fg">These domains read their DMARC record from {serviceName}.</p>
               <p className="mt-1 max-w-[72ch] text-meta text-fg-2">
                 Publish this TXT at your DNS host and remove the CNAME first, or the domain will have no DMARC record once
                 it is deleted here.
@@ -192,10 +199,10 @@ export function WorkspaceDeletion({
             </div>
           ) : null}
           {managedSpf.length > 0 ? (
-            <div className="border border-warn/40 bg-paper-2 p-3">
-              <p className="font-semibold text-fg">These domains&rsquo; SPF records are managed by DMARC Harbor.</p>
+            <div className="rounded-ctl border border-warn/40 bg-warn-wash p-3">
+              <p className="font-semibold text-fg">These domains&rsquo; SPF records are managed by {serviceName}.</p>
               <p className="mt-1 max-w-[72ch] text-meta text-fg-2">
-                Publish this TXT at your DNS host and remove the redirect to DMARC Harbor first, or the domain will lose
+                Publish this TXT at your DNS host and remove the redirect to {serviceName} first, or the domain will lose
                 its SPF record once it is deleted here.
               </p>
               <div className="mt-3 flex flex-col gap-3">

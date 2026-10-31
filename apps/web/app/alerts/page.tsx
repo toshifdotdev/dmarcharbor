@@ -6,11 +6,12 @@ import { eventState, isMetric, minutesLabel, nextReminderAt, valueWithUnit } fro
 import { featureOf } from "@/lib/entitlements";
 import { instantLabel } from "@/lib/instant";
 import { resolveActiveWorkspace } from "@/lib/session";
-import type { AlertRuleRow, WorkspaceMemberRow } from "@/lib/types";
+import type { AlertEventRow, AlertRuleRow, WorkspaceMemberRow } from "@/lib/types";
 import { AlertEvents, type EventView } from "@/components/harbor/alert-events";
 import { AlertRuleForm, type MemberChoice } from "@/components/harbor/alert-rule-form";
 import { AlertRules, type RuleView } from "@/components/harbor/alert-rules";
 import { AppShell } from "@/components/harbor/app-shell";
+import { OpsSection, StateMark } from "@/components/harbor/ops-parts";
 import { PageHeader } from "@/components/harbor/page-header";
 import { PlanUnknown } from "@/components/harbor/plan-refusal";
 import { RefreshButton } from "@/components/harbor/refresh-button";
@@ -35,6 +36,11 @@ function memberChoice(m: WorkspaceMemberRow): MemberChoice {
  * will remind again), then the rules that produced them, then the form to add
  * one. Everything said about a metric comes from lib/alert-rules.ts, which is
  * the API's own definition written down once.
+ *
+ * Each event carries who its rule tells and, once acknowledged, who took it
+ * (the list's own acknowledgedById, named from the member list). The header
+ * and the rules list also say which domains no enabled rule watches, worked
+ * out from the client list and the rules: the gap to close first.
  *
  * Plan gating follows the API, not a guess: reading rules and events needs no
  * feature, so a workspace whose plan lost alerting still sees its history and
@@ -63,11 +69,17 @@ export default async function AlertsPage() {
   const memberName = new Map(memberChoices.map((m) => [m.userId, m.label]));
   const ruleById = new Map<string, AlertRuleRow>((rules?.items ?? []).map((r) => [r.id, r]));
   const slugById = new Map((clients ?? []).flatMap((c) => c.domains.map((d) => [d.id, d.slug] as const)));
+  const clientByDomain = new Map((clients ?? []).flatMap((c) => c.domains.map((d) => [d.id, c.name] as const)));
 
-  const eventViews: EventView[] = (events?.items ?? []).map((e) => {
+  const eventViews: EventView[] = (events?.items ?? []).map((e: AlertEventRow & { acknowledgedById?: string | null }) => {
     const rule = ruleById.get(e.ruleId);
     const next = nextReminderAt(e, rule);
     return {
+      clientName: clientByDomain.get(e.domainId) ?? null,
+      recipientNames: rule ? rule.recipients.map((x) => memberName.get(x.userId) ?? "A former member") : [],
+      // The list carries the acknowledging person's id; a key or a former
+      // member has no name to show, so none is claimed.
+      handledBy: e.acknowledgedById ? (memberName.get(e.acknowledgedById) ?? null) : null,
       id: e.id,
       ruleName: e.rule?.name ?? rule?.name ?? "A deleted rule",
       domainName: e.domain.name,
@@ -87,6 +99,7 @@ export default async function AlertsPage() {
 
   const ruleViews: RuleView[] = (rules?.items ?? []).map((r) => ({
     ...r,
+    clientName: clientByDomain.get(r.domainId) ?? null,
     domainSlug: slugById.get(r.domainId) ?? null,
     lastFiredLabel: r.lastTriggeredAt ? instantLabel(r.lastTriggeredAt) : null,
     recipientNames: r.recipients.map((x) => memberName.get(x.userId) ?? "A former member"),
@@ -98,17 +111,22 @@ export default async function AlertsPage() {
   const domainGroups = (clients ?? [])
     .filter((c) => c.domains.length > 0)
     .map((c) => ({ clientName: c.name, domains: c.domains.map((d) => ({ id: d.id, name: d.name })) }));
+  // Which domains no enabled rule is watching: the gap an MSP closes first.
+  const allDomains = (clients ?? []).flatMap((c) => c.domains);
+  const watchedIds = new Set(ruleViews.filter((r) => r.enabled).map((r) => r.domainId));
+  const unwatched = allDomains.filter((d) => !watchedIds.has(d.id)).map((d) => d.name);
 
   return (
     <AppShell workspaces={workspaces} activeWorkspace={active} trail={[{ label: "Alerts" }]}>
-      <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-10">
         <PageHeader
           title="Alerts"
-          lede="Observed conditions worth waking someone for. An unacknowledged event escalates: it reminds again after each cooldown, up to the rule's limit, and open events roll up to the workspace owner. The level is always shown."
+          lede="What fired, who it tells, and how far each open event has escalated. An unacknowledged event reminds again after each cooldown, up to its rule's limit, then rolls up to the workspace owner."
           meta={
             events && rules ? (
               <>
-                <span>
+                <span className="inline-flex items-center gap-1.5">
+                  <StateMark shape="diamond" tone={open > 0 ? "fail" : "void"} />
                   <span className={open > 0 ? "tnum font-semibold text-fail" : "tnum font-semibold text-fg-2"}>{open}</span> open event
                   {open === 1 ? "" : "s"}
                 </span>
@@ -116,6 +134,12 @@ export default async function AlertsPage() {
                   <span className="tnum font-semibold text-fg-2">{enabled}</span> of <span className="tnum">{ruleViews.length}</span> rule
                   {ruleViews.length === 1 ? "" : "s"} watching
                 </span>
+                {clients && allDomains.length > 0 ? (
+                  <span>
+                    <span className="tnum font-semibold text-fg-2">{allDomains.length - unwatched.length}</span> of{" "}
+                    <span className="tnum">{allDomains.length}</span> domain{allDomains.length === 1 ? "" : "s"} watched
+                  </span>
+                ) : null}
               </>
             ) : null
           }
@@ -124,10 +148,11 @@ export default async function AlertsPage() {
 
         {entitlements === null ? <PlanUnknown what="alerting" /> : null}
 
-        <section aria-labelledby="events-head" className="flex flex-col gap-3">
-          <h2 id="events-head" className="text-h2 font-bold tracking-[-0.02em] text-fg">
-            Events
-          </h2>
+        <OpsSection
+          id="events-head"
+          title="Events"
+          meta={events && open > 0 ? `${open} waiting for someone to acknowledge` : null}
+        >
           {events === null ? (
             <ErrorState what="the alert events" detail="This is a connection or API problem, not a quiet workspace." />
           ) : (
@@ -138,13 +163,14 @@ export default async function AlertsPage() {
               watching={enabled > 0}
             />
           )}
-        </section>
+        </OpsSection>
 
-        <div className="grid gap-x-10 gap-y-10 lg:grid-cols-[minmax(0,1fr)_380px]">
-          <section aria-labelledby="rules-head" className="flex min-w-0 flex-col gap-3">
-            <h2 id="rules-head" className="text-h2 font-bold tracking-[-0.02em] text-fg">
-              Rules
-            </h2>
+        <div className="grid gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,1fr)_380px]">
+          <OpsSection
+            id="rules-head"
+            title="Rules"
+            meta={rules && ruleViews.length > 0 ? "What is watched, and who it wakes" : null}
+          >
             {rules === null ? (
               <ErrorState what="the alert rules" detail="This is a connection or API problem; no rule was changed." />
             ) : (
@@ -153,9 +179,10 @@ export default async function AlertsPage() {
                 rules={ruleViews}
                 members={memberChoices}
                 editable={alerting === true}
+                unwatched={clients ? unwatched : undefined}
               />
             )}
-          </section>
+          </OpsSection>
 
           <aside className="flex flex-col gap-3 self-start lg:sticky lg:top-[104px]">
             {alerting === false ? (

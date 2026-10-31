@@ -1,5 +1,6 @@
 import { getTrustCenter, PublicError } from "@/lib/api-public";
 import { ArtefactFrame } from "@/components/harbor/artefact-frame";
+import { DocumentUnavailable } from "@/components/harbor/artefact-states";
 import { TrustDocument } from "@/components/harbor/trust-document";
 
 /**
@@ -25,16 +26,16 @@ export default async function TrustCenterPage({ params }: { params: Promise<{ sl
     const gone = error instanceof PublicError && (error.status === 404 || error.status === 410);
     return (
       <ArtefactFrame kind="Trust Center">
-        <div className="mx-auto flex min-h-[50vh] max-w-[60ch] flex-col justify-center gap-3">
-          <h1 className="display text-[30px] leading-[1.05]">
-            {gone ? "No Trust Center at this address." : "The Trust Center is temporarily unavailable."}
-          </h1>
-          <p className="text-body text-fg-2">
+        <DocumentUnavailable
+          closed={gone}
+          title={gone ? "No Trust Center at this address." : "The Trust Center is temporarily unavailable."}
+        >
+          <p>
             {gone
               ? "The link may have been withdrawn by the organization that published it. Ask them for a current link."
               : "This is a failure to reach it, not a missing page. Please try again in a moment; if it persists, contact the organization that sent you here."}
           </p>
-        </div>
+        </DocumentUnavailable>
       </ArtefactFrame>
     );
   }

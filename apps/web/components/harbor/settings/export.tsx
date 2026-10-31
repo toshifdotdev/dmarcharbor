@@ -6,8 +6,9 @@
  * Free on every plan, because it is a data-protection right, not a feature.
  * The download link is the sensitive part: it is shown once on this page
  * (only its hash is stored) and emailed to the person who asked, works for a
- * fixed number of days, and can be killed early. The page says each of those,
- * and revoking one says it kills the emailed copy too.
+ * fixed number of days, and can be killed early. The page draws that life as
+ * three stops on one line before the form, and revoking one says it kills the
+ * emailed copy too. The list below is the record of every link handed out.
  *
  * Test hooks: export-request, export-download.
  */
@@ -17,12 +18,12 @@ import { useState, type FormEvent } from "react";
 import { createExportJob, revokeExportJob } from "@/lib/ops-client";
 import type { ExportJob } from "@/lib/types";
 import { ActionRefusal, type ActionError } from "@/components/harbor/plan-refusal";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { Field, Segmented, Select } from "@/components/ui/field";
 import { Table, TBody, Td, TEmptyRow, Th, THead, Tr } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
+import { LineStateWord, StopLine } from "./lines";
 import { Panel } from "./parts";
 
 type Scope = "ORGANIZATION" | "CLIENT" | "DOMAIN";
@@ -64,6 +65,7 @@ export function ExportBoard({
   const [revokeBusy, setRevokeBusy] = useState(false);
 
   const targetId = scope === "CLIENT" ? clientId : scope === "DOMAIN" ? domainId : undefined;
+  const live = jobs.filter((j) => j.state === "READY").length;
 
   async function request(e: FormEvent) {
     e.preventDefault();
@@ -103,17 +105,35 @@ export function ExportBoard({
         title="Request an export"
         why={`It is prepared from the data held at that moment, then available to download for ${linkDays} days from a link shown once here and emailed to you. Free on every plan.`}
       >
-        <form onSubmit={request} className="flex max-w-[680px] flex-col gap-4">
-          <Segmented
-            label="What to export"
-            value={scope}
-            onChange={setScope}
-            options={[
-              { value: "ORGANIZATION", label: "The whole workspace" },
-              { value: "CLIENT", label: "One client" },
-              { value: "DOMAIN", label: "One domain" },
-            ]}
-          />
+        <StopLine
+          label="What happens to an export"
+          className="my-3 max-w-[760px]"
+          segments={["planned", "planned"]}
+          stops={[
+            { key: "prepare", name: "Prepared", note: "From what is held when you ask" },
+            { key: "link", name: "Link shown once", note: "Here, and in an email to you" },
+            { key: "end", name: "Link ends", note: `After ${linkDays} days, or when revoked`, terminus: true },
+          ]}
+        />
+
+        <form onSubmit={request} className="flex max-w-[680px] flex-col gap-5">
+          <div className="flex flex-col gap-1.5">
+            <span aria-hidden className="text-meta font-semibold text-fg-2">
+              What to export
+            </span>
+            <div>
+              <Segmented
+                label="What to export"
+                value={scope}
+                onChange={setScope}
+                options={[
+                  { value: "ORGANIZATION", label: "The whole workspace" },
+                  { value: "CLIENT", label: "One client" },
+                  { value: "DOMAIN", label: "One domain" },
+                ]}
+              />
+            </div>
+          </div>
           {scope === "CLIENT" ? (
             <Field label="Client">
               <Select value={clientId} onChange={(e) => setClientId(e.target.value)} className="w-full max-w-[420px]">
@@ -136,7 +156,7 @@ export function ExportBoard({
               </Select>
             </Field>
           ) : null}
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
             <span className="text-meta font-semibold text-fg-2">Format</span>
             <Segmented
               label="Format"
@@ -159,8 +179,11 @@ export function ExportBoard({
         </form>
 
         {ready?.downloadUrl ? (
-          <div role="status" className="flex flex-col gap-2 rounded-ctl border border-act/40 bg-paper-2 px-4 py-3.5 shadow-[0_0_0_3px_var(--color-act-line)] [animation:hb-rise_240ms_ease-out]">
-            <p className="legend text-act!">Ready · shown once</p>
+          <div role="status" className="mt-2 flex max-w-[680px] flex-col gap-2 rounded-sheet border border-fg px-4 py-3.5">
+            <p className="flex flex-wrap items-baseline gap-x-2">
+              <LineStateWord state="live">Ready</LineStateWord>
+              <span className="text-meta font-semibold text-fg-2">shown once</span>
+            </p>
             <p className="text-ui text-fg-2">
               The {ready.format} export of {ready.scopeLabel || "this workspace"} is prepared. This link is not shown on this page
               again; the same link is in the email.
@@ -174,7 +197,12 @@ export function ExportBoard({
         ) : null}
       </Panel>
 
-      <Panel id="ex-list" title="Exports" why="Each link works until it expires or is revoked. Revoke one you sent to the wrong person.">
+      <Panel
+        id="ex-list"
+        title="Exports"
+        why="Every link handed out, newest first. Each works until it expires or is revoked. Revoke one you sent to the wrong person."
+        aside={jobs.length > 0 ? <span className="tnum">{live} of {jobs.length} still work</span> : null}
+      >
         <Table caption="Export requests" minWidth={680} dense>
           <THead>
             <tr>
@@ -193,7 +221,7 @@ export function ExportBoard({
             ) : (
               jobs.map((j) => (
                 <Tr key={j.id}>
-                  <Td className="whitespace-nowrap text-meta">{j.requestedLabel}</Td>
+                  <Td className="tnum whitespace-nowrap text-meta">{j.requestedLabel}</Td>
                   <Td>{j.scopeLabel}</Td>
                   <Td mono className="text-meta">
                     {j.format}
@@ -201,13 +229,13 @@ export function ExportBoard({
                   <Td className="text-meta">
                     {j.state === "READY" ? (
                       <>
-                        <Badge tone="ok">Works until {j.linkEndsLabel ?? "its end date"}</Badge>
-                        {j.downloadedLabel ? <span className="block text-fg-3">Downloaded {j.downloadedLabel}</span> : null}
+                        <LineStateWord state="live">Works until {j.linkEndsLabel ?? "its end date"}</LineStateWord>
+                        <span className="block text-fg-3">{j.downloadedLabel ? `Downloaded ${j.downloadedLabel}` : "Not downloaded yet"}</span>
                       </>
                     ) : j.state === "REVOKED" ? (
-                      <Badge tone="void">Revoked</Badge>
+                      <LineStateWord state="none">Revoked</LineStateWord>
                     ) : (
-                      <Badge tone="void">Expired</Badge>
+                      <LineStateWord state="paused">Expired</LineStateWord>
                     )}
                   </Td>
                   <Td align="right">

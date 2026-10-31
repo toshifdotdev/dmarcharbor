@@ -99,7 +99,9 @@ export function Field({
     ? cloneElement(children, {
         id,
         "aria-describedby": describedBy,
-        "aria-invalid": error ? true : undefined,
+        // Only an error sets it; without one, the control keeps its own value
+        // (a field can be marked invalid while its hint carries a warning).
+        ...(error ? { "aria-invalid": true } : {}),
       })
     : children;
   return (

@@ -148,12 +148,12 @@ export function ShareLinks({
         </p>
       </div>
 
-      <form onSubmit={create} className="flex flex-col gap-4 border-y border-rule py-4">
+      <form onSubmit={create} className="flex flex-col gap-5 border-y border-rule py-5">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <span className="text-meta font-semibold text-fg-2">Expires after</span>
           <Segmented label="Expires after" value={expiry} options={[...EXPIRY]} onChange={setExpiry} size="sm" />
         </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:gap-8">
+        <div className="grid gap-4 sm:grid-cols-2 sm:gap-8">
           <Checkbox
             checked={includeSources}
             onChange={(e) => setIncludeSources(e.target.checked)}
@@ -174,11 +174,11 @@ export function ShareLinks({
             }
           />
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <Button type="submit" variant="primary" busy={busy} busyLabel="Creating the link" data-testid="create-share">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <Button type="submit" variant="secondary" busy={busy} busyLabel="Creating the link" data-testid="create-share">
             Create share link
           </Button>
-          <span className="text-meta text-fg-3">
+          <span className="tnum text-meta text-fg-3">
             {live.length === 0 ? "No live links for this domain." : `${live.length} live link${live.length === 1 ? "" : "s"} below.`}
           </span>
         </div>
@@ -202,20 +202,19 @@ export function ShareLinks({
       </form>
 
       {created ? (
-        <div
-          role="status"
-          data-copy-scope
-          className="flex flex-col gap-2 rounded-ctl border border-act-line bg-act/5 px-3 py-3 [animation:hb-rise_220ms_ease-out]"
-        >
-          <p className="text-ui font-semibold text-fg">Link created. Send it to whoever needs the report.</p>
-          <div className="flex flex-wrap items-center gap-2">
+        <div role="status" data-copy-scope className="flex flex-col gap-2 rounded-[10px] border border-ok/30 bg-ok-wash px-3.5 py-3">
+          <p className="flex items-center gap-2 text-ui font-semibold text-fg">
+            <span aria-hidden className="block size-2 shrink-0 bg-ok" />
+            Link created. Send it to whoever needs the report.
+          </p>
+          <div className="flex flex-wrap items-start gap-2 pl-4">
             <a
               href={shareHref(created)}
               target="_blank"
               rel="noreferrer"
               data-testid="share-link"
               data-copy-value
-              className="data min-w-0 flex-1 break-all text-meta font-semibold text-act underline-offset-2 hover:underline"
+              className="data min-w-0 flex-1 break-all pt-[3px] text-meta font-semibold text-fg underline decoration-rule-2 underline-offset-2 hover:decoration-current"
             >
               {absolute(created)}
             </a>
@@ -226,8 +225,8 @@ export function ShareLinks({
 
       {shares.length > 0 ? (
         <div>
-          <div className="flex flex-wrap items-baseline justify-between gap-2 pb-1">
-            <p className="legend">Links for this domain</p>
+          <div className="flex flex-wrap items-baseline justify-between gap-2 pb-2">
+            <p className="text-ui font-bold text-fg">Links for this domain</p>
             {revoked.length > 0 ? (
               <button
                 type="button"
@@ -242,13 +241,12 @@ export function ShareLinks({
               </button>
             ) : null}
           </div>
-          <ul className="hb-stagger border-t border-rule">
-            {shares.map((s, i) => {
+          <ul className="border-t border-rule">
+            {shares.map((s) => {
               const dead = Boolean(s.revokedLabel) || s.expired;
               return (
                 <li
                   key={s.id}
-                  style={{ "--i": i } as React.CSSProperties}
                   className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 border-b border-rule py-2.5"
                 >
                   <div className="min-w-0">
@@ -261,7 +259,13 @@ export function ShareLinks({
                       >
                         /share/{s.token.slice(0, 10)}…
                       </a>
-                      <span className={clsx("text-meta font-semibold", s.revokedLabel ? "text-fail" : s.expired ? "text-fg-3" : "text-ok")}>
+                      <span
+                        className={clsx(
+                          "inline-flex items-center gap-1.5 text-meta font-semibold",
+                          s.revokedLabel ? "text-fail" : s.expired ? "text-fg-3" : "text-ok",
+                        )}
+                      >
+                        <ShareMark state={s.revokedLabel ? "revoked" : s.expired ? "expired" : "live"} />
                         {s.revokedLabel ? `Revoked ${s.revokedLabel}` : s.expired ? `Expired ${s.expiresLabel}` : `Live until ${s.expiresLabel}`}
                       </span>
                     </p>
@@ -337,5 +341,16 @@ export function ShareLinks({
         }
       />
     </section>
+  );
+}
+
+/** A link's state as a shape beside its word: live is a filled square, revoked a diamond, expired a hollow square. */
+function ShareMark({ state }: { state: "live" | "revoked" | "expired" }) {
+  return (
+    <svg width="9" height="9" viewBox="0 0 10 10" aria-hidden className="shrink-0">
+      {state === "live" ? <rect x="0.5" y="0.5" width="9" height="9" fill="var(--color-ok)" /> : null}
+      {state === "revoked" ? <path d="M5 0 10 5 5 10 0 5Z" fill="var(--color-fail)" /> : null}
+      {state === "expired" ? <rect x="1" y="1" width="8" height="8" fill="none" stroke="var(--color-void)" strokeWidth="1.5" /> : null}
+    </svg>
   );
 }

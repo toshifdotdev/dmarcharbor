@@ -132,7 +132,23 @@ export const POSTURE_ORDER: Record<Posture, number> = {
 /** Rows whose signals failed to load sort below every resolved posture. */
 export const UNRESOLVED_ORDER = Number.MAX_SAFE_INTEGER;
 
-/** The policy a domain actually publishes, from DNS scan or report evidence. */
+/**
+ * The policy a domain actually publishes, from DNS scan or report evidence.
+ *
+ * A scan that read a policy wins. A scan that found no readable record
+ * ("unknown") does not override the policy receivers reported seeing: a
+ * lookup that failed or ran before the record existed is weaker evidence than
+ * the reports (the clickthrough's "Bug 2" check). With no reports, "unknown"
+ * is still shown, as no record.
+ */
 export function policyLabel(dnsPolicy: string | null, reportedPolicy: string | null): string {
-  return dnsPolicy ?? reportedPolicy ?? "not observed";
+  const scanned = dnsPolicy && dnsPolicy.toLowerCase() !== "unknown" ? dnsPolicy : null;
+  return scanned ?? reportedPolicy ?? dnsPolicy ?? "not observed";
+}
+
+/** Where policyLabel's answer came from, in the same order. */
+export function policySourceOf(dnsPolicy: string | null, reportedPolicy: string | null): "scan" | "reports" | null {
+  if (dnsPolicy && dnsPolicy.toLowerCase() !== "unknown") return "scan";
+  if (reportedPolicy) return "reports";
+  return dnsPolicy ? "scan" : null;
 }

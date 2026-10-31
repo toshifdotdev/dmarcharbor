@@ -12,6 +12,10 @@
  * Withdrawing a Trust Center is immediate and the address never comes back:
  * publishing again mints a new one. The confirmation says so.
  *
+ * Beside the issue button, the pack's route is drawn as four stops (issued,
+ * fingerprinted, sent, checked), so the person handing it over can explain to
+ * the auditor what the fingerprint is for.
+ *
  * Test hooks: pack-issue, pack-issued, pack-fingerprint, pack-copy.
  */
 
@@ -21,7 +25,6 @@ import { useState } from "react";
 import { createTrustCenter, issueCompliancePack, revokeTrustCenter } from "@/lib/ops-client";
 import type { FeatureStatus } from "@/lib/entitlements";
 import { ActionRefusal, type ActionError } from "@/components/harbor/plan-refusal";
-import { Badge } from "@/components/ui/badge";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { CopyButton, CopyValue } from "@/components/ui/copy";
 import { ConfirmDialog } from "@/components/ui/dialog";
@@ -30,7 +33,56 @@ import { External } from "@/components/ui/icons";
 import { UpgradeNotice } from "@/components/ui/states";
 import { Table, TBody, Td, TEmptyRow, Th, THead, Tr } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
-import { Panel } from "./parts";
+import { Panel, RouteColumn, StateWord } from "./parts";
+
+/** The pack just issued: its fingerprint, the verify link, and a second copy. */
+function PackResult({
+  issued,
+  error,
+  verifyHref,
+}: {
+  issued: { reference: string; sha256: string; filename: string; href: string } | null;
+  error: ActionError | null;
+  verifyHref: (reference: string) => string;
+}) {
+  return (
+    <>
+      <ActionRefusal error={error} />
+      {issued ? (
+        <div data-testid="pack-issued" className="flex flex-col gap-3 rounded-sheet border-2 border-fg px-5 py-4">
+          <div className="flex flex-wrap items-baseline gap-x-3">
+            <StateWord shape="square" tone="ok">
+              Issued
+            </StateWord>
+            <code className="data text-ui text-fg-2">{issued.reference}</code>
+          </div>
+          <div>
+            <p className="legend">SHA-256 fingerprint</p>
+            <div className="mt-1 flex items-start gap-2 rounded-ctl border border-rule bg-paper-3 py-1.5 pl-2.5 pr-1.5">
+              <code data-testid="pack-fingerprint" className="data min-w-0 flex-1 break-all pt-[3px] text-meta text-fg">
+                {issued.sha256}
+              </code>
+              <CopyButton value={issued.sha256} label="Copy fingerprint" testId="pack-copy" />
+            </div>
+          </div>
+          <p className="text-ui text-fg-2">
+            Send the fingerprint with the PDF. Anyone can check it on the{" "}
+            <Link href={verifyHref(issued.reference)} className="link" target="_blank">
+              public verify page
+            </Link>
+            : a match proves the file is the one issued here, unchanged. It proves nothing more about the domains than the
+            PDF itself says.
+          </p>
+          <div>
+            <a href={issued.href} download={issued.filename} className="link text-ui font-semibold">
+              Save the PDF again
+            </a>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
 
 export interface PackView {
   id: string;
@@ -140,7 +192,7 @@ export function ComplianceBoard({
   const verifyHref = (reference: string) => `/verify?reference=${encodeURIComponent(reference)}`;
 
   return (
-    <div className="flex flex-col gap-10">
+    <div className="flex flex-col gap-14">
       <Panel
         id="cp-pack"
         title="Evidence pack"
@@ -148,50 +200,38 @@ export function ComplianceBoard({
       >
         {packFeature === false ? (
           <UpgradeNotice message="Compliance packs are not included in this workspace's plan." feature="reports.compliancePack" />
-        ) : canManage ? (
-          <div className="flex flex-col gap-4">
-            <div>
-              <Button variant="primary" onClick={issue} busy={issuing} busyLabel="Issuing the pack" data-testid="pack-issue">
-                Issue a pack for {clientName}
-              </Button>
-            </div>
-            <ActionRefusal error={packError} />
-            {issued ? (
-              <div data-testid="pack-issued" className="flex flex-col gap-3 rounded-ctl border border-act/40 bg-paper-2 px-4 py-3.5 shadow-[0_0_0_3px_var(--color-act-line)] [animation:hb-rise_240ms_ease-out]">
-                <div className="flex flex-wrap items-baseline gap-x-3">
-                  <p className="text-body font-semibold text-fg">Issued</p>
-                  <code className="data text-ui text-fg-2">{issued.reference}</code>
-                </div>
-                <div>
-                  <p className="legend">SHA-256 fingerprint</p>
-                  <div className="mt-1 flex items-start gap-2 rounded-ctl border border-rule bg-paper-3 py-1.5 pl-2.5 pr-1.5">
-                    <code data-testid="pack-fingerprint" className="data min-w-0 flex-1 break-all pt-[3px] text-meta text-fg">
-                      {issued.sha256}
-                    </code>
-                    <CopyButton value={issued.sha256} label="Copy fingerprint" testId="pack-copy" />
-                  </div>
-                </div>
-                <p className="text-ui text-fg-2">
-                  Send the fingerprint with the PDF. Anyone can check it on the{" "}
-                  <Link href={verifyHref(issued.reference)} className="link" target="_blank">
-                    public verify page
-                  </Link>
-                  : a match proves the file is the one issued here, unchanged. It proves nothing more about the domains than
-                  the PDF itself says.
-                </p>
-                <div>
-                  <a href={issued.href} download={issued.filename} className="link text-ui font-semibold">
-                    Save the PDF again
-                  </a>
-                </div>
-              </div>
-            ) : null}
-          </div>
         ) : (
-          <p className="text-ui text-fg-2">An owner or admin can issue packs.</p>
+          <div className="grid gap-x-12 gap-y-6 md:grid-cols-[minmax(0,1fr)_minmax(0,17rem)]">
+            <div className="flex min-w-0 flex-col gap-4">
+              {canManage ? (
+                <div>
+                  <Button variant="primary" onClick={issue} busy={issuing} busyLabel="Issuing the pack" data-testid="pack-issue">
+                    Issue a pack for {clientName}
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-ui text-fg-2">An owner or admin can issue packs.</p>
+              )}
+              {canManage ? <PackResult issued={issued} error={packError} verifyHref={verifyHref} /> : null}
+            </div>
+            <figure className="flex flex-col gap-3 md:border-l md:border-rule md:pl-6">
+              <figcaption className="text-ui">
+                <span className="font-bold text-fg">How an auditor checks it</span>
+              </figcaption>
+              <RouteColumn
+                label="How an auditor checks an evidence pack"
+                stops={[
+                  { key: "issue", shape: "origin", name: "Issued here", kind: "a PDF of the evidence today" },
+                  { key: "print", shape: "station", name: "Fingerprinted", kind: "SHA-256 of exactly those bytes" },
+                  { key: "send", shape: "station", name: "Sent with the PDF", kind: "by you, to the auditor" },
+                  { key: "check", shape: "terminus", name: "Checked on the public verify page", kind: "a match means unchanged" },
+                ]}
+              />
+            </figure>
+          </div>
         )}
 
-        <h3 className="mt-2 text-ui font-semibold text-fg">Issued for {clientName}</h3>
+        <h3 className="mt-4 text-ui font-bold text-fg">Issued for {clientName}</h3>
         {packs === null ? (
           <p className="text-ui text-fg-3">The list of issued packs could not be read. This is not the same as there being none.</p>
         ) : (
@@ -213,9 +253,19 @@ export function ComplianceBoard({
               ) : (
                 packs.map((p) => (
                   <Tr key={p.id}>
-                    <Td mono className="text-meta">
-                      {p.reference}
-                      {p.superseded ? <span className="ml-2 font-sans text-meta text-fg-3">superseded</span> : <span className="ml-2 font-sans text-meta font-semibold text-ok">current</span>}
+                    <Td className="text-meta">
+                      <span className="data text-fg">{p.reference}</span>
+                      <span className="ml-2.5 inline-flex align-baseline">
+                        {p.superseded ? (
+                          <StateWord shape="closed" tone="void" size="meta">
+                            superseded
+                          </StateWord>
+                        ) : (
+                          <StateWord shape="square" tone="ok" size="meta">
+                            current
+                          </StateWord>
+                        )}
+                      </span>
                     </Td>
                     <Td className="whitespace-nowrap text-meta">{p.issuedLabel}</Td>
                     <Td className="whitespace-nowrap text-meta">{p.asOfLabel}</Td>
@@ -239,7 +289,17 @@ export function ComplianceBoard({
         id="cp-trust"
         title="Trust Center"
         why={`A public page about how ${clientName}'s data is held here: what is kept, who can read it, the sub-processors, and the erasures done. Anyone with the address can open it; it is not listed by search engines.`}
-        aside={trustUrl ? <Badge tone="ok">Published</Badge> : <Badge tone="void">Not published</Badge>}
+        aside={
+          trustUrl ? (
+            <StateWord shape="square" tone="ok">
+              Published
+            </StateWord>
+          ) : (
+            <StateWord shape="closed" tone="void">
+              Not published
+            </StateWord>
+          )
+        }
       >
         {trustUrl ? (
           <div className="flex flex-col gap-3">

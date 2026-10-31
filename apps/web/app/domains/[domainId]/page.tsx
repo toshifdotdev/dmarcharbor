@@ -30,11 +30,12 @@ import {
   OpsError,
 } from "@/lib/api-ops";
 import { getServiceMeta } from "@/lib/api-public";
+import { readHostBrand } from "@/lib/host-brand";
 import { featureOf } from "@/lib/entitlements";
 import { dmarcFailedMessages } from "@/lib/dmarc";
 import { toDnsChangeView } from "@/lib/dns-change-view";
 import { instantLabel } from "@/lib/instant";
-import { daysSinceReport, fmtVolume, policyLabel, POSTURE_META, resolvePosture } from "@/lib/posture";
+import { daysSinceReport, fmtVolume, policyLabel, policySourceOf, POSTURE_META, resolvePosture } from "@/lib/posture";
 import { onboardingHref } from "@/lib/route-hrefs";
 import { resolveActiveWorkspace } from "@/lib/session";
 import type {
@@ -72,9 +73,13 @@ import { SpfUsage } from "@/components/harbor/spf-usage";
 import { SubdomainsTable } from "@/components/harbor/subdomains-table";
 import { TlsReports } from "@/components/harbor/tls-reports";
 import { PageHeader, SectionHead } from "@/components/harbor/page-header";
+import { brandName } from "@/components/harbor/public-frame";
 import { RefreshButton } from "@/components/harbor/refresh-button";
 import { VolumeChart } from "@/components/harbor/volume-chart";
-import { Badge, PostureBadge, type Tone } from "@/components/ui/badge";
+import { DomainRouteMap, type RouteMode } from "@/components/harbor/domain-route-map";
+import { passPercent, routeLines } from "@/components/harbor/domain-routes";
+import { StationList, StationStrip, type SegmentState } from "@/components/harbor/station-strip";
+import { Badge, PostureBadge, PostureMark, type Tone } from "@/components/ui/badge";
 import { ButtonLink } from "@/components/ui/button";
 import { Readout, ReadoutStrip } from "@/components/ui/readout";
 import { ErrorState } from "@/components/ui/states";
@@ -82,19 +87,26 @@ import { Nil, Table, TBody, Td, Th, THead, Tr } from "@/components/ui/table";
 import { Tabs } from "@/components/ui/tabs";
 
 /**
- * Domain detail: the evidence for one domain.
+ * Domain detail: the evidence for one domain, for the technician who came
+ * here from the portfolio because something is wrong or because it is time
+ * for the next policy step.
  *
- * Read top to bottom it answers, in order: what posture is this domain in and
- * why (header), how much was measured (readouts), how the volume moved and
- * whether the feed is still alive (chart), who is sending (senders, sources,
- * and unmonitored subdomains),
- * what the receivers actually said (reports), and what DNS says right now
- * (scans). Policy readiness sits beside the tables at wide sizes because it is
- * the decision the evidence feeds.
+ * Read top to bottom it answers their questions in their order:
+ * - Is mail being lost or forged right now? The header's posture and one-line
+ *   answer, the readouts, and the red line on the map.
+ * - What sends as this domain, and does each sender authenticate and align?
+ *   The mail routes map: every measured sender a line, the two aligned checks
+ *   its stations, failing mail on the red line to wherever the policy sends it.
+ * - What do I fix, and where? The crossed-out line, the senders and sources
+ *   tables, DNS changes (raised above the tables while one is unread).
+ * - Is it safe to move to quarantine or reject? The policy ladder beside the
+ *   map, its blockers, and the client approval under it.
+ * Then the volume chart (is the feed alive) and the evidence tables.
  *
  * Every figure is the API's. Aggregate failures are DMARC failures (both
  * aligned checks failed), because a message that passes one is delivered under
- * p=reject. The Reports table uses the same shared rule as the API.
+ * p=reject. The Reports table uses the same shared rule as the API. Nothing
+ * not measured is drawn as zero or as passing.
  */
 export default async function DomainPage({
   params,
@@ -173,7 +185,8 @@ export default async function DomainPage({
   const lastReportAt = agg.lastReportAt;
   const ageDays = daysSinceReport(lastReportAt, now);
   const observedPolicy = policyLabel(insights.reporting.publishedPolicy, signals.reportedPolicy);
-  const policySource = insights.reporting.publishedPolicy ? "from DNS scan" : signals.reportedPolicy ? "as reporters saw it" : null;
+  const policySourceKind = policySourceOf(insights.reporting.publishedPolicy, signals.reportedPolicy);
+  const policySource = policySourceKind === "scan" ? "from DNS scan" : policySourceKind === "reports" ? "as reporters saw it" : null;
   const failShare = agg.messageCount > 0 ? agg.failedMessages / agg.messageCount : null;
 
   // A scan history is a different claim from the report evidence, so it fails
@@ -288,6 +301,28 @@ export default async function DomainPage({
     : null;
 
   const today = new Date(now).toISOString().slice(0, 10);
+  // The hosted panels name whoever serves the record: the agency on its own domain.
+  const brand = brandName(await readHostBrand());
+
+  // The map draws only measured senders; silence is drawn as silence.
+  const routeMode: RouteMode =
+    resolved.posture === "unmeasured" ? "unmeasured" : resolved.posture === "stale" ? "stale" : "live";
+  const routes = routeLines(insights.senders, insights.domain.name);
+  const testing = onboarding.reporting.publishedTesting || onboarding.readiness.testing === true;
+  // An unread WARNING or CRITICAL DNS change may be why mail is failing, so it
+  // is raised above the evidence tables until someone acknowledges it.
+  const dnsUnread = Boolean(dnsInitial?.rows.some((row) => row.severity !== "INFO" && !row.acknowledgedAt));
+  const dnsPanel = (
+    <DnsChangesPanel
+      organizationId={active.id}
+      domainId={id}
+      domainName={insights.domain.name}
+      initial={dnsInitial}
+      loadFailed={dnsChanges.failed}
+      canAcknowledge={canAcknowledgeDnsChanges}
+      rescanIntervalMinutes={serviceMeta?.monitoring?.rescanIntervalMinutes ?? null}
+    />
+  );
 
   return (
     <AppShell
@@ -298,7 +333,7 @@ export default async function DomainPage({
         { label: insights.domain.name, mono: true },
       ]}
     >
-      <div className="flex flex-col gap-7">
+      <div className="flex flex-col gap-8">
         <PageHeader
           title={insights.domain.name}
           titleMono
@@ -317,6 +352,8 @@ export default async function DomainPage({
               <MetaItem k="Policy">
                 {observedPolicy === "not observed" ? (
                   <span className="text-fg-3">not observed</span>
+                ) : observedPolicy === "unknown" ? (
+                  <span className="text-fg-3">no usable record{policySource ? ` ${policySource}` : ""}</span>
                 ) : (
                   <>
                     <span className="data font-semibold text-fg">p={observedPolicy}</span>
@@ -352,14 +389,23 @@ export default async function DomainPage({
           <Readout label="Messages observed" value={fmtVolume(agg.messageCount)} note={windowLabel(agg.messageWindow)} />
           <Readout
             label="Failed DMARC"
-            value={fmtVolume(agg.failedMessages)}
+            // With no message observed, "0 failed" would read as a pass.
+            value={agg.messageCount > 0 ? fmtVolume(agg.failedMessages) : "—"}
             unit={failShare !== null && agg.failedMessages > 0 ? `${(failShare * 100).toFixed(1)}% of observed` : undefined}
             tone={agg.failedMessages > 0 ? "fail" : undefined}
-            note="messages where both SPF and DKIM failed alignment"
+            note={agg.messageCount > 0 ? "messages where both SPF and DKIM failed alignment" : "not measured"}
           />
           <Readout label="Reports received" value={fmtVolume(agg.reportCount)} note={`${fmtVolume(agg.recordCount)} records in them`} />
-          <Readout label="SPF pass" value={rate(agg.spfPassRate)} note="of observed messages" />
-          <Readout label="DKIM pass" value={rate(agg.dkimPassRate)} note="of observed messages" />
+          <Readout
+            label="SPF aligned"
+            value={agg.spfPassRate === null ? "—" : passPercent(agg.spfPassRate)}
+            note={agg.spfPassRate === null ? "not measured" : "of observed messages"}
+          />
+          <Readout
+            label="DKIM aligned"
+            value={agg.dkimPassRate === null ? "—" : passPercent(agg.dkimPassRate)}
+            note={agg.dkimPassRate === null ? "not measured" : "of observed messages"}
+          />
           <Readout
             label="Forensic reports"
             value={fmtVolume(insights.forensic.count)}
@@ -368,29 +414,63 @@ export default async function DomainPage({
         </ReadoutStrip>
 
         {agg.partiallyAlignedMessages > 0 ? (
-          <p className="text-ui text-fg-2" data-testid="partially-aligned">
+          <p className="-mt-3 text-ui text-fg-2" data-testid="partially-aligned">
             {fmtVolume(agg.partiallyAlignedMessages)} message
             {agg.partiallyAlignedMessages === 1 ? "" : "s"} passed DMARC on one check only. They are delivered under
             p=reject, but fixing the other check makes them robust.
           </p>
         ) : null}
 
-        {/* The chart and the decision it feeds sit side by side; the tables
-            below get the full width, because tables are what need it. */}
-        <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_340px] xl:gap-10">
-          <section aria-labelledby="volume-head" className="min-w-0">
-            <SectionHead id="volume-head" title="Observed volume" aside={`last ${insights.trends.days} days, to today`} />
-            <VolumeChart
-              points={insights.trends.points}
-              spikes={insights.trends.spikes}
-              days={insights.trends.days}
-              today={today}
-              lastReportAt={lastReportAt}
-              daysWithoutReport={ageDays}
-              domainName={insights.domain.name}
-            />
-          </section>
-          <PolicyPanel onboarding={onboarding} observedPolicy={observedPolicy}>
+        {/* The routes and the volume are the evidence; the policy ladder beside
+            them is the decision that evidence feeds. The tables below get the
+            full width, because tables are what need it. */}
+        <div className="grid gap-10 xl:grid-cols-[minmax(0,1fr)_340px] xl:gap-12">
+          <div className="flex min-w-0 flex-col gap-10">
+            <section aria-labelledby="routes-head" className="min-w-0">
+              <figure className="m-0 flex flex-col gap-3">
+                <SectionHead
+                  id="routes-head"
+                  title="Mail routes"
+                  aside={routesMeta(routeMode, routes.lines.length, agg.messageCount, windowLabel(agg.messageWindow), ageDays)}
+                  className="border-b border-rule"
+                />
+                <DomainRouteMap
+                  domainName={insights.domain.name}
+                  lines={routes.lines}
+                  mode={routeMode}
+                  messages={agg.messageCount}
+                  failed={agg.failedMessages}
+                  spfRate={agg.spfPassRate}
+                  dkimRate={agg.dkimPassRate}
+                  policy={observedPolicy}
+                  testing={testing}
+                />
+                <figcaption className="max-w-[86ch] text-meta text-fg-3">
+                  {routeMode === "unmeasured"
+                    ? "Lines appear here once receivers send aggregate reports, usually 24 to 48 hours after a DMARC record with a rua= address is published. Until then every station is closed: not measured, not passing."
+                    : `Each line is a sender from the aggregate reports, named by the domain it authenticated as; a service is named only where DKIM or reverse DNS supports it. Mail that failed both aligned checks failed DMARC and leaves on the red line, which ends where the published policy sends it. From ${fmtVolume(agg.reportCount)} report${agg.reportCount === 1 ? "" : "s"}${routeMode === "stale" ? "; these are the last routes measured, not today’s" : ""}.`}
+                </figcaption>
+              </figure>
+            </section>
+            <section aria-labelledby="volume-head" className="min-w-0">
+              <SectionHead
+                id="volume-head"
+                title="Observed volume"
+                aside={`last ${insights.trends.days} days, to today`}
+                className="mb-3 border-b border-rule"
+              />
+              <VolumeChart
+                points={insights.trends.points}
+                spikes={insights.trends.spikes}
+                days={insights.trends.days}
+                today={today}
+                lastReportAt={lastReportAt}
+                daysWithoutReport={ageDays}
+                domainName={insights.domain.name}
+              />
+            </section>
+          </div>
+          <PolicyPanel onboarding={onboarding} observedPolicy={observedPolicy} testing={testing}>
             <PolicyProposals
               organizationId={active.id}
               domainId={id}
@@ -416,15 +496,7 @@ export default async function DomainPage({
           }}
         />
 
-        <DnsChangesPanel
-          organizationId={active.id}
-          domainId={id}
-          domainName={insights.domain.name}
-          initial={dnsInitial}
-          loadFailed={dnsChanges.failed}
-          canAcknowledge={canAcknowledgeDnsChanges}
-          rescanIntervalMinutes={serviceMeta?.monitoring?.rescanIntervalMinutes ?? null}
-        />
+        {dnsUnread ? dnsPanel : null}
 
         <div>
           <section aria-label="Evidence tables" className="min-w-0">
@@ -542,6 +614,7 @@ export default async function DomainPage({
                       spfServices={serviceMeta?.spfServices ?? []}
                       currentSpf={currentSpf}
                       canEdit={canEditDomain}
+                      brand={brand}
                     />
                   ),
                 },
@@ -549,9 +622,18 @@ export default async function DomainPage({
             />
           </section>
         </div>
+
+        {dnsUnread ? null : dnsPanel}
       </div>
     </AppShell>
   );
+}
+
+/** The figure head's meta: what the map covers, or that nothing does. */
+function routesMeta(mode: RouteMode, lines: number, messages: number, span: string, ageDays: number | null): string {
+  if (mode === "unmeasured") return "nothing measured yet";
+  const what = `${lines} line${lines === 1 ? "" : "s"} · ${fmtVolume(messages)} messages · ${span}`;
+  return mode === "stale" && ageDays !== null ? `${what} · no report for ${ageDays} days` : what;
 }
 
 // ─── header pieces ────────────────────────────────────────────────────────────
@@ -640,9 +722,12 @@ function SilenceBand({
   ageDays: number | null;
 }) {
   return (
-    <div role="status" className="border border-void/35 bg-void-wash/60 px-4 py-3">
-      <p className="text-ui">
-        <span className="font-bold text-void">{posture === "stale" ? "Stale: no report for more than 5 days. " : "Not measured: never. "}</span>
+    <div role="status" className="flex items-start gap-3 rounded-[10px] border border-rule-2 bg-void-wash px-3.5 py-3">
+      <span className="mt-[3px]">
+        <PostureMark posture={posture} size={11} />
+      </span>
+      <p className="max-w-[110ch] text-ui">
+        <span className="font-bold text-fg">{posture === "stale" ? "Stale: no report for more than 5 days. " : "Not measured: never. "}</span>
         <span className="text-fg-2">
           {posture === "stale" && lastReportAt
             ? `No aggregate report has been received for ${ageDays} days (last one ${instantLabel(lastReportAt)}). That says nothing about whether mail is still being sent, only that no receiver has reported it. The figures below are history, not current state.`
@@ -808,52 +893,65 @@ function PanelNote({ children }: { children: React.ReactNode }) {
 // ─── policy ───────────────────────────────────────────────────────────────────
 
 /**
- * Posture is a ladder, not a traffic light. The published rung is chosen from
- * evidence (DNS scan, or what reporters saw), never from the scan-only field
- * alone, which is empty for a domain never scanned.
+ * Posture is a ladder, not a traffic light, drawn as the portfolio's strip
+ * map: p=none, p=quarantine and p=reject as stations, ink up to the policy in
+ * force, the next segment dashed only when the API says the evidence supports
+ * it. The published station is chosen from evidence (DNS scan, or what
+ * reporters saw), never from the scan-only field alone, which is empty for a
+ * domain never scanned; no observed policy is a dotted line on no station.
  */
 function PolicyPanel({
   onboarding,
   observedPolicy,
+  testing,
   children,
 }: {
   onboarding: OnboardingState;
   observedPolicy: string;
+  /** t=y is published. */
+  testing: boolean;
   /** The client-approval control, under the evidence it rests on. */
   children?: React.ReactNode;
 }) {
   const r = onboarding.readiness;
-  const observed = observedPolicy.toLowerCase();
-  const rungs = [
-    { key: "none-record", label: "no record", live: observed === "not observed" && r.currentPolicy === "unknown" },
-    { key: "none", label: "none", live: observed === "none" },
-    { key: "quarantine", label: "quarantine", live: observed === "quarantine" },
-    { key: "reject", label: "reject", live: observed === "reject" },
-  ];
+  const observed = observedPolicy.trim().toLowerCase();
+  const stage = observed === "none" ? 0 : observed === "quarantine" ? 1 : observed === "reject" ? 2 : null;
+  const target = r.level === "reject" ? 2 : r.level === "quarantine" ? 1 : 0;
+  // Only the next step can be "planned": stages are taken one at a time.
+  const segments: SegmentState[] = [0, 1].map((i) =>
+    stage !== null && i < stage ? "built" : stage !== null && i === stage && r.ready && target > stage ? "planned" : "unbuilt",
+  );
+  const stations = (["none", "quarantine", "reject"] as const).map((p, i) => ({
+    key: p,
+    name: <span className="data">p={p}</span>,
+    note:
+      stage === i
+        ? testing
+          ? "published, t=y"
+          : "published"
+        : stage !== null && i === stage + 1 && segments[stage] === "planned"
+          ? <span className="font-semibold text-ok">ready</span>
+          : undefined,
+    state: (stage === null || i > stage ? "ahead" : i === stage ? "here" : "passed") as "ahead" | "here" | "passed",
+  }));
   return (
-    <aside aria-labelledby="policy-head" className="flex flex-col gap-5 self-start border-t border-rule-2 pt-3">
-      <h2 id="policy-head" className="text-h3 font-bold tracking-[-0.01em]">
-        Policy posture
-      </h2>
+    <aside aria-labelledby="policy-head" className="flex flex-col gap-5 self-start">
+      <SectionHead id="policy-head" title="Policy posture" aside="the DMARC p= ladder" className="border-b border-rule" />
 
-      <p className="-mb-3 text-meta text-fg-3">
-        The DMARC <span className="data">p=</span> ladder, from watching to enforcing.
-      </p>
-      <ol className="grid grid-cols-4 border border-rule-2" aria-label="DMARC policy ladder">
-        {rungs.map((rung, i) => (
-          <li
-            key={rung.key}
-            aria-current={rung.live ? "step" : undefined}
-            className={rung.live ? "bg-fg px-2 py-2 text-paper" : "border-l border-rule px-2 py-2 first:border-l-0"}
-          >
-            <span className={rung.live ? "legend text-paper-3!" : "legend"}>rung {i}</span>
-            <span className="narrow mt-0.5 block text-ui font-semibold">{rung.label}</span>
-            {rung.live ? (
-              <span className="mt-0.5 block text-[10.5px] font-semibold uppercase tracking-[0.06em]">{i === 0 ? "current" : "published"}</span>
-            ) : null}
-          </li>
-        ))}
-      </ol>
+      <div className="flex flex-col gap-2">
+        <StationStrip label="DMARC policy ladder" stations={stations} segments={segments} unobserved={stage === null} />
+        {stage === null ? (
+          <p className="text-meta text-fg-3">
+            {observed === "unknown"
+              ? "No usable DMARC record is on file, so the domain is on no step yet."
+              : "No policy has been observed in DNS or in reports, so the domain is on no step yet."}
+          </p>
+        ) : testing ? (
+          <p className="text-meta text-fg-3">
+            t=y is published: receivers apply the policy one step softer while it is tested.
+          </p>
+        ) : null}
+      </div>
 
       <dl className="flex flex-col border-t border-rule">
         <Fact k="Evidence">
@@ -869,7 +967,9 @@ function PolicyPanel({
           {r.staleAlerts ? <span className="text-fg-3"> ({r.staleAlerts} stale)</span> : null}
         </Fact>
         <Fact k="Next step">
-          {r.ready ? (
+          {stage === 2 && !testing ? (
+            <span className="text-fg-2">none: p=reject is the strictest</span>
+          ) : r.ready ? (
             <span className="font-semibold text-ok">
               evidence supports <span className="data">p={r.level}</span>
             </span>
@@ -879,14 +979,17 @@ function PolicyPanel({
         </Fact>
       </dl>
       {!r.ready && r.blockers.length > 0 ? (
-        <ul className="-mt-2 flex flex-col gap-1">
-          {r.blockers.map((b) => (
-            <li key={b} className="flex items-baseline gap-2 text-meta text-fg-2">
-              <span aria-hidden className="block size-1.5 shrink-0 translate-y-[-1px] rotate-45 bg-warn-mark" />
-              {b}
-            </li>
-          ))}
-        </ul>
+        <div className="-mt-1">
+          <p className="legend pb-1.5">{stage === 2 ? "Open points" : "In the way of the next step"}</p>
+          <ul className="flex flex-col gap-1.5">
+            {r.blockers.map((b) => (
+              <li key={b} className="flex items-baseline gap-2 text-meta text-fg-2">
+                <span aria-hidden className="block size-1.5 shrink-0 translate-y-[-1px] rotate-45 bg-warn-mark" />
+                {b}
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
       {children}
     </aside>
@@ -914,6 +1017,7 @@ function SetupPanel({
   spfServices,
   currentSpf,
   canEdit,
+  brand,
 }: {
   onboarding: OnboardingState;
   insights: DomainInsights;
@@ -934,10 +1038,44 @@ function SetupPanel({
   spfServices: Array<{ id: string; name: string; include: string }>;
   currentSpf: { record: string | null; lookupCount: number | null } | null;
   canEdit: boolean;
+  /** The name on this host, for the panels that say who serves a record. */
+  brand: string;
 }) {
   const rep = insights.reporting;
   return (
-    <div className="flex flex-col gap-6 pt-4">
+    <div className="flex flex-col gap-6 pt-5">
+      {/* Where setup stands comes first; the hosted records are the tools. */}
+      <div className="grid gap-x-12 gap-y-8 border-b border-rule-2 pb-6 lg:grid-cols-2">
+        {onboarding.steps.length > 0 ? (
+          <div>
+            <p className="legend pb-1.5">
+              Setup <span className="tnum">{onboarding.completedSteps}</span> of{" "}
+              <span className="tnum">{onboarding.totalSteps}</span> done
+            </p>
+            <StationList
+              label="Setup steps"
+              className="border-t border-rule-2 pt-3"
+              stops={onboarding.steps.map((s) => ({ key: s.id, title: s.title, detail: s.detail, state: s.status }))}
+            />
+          </div>
+        ) : null}
+        <div>
+          <p className="legend pb-1.5">Reporting</p>
+          <dl className="flex flex-col border-t border-rule-2">
+            <Fact k="Aggregate (rua)">{yesNo(rep.aggregateConfigured, "address published", "not published")}</Fact>
+            <Fact k="Forensic (ruf)">{yesNo(rep.forensicConfigured, "address published", "not published")}</Fact>
+            <Fact k="Collection">{yesNo(rep.collectionEnabled, "on", "off")}</Fact>
+            <Fact k="Named recipients">{yesNo(rep.identityRetentionEnabled, "retained", "hashed")}</Fact>
+          </dl>
+          <p className="mt-3 text-meta text-fg-3">
+            Records to publish, ownership verification and share links are on{" "}
+            <Link href={onboardingHref(slug)} className="link">
+              the domain&rsquo;s setup page
+            </Link>
+            .
+          </p>
+        </div>
+      </div>
       <HostedDmarc
         organizationId={organizationId}
         domainId={domainId}
@@ -946,6 +1084,7 @@ function SetupPanel({
         failed={hosted.failed}
         canEdit={canEdit}
         hasFeature={hasHostedFeature}
+        brand={brand}
       />
       <ManagedSpf
         organizationId={organizationId}
@@ -957,6 +1096,7 @@ function SetupPanel({
         hasFeature={hasManagedSpfFeature}
         spfServices={spfServices}
         currentSpf={currentSpf}
+        brand={brand}
       />
       <SpfUsage
         organizationId={organizationId}
@@ -972,6 +1112,7 @@ function SetupPanel({
         failed={hostedBimi.failed}
         canEdit={canEdit}
         hasFeature={hasHostedBimiFeature}
+        brand={brand}
       />
       <HostedMtaSts
         organizationId={organizationId}
@@ -981,43 +1122,8 @@ function SetupPanel({
         failed={hostedMtaSts.failed}
         canEdit={canEdit}
         hasFeature={hasHostedMtaStsFeature}
+        brand={brand}
       />
-      <div className="grid gap-8 lg:grid-cols-2">
-      <div>
-        <p className="legend pb-1.5">Reporting</p>
-        <dl className="flex flex-col border-t border-rule-2">
-          <Fact k="Aggregate (rua)">{yesNo(rep.aggregateConfigured, "address published", "not published")}</Fact>
-          <Fact k="Forensic (ruf)">{yesNo(rep.forensicConfigured, "address published", "not published")}</Fact>
-          <Fact k="Collection">{yesNo(rep.collectionEnabled, "on", "off")}</Fact>
-          <Fact k="Named recipients">{yesNo(rep.identityRetentionEnabled, "retained", "hashed")}</Fact>
-        </dl>
-        <p className="mt-3 text-meta text-fg-3">
-          Records to publish, ownership verification and share links are on{" "}
-          <Link href={onboardingHref(slug)} className="link">
-            the domain&rsquo;s setup page
-          </Link>
-          .
-        </p>
-      </div>
-      {onboarding.steps.length > 0 ? (
-        <div>
-          <p className="legend pb-1.5">
-            Setup <span className="tnum">{onboarding.completedSteps}</span> of <span className="tnum">{onboarding.totalSteps}</span> done
-          </p>
-          <ul className="flex flex-col border-t border-rule-2">
-            {onboarding.steps.map((s) => (
-              <li key={s.id} className="grid grid-cols-[64px_minmax(0,1fr)] gap-3 border-b border-rule py-2 text-ui">
-                <Badge tone={s.status === "done" ? "ok" : s.status === "blocked" ? "fail" : "neutral"}>{s.status}</Badge>
-                <span>
-                  <span className="font-semibold text-fg">{s.title}</span>
-                  <span className="mt-0.5 block text-meta text-fg-3">{s.detail}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-      </div>
     </div>
   );
 }
@@ -1036,11 +1142,6 @@ function yesNo(v: boolean, yes: string, no: string) {
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
-
-/** The API sends pass rates as percentages already (0–100, two decimals). */
-function rate(v: number | null): string {
-  return v === null ? "—" : `${v.toFixed(1)}%`;
-}
 
 function shortDate(iso: string): string {
   const d = new Date(iso);

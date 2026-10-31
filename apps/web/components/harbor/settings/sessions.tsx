@@ -41,28 +41,27 @@ export interface SessionView {
   endsLabel: string;
 }
 
+/** The columns, shared by the header row and every session row from md up. */
+const COLS = "md:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_8.5rem]";
+
 function Row({ s, onRevoke }: { s: SessionView; onRevoke?: () => void }) {
   return (
     <li
       data-testid={s.current ? "session-current" : "session-row"}
-      className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-1 border-b border-rule py-3"
+      className={`relative grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-1.5 border-b border-rule py-3.5 pl-7 ${COLS}`}
     >
+      <span
+        aria-hidden
+        className={
+          s.current
+            ? "absolute -left-[3px] top-[18px] block h-[15px] w-[21px] rounded-full border-[3px] border-fg bg-paper"
+            : "absolute left-[2px] top-[19px] block size-[11px] rounded-full border-2 border-fg-4 bg-paper"
+        }
+      />
       <div className="min-w-0">
-        <p className="flex flex-wrap items-baseline gap-x-2 text-body font-semibold text-fg">
+        <p className="flex flex-wrap items-baseline gap-x-2.5 text-body font-semibold text-fg">
           {s.device}
-          {s.current ? (
-            <span className="inline-flex items-center gap-1.5 text-meta font-semibold text-act">
-              <span aria-hidden className="size-2 rounded-full bg-act" />
-              This device
-            </span>
-          ) : null}
-        </p>
-        <p className="mt-0.5 flex flex-wrap gap-x-4 gap-y-0.5 text-meta text-fg-3">
-          <span>
-            From <span className="data text-fg-2">{s.ip ?? "an address not reported"}</span>
-          </span>
-          <span>Signed in {s.startedLabel}</span>
-          <span>Ends on its own {s.endsLabel}</span>
+          {s.current ? <span className="text-meta font-semibold text-fg-2">This device</span> : null}
         </p>
         {s.userAgent ? (
           <details className="mt-1 text-meta text-fg-3">
@@ -70,14 +69,42 @@ function Row({ s, onRevoke }: { s: SessionView; onRevoke?: () => void }) {
             <code className="data mt-1 block break-all text-fg-2">{s.userAgent}</code>
           </details>
         ) : null}
+        <dl className="mt-1.5 flex flex-col gap-0.5 text-meta text-fg-3 md:hidden">
+          <div>
+            <dt className="inline">From </dt>
+            <dd className="data inline text-fg-2">{s.ip ?? "an address not reported"}</dd>
+          </div>
+          <div>
+            <dt className="inline">Signed in </dt>
+            <dd className="inline text-fg-2">{s.startedLabel}</dd>
+          </div>
+          <div>
+            <dt className="inline">Ends on its own </dt>
+            <dd className="inline text-fg-2">{s.endsLabel}</dd>
+          </div>
+        </dl>
       </div>
-      {onRevoke ? (
-        <Button size="sm" variant="secondary" onClick={onRevoke} data-testid="session-revoke">
-          Sign out
-        </Button>
-      ) : (
-        <span className="max-w-[16ch] text-right text-meta text-fg-3">Sign out from the account menu</span>
-      )}
+      <p className="hidden pt-[2px] text-ui md:block">
+        <span className="sr-only">From </span>
+        {s.ip ? <span className="data break-all text-fg">{s.ip}</span> : <span className="text-fg-3">Not reported</span>}
+      </p>
+      <p className="hidden pt-[2px] text-ui text-fg md:block">
+        <span className="sr-only">Signed in </span>
+        {s.startedLabel}
+      </p>
+      <p className="hidden pt-[2px] text-ui text-fg md:block">
+        <span className="sr-only">Ends on its own </span>
+        {s.endsLabel}
+      </p>
+      <div className="flex justify-end">
+        {onRevoke ? (
+          <Button size="sm" variant="secondary" onClick={onRevoke} data-testid="session-revoke">
+            Sign out
+          </Button>
+        ) : (
+          <span className="max-w-[16ch] pt-[2px] text-right text-meta text-fg-3">Sign out from the account menu</span>
+        )}
+      </div>
     </li>
   );
 }
@@ -146,26 +173,43 @@ export function SessionsBoard({ sessions }: { sessions: SessionView[] }) {
   }
 
   return (
-    <div className="flex flex-col gap-10">
+    <div className="flex flex-col gap-14">
       <Panel
         id="sessions-head"
         title="Where you are signed in"
         why="Each session ends on its own at the time shown, unless it is renewed by use. Signing one out ends it now."
-        aside={`${sessions.length} session${sessions.length === 1 ? "" : "s"}`}
+        aside={
+          <span className="tnum font-semibold text-fg-2">
+            {sessions.length} session{sessions.length === 1 ? "" : "s"}
+            {others.length > 0 ? <span className="font-normal text-fg-3">, {others.length} on other devices</span> : null}
+          </span>
+        }
       >
-        <ul className="flex flex-col">
-          {current ? <Row s={current} /> : null}
-          {others.map((s) => (
-            <Row
-              key={s.id}
-              s={s}
-              onRevoke={() => {
-                setError(null);
-                setTarget(s);
-              }}
-            />
-          ))}
-        </ul>
+        <div>
+          <div
+            aria-hidden
+            className={`hidden gap-x-4 border-b border-rule-2 pb-2 pl-7 text-meta font-semibold text-fg-3 md:grid ${COLS}`}
+          >
+            <span>Device</span>
+            <span>From</span>
+            <span>Signed in</span>
+            <span>Ends on its own</span>
+            <span />
+          </div>
+          <ul className="flex flex-col">
+            {current ? <Row s={current} /> : null}
+            {others.map((s) => (
+              <Row
+                key={s.id}
+                s={s}
+                onRevoke={() => {
+                  setError(null);
+                  setTarget(s);
+                }}
+              />
+            ))}
+          </ul>
+        </div>
         {others.length === 0 ? (
           <p className="text-ui text-fg-2">No other device is signed in as you. If one appears that you do not recognise, sign it out here.</p>
         ) : null}
@@ -178,7 +222,7 @@ export function SessionsBoard({ sessions }: { sessions: SessionView[] }) {
         title="Lost a device?"
         why="Sign out everything except the device you are using now. Your work and settings are untouched; the other devices need the password again."
       >
-        <div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <Button
             variant="primary"
             onClick={revokeOthers}
@@ -189,13 +233,20 @@ export function SessionsBoard({ sessions }: { sessions: SessionView[] }) {
           >
             Sign out every other device
           </Button>
+          <span className="tnum text-meta text-fg-3">
+            {others.length === 0
+              ? "Nothing to sign out: this is the only device."
+              : `${others.length} device${others.length === 1 ? "" : "s"} will need the password again. This one stays signed in.`}
+          </span>
         </div>
       </Panel>
 
-      <section className="flex flex-col gap-3 border-t border-rule-2 pt-4">
+      <section aria-labelledby="sessions-all" className="flex flex-col gap-4 border-t-2 border-fg pt-4">
         <div>
-          <h2 className="text-h3 font-bold tracking-[-0.01em] text-fg">Think someone knows your password?</h2>
-          <p className="mt-1 max-w-[72ch] text-ui text-fg-2">
+          <h2 id="sessions-all" className="display text-h2 text-fg">
+            Think someone knows your password?
+          </h2>
+          <p className="mt-1.5 max-w-[72ch] text-ui text-fg-2">
             Sign out everywhere, this device included, then choose a new password from the sign-in page
             (&ldquo;Forgot your password?&rdquo;). Until the password changes, anyone who has it can sign straight back in.
           </p>

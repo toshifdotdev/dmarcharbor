@@ -9,8 +9,9 @@
  * claim the reader cannot check.
  */
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { reviewSender, setSenderOwner } from "@/lib/ops-client";
+import { routeLines, type RouteSwatch } from "./domain-routes";
 import { fmtVolume } from "@/lib/posture";
 import { instantLabel } from "@/lib/instant";
 import type { SenderRow, WorkspaceMemberRow } from "@/lib/types";
@@ -46,6 +47,32 @@ function shortDate(value: string): string {
   return Number.isNaN(date.getTime())
     ? "not recorded"
     : date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function named(row: SenderRow): boolean {
+  return Boolean(row.service && (row.confidence === "confirmed" || row.confidence === "likely"));
+}
+
+/**
+ * The sender's colour on the mail routes map, so a row and its line are read
+ * as one thing. Dashed red for a sender whose every message failed.
+ */
+function LineSwatch({ swatch }: { swatch: RouteSwatch | undefined }) {
+  if (!swatch) return <span aria-hidden className="inline-block w-4 shrink-0" />;
+  return (
+    <svg aria-hidden width={16} height={8} viewBox="0 0 16 8" className="shrink-0 translate-y-[-1px]">
+      <line
+        x1={3}
+        x2={13}
+        y1={4}
+        y2={4}
+        stroke={swatch.colour}
+        strokeWidth={5}
+        strokeLinecap={swatch.forged ? "butt" : "round"}
+        strokeDasharray={swatch.forged ? "4 2" : undefined}
+      />
+    </svg>
+  );
 }
 
 function serviceLabel(row: SenderRow): string {
@@ -87,6 +114,7 @@ export function SendersTable({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => setRows(senders), [senders]);
+  const swatches = useMemo(() => routeLines(senders, domainName).swatches, [senders, domainName]);
 
   const unreviewed = rows.filter((row) => row.review.status === "UNREVIEWED").length;
   const pendingLookups = rows.some((row) => row.intelPending);
@@ -211,13 +239,31 @@ export function SendersTable({
               <Fragment key={row.senderKey}>
                 <Tr tone={row.status === "failing" ? "fail" : undefined}>
                   <Td>
-                    <span className="data block font-semibold text-fg" data-testid={`sender-service-${row.senderKey}`}>
-                      {serviceLabel(row)}
-                    </span>
-                    <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-meta">
-                      {row.service ? <Badge tone="neutral">{row.service.category}</Badge> : null}
-                      <span className="text-fg-3">{CONFIDENCE[row.confidence]}</span>
-                      <span className="data break-all text-fg-2">{row.senderDomain ?? row.senderKey}</span>
+                    <span className="flex items-baseline gap-2">
+                      <LineSwatch swatch={swatches[row.senderKey]} />
+                      <span className="min-w-0">
+                        {/* The bold half names the sender the way its line on the map does:
+                            the service where evidence supports one, else the domain it signed as. */}
+                        <span
+                          className={named(row) ? "block font-semibold text-fg" : "data block break-all font-semibold text-fg"}
+                          data-testid={`sender-service-${row.senderKey}`}
+                          title={serviceLabel(row)}
+                        >
+                          {named(row) ? serviceLabel(row) : (row.senderDomain ?? row.senderKey)}
+                        </span>
+                        <span className="mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-meta">
+                          <span className="text-fg-3">{CONFIDENCE[row.confidence]}</span>
+                          {row.service ? <span className="text-fg-3">{row.service.category}</span> : null}
+                          {named(row) ? (
+                            <span className="data break-all text-fg-2">{row.senderDomain ?? row.senderKey}</span>
+                          ) : row.confidence === "network" && row.network ? (
+                            <span className="text-fg-3">
+                              AS{row.network.asn}
+                              {row.network.asnName ? ` ${row.network.asnName}` : ""}
+                            </span>
+                          ) : null}
+                        </span>
+                      </span>
                     </span>
                   </Td>
                   <Td numeric muted title={row.sourceIps.slice(0, 8).join(", ")}>

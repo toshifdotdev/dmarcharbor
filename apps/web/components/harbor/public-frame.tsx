@@ -84,7 +84,9 @@ export function PublicFooter({ brand }: { brand: HostBrand }) {
   return (
     <footer className="page-wrap">
       {/* The same contained hairline every section above it uses. */}
-      <div className="grid gap-10 border-t border-rule pb-16 pt-12 sm:pb-[72px] sm:pt-14 min-[900px]:grid-cols-[minmax(0,1.4fr)_minmax(0,0.6fr)_minmax(0,1fr)] min-[1100px]:pb-20 min-[1100px]:pt-16">
+      {/* 68.75rem is 1100px. A px breakpoint is not ordered against Tailwind's
+          rem ones, so sm: would win over it; rem keeps the larger padding last. */}
+      <div className="grid gap-10 border-t border-rule pb-16 pt-12 sm:pb-[72px] sm:pt-14 min-[56.25rem]:grid-cols-[minmax(0,1.4fr)_minmax(0,0.6fr)_minmax(0,1fr)] min-[68.75rem]:pb-20 min-[68.75rem]:pt-16">
         <div>
           <Link href="/" className="inline-flex items-center gap-2.5 text-[17px] font-bold tracking-[-0.01em] text-fg">
             <PierMark size={20} />

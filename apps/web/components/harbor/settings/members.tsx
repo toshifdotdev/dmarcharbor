@@ -15,6 +15,13 @@
  *
  * Invitations are emailed by the API (sendInvitationEmail) with a link to
  * /welcome, where the invited address finds them; the portfolio lists them too.
+ *
+ * The page reads in the order the job comes: who is here, invite someone, the
+ * workspace's two-step rule, then what each role can do. That last table is
+ * drawn as a line diagram: each role is a line running down the capabilities
+ * it stops at, ending at a terminus. The roles nest, so the lines read like a
+ * timetable: the owner's runs the whole way, a portal contact's stops after
+ * the first.
  */
 
 import { useRouter } from "next/navigation";
@@ -33,11 +40,10 @@ import { ActionRefusal, type ActionError } from "@/components/harbor/plan-refusa
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/field";
-import { Check } from "@/components/ui/icons";
 import { Notice } from "@/components/ui/notice";
 import { Table, TBody, Td, Th, THead, Tr } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
-import { Panel } from "./parts";
+import { Panel, StateMark, StateWord, plural } from "./parts";
 
 const ROLES = ["owner", "admin", "analyst", "viewer", "portal"] as const;
 type Role = (typeof ROLES)[number];
@@ -217,15 +223,27 @@ export function MembersBoard({
     router.refresh();
   }
 
+  const withTwoStep = members.filter((m) => m.twoFactorEnabled).length;
+  const roleCount = (r: Role) => members.filter((m) => asRole(m.role) === r).length;
+
   return (
-    <div className="flex flex-col gap-10">
-      <Panel id="people" title="People" aside={`${members.length} member${members.length === 1 ? "" : "s"}`}>
-        <Table caption="Workspace members" minWidth={620}>
+    <div className="flex flex-col gap-14">
+      <Panel
+        id="people"
+        title="People"
+        aside={
+          <>
+            <span className="tnum font-semibold text-fg-2">{plural(members.length, "member")}</span>
+            {showTwoStep ? <span className="tnum">{withTwoStep} with two-step verification on</span> : null}
+          </>
+        }
+      >
+        <Table caption="Workspace members" minWidth={640}>
           <THead>
             <tr>
               <Th>Person</Th>
               <Th>Role</Th>
-              {showTwoStep ? <Th align="center">Two-step</Th> : null}
+              {showTwoStep ? <Th>Two-step</Th> : null}
               <Th align="right">
                 <span className="sr-only">Action</span>
               </Th>
@@ -238,14 +256,14 @@ export function MembersBoard({
               const editable = canManage && role !== "owner" && !self;
               return (
                 <Tr key={m.id}>
-                  <Td>
-                    <span className="block font-semibold">
-                      {m.name}
-                      {self ? <span className="ml-2 text-meta font-semibold text-act">You</span> : null}
+                  <Td className="py-2.5">
+                    <span className="flex flex-wrap items-baseline gap-x-2">
+                      <span className="text-body font-semibold">{m.name}</span>
+                      {self ? <span className="text-meta font-semibold text-fg-3">you</span> : null}
                     </span>
-                    {m.email ? <span className="data block text-meta text-fg-3">{m.email}</span> : null}
+                    {m.email ? <span className="data block break-all text-meta text-fg-3">{m.email}</span> : null}
                   </Td>
-                  <Td>
+                  <Td className="py-2.5">
                     {editable ? (
                       <Select
                         size="sm"
@@ -267,16 +285,24 @@ export function MembersBoard({
                     ) : (
                       <span className="font-semibold capitalize">{role}</span>
                     )}
-                    <span className="mt-0.5 block max-w-[46ch] text-meta text-fg-3">{ROLE_SUMMARY[role]}</span>
+                    <span className="mt-1 block max-w-[46ch] text-meta text-fg-3">{ROLE_SUMMARY[role]}</span>
                   </Td>
                   {showTwoStep ? (
-                    <Td align="center">
-                      <span className={m.twoFactorEnabled ? "font-semibold text-ok" : "text-fg-3"}>
-                        {m.twoFactorEnabled ? "On" : "Off"}
-                      </span>
+                    <Td className="whitespace-nowrap py-2.5">
+                      {m.twoFactorEnabled === undefined ? (
+                        <span className="text-meta text-fg-3">Not reported</span>
+                      ) : m.twoFactorEnabled ? (
+                        <StateWord shape="square" tone="ok">
+                          On
+                        </StateWord>
+                      ) : (
+                        <StateWord shape="closed" tone="void">
+                          Off
+                        </StateWord>
+                      )}
                     </Td>
                   ) : null}
-                  <Td align="right" className="whitespace-nowrap">
+                  <Td align="right" className="whitespace-nowrap py-2.5">
                     <div className="flex flex-wrap items-center justify-end gap-1">
                       {isOwner && !self && m.twoFactorEnabled ? (
                         <Button
@@ -315,67 +341,20 @@ export function MembersBoard({
         ) : null}
       </Panel>
 
-      {isOwner ? (
-        <Panel
-          id="two-step"
-          title="Require two-step verification"
-          why="Refuse workspace access until each member has an authenticator app. It applies to the API, not only to what this screen shows."
-          aside={
-            mfaSecurity ? (
-              <span className={mfaSecurity.requireMfa ? "font-semibold text-ok" : "font-semibold text-fg-2"}>
-                {mfaSecurity.requireMfa ? "On" : "Off"}
-              </span>
-            ) : null
-          }
-        >
-          {mfaSecurity ? (
-            <>
-              <p className="text-ui text-fg-2">
-                {mfaSecurity.requireMfa
-                  ? "Two-step verification is required. "
-                  : "Two-step verification is not required. "}
-                {mfaSecurity.membersWithout} non-portal member{mfaSecurity.membersWithout === 1 ? "" : "s"} have not set it
-                up.
-              </p>
-              <p className="max-w-[72ch] text-ui text-fg-2">
-                Members who sign in with Google or Microsoft will have to set a password and an authenticator app,
-                because DMARC Harbor cannot see whether Google or Microsoft asked them for a second step. Single
-                sign-on members are not affected: your identity provider handles it. Client portal contacts are not
-                affected.
-              </p>
-              {mfaCallerError ? (
-                <Notice tone="warn" title={mfaCallerError}>
-                  <Link href="/account/security" className="link font-semibold">
-                    Open account security
-                  </Link>{" "}
-                  to turn it on for your own account.
-                </Notice>
-              ) : null}
-              {mfaError ? <Notice tone="fail" title={mfaError} /> : null}
-              <div>
-                <Button
-                  variant={mfaSecurity.requireMfa ? "ghost" : "primary"}
-                  busy={mfaBusy}
-                  busyLabel="Saving"
-                  onClick={toggleWorkspaceMfa}
-                >
-                  {mfaSecurity.requireMfa ? "Stop requiring two-step verification" : "Require two-step verification"}
-                </Button>
-              </div>
-            </>
-          ) : (
-            <Notice tone="warn" title="The two-step requirement could not be read">
-              This is not the same as it being off. Reload the page to try again.
-            </Notice>
-          )}
-        </Panel>
-      ) : null}
-
-      <Panel id="invite" title="Invite someone" why="Invite colleagues. Client contacts go under Client portal access, which limits them to their own client.">
+      <Panel
+        id="invite"
+        title="Invite someone"
+        why="Invite colleagues. Client contacts go under Client portal access, which limits them to their own client."
+        aside={
+          invitations && invitations.length > 0 ? (
+            <span className="tnum">{plural(invitations.length, "invitation")} waiting</span>
+          ) : null
+        }
+      >
         {canManage ? (
           <form onSubmit={invite} className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-end gap-3">
-              <Field label="Email address" className="min-w-[min(100%,300px)] flex-1">
+            <div className="flex flex-wrap items-start gap-x-3 gap-y-3">
+              <Field label="Email address" className="min-w-[min(100%,300px)] flex-1 basis-[300px]">
                 <Input
                   type="email"
                   required
@@ -386,8 +365,13 @@ export function MembersBoard({
                   data-testid="invite-email"
                 />
               </Field>
-              <Field label="Role">
-                <Select value={inviteRole} onChange={(e) => setInviteRole(e.target.value as Assignable)} data-testid="invite-role">
+              <Field label="Role" hint={ROLE_SUMMARY[inviteRole]} className="w-full sm:w-[min(100%,280px)]">
+                <Select
+                  value={inviteRole}
+                  onChange={(e) => setInviteRole(e.target.value as Assignable)}
+                  data-testid="invite-role"
+                  className="w-full"
+                >
                   {ASSIGNABLE.map((r) => (
                     <option key={r} value={r}>
                       {r}
@@ -395,9 +379,11 @@ export function MembersBoard({
                   ))}
                 </Select>
               </Field>
-              <Button type="submit" variant="primary" busy={inviteBusy} busyLabel="Recording the invitation">
-                Invite
-              </Button>
+              <div className="sm:pt-[22px]">
+                <Button type="submit" variant="primary" busy={inviteBusy} busyLabel="Recording the invitation">
+                  Invite
+                </Button>
+              </div>
             </div>
             <p className="max-w-[72ch] text-meta text-fg-3">
               They get an email with a link. They sign in, or create an account, with exactly this address and find the
@@ -415,8 +401,8 @@ export function MembersBoard({
           <p className="text-ui text-fg-2">An owner or admin of this workspace can invite people.</p>
         )}
 
-        <div className="mt-2">
-          <h3 className="text-ui font-semibold text-fg">Waiting to be accepted</h3>
+        <div className="mt-3">
+          <h3 className="text-ui font-bold text-fg">Waiting to be accepted</h3>
           {invitations === null ? (
             <Notice tone="warn" title="The pending invitations could not be read" className="mt-2">
               This is not the same as having none. Reload to try again.
@@ -424,17 +410,25 @@ export function MembersBoard({
           ) : invitations.length === 0 ? (
             <p className="mt-1 text-ui text-fg-3">No invitation is waiting.</p>
           ) : (
-            <ul data-testid="pending-invitations" className="mt-1 flex flex-col border-t border-rule">
+            <ul data-testid="pending-invitations" className="mt-2 flex flex-col border-t border-rule">
               {invitations.map((inv) => (
-                <li key={inv.id} className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-rule py-2 text-ui">
-                  <span className="data font-semibold text-fg">{inv.email}</span>
-                  <span className="capitalize text-fg-2">{inv.role}</span>
-                  <span className="text-meta text-fg-3">{inv.expiresLabel ? `Lapses ${inv.expiresLabel}` : "No end date recorded"}</span>
-                  <span className="flex-1" />
+                <li
+                  key={inv.id}
+                  className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-0.5 border-b border-rule py-2.5 text-ui sm:grid-cols-[auto_minmax(0,1fr)_7rem_minmax(0,12rem)_auto]"
+                >
+                  <span className="relative top-[1px]">
+                    <StateMark shape="ring" tone="warn" />
+                  </span>
+                  <span className="data min-w-0 break-all font-semibold text-fg">{inv.email}</span>
+                  <span className="hidden capitalize text-fg-2 sm:block">{inv.role}</span>
+                  <span className="col-start-2 text-meta text-fg-3 sm:col-start-auto">
+                    <span className="capitalize sm:hidden">{inv.role} · </span>
+                    {inv.expiresLabel ? `Lapses ${inv.expiresLabel}` : "No end date recorded"}
+                  </span>
                   {canManage ? (
                     <button
                       type="button"
-                      className="link text-meta"
+                      className="link col-start-3 row-start-1 text-meta sm:col-start-auto sm:row-start-auto"
                       onClick={() => {
                         setError(null);
                         setCancelling(inv);
@@ -442,7 +436,9 @@ export function MembersBoard({
                     >
                       Withdraw
                     </button>
-                  ) : null}
+                  ) : (
+                    <span />
+                  )}
                 </li>
               ))}
             </ul>
@@ -450,37 +446,133 @@ export function MembersBoard({
         </div>
       </Panel>
 
-      <Panel id="roles" title="What each role can do" why="The API checks these on every request. The page offers only what your role allows.">
-        <Table caption="Capabilities by role" minWidth={720} dense>
+      {isOwner ? (
+        <Panel
+          id="two-step"
+          title="Require two-step verification"
+          why="Refuse workspace access until each member has an authenticator app. It applies to the API, not only to what this screen shows."
+          aside={
+            mfaSecurity ? (
+              mfaSecurity.requireMfa ? (
+                <StateWord shape="square" tone="ok">
+                  Required
+                </StateWord>
+              ) : (
+                <StateWord shape="closed" tone="void">
+                  Not required
+                </StateWord>
+              )
+            ) : null
+          }
+        >
+          {mfaSecurity ? (
+            <>
+              <p className="text-body text-fg">
+                {mfaSecurity.requireMfa
+                  ? "Two-step verification is required. "
+                  : "Two-step verification is not required. "}
+                <span className="tnum font-semibold">
+                  {mfaSecurity.membersWithout} non-portal member{mfaSecurity.membersWithout === 1 ? "" : "s"}
+                </span>{" "}
+                {mfaSecurity.membersWithout === 1 ? "has" : "have"} not set it up.
+              </p>
+              <p className="max-w-[72ch] text-ui text-fg-2">
+                Members who sign in with Google or Microsoft will have to set a password and an authenticator app,
+                because we cannot see whether Google or Microsoft asked them for a second step. Single sign-on members
+                are not affected: your identity provider handles it. Client portal contacts are not affected.
+              </p>
+              {mfaCallerError ? (
+                <Notice tone="warn" title={mfaCallerError}>
+                  <Link href="/account/security" className="link font-semibold">
+                    Open account security
+                  </Link>{" "}
+                  to turn it on for your own account.
+                </Notice>
+              ) : null}
+              {mfaError ? <Notice tone="fail" title={mfaError} /> : null}
+              <div>
+                <Button
+                  variant={mfaSecurity.requireMfa ? "secondary" : "primary"}
+                  busy={mfaBusy}
+                  busyLabel="Saving"
+                  onClick={toggleWorkspaceMfa}
+                >
+                  {mfaSecurity.requireMfa ? "Stop requiring two-step verification" : "Require two-step verification"}
+                </Button>
+              </div>
+            </>
+          ) : (
+            <Notice tone="warn" title="The two-step requirement could not be read">
+              This is not the same as it being off. Reload the page to try again.
+            </Notice>
+          )}
+        </Panel>
+      ) : null}
+
+      <Panel
+        id="roles"
+        title="What each role can do"
+        why="Each role is a line that stops at what it may do. The API checks these on every request, and this page offers only what your role allows."
+      >
+        <Table caption="Capabilities by role" minWidth={720}>
           <THead>
             <tr>
               <Th>Capability</Th>
-              {ROLES.map((r) => (
-                <Th key={r} align="center" className="capitalize">
-                  {r}
-                </Th>
-              ))}
+              {ROLES.map((r) => {
+                const n = roleCount(r);
+                return (
+                  <Th key={r} align="center" className="w-[92px]">
+                    <span className="block text-ui font-bold capitalize text-fg">{r}</span>
+                    <span className="tnum block font-medium text-fg-3">{n === 0 ? "nobody" : plural(n, "person", "people")}</span>
+                  </Th>
+                );
+              })}
             </tr>
           </THead>
           <TBody>
-            {CAPABILITIES.map((c) => (
+            {CAPABILITIES.map((c, row) => (
               <Tr key={c.label}>
-                <Td>{c.label}</Td>
-                {ROLES.map((r) => (
-                  <Td key={r} align="center">
-                    {c.roles.includes(r) ? (
-                      <Check size={14} className="inline text-ok" aria-label="yes" />
-                    ) : (
-                      <span className="text-fg-4" aria-label="no">
-                        —
-                      </span>
-                    )}
-                  </Td>
-                ))}
+                <Td className="py-2.5">{c.label}</Td>
+                {ROLES.map((r) => {
+                  const has = c.roles.includes(r);
+                  const from = row > 0 && CAPABILITIES[row - 1].roles.includes(r);
+                  const on = row < CAPABILITIES.length - 1 && CAPABILITIES[row + 1].roles.includes(r);
+                  return (
+                    <Td key={r} align="center" className="relative py-2.5">
+                      {has ? (
+                        <>
+                          <span
+                            aria-hidden
+                            className="absolute left-1/2 w-[5px] -translate-x-1/2 bg-fg"
+                            style={{ top: from ? -1 : "50%", bottom: on ? -1 : "50%" }}
+                          />
+                          <span
+                            aria-hidden
+                            className={
+                              on
+                                ? "absolute left-1/2 top-1/2 z-[1] block size-[15px] -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-fg bg-paper"
+                                : "absolute left-1/2 top-1/2 z-[1] block h-[15px] w-[25px] -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-fg bg-paper"
+                            }
+                          />
+                          <span className="sr-only">yes</span>
+                        </>
+                      ) : (
+                        <span className="sr-only">no</span>
+                      )}
+                    </Td>
+                  );
+                })}
               </Tr>
             ))}
           </TBody>
         </Table>
+        <p className="text-meta text-fg-3">
+          A role&rsquo;s line ends at the last thing it may do. Portal contacts are client contacts: add them under{" "}
+          <Link href="/settings/portal" className="link">
+            Client portal access
+          </Link>
+          , which keeps each one to their own client.
+        </p>
       </Panel>
 
       <ConfirmDialog

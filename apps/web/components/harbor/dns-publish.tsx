@@ -28,6 +28,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Field, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { UpgradeNotice } from "@/components/ui/states";
+import { TideMark } from "@/components/ui/tide";
 
 export interface DnsPublishContext {
   organizationId: string;
@@ -220,13 +221,18 @@ export function DnsPublishButton({
             </Field>
           ) : null}
 
-          {busy === "preview" ? <p className="text-ui text-fg-2">Reading the current record from Cloudflare…</p> : null}
+          {busy === "preview" ? (
+            <div role="status" className="flex items-center gap-3 text-ui text-fg-2">
+              <TideMark size={18} />
+              Reading the current record from Cloudflare…
+            </div>
+          ) : null}
           {error ? <Notice tone="fail" title={error} /> : null}
           {restoreMessage ? <Notice tone="ok" title={restoreMessage} /> : null}
 
           {preview && !planRefused ? (
             <>
-              <dl className="grid grid-cols-[128px_minmax(0,1fr)] gap-x-4 gap-y-3 border-y border-rule py-4 text-ui">
+              <dl className="grid grid-cols-[112px_minmax(0,1fr)] gap-x-4 gap-y-3 border-y border-rule py-4 text-ui">
                 <dt className="text-fg-3">Zone</dt>
                 <dd className="data text-fg">{preview.zone.name}</dd>
                 <dt className="text-fg-3">Record</dt>
@@ -241,7 +247,7 @@ export function DnsPublishButton({
                     <span className="text-fg-3">No TXT record exists at this name yet.</span>
                   ) : (
                     preview.currentValues.map((value) => (
-                      <code key={value} className="data break-all rounded-[2px] bg-paper-3 px-2 py-1 text-meta text-fg">
+                      <code key={value} className="data break-all rounded-[6px] bg-paper-3 px-2 py-1 text-meta text-fg">
                         {value}
                       </code>
                     ))
@@ -249,7 +255,7 @@ export function DnsPublishButton({
                 </dd>
                 <dt className="text-fg-3">New value</dt>
                 <dd>
-                  <code className="data break-all rounded-[2px] bg-paper-3 px-2 py-1 text-meta text-fg" data-testid="dns-preview-value">
+                  <code className="data break-all rounded-[6px] bg-paper-3 px-2 py-1 text-meta text-fg" data-testid="dns-preview-value">
                     {preview.proposedValue}
                   </code>
                 </dd>

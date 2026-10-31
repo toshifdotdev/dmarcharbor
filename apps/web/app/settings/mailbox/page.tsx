@@ -28,9 +28,16 @@ export default async function MailboxPage() {
       return { kind: "failed" };
     });
 
+  const mailbox =
+    read.kind === "ok" && read.inbox.configured
+      ? read.inbox.enabled && !read.inbox.paused
+        ? ("collecting" as const)
+        : ("stopped" as const)
+      : ("none" as const);
+
   return (
     <SettingsFrame ctx={ctx} section="mailbox">
-      <RuaThread />
+      <RuaThread mailbox={mailbox} />
       {read.kind === "ok" && read.inbox.paused ? (
         <>
           <UpgradeNotice

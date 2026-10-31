@@ -19,6 +19,11 @@
  * only in that response, so the record is shown once with that warning, and
  * an unverified domain can be issued a fresh record instead of a dead end.
  *
+ * The custom domain is drawn as three stations (choose the hostname, publish
+ * the TXT record, client pages open on it), travelled in ink up to where the
+ * domain is, planned beyond, so "verified" and "not verified yet" are a place
+ * on a line as well as a word.
+ *
  * Test hooks: domain-verified, domain-unverified.
  */
 
@@ -29,7 +34,6 @@ import type { FeatureStatus } from "@/lib/entitlements";
 import { patchBranding, setCustomDomain, uploadLogo, verifyCustomDomain, type CustomDomainInstructions } from "@/lib/ops-client";
 import { PierMark } from "@/components/mark";
 import { ActionRefusal, type ActionError } from "@/components/harbor/plan-refusal";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DnsRecord } from "@/components/ui/copy";
 import { ConfirmDialog } from "@/components/ui/dialog";
@@ -37,17 +41,41 @@ import { Field, Input } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { UpgradeNotice } from "@/components/ui/states";
 import { useToast } from "@/components/ui/toast";
-import { Panel } from "./parts";
+import { Panel, StateMark, StateWord, StepLine } from "./parts";
 
-const PAPER = "#f3f5f7";
+/** The ground every client page sits on: white, as the Routes pages are. */
+const PAPER = "#ffffff";
 
 function Ratio({ label, value }: { label: string; value: number | null }) {
   if (value === null) return null;
   const ok = value >= 4.5;
   return (
-    <span className={ok ? "text-meta text-fg-3" : "text-meta font-semibold text-warn"}>
-      {label}: <span className="tnum">{value.toFixed(1)}:1</span> {ok ? "readable" : "too faint for small text (aim for 4.5:1)"}
+    <span className="inline-flex items-center gap-2 text-meta">
+      <StateMark shape={ok ? "square" : "ring"} tone={ok ? "ok" : "warn"} size={9} />
+      <span className="text-fg-2">{label}</span>
+      <span className="tnum font-semibold text-fg">{value.toFixed(1)}:1</span>
+      <span className={ok ? "text-ok" : "font-semibold text-warn"}>{ok ? "readable" : "too faint for small text, aim for 4.5:1"}</span>
     </span>
+  );
+}
+
+/** A domain row in the preview, the way the client portal lists one. */
+function PreviewRow({ name, verdict, meaning, tone }: { name: string; verdict: string; meaning: string; tone: "ok" | "fail" }) {
+  return (
+    <li
+      className={`grid gap-x-6 gap-y-1 border-b border-rule py-3 pl-4 pr-1 last:border-b-0 sm:grid-cols-[minmax(0,12rem)_minmax(0,1fr)_auto] ${
+        tone === "ok" ? "shadow-[inset_3px_0_0_var(--color-ok)]" : "shadow-[inset_3px_0_0_var(--color-fail)]"
+      }`}
+    >
+      <span className="data break-all text-ui font-semibold text-fg">{name}</span>
+      <span className="min-w-0">
+        <StateWord shape={tone === "ok" ? "square" : "diamond"} tone={tone} size="meta">
+          {verdict}
+        </StateWord>
+        <span className="mt-0.5 block text-meta text-fg-2">{meaning}</span>
+      </span>
+      <span className="self-center text-meta font-semibold text-act">See the evidence →</span>
+    </li>
   );
 }
 
@@ -236,61 +264,73 @@ export function BrandingBoard({
         <UpgradeNotice
           message="Your logo and colours are not included in this workspace's plan."
           feature="branding.whitelabel"
-          context="Clients see DMARC Harbor's colours until it is. Anything saved here before is kept, and returns when the plan includes it."
+          context="Clients see the default colours until it is. Anything saved here before is kept, and returns when the plan includes it."
         />
       ) : null}
 
       <Panel
         id="wl-preview"
         title="What a client sees"
-        why="The client portal always carries this. Share links, Trust Centers and the sign-in page carry it on your verified custom domain."
-        aside="Preview with sample content"
+        why="The client portal always carries your name, and your logo and colours once white label is on. Share links, Trust Centers and the sign-in page carry them on your verified custom domain."
       >
-        <div
-          data-harbor
-          // data-harbor re-declares the accent-derived tokens against these
-          // colours; its page-root min-height (unlayered, so it beats
-          // utilities) is undone inline.
-          style={{ ...(vars as CSSProperties), minHeight: 0, zIndex: "auto" }}
-          className="overflow-hidden rounded-ctl border border-rule-2 bg-paper shadow-[0_1px_2px_rgb(18_26_34/0.06)]"
-          aria-label="Preview of a client-facing page"
-          role="img"
-        >
-          <div className="flex items-center gap-3 border-b border-rule px-4 py-2.5">
-            <span className="flex items-center gap-2 text-act">
-              {logoUrl ? <img src={logoUrl} alt="" className="h-6 w-auto" /> : p ? null : <PierMark size={22} />}
-              <span className="wide text-ui font-bold text-fg">{workspaceName}</span>
-            </span>
-            <span aria-hidden className="h-4 w-px bg-rule-2" />
-            <span className="legend">Client reports</span>
-            <span className="ml-auto text-meta text-fg-3">contact@client.example</span>
-          </div>
-          <div className="grid gap-4 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-            <div>
-              <p className="text-h3 font-bold text-fg">Example Freight</p>
-              <ul className="mt-2 flex flex-col text-ui">
-                <li className="flex items-baseline gap-2 border-t border-rule py-1.5">
-                  <span aria-hidden className="size-2 bg-ok" />
-                  <span className="data text-fg">example-freight.example</span>
-                  <span className="text-fg-2">Protected</span>
-                </li>
-                <li className="flex items-baseline gap-2 border-y border-rule py-1.5">
-                  <span aria-hidden className="size-2.5 rounded-full border-2 border-warn-mark" />
-                  <span className="data text-fg">mail.example-freight.example</span>
-                  <span className="text-fg-2">Needs attention</span>
-                  <span className="link ml-auto text-meta">What to do</span>
-                </li>
-              </ul>
+        <figure className="flex flex-col gap-3">
+          <div
+            data-harbor
+            // data-harbor re-declares the accent-derived tokens against these
+            // colours; its page-root min-height (unlayered, so it beats
+            // utilities) is undone inline.
+            style={{ ...(vars as CSSProperties), minHeight: 0, zIndex: "auto" }}
+            className="overflow-hidden rounded-sheet border border-rule-2 bg-paper"
+            aria-label={`Preview of the client portal under ${workspaceName}, with sample content`}
+            role="img"
+          >
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-rule px-5 py-3">
+              <span className="flex items-center gap-2.5 text-act">
+                {logoUrl ? <img src={logoUrl} alt="" className="h-[26px] w-auto" /> : p ? null : <PierMark size={22} />}
+                <span className="text-body font-bold text-fg">{workspaceName}</span>
+              </span>
+              <span aria-hidden className="hidden h-5 w-px bg-rule-2 sm:block" />
+              <span className="hidden text-meta font-semibold text-fg-2 sm:inline">Client reports</span>
+              <span className="data ml-auto hidden text-meta text-fg-3 md:inline">it@corriwick.example</span>
             </div>
-            <span className="inline-flex h-8 items-center justify-center rounded-ctl bg-[var(--hb-primary,var(--color-fg))] px-3 text-ui font-semibold text-[var(--hb-primary-ink,#fff)]">
-              Forward to your IT team
-            </span>
+            <div className="flex flex-col gap-4 px-5 pb-5 pt-5">
+              <div>
+                <p className="text-meta font-semibold text-fg-3">Corriwick Café</p>
+                <p className="display mt-1 text-[24px] leading-[1.05] text-fg">Your domains</p>
+                <p className="mt-1.5 max-w-[60ch] text-ui text-fg-2">
+                  1 of 2 domains needs attention. The rest are listed below with what was observed.
+                </p>
+              </div>
+              <ol className="flex flex-col border-y border-fg">
+                <PreviewRow
+                  name="mail.corriwick.example"
+                  verdict="Someone may be sending email as you"
+                  meaning="Forward this report to your provider."
+                  tone="fail"
+                />
+                <PreviewRow name="corriwick.example" verdict="Protected" meaning="Every message reported passed the checks." tone="ok" />
+              </ol>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="inline-flex h-9 items-center justify-center rounded-full bg-[var(--hb-primary,var(--color-fg))] px-4 text-ui font-semibold text-[var(--hb-primary-ink,#fff)]">
+                  Forward to your IT team
+                </span>
+                <span className="link text-ui font-semibold">Download the monthly report</span>
+              </div>
+            </div>
           </div>
-        </div>
-        <div className="flex flex-wrap gap-x-5 gap-y-1">
+          <figcaption className="text-meta text-fg-3">
+            Sample client and domains, drawn with the colours in the form below before you save them.
+          </figcaption>
+        </figure>
+        <div className="flex flex-col gap-1.5">
           <Ratio label="Button text on the brand colour" value={p && effectiveInk ? contrastRatio(p, effectiveInk) : null} />
-          <Ratio label="Links on the page" value={p ? contrastRatio(p, PAPER) : null} />
-          {!p ? <span className="text-meta text-fg-3">No brand colour set: clients see the default.</span> : null}
+          <Ratio label="Links on the white page" value={p ? contrastRatio(p, PAPER) : null} />
+          {!p ? (
+            <span className="inline-flex items-center gap-2 text-meta text-fg-3">
+              <StateMark shape="closed" size={9} />
+              No brand colour set: clients see the default ink.
+            </span>
+          ) : null}
         </div>
       </Panel>
 
@@ -390,19 +430,55 @@ export function BrandingBoard({
         aside={
           customDomain ? (
             domainFeature === false ? (
-              <Badge tone="warn">Kept, not used on this plan</Badge>
+              <StateWord shape="half" tone="void">
+                Kept, not used on this plan
+              </StateWord>
             ) : customDomainVerified ? (
               <span data-testid="domain-verified">
-                <Badge tone="ok">Verified, serving your brand</Badge>
+                <StateWord shape="square" tone="ok">
+                  Verified, serving your brand
+                </StateWord>
               </span>
             ) : (
               <span data-testid="domain-unverified">
-                <Badge tone="warn">Not verified yet: not live</Badge>
+                <StateWord shape="ring" tone="warn">
+                  Not verified yet: not live
+                </StateWord>
               </span>
             )
-          ) : null
+          ) : (
+            <StateWord shape="closed" tone="void">
+              Not set up
+            </StateWord>
+          )
         }
       >
+        {domainFeature !== false ? (
+          <StepLine
+            label="Custom domain setup"
+            steps={[
+              {
+                key: "host",
+                title: "Choose the hostname",
+                body: customDomain ? <span className="data break-all">{customDomain}</span> : "reports.youragency.example",
+                state: customDomain ? "done" : "current",
+              },
+              {
+                key: "txt",
+                title: "Publish the TXT record",
+                body: customDomainVerified ? "Found" : customDomain ? "Waiting to be found" : "Shown once, when you choose",
+                state: customDomainVerified ? "done" : customDomain ? "current" : "planned",
+              },
+              {
+                key: "live",
+                title: "Client pages open on it",
+                body: customDomainVerified ? "Live, in your brand" : "Not live yet",
+                state: customDomainVerified ? "done" : "planned",
+              },
+            ]}
+          />
+        ) : null}
+
         {customDomain ? (
           <p className="text-ui">
             <code className="data text-body font-semibold text-fg">{customDomain}</code>
@@ -413,8 +489,11 @@ export function BrandingBoard({
         ) : null}
 
         {record?.verificationHost && record.verificationValue ? (
-          <div className="flex flex-col gap-2 rounded-ctl border border-act/40 bg-paper-2 px-4 py-3.5 [animation:hb-rise_240ms_ease-out]">
-            <p className="legend text-act!">Shown once</p>
+          <div className="flex flex-col gap-3 rounded-sheet border-2 border-fg px-5 py-4">
+            <p className="flex items-center gap-2 text-meta font-semibold text-fg">
+              <StateMark shape="open" />
+              Shown once
+            </p>
             <p className="text-ui text-fg-2">
               Publish this TXT record at your DNS host now. The value is not stored anywhere you can read it back: if you lose
               it, issue a new one.

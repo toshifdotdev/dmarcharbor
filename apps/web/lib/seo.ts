@@ -69,7 +69,7 @@ const OG_IMAGE = {
   url: "/opengraph-image",
   width: 1200,
   height: 630,
-  alt: "DMARC Harbor — measurement first, changes only when you ask",
+  alt: "DMARC Harbor: every sender, mapped. DMARC monitoring for MSPs and agencies.",
 } as const;
 
 /** The social-object fields a public route shares, image included. */

@@ -18,6 +18,7 @@ import type { BillingCurrencyPreference, PlanDefinition } from "@/lib/types";
 import { PricingBoard, type PricingCurrency, type PricingInterval } from "@/components/harbor/pricing-board";
 import { PublicFooter, PublicHeader, brandName } from "@/components/harbor/public-frame";
 import { StructuredData } from "@/components/structured-data-view";
+import s from "@/components/harbor/pricing.module.css";
 
 /** Pricing is the page a buyer shares with their finance team: canonical and
  *  OG card against the host the request came in on, custom domains included. */
@@ -112,12 +113,14 @@ export default async function PricingPage({
     return (
       <div data-harbor data-host-brand={brand.state}>
         <PublicHeader brand={brand} current="pricing" />
-        <main id="main" className="page-wrap pb-24 pt-14">
-          <h1 className="display text-[40px] leading-none text-fg">Pricing</h1>
-          <p role="alert" className="mt-4 max-w-[62ch] text-body text-fg-2">
-            The plan catalog did not load, so no prices are shown rather than old ones. Nothing is hidden: the request
-            failed. Try again in a moment.
-          </p>
+        <main id="main" className="page-wrap pb-24">
+          <header className={s.head}>
+            <h1 className={s.headline}>Pricing</h1>
+            <p role="alert" className={s.lead}>
+              The plan catalog did not load, so no prices are shown rather than old ones. Nothing is hidden: the request
+              failed. Try again in a moment.
+            </p>
+          </header>
         </main>
         <PublicFooter brand={brand} />
       </div>
@@ -170,22 +173,17 @@ export default async function PricingPage({
     <div data-harbor data-host-brand={brand.state}>
       <PublicHeader brand={brand} current="pricing" />
       <StructuredData data={offers} />
-      <main id="main" className="page-wrap pb-24 pt-12 sm:pt-16">
-        <header className="mb-10 grid gap-x-12 gap-y-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,440px)] lg:items-end">
+      <main id="main" className="page-wrap pb-24 sm:pb-32">
+        <header className={s.head}>
+          <h1 className={s.headline}>Priced by the size of the client book.</h1>
           <div>
-            <p className="legend">Pricing</p>
-            <h1 className="display mt-2 text-[38px] leading-[1.02] text-fg sm:text-[52px]">
-              Priced by the size of the client book.
-            </h1>
-          </div>
-          <div className="flex flex-col gap-2">
-            <p className="text-body text-fg-2">
+            <p className={s.lead}>
               Plans differ in how many clients and domains they hold and in what you can hand to clients. Reports are
               read and measured the same way on every plan.
             </p>
             {/* Promised in the Refund Policy: 14 days from the first payment, once per customer. */}
-            <p className="text-ui text-fg-2" data-testid="pricing-money-back">
-              <span className="font-semibold text-fg">14-day money-back guarantee</span> on your first payment.{" "}
+            <p className={s.guarantee} data-testid="pricing-money-back">
+              <b>14-day money-back guarantee</b> on your first payment.{" "}
               <Link href="/refunds" className="link">
                 How refunds work
               </Link>
@@ -204,32 +202,29 @@ export default async function PricingPage({
           checkoutNote={checkoutNote}
           between={
             rightsOnEveryPlan || baseline.length > 0 ? (
-              <section aria-labelledby="floor-head" className="grid gap-x-12 gap-y-4 border-y border-rule py-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+              <section aria-labelledby="floor-head" className={`${s.section} ${s.floor}`}>
                 <div>
-                  <h2 id="floor-head" className="wide text-h2 font-bold tracking-[-0.02em] text-fg">
+                  <h2 id="floor-head" className={s.h2}>
                     On every plan
                   </h2>
                   {rightsOnEveryPlan ? (
-                    <p className="mt-2 max-w-[56ch] text-body text-fg-2">
-                      <span className="font-semibold text-fg">Data export and data erasure are on every plan</span>,
-                      the free one included. Getting your data out, and having it deleted, are a legal floor. {name}{" "}
-                      never sells them as an upgrade.
+                    <p className={s.lead}>
+                      <b className="font-semibold text-fg">Data export and data erasure are on every plan</b>, the free
+                      one included. Getting your data out, and having it deleted, are a legal floor. {name} never sells
+                      them as an upgrade.
                     </p>
                   ) : null}
-                  <p className="mt-2 max-w-[56ch] text-body text-fg-2">
+                  <p className={s.lead}>
                     Every plan also watches each domain&rsquo;s DNS and runs the checks listed here. Retention is the same
                     on every plan, so a downgrade never deletes history.
                   </p>
                 </div>
-                <ul className="flex flex-col gap-2 self-center text-ui text-fg" data-testid="pricing-every-plan">
+                <ul className={s.floorList} data-testid="pricing-every-plan">
                   {[
                     ...[...baseline, ...(rightsOnEveryPlan ? ["data.export", "data.erase"] : [])].map(planFeatureLabel),
                     ...UNGATED_CAPABILITIES,
                   ].map((label) => (
-                    <li key={label} className="flex items-baseline gap-2 border-b border-rule pb-2">
-                      <span aria-hidden className="block size-1.5 shrink-0 translate-y-[-2px] bg-ok" />
-                      {label}
-                    </li>
+                    <li key={label}>{label}</li>
                   ))}
                 </ul>
               </section>

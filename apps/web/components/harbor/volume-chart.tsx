@@ -210,7 +210,19 @@ export function VolumeChart({
 
           {!peakPoint ? (
             <text x={M.left + innerW / 2} y={M.top + innerH / 2} textAnchor="middle" fill="var(--color-void)" stroke="var(--color-paper-2)" strokeWidth={6} paintOrder="stroke" style={{ fontSize: 12, fontWeight: 600 }}>
-              No report received in the last {days} days: nothing here is measured.
+              {/* On a phone the sentence is wider than the chart: two lines. */}
+              {innerW < 420 ? (
+                <>
+                  <tspan x={M.left + innerW / 2} dy={-8}>
+                    No report received in the last {days} days:
+                  </tspan>
+                  <tspan x={M.left + innerW / 2} dy={16}>
+                    nothing here is measured.
+                  </tspan>
+                </>
+              ) : (
+                <>No report received in the last {days} days: nothing here is measured.</>
+              )}
             </text>
           ) : null}
 

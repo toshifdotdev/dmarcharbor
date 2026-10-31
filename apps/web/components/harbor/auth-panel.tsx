@@ -20,6 +20,10 @@
  *
  * Social sign-in renders only the providers GET /api/auth/providers reports,
  * and returns to the page the person came from.
+ *
+ * With `route`, the sign-up form sits beside the setup route, and the route
+ * moves on to "Verify email" when the link has been sent, so the drawing
+ * never says a step is current after it is done.
  */
 
 import Link from "next/link";
@@ -38,7 +42,9 @@ import {
 } from "@/lib/auth-client";
 import type { AuthProviders } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
+import { SetupLayout } from "./setup-rail";
 
 type Mode = "sign-in" | "sign-up" | "forgot" | "reset" | "two-factor";
 const MIN_PASSWORD = 8;
@@ -49,6 +55,7 @@ export function AuthPanel({
   next,
   resetToken,
   initialError,
+  route = false,
 }: {
   initialMode: "sign-in" | "sign-up";
   /** A same-site path to return to after signing in (already validated). */
@@ -57,6 +64,8 @@ export function AuthPanel({
   resetToken?: string | null;
   /** An error carried back in the URL (a failed social sign-in, a dead link). */
   initialError?: string | null;
+  /** Sign-up only: lay the form beside the setup route. */
+  route?: boolean;
 }) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>(resetToken ? "reset" : initialMode);
@@ -164,8 +173,11 @@ export function AuthPanel({
     }
   }
 
+  const withRoute = (content: ReactNode) =>
+    route && mode === "sign-up" ? <SetupLayout current={sentTo ? "email" : "account"}>{content}</SetupLayout> : content;
+
   if (mode === "sign-up" && sentTo) {
-    return <CheckInbox email={sentTo} onChangeEmail={() => setSentTo(null)} />;
+    return withRoute(<CheckInbox email={sentTo} onChangeEmail={() => setSentTo(null)} />);
   }
 
   const heading: Record<Mode, string> = {
@@ -177,19 +189,21 @@ export function AuthPanel({
   };
   const lede: Record<Mode, string> = {
     "sign-in": "Welcome back. Your portfolio is where you left it.",
-    "sign-up": "Free to start, no card. Next you name a workspace and add a first domain.",
+    "sign-up": "Free to start, no card. Next you name a workspace and add a first client domain.",
     forgot: "Enter the address you sign in with and we will email a reset link. It works for one hour.",
     reset: "Every other session on this account is signed out once the new password is set.",
     "two-factor": backupCode
       ? "Enter one of the backup codes you saved when you set up two-step verification."
-      : "Open your authenticator app and enter the current six-digit code for DMARC Harbor.",
+      : "Open your authenticator app and enter the six-digit code it shows for this account.",
   };
 
-  return (
-    <div className="flex flex-col gap-6 [animation:hb-rise_220ms_ease-out]" key={mode}>
+  return withRoute(
+    <div className="flex flex-col gap-7">
       <div>
-        <h1 className="display text-[32px] leading-[1.05] text-fg">{heading[mode]}</h1>
-        <p className="mt-2 text-body text-fg-2">{lede[mode]}</p>
+        <h1 className="text-balance text-[34px] font-[760] leading-[1.02] tracking-[-0.035em] text-fg sm:text-[40px]">
+          {heading[mode]}
+        </h1>
+        <p className="mt-3 text-lead text-fg-2">{lede[mode]}</p>
       </div>
 
       {next && mode === "sign-in" ? (
@@ -211,7 +225,7 @@ export function AuthPanel({
         ) : null}
         {mode !== "reset" && mode !== "two-factor" ? (
           <TextField
-            label="Email"
+            label={mode === "sign-up" ? "Work email" : "Email"}
             value={email}
             onChange={setEmail}
             autoComplete={mode === "sign-up" ? "email" : "username"}
@@ -245,10 +259,12 @@ export function AuthPanel({
             <label htmlFor="mfa-code" className="text-meta font-semibold text-fg-2">
               {backupCode ? "Backup code" : "Six-digit code"}
             </label>
-            <input
+            <Input
               id="mfa-code"
               ref={codeRef}
               type="text"
+              size="lg"
+              mono
               value={code}
               onChange={(event) => setCode(event.target.value)}
               inputMode={backupCode ? "text" : "numeric"}
@@ -259,7 +275,7 @@ export function AuthPanel({
               required
               autoFocus
               data-testid={backupCode ? "mfa-backup-code" : "mfa-code"}
-              className="data h-11 w-full rounded-ctl border border-rule-2 bg-paper-2 px-3 text-[20px] tracking-[0.18em] text-fg focus-visible:border-act focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-act-line"
+              className="h-12! text-[20px]! tracking-[0.18em]"
               placeholder={backupCode ? "xxxxx-xxxxx" : "000000"}
             />
             <p className="text-meta text-fg-3">
@@ -277,8 +293,8 @@ export function AuthPanel({
         ) : null}
         {resetSentTo ? (
           <Notice tone="ok" title="Check your inbox">
-            If <span className="data text-fg">{resetSentTo}</span> has an account, a reset link is on its way. It works
-            for one hour. Nothing arrived? Check spam, or ask again in a minute.
+            If <span className="font-semibold text-fg">{resetSentTo}</span> has an account, a reset link is on its way. It
+            works for one hour. Nothing arrived? Check spam, or ask again in a minute.
           </Notice>
         ) : null}
 
@@ -289,7 +305,7 @@ export function AuthPanel({
           busy={busy}
           busyLabel={mode === "sign-in" ? "Signing in" : mode === "two-factor" ? "Checking" : "Working"}
           data-testid={mode === "two-factor" ? "mfa-submit" : "auth-submit"}
-          className="mt-1 w-full"
+          className="mt-2 w-full"
           disabled={(mode !== "sign-in" && mode !== "forgot" && password.length > 0 && password.length < MIN_PASSWORD) || (mode === "two-factor" && code.trim().length === 0)}
         >
           {mode === "sign-in"
@@ -304,69 +320,52 @@ export function AuthPanel({
         </Button>
       </form>
 
-      <div className="flex flex-col gap-2 border-t border-rule pt-4 text-ui text-fg-2">
-        {mode === "sign-in" ? (
-          <p>
-            New here?{" "}
-            <Link href="/sign-up" className="link font-semibold">
-              Create an account
-            </Link>
-          </p>
-        ) : mode === "sign-up" ? (
-          <>
-            <p>
-              Already have an account?{" "}
-              <Link href={next ? `/sign-in?next=${encodeURIComponent(next)}` : "/sign-in"} className="link font-semibold">
-                Sign in
-              </Link>
-            </p>
-            {/* The Terms are accepted, and recorded, when the first workspace is
-                created: the server refuses a workspace without them. This is the
-                notice; the gate is on the next screen. */}
-            <p className="text-meta text-fg-3">
-              You accept the{" "}
-              <Link href="/terms" className="link">
-                Terms of Service
-              </Link>{" "}
-              and the{" "}
-              <Link href="/dpa" className="link">
-                Data Processing Agreement
-              </Link>{" "}
-              when you create your first workspace, on the next screen. Read the{" "}
-              <Link href="/privacy" className="link">
-                Privacy Policy
-              </Link>{" "}
-              any time.
-            </p>
-          </>
-        ) : mode === "two-factor" ? (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <button
-              type="button"
-              data-testid="mfa-use-backup"
-              onClick={() => {
-                setBackupCode((value) => !value);
-                setCode("");
-                setError(null);
-                requestAnimationFrame(() => codeRef.current?.focus());
-              }}
-              className="link font-semibold"
-            >
-              {backupCode ? "Use your authenticator app instead" : "Use a backup code instead"}
-            </button>
-            <button type="button" onClick={() => go("sign-in")} className="link text-fg-3">
-              Back to sign in
-            </button>
-          </div>
-        ) : (
-          <p>
-            <button type="button" onClick={() => go("sign-in")} className="link font-semibold">
-              Back to sign in
-            </button>
-          </p>
-        )}
-      </div>
-    </div>
+      {mode === "sign-in" ? null : mode === "sign-up" ? (
+        // The Terms are accepted, and recorded, when the first workspace is
+        // created: the server refuses a workspace without them. This is the
+        // notice; the gate is on the next screen.
+        <p className="border-t border-rule pt-4 text-meta text-fg-3">
+          You accept the{" "}
+          <Link href="/terms" className="link">
+            Terms of Service
+          </Link>{" "}
+          and the{" "}
+          <Link href="/dpa" className="link">
+            Data Processing Agreement
+          </Link>{" "}
+          when you create your first workspace, on the next screen. Read the{" "}
+          <Link href="/privacy" className="link">
+            Privacy Policy
+          </Link>{" "}
+          any time.
+        </p>
+      ) : mode === "two-factor" ? (
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-rule pt-4 text-ui">
+          <button
+            type="button"
+            data-testid="mfa-use-backup"
+            onClick={() => {
+              setBackupCode((value) => !value);
+              setCode("");
+              setError(null);
+              requestAnimationFrame(() => codeRef.current?.focus());
+            }}
+            className="link font-semibold"
+          >
+            {backupCode ? "Use your authenticator app instead" : "Use a backup code instead"}
+          </button>
+          <button type="button" onClick={() => go("sign-in")} className="link text-fg-3">
+            Back to sign in
+          </button>
+        </div>
+      ) : (
+        <p className="border-t border-rule pt-4 text-ui">
+          <button type="button" onClick={() => go("sign-in")} className="link font-semibold">
+            Back to sign in
+          </button>
+        </p>
+      )}
+    </div>,
   );
 }
 
@@ -401,12 +400,12 @@ function UnverifiedNotice({ email }: { email: string }) {
       title="Verify your email to sign in"
       action={
         <Button size="sm" onClick={resend} busy={state === "busy"} busyLabel="Sending" disabled={cool.left > 0}>
-          {cool.left > 0 ? `Resend in ${cool.left}s` : "Resend link"}
+          <span className="tnum">{cool.left > 0 ? `Resend in ${cool.left}s` : "Resend link"}</span>
         </Button>
       }
     >
-      We have just sent a fresh verification link to <span className="data text-fg">{email}</span>. Open it on this
-      device and you are signed in.
+      We have just sent a fresh verification link to <span className="font-semibold text-fg">{email}</span>. Open it on
+      this device and you are signed in.
       {state === "failed" ? <span className="mt-1 block text-fail">The link could not be sent. Try again shortly.</span> : null}
     </Notice>
   );
@@ -427,30 +426,32 @@ function CheckInbox({ email, onChangeEmail }: { email: string; onChangeEmail: ()
     }
   }
   return (
-    <div className="flex flex-col gap-6 [animation:hb-rise_260ms_ease-out]" role="status">
+    <div className="flex flex-col gap-7" role="status">
       <div>
-        <Envelope />
-        <h1 className="display mt-6 text-[32px] leading-[1.05] text-fg">Check your inbox.</h1>
-        <p className="mt-3 text-body text-fg-2">
-          To verify your email, open the link we sent to <span className="data font-semibold text-fg">{email}</span>. It
-          signs you in and takes you to the next step. The link works for 24 hours.
+        <h1 className="text-balance text-[34px] font-[760] leading-[1.02] tracking-[-0.035em] text-fg sm:text-[40px]">
+          Check your inbox
+        </h1>
+        <p className="mt-3 text-lead text-fg-2">
+          To verify your email, open the link we sent to <span className="font-semibold text-fg">{email}</span>. It signs
+          you in and takes you to the next step. The link works for 24 hours.
         </p>
       </div>
-      <ol className="flex flex-col border-t border-rule text-ui">
+      <SentRoute email={email} />
+      <dl className="flex flex-col border-t border-rule text-ui">
         {[
           ["Not there?", "Give it a minute, then check spam or promotions. Some company mail filters hold first messages."],
-          ["Wrong address?", "Go back and sign up again with the right one."],
+          ["Wrong address?", "Use a different email below and sign up again with the right one."],
           ["Already have an account?", "Then no new account was made. Sign in instead, or reset your password."],
         ].map(([k, v]) => (
-          <li key={k} className="grid grid-cols-[148px_minmax(0,1fr)] gap-3 border-b border-rule py-2.5">
-            <span className="font-semibold text-fg">{k}</span>
-            <span className="text-fg-2">{v}</span>
-          </li>
+          <div key={k} className="grid gap-x-4 gap-y-0.5 border-b border-rule py-3 sm:grid-cols-[156px_minmax(0,1fr)]">
+            <dt className="font-semibold text-fg">{k}</dt>
+            <dd className="text-fg-2">{v}</dd>
+          </div>
         ))}
-      </ol>
-      <div className="flex flex-wrap items-center gap-3">
+      </dl>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         <Button onClick={resend} busy={state === "busy"} busyLabel="Sending" disabled={cool.left > 0}>
-          {cool.left > 0 ? `Resend in ${cool.left}s` : "Resend the link"}
+          <span className="tnum">{cool.left > 0 ? `Resend in ${cool.left}s` : "Resend the link"}</span>
         </Button>
         <button type="button" onClick={onChangeEmail} className="link text-ui font-semibold">
           Use a different email
@@ -465,19 +466,34 @@ function CheckInbox({ email, onChangeEmail }: { email: string; onChangeEmail: ()
   );
 }
 
-/** A letter going out, drawn once: the only illustration on these screens. */
-function Envelope() {
+/**
+ * The link on its way, drawn as a short line: sent at one end, the inbox at
+ * the other, the message riding between. It only ever renders after the
+ * sign-up call returns, so it is never part of the server HTML; under reduced
+ * motion the message rests halfway.
+ */
+function SentRoute({ email }: { email: string }) {
   return (
-    <svg width="64" height="44" viewBox="0 0 64 44" fill="none" aria-hidden className="text-act">
-      <rect x="1" y="1" width="62" height="42" rx="2" stroke="var(--color-fg)" strokeWidth="1.5" />
-      <path
-        d="M2 3 32 25 62 3"
-        stroke="currentColor"
-        strokeWidth="2"
-        pathLength={100}
-        style={{ strokeDasharray: 100, strokeDashoffset: 100, animation: "hb-draw 900ms 150ms ease-out forwards" }}
-      />
-    </svg>
+    <figure aria-hidden className="m-0">
+      <svg viewBox="0 0 400 30" className="block h-auto w-full" fill="none">
+        <path d="M14 15 H384" stroke="var(--color-accent)" strokeWidth="5" strokeLinecap="round" />
+        <g className="hb-ride" style={{ "--ride": "336px" } as React.CSSProperties}>
+          <circle cx="30" cy="15" r="5" fill="#fff" stroke="var(--color-accent)" strokeWidth="2.5" />
+        </g>
+        <circle cx="14" cy="15" r="7.5" fill="#fff" stroke="var(--color-fg)" strokeWidth="3" />
+        <rect x="378" y="2.5" width="18" height="25" rx="9" fill="#fff" stroke="var(--color-fg)" strokeWidth="3" />
+      </svg>
+      <figcaption className="mt-2 flex justify-between gap-6 text-ui">
+        <span>
+          <span className="block font-bold text-fg">Link sent</span>
+          <span className="block text-fg-4">works for 24 hours</span>
+        </span>
+        <span className="min-w-0 text-right">
+          <span className="block font-bold text-fg">Your inbox</span>
+          <span className="block break-all text-fg-4">{email}</span>
+        </span>
+      </figcaption>
+    </figure>
   );
 }
 
@@ -506,10 +522,11 @@ function TextField({
       <label htmlFor={id} className="text-meta font-semibold text-fg-2">
         {label}
       </label>
-      <input
+      <Input
         id={id}
         ref={inputRef}
         type={type}
+        size="lg"
         value={value}
         required={required}
         autoFocus={autoFocus}
@@ -517,11 +534,6 @@ function TextField({
         spellCheck={false}
         autoCapitalize={type === "email" ? "none" : undefined}
         onChange={(e) => onChange(e.target.value)}
-        className={clsx(
-          "h-10 w-full rounded-ctl border border-rule-2 bg-paper-2 px-3 text-body text-fg placeholder:text-fg-4",
-          "hover:border-fg-4 focus-visible:border-act focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-act-line",
-          type === "email" && "data",
-        )}
       />
     </div>
   );
@@ -557,9 +569,10 @@ function PasswordField({
         {corner}
       </div>
       <div className="relative">
-        <input
+        <Input
           id={id}
           type={shown ? "text" : "password"}
+          size="lg"
           value={value}
           required
           minLength={counted ? MIN_PASSWORD : undefined}
@@ -571,17 +584,14 @@ function PasswordField({
           onKeyDown={onKey}
           onBlur={() => setCaps(false)}
           onChange={(e) => onChange(e.target.value)}
-          className={clsx(
-            "h-10 w-full rounded-ctl border border-rule-2 bg-paper-2 pl-3 pr-16 text-body text-fg",
-            "hover:border-fg-4 focus-visible:border-act focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-act-line",
-          )}
+          className="pr-[68px]!"
         />
         <button
           type="button"
           onClick={() => setShown((v) => !v)}
           aria-pressed={shown}
           aria-label={shown ? "Hide password" : "Show password"}
-          className="absolute right-1.5 top-1/2 h-7 -translate-y-1/2 rounded-[2px] px-2 text-meta font-semibold text-fg-3 hover:bg-paper-3 hover:text-fg"
+          className="absolute right-1.5 top-1/2 h-8 -translate-y-1/2 rounded-full px-3 text-meta font-semibold text-fg-3 transition-colors duration-100 hover:bg-paper-3 hover:text-fg"
         >
           {shown ? "Hide" : "Show"}
         </button>
@@ -686,8 +696,8 @@ function Providers({ destination }: { destination: string }) {
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="grid gap-2">
+    <div className="flex flex-col gap-2.5">
+      <div className="grid gap-2.5">
         {live.map((p) => (
           <Button key={p} data-provider={p} size="lg" onClick={() => start(p)} busy={busy === p} busyLabel="Opening" className="w-full">
             <ProviderLogo provider={p} />
@@ -696,7 +706,7 @@ function Providers({ destination }: { destination: string }) {
         ))}
       </div>
       {failed ? <p className="text-meta font-semibold text-fail">That provider could not be reached. Try again, or use email.</p> : null}
-      <p className="flex items-center gap-3 text-meta text-fg-3" aria-hidden>
+      <p className="mt-1.5 flex items-center gap-3 text-meta text-fg-4" aria-hidden>
         <span className="h-px flex-1 bg-rule" />
         or with email
         <span className="h-px flex-1 bg-rule" />

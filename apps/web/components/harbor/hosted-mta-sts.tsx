@@ -78,7 +78,10 @@ export function HostedMtaSts({
   failed,
   canEdit,
   hasFeature,
+  brand = "DMARC Harbor",
 }: {
+  /** The name on this host: the agency's on a verified custom domain. */
+  brand?: string;
   organizationId: string;
   domainId: string;
   domainName: string;
@@ -299,7 +302,7 @@ export function HostedMtaSts({
         {current?.available && !hosted ? (
           <p className="mt-1 max-w-[72ch] text-ui text-fg-2">
             Tell senders which mail servers may receive this domain&rsquo;s mail, and refuse delivery to any other.
-            You publish two CNAMEs once; the policy itself is edited here and served by DMARC Harbor with a
+            You publish two CNAMEs once; the policy itself is edited here and served by {brand} with a
             certificate Cloudflare renews.
           </p>
         ) : null}
@@ -335,7 +338,7 @@ export function HostedMtaSts({
                 busyLabel="Starting"
                 onClick={start}
               >
-                Host MTA-STS with DMARC Harbor
+                Host MTA-STS with {brand}
               </Button>
             </div>
           ) : (
@@ -538,7 +541,7 @@ export function HostedMtaSts({
           {hosted.status === "RELEASED" ? (
             <div className="flex flex-col gap-3">
               <p className="text-ui text-fg-2">
-                This domain no longer has its MTA-STS policy served by DMARC Harbor. Both CNAMEs can be removed.
+                This domain no longer has its MTA-STS policy served by {brand}. Both CNAMEs can be removed.
               </p>
               {canEdit && hasFeature !== false && !current.capacity.full ? (
                 <div>

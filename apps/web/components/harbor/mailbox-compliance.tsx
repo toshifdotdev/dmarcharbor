@@ -255,7 +255,7 @@ export function MailboxCompliance({
     <div className="flex flex-col gap-6 pt-4" data-testid="mailbox-panel">
       <p className="max-w-[80ch] text-body text-fg" data-testid="mailbox-summary">
         Meets <span className="tnum font-semibold">{data.counts.meets}</span> of the{" "}
-        <span className="tnum font-semibold">{checkable}</span> requirements DMARC Harbor can check for this domain.{" "}
+        <span className="tnum font-semibold">{checkable}</span> requirements that can be checked from DNS and reports.{" "}
         <span className="tnum font-semibold">{data.counts.notCheckable}</span> more can only be checked in the providers’
         own tools. {scanLine}
       </p>
@@ -279,7 +279,7 @@ export function MailboxCompliance({
 
       <p className="max-w-[80ch] text-meta text-fg-3">
         “Does not meet” for a sender means more than {data.thresholds.maximumFailureSharePercent}% of its messages failed
-        in the last 30 days. That threshold is DMARC Harbor’s, not the provider’s; forwarding can break SPF on legitimate
+        in the last 30 days. That threshold is ours, not the provider’s; forwarding can break SPF on legitimate
         mail, which is why it is not 0%.
         {data.rowsTruncated
           ? " The report read reached the 50,000-record cap, so these figures cover the newest records only."

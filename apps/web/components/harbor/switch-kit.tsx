@@ -33,6 +33,7 @@ import { Notice } from "@/components/ui/notice";
 import { Nil, Table, TBody, Td, Th, THead, Tr } from "@/components/ui/table";
 import { DnsHandoff, zoneLines, type PublishRecord } from "./dns-handoff";
 import { ActionRefusal, type ActionError } from "./plan-refusal";
+import { RouteList } from "./route-list";
 
 const MAX_DOMAINS = 100;
 
@@ -43,6 +44,22 @@ const LOOKUP_LABEL: Record<string, string> = {
   invalid: "Not a DMARC record",
   lookup_failed: "Not checked yet",
 };
+
+/** The switch's own states, as stations: what happens at each. */
+const SWITCH_ROUTE: Array<{ name: string; kind: string }> = [
+  {
+    name: "Planned",
+    kind: "Each domain is added in PENDING unless it is already here. Its live DMARC record is read and the other provider identified.",
+  },
+  {
+    name: "Dual reporting",
+    kind: "Publish the prepared record: it adds our address alongside theirs and keeps every other tag as it is.",
+  },
+  {
+    name: "Cut over",
+    kind: "Once reports arrive steadily from each receiver, publish the cutover record from each domain's page.",
+  },
+];
 
 const SWITCH_STATUS: Record<DomainSwitchStatus, { label: string; tone: Tone }> = {
   PLANNED: { label: "Planned", tone: "neutral" },
@@ -146,9 +163,9 @@ export function SwitchKit({
   );
 
   return (
-    <div className="flex flex-col gap-8">
-      <div className="grid gap-5 border-y border-rule py-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-10">
-        <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-10">
+      <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-12">
+        <div className="flex max-w-[640px] flex-col gap-5">
           <Field label="Client">
             <Select
               size="lg"
@@ -201,6 +218,7 @@ export function SwitchKit({
 
           <Button
             variant="primary"
+            size="lg"
             onClick={submit}
             busy={busy}
             busyLabel={`Checking ${parsed.names.length} domains`}
@@ -214,19 +232,22 @@ export function SwitchKit({
           </Button>
         </div>
 
-        <aside className="flex flex-col gap-3 self-start border-t border-rule-2 pt-3">
-          <p className="legend">What happens</p>
-          <p className="text-ui text-fg-2">
-            Each domain is added in PENDING unless it is already here. Its live DMARC record is read, the other provider
-            is identified, and a record that adds our address alongside theirs is prepared. Nothing is changed in DNS
-            from this screen.
+        <aside aria-labelledby="switch-route-head" className="flex flex-col gap-5 self-start border-t border-rule pt-6 lg:border-t-0 lg:pt-1">
+          <p id="switch-route-head" className="text-ui font-semibold text-fg">
+            How a switch runs
           </p>
-          {selectedClient ? (
-            <p className="text-meta text-fg-3">
-              Reports for these domains are sent to{" "}
-              <code className="data break-all text-fg">{selectedClient.reportAddress}</code>.
-            </p>
-          ) : null}
+          {/* The three states a switch moves through (DomainSwitchStatus), in order. */}
+          <RouteList steps={SWITCH_ROUTE} here={0} />
+          <p className="border-t border-rule pt-4 text-meta text-fg-3">
+            Nothing is changed in DNS from this screen.
+            {selectedClient ? (
+              <>
+                {" "}
+                Reports for these domains are sent to{" "}
+                <code className="data break-all text-fg-2">{selectedClient.reportAddress}</code>.
+              </>
+            ) : null}
+          </p>
         </aside>
       </div>
 

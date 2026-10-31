@@ -20,6 +20,7 @@
 
 import type { ReactNode } from "react";
 import { SectionAnchor } from "./legal-client";
+import ls from "./legal.module.css";
 
 export interface LegalHeading {
   id: string;
@@ -40,6 +41,11 @@ export function slugify(text: string): string {
     .slice(0, 64);
 }
 
+/** A pending fact: the warn wash and word colour, a state notice in place.
+ *  It prints with its colour, so a printout still shows what is missing. */
+export const PENDING_MARK =
+  "rounded-[4px] bg-warn-wash px-1 font-semibold text-warn [box-decoration-break:clone] print:bg-transparent print:underline print:decoration-dotted";
+
 /** Bracketed tokens the business has not supplied yet, e.g. "[phone number: ...]". */
 const PENDING = /(\[[^\]]*(?:supplied by the business|to be set)[^\]]*\]|to be set at launch|\[[A-Z][A-Z0-9 _-]{2,}\])/;
 
@@ -57,13 +63,13 @@ function inline(text: string): ReactNode {
       // A pending fact quoted as code is still a pending fact.
       if (PENDING.test(part.slice(1, -1))) {
         return (
-          <mark key={i} className="rounded-[2px] bg-warn-wash px-1 font-semibold text-warn">
+          <mark key={i} className={PENDING_MARK}>
             {part.slice(1, -1)}
           </mark>
         );
       }
       return (
-        <code key={i} className="data rounded-[2px] bg-paper-3 px-1 py-px text-[0.92em] text-fg">
+        <code key={i} className="data rounded-[4px] bg-paper-3 px-1 py-px text-[0.9em] text-fg">
           {part.slice(1, -1)}
         </code>
       );
@@ -73,7 +79,7 @@ function inline(text: string): ReactNode {
     const pieces = part.split(PENDING);
     return pieces.map((piece, j) =>
       PENDING.test(piece) ? (
-        <mark key={`${i}-${j}`} className="rounded-[2px] bg-warn-wash px-1 font-semibold text-warn">
+        <mark key={`${i}-${j}`} className={PENDING_MARK}>
           {piece}
         </mark>
       ) : (
@@ -191,7 +197,41 @@ export function legalHeadings(markdown: string, extra: string[] = []): LegalHead
   return texts.map((text, i) => ({ id: ids[i], text: text.replace(/[`*]/g, "") }));
 }
 
-export function LegalHeading2({ id, children }: { id: string; children: ReactNode }) {
+/** "6. Order process" → ["6.", "Order process"]; no leading number → [null, text]. */
+function splitClauseNumber(text: string): [string | null, string] {
+  const m = /^(\d+(?:\.\d+)*\.?)\s+(.+)$/.exec(text);
+  return m ? [m[1]!, m[2]!] : [null, text];
+}
+
+/**
+ * A section heading that links to itself.
+ *
+ * `compact` (the default) is the heading the Trust Center and other in-product
+ * documents use, unchanged. `document` is the public document set's reading
+ * size, with the clause number set apart (in the margin from 1100px) so a
+ * reader scanning for "section 6" finds it down one edge.
+ */
+export function LegalHeading2({
+  id,
+  children,
+  variant = "compact",
+  number,
+}: {
+  id: string;
+  children: ReactNode;
+  variant?: "compact" | "document";
+  /** The clause number, already split from the text ("6."). Document variant only. */
+  number?: string | null;
+}) {
+  if (variant === "document") {
+    return (
+      <h2 id={id} data-num={number ? "" : undefined} className={`group ${ls.h2}`}>
+        {number ? <span className={ls.h2Num}>{number}</span> : null}
+        <span className="min-w-0 flex-1">{children}</span>
+        <SectionAnchor id={id} />
+      </h2>
+    );
+  }
   return (
     <h2 id={id} className="group mt-10 flex scroll-mt-24 items-baseline gap-2 border-t border-rule pt-6 text-h3 font-bold tracking-[-0.01em] text-fg first:mt-0">
       <span className="min-w-0 flex-1">{children}</span>
@@ -209,27 +249,29 @@ export function LegalBody({ markdown, idOffset = [] }: { markdown: string; idOff
   let h2 = 0;
 
   return (
-    <div className="flex flex-col gap-4 text-body text-fg-2 [&_p]:max-w-[70ch]">
+    <div className={LEGAL_TEXT}>
       {blocks.map((block, i) => {
         switch (block.type) {
-          case "h2":
+          case "h2": {
+            const [number, text] = splitClauseNumber(block.lines[0]);
             return (
-              <LegalHeading2 key={i} id={ids[h2++]}>
-                {inline(block.lines[0])}
+              <LegalHeading2 key={i} id={ids[h2++]} variant="document" number={number}>
+                {inline(text)}
               </LegalHeading2>
             );
+          }
           case "h3":
             return (
-              <h3 key={i} className="mt-3 text-body font-bold text-fg">
+              <h3 key={i} className="mt-5 text-[18px] font-bold leading-[1.3] tracking-[-0.01em] text-fg sm:text-[19px] print:text-[12pt]">
                 {inline(block.lines[0])}
               </h3>
             );
           case "ul":
             return (
-              <ul key={i} className="flex max-w-[70ch] flex-col gap-1.5">
+              <ul key={i} className="flex max-w-[68ch] flex-col gap-2">
                 {block.lines.map((item, j) => (
-                  <li key={j} className="relative pl-5">
-                    <span aria-hidden className="absolute left-0 top-[9px] block size-1.5 bg-fg-3" />
+                  <li key={j} className="relative pl-6">
+                    <span aria-hidden className="absolute left-1 top-[0.68em] block size-[6px] rounded-full bg-fg-4" />
                     {inline(item)}
                   </li>
                 ))}
@@ -237,10 +279,10 @@ export function LegalBody({ markdown, idOffset = [] }: { markdown: string; idOff
             );
           case "ol":
             return (
-              <ol key={i} className="flex max-w-[70ch] flex-col gap-1.5">
+              <ol key={i} className="flex max-w-[68ch] flex-col gap-2">
                 {block.lines.map((item, j) => (
-                  <li key={j} className="grid grid-cols-[28px_minmax(0,1fr)]">
-                    <span className="tnum font-semibold text-fg-3">{j + 1}.</span>
+                  <li key={j} className="grid grid-cols-[32px_minmax(0,1fr)]">
+                    <span className="tnum font-semibold text-fg-4">{j + 1}.</span>
                     <span>{inline(item)}</span>
                   </li>
                 ))}
@@ -248,7 +290,7 @@ export function LegalBody({ markdown, idOffset = [] }: { markdown: string; idOff
             );
           case "quote":
             return (
-              <blockquote key={i} className="max-w-[70ch] border-l-2 border-rule-2 pl-4 text-fg-2">
+              <blockquote key={i} className="max-w-[68ch] border-l-[3px] border-rule-2 pl-5 text-fg-2">
                 {block.lines.map((item, j) => (
                   <p key={j} className={j ? "mt-2" : ""}>
                     {inline(item)}
@@ -271,13 +313,16 @@ export function LegalBody({ markdown, idOffset = [] }: { markdown: string; idOff
                   .map((c) => c.trim()),
               );
             const [head, ...body] = rows;
+            // A timetable: an ink rule under the column names, hairlines
+            // between rows, no vertical rules. It scrolls inside itself on a
+            // phone; the page never does.
             return (
-              <div key={i} className="overflow-x-auto">
-                <table className="w-full border-collapse border-y border-fg text-left text-ui">
-                  <thead className="border-b border-rule-2">
+              <div key={i} className="my-2 overflow-x-auto print:overflow-visible">
+                <table className="w-full min-w-[560px] border-collapse text-left text-[15px] leading-[1.45] print:min-w-0 print:text-[9.5pt]">
+                  <thead className="border-b border-fg">
                     <tr>
                       {head?.map((cell, j) => (
-                        <th key={j} className="legend px-2.5 py-2 align-bottom">
+                        <th key={j} className="py-2.5 pr-5 align-bottom text-[14px] font-semibold text-fg last:pr-0">
                           {inline(cell)}
                         </th>
                       ))}
@@ -285,9 +330,14 @@ export function LegalBody({ markdown, idOffset = [] }: { markdown: string; idOff
                   </thead>
                   <tbody>
                     {body.map((row, j) => (
-                      <tr key={j} className="border-b border-rule align-baseline last:border-b-0">
+                      <tr key={j} className="border-b border-rule align-baseline">
                         {row.map((cell, k) => (
-                          <td key={k} className={k === 0 ? "px-2.5 py-2 font-semibold text-fg" : "px-2.5 py-2 text-fg-2"}>
+                          <td
+                            key={k}
+                            className={
+                              k === 0 ? "py-3 pr-5 font-semibold text-fg last:pr-0" : "py-3 pr-5 text-fg-2 last:pr-0"
+                            }
+                          >
                             {inline(cell)}
                           </td>
                         ))}
@@ -298,10 +348,26 @@ export function LegalBody({ markdown, idOffset = [] }: { markdown: string; idOff
               </div>
             );
           }
-          default:
-            return <p key={i}>{inline(block.lines.join(" "))}</p>;
+          default: {
+            const text = block.lines.join(" ");
+            // A paragraph that is only bold is a question or a lead-in (the
+            // FAQ's questions): set as the line the answer under it hangs from.
+            if (/^\*\*[^*]+\*\*$/.test(text)) {
+              return (
+                <p key={i} className="mt-4 text-[18px] font-semibold leading-[1.35] text-fg print:text-[11pt]">
+                  {inline(text.slice(2, -2))}
+                </p>
+              );
+            }
+            return <p key={i}>{inline(text)}</p>;
+          }
         }
       })}
     </div>
   );
 }
+
+/** The running text of a public document: reading size, ink-2, a measure of
+ *  about 68 characters. Shared with the support page and required sections. */
+export const LEGAL_TEXT =
+  "flex flex-col gap-5 text-[16px] leading-[1.65] text-fg-2 [overflow-wrap:break-word] sm:text-[17px] [&_p]:max-w-[68ch] print:gap-3 print:text-[10.5pt] print:leading-[1.5]";

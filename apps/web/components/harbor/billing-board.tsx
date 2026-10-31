@@ -4,17 +4,22 @@
  * billing-board.tsx — how much of the plan is used, and what changing it would
  * change.
  *
- *   Usage       each allowance with what is used, worded by how exact the count
- *               is. Members and workspaces are exact. Clients are exact unless
- *               the owner holds several workspaces (the limit counts across
- *               all of them). Active domains are an upper bound: a domain only
- *               counts while reports arrive for it, or for a while after it was
- *               added, and that window is the API's, not shown here.
- *   Plans       every plan from GET /api/plans. Choosing one opens, inside its
- *               card, exactly what would change: what is gained and lost,
- *               each limit before and after (with anything already over it),
- *               when it applies, and how it is paid. Nothing is sent until the
- *               last button in that panel.
+ *   Usage       each allowance as a figure against its limit, with a word for
+ *               what that leaves ("room for 19 more", "at the limit", "2 over").
+ *               No bars: a count and its limit are the whole fact. Members and
+ *               workspaces are exact. Clients are exact unless the owner holds
+ *               several workspaces (the limit counts across all of them).
+ *               Active domains are an upper bound when the API's own count is
+ *               missing: a domain only counts while reports arrive for it, or
+ *               for a while after it was added.
+ *   Plans       every plan from GET /api/plans, as rows on one line: the plan
+ *               ladder drawn as a strip map, built (ink) up to the plan this
+ *               workspace is on, unbuilt (grey) past it, so "everything in the
+ *               plan before, plus" reads as distance along the line. Choosing
+ *               a plan opens, inside its row, exactly what would change: what
+ *               is gained and lost, each limit before and after (with anything
+ *               already over it), when it applies, and how it is paid. Nothing
+ *               is sent until the last button in that panel.
  *   Compare     every limit and capability, by plan.
  *
  * Which action a plan offers follows the API:
@@ -22,8 +27,9 @@
  *   no subscription         POST /billing/checkout, to the provider's page
  * A refused downgrade (PLAN_CHANGE_OVER_QUOTA) shows the API's overage rows.
  *
- * Test hooks kept: article per plan with a /choose|move/ button,
- * plan-change-error, overage-row-{quota}, checkout-refund-ack.
+ * Test hooks kept: article[data-plan] per plan with a /choose|move/ button,
+ * plan-choose-<tier>, plan-decision-<tier>, plan-change-error,
+ * overage-row-{quota}, checkout-refund-ack, data-usage per allowance.
  */
 
 import { useRouter } from "next/navigation";
@@ -138,8 +144,30 @@ export function BillingBoard({
   const harbor = plans.find((plan) => plan.tier === "HARBOR") ?? null;
   const months = catalogMonthsSaved(ladderPlans);
 
+  // How far along the ladder this workspace is: to its own plan, or, on the
+  // per-domain plan, to the plan whose features it carries.
+  const hereIndex = ladderPlans.findIndex((p) => p.tier === currentTier);
+  const builtTo = hereIndex >= 0 ? hereIndex : current?.pricing === "per_domain" && harbor ? ladderPlans.findIndex((p) => p.tier === harbor.tier) : -1;
+
+  const shared = {
+    current,
+    pendingTier,
+    organizationId,
+    provider,
+    hasSubscription,
+    cancelling,
+    periodEnd,
+    currency,
+    chargeable,
+    capabilitiesKnown,
+    usage,
+    canChange,
+    contact,
+    fleetQuote,
+  };
+
   return (
-    <div className="flex flex-col gap-10">
+    <div className="flex flex-col gap-12">
       {current ? <UsagePanel plan={current} usage={usage} /> : null}
 
       <section aria-labelledby="plans-head" className="flex flex-col gap-4">
@@ -149,7 +177,8 @@ export function BillingBoard({
               Change plan
             </h2>
             <p className="mt-1 max-w-[70ch] text-ui text-fg-2">
-              Choose a plan to see exactly what would change before anything is sent. Prices in {currency}
+              Each plan carries everything in the one before it. Choose one to see exactly what would change before anything
+              is sent. Prices in {currency}
               {currencyLocked ? ", the currency this workspace is billed in" : ""}.
             </p>
           </div>
@@ -165,65 +194,49 @@ export function BillingBoard({
           />
         </div>
 
-        <div className="grid border-t border-rule sm:grid-cols-2 xl:grid-cols-4">
+        <ol aria-label="Plans, smallest first" className="border-t border-fg">
           {ladderPlans.map((plan, i) => (
-            <PlanCard
-              key={plan.tier}
-              index={i}
-              plan={plan}
-              previous={i > 0 ? ladderPlans[i - 1] : null}
-              current={current}
-              isCurrent={plan.tier === currentTier}
-              isPending={plan.tier === pendingTier}
-              pendingTier={pendingTier}
-              open={open === plan.tier}
-              onOpen={() => setOpen(plan.tier)}
-              onClose={() => setOpen(null)}
-              organizationId={organizationId}
-              provider={provider}
-              hasSubscription={hasSubscription}
-              cancelling={cancelling}
-              periodEnd={periodEnd}
-              currency={currency}
-              interval={interval}
-              chargeable={chargeable}
-              capabilitiesKnown={capabilitiesKnown}
-              usage={usage}
-              canChange={canChange}
-              contact={contact}
-              fleetQuote={fleetQuote}
-            />
+            <li key={plan.tier}>
+              <PlanRow
+                {...shared}
+                plan={plan}
+                previous={i > 0 ? ladderPlans[i - 1] : null}
+                isCurrent={plan.tier === currentTier}
+                isPending={plan.tier === pendingTier}
+                open={open === plan.tier}
+                onOpen={() => setOpen(plan.tier)}
+                onClose={() => setOpen(null)}
+                interval={interval}
+                ladder={{
+                  above: i > 0 ? (i <= builtTo ? "built" : "unbuilt") : null,
+                  below: i < ladderPlans.length - 1 ? (i + 1 <= builtTo ? "built" : "unbuilt") : null,
+                  station: i === hereIndex ? "here" : i <= builtTo ? "passed" : "ahead",
+                }}
+              />
+            </li>
           ))}
-        </div>
+        </ol>
 
         {fleetPlan ? (
-          <div className="grid border-t border-rule sm:grid-cols-2 xl:grid-cols-4">
-            <PlanCard
-              index={0}
-              plan={fleetPlan}
-              previous={harbor}
-              current={current}
-              isCurrent={fleetPlan.tier === currentTier}
-              isPending={fleetPlan.tier === pendingTier}
-              pendingTier={pendingTier}
-              open={open === fleetPlan.tier}
-              onOpen={() => setOpen(fleetPlan.tier)}
-              onClose={() => setOpen(null)}
-              organizationId={organizationId}
-              provider={provider}
-              hasSubscription={hasSubscription}
-              cancelling={cancelling}
-              periodEnd={periodEnd}
-              currency={currency}
-              // Fleet is monthly only, whatever the ladder toggle says.
-              interval={fleetIsMonthlyOnly(fleetPlan) ? "monthly" : interval}
-              chargeable={chargeable}
-              capabilitiesKnown={capabilitiesKnown}
-              usage={usage}
-              canChange={canChange}
-              contact={contact}
-              fleetQuote={fleetQuote}
-            />
+          <div className="mt-4 flex flex-col gap-2">
+            <p className="text-ui font-bold text-fg">
+              Priced per domain <span className="font-normal text-fg-3">for larger fleets, with {harbor?.label ?? "Harbor"}&rsquo;s features</span>
+            </p>
+            <div className="border-t border-fg">
+              <PlanRow
+                {...shared}
+                plan={fleetPlan}
+                previous={harbor}
+                isCurrent={fleetPlan.tier === currentTier}
+                isPending={fleetPlan.tier === pendingTier}
+                open={open === fleetPlan.tier}
+                onOpen={() => setOpen(fleetPlan.tier)}
+                onClose={() => setOpen(null)}
+                // Fleet is monthly only, whatever the ladder toggle says.
+                interval={fleetIsMonthlyOnly(fleetPlan) ? "monthly" : interval}
+                ladder={{ above: null, below: null, station: fleetPlan.tier === currentTier ? "here" : "ahead" }}
+              />
+            </div>
           </div>
         ) : null}
       </section>
@@ -236,36 +249,28 @@ export function BillingBoard({
 function usageLine(u: UsageCount | null, limit: number, l: (typeof LIMITS)[number]): { text: string; over: boolean; near: boolean } {
   if (!Number.isFinite(limit)) return { text: "No limit on this plan.", over: false, near: false };
   if (!u) return { text: `Up to ${limit} ${limit === 1 ? l.one : l.many}. The current count could not be read.`, over: false, near: false };
-  const word = u.used === 1 ? l.one : l.many;
   if (l.usage === "domains" && !u.exact) {
     return {
-      text: `${u.used} ${u.used === 1 ? "domain" : "domains"} in this workspace, so at most ${u.used} count as active. A domain counts while reports arrive for it, and for a while after it is added.`,
+      text: `At most ${u.used} count as active: ${u.used} ${u.used === 1 ? "domain is" : "domains are"} in this workspace.`,
       over: false,
       near: u.used > limit,
     };
   }
   if (l.usage === "clients" && !u.exact) {
     return {
-      text: `${u.used} ${word} in this workspace. The limit counts clients across every workspace on the owner's account.`,
+      text: `In this workspace. The limit counts every workspace the owner holds.`,
       over: u.used > limit,
       near: u.used >= limit,
     };
   }
   const left = limit - u.used;
-  // Counted across every workspace on the owner's account, as the limit is.
-  const scope =
-    l.usage === "domains"
-      ? " Counted across the owner's workspaces: a domain is active while reports arrive for it, and for a while after it is added."
-      : l.usage === "clients"
-        ? " Counted across the owner's workspaces."
-        : "";
   return {
     text:
-      (left < 0
+      left < 0
         ? `${-left} over the limit. Nothing is removed, but a new one cannot be added until the count is under it.`
         : left === 0
-          ? `At the limit: adding another needs a larger plan.`
-          : `Room for ${left} more.`) + scope,
+          ? "At the limit: adding another needs a larger plan."
+          : `Room for ${left} more.`,
     over: u.used > limit,
     near: u.used >= limit,
   };
@@ -277,49 +282,45 @@ function UsagePanel({ plan, usage }: { plan: PlanDefinition; usage: Usage }) {
       <h2 id="usage-head" className="text-h2 font-bold tracking-[-0.02em] text-fg">
         What {plan.label} allows, and what is used
       </h2>
-      <dl className="grid gap-px overflow-hidden rounded-ctl border border-rule bg-rule sm:grid-cols-2 xl:grid-cols-4">
+      <dl className="grid border-t border-rule sm:grid-cols-2 xl:grid-cols-4 xl:border-b [&>div]:border-b [&>div]:border-rule [&>div]:py-4 xl:[&>div]:border-b-0 sm:max-xl:[&>div:nth-child(even)]:border-l sm:max-xl:[&>div:nth-child(even)]:pl-5 xl:[&>div+div]:border-l xl:[&>div+div]:pl-5">
         {LIMITS.map((l) => {
           const limit = planLimit(plan[l.key]);
           const u = usage[l.usage];
           const line = usageLine(u, limit, l);
-          const share = u && u.exact && Number.isFinite(limit) ? Math.min(1, u.used / Math.max(1, limit)) : null;
+          const tone = line.over ? "text-fail" : line.near ? "text-warn" : "text-fg";
           return (
-            <div key={l.key} data-usage={l.usage} className="flex flex-col gap-1.5 bg-paper-2 px-4 py-4">
-              <dt className="text-meta font-semibold text-fg-2">{l.label}</dt>
-              <dd className="flex flex-col gap-1.5">
-                <span className="tnum text-[26px] font-semibold leading-none text-fg">
+            <div key={l.key} data-usage={l.usage} className="flex min-w-0 flex-col gap-1 pr-4">
+              <dt className="text-ui font-semibold text-fg-2">{l.label}</dt>
+              <dd className="flex flex-col gap-1">
+                <span className="tnum flex items-baseline gap-1.5">
                   {u ? (
                     <>
-                      {l.usage === "domains" && !u.exact ? <span className="text-body font-medium text-fg-3">up to </span> : null}
-                      {u.used}
-                      <span className="text-body font-medium text-fg-3"> of {limitLabel(limit).toLowerCase()}</span>
+                      {l.usage === "domains" && !u.exact ? <span className="text-ui font-medium text-fg-3">up to</span> : null}
+                      <span className={clsx("text-[28px] font-semibold leading-none tracking-[-0.02em]", tone)}>{u.used}</span>
+                      <span className="text-ui font-medium text-fg-3">of {limitLabel(limit).toLowerCase()}</span>
                     </>
                   ) : (
-                    <span className="text-body font-medium text-fg-3">limit {limitLabel(limit).toLowerCase()}</span>
+                    <span className="text-ui font-medium text-fg-3">Limit {limitLabel(limit).toLowerCase()}</span>
                   )}
                 </span>
-                {share !== null ? (
-                  <span aria-hidden className="block h-[3px] w-full bg-rule">
-                    <span
-                      className={clsx("hb-rail-fill block h-full", line.over ? "bg-fail" : line.near ? "bg-warn-mark" : "bg-act")}
-                      style={{ "--from": "0%", "--to": `${share * 100}%`, width: `${share * 100}%` } as React.CSSProperties}
-                    />
-                  </span>
-                ) : null}
-                <span className={clsx("text-meta", line.over ? "font-semibold text-fail" : "text-fg-3")}>{line.text}</span>
+                <span className={clsx("text-meta", line.over ? "font-semibold text-fail" : line.near ? "font-semibold text-warn" : "text-fg-3")}>{line.text}</span>
               </dd>
             </div>
           );
         })}
       </dl>
+      <p className="max-w-[90ch] text-meta text-fg-3">
+        Clients and active domains are counted across every workspace the owner holds, as the limits are; members are counted
+        in this workspace. A domain counts as active while reports arrive for it, and for a while after it is added.
+      </p>
     </section>
   );
 }
 
 type Action = "current" | "keep" | "change" | "cancel" | "checkout" | "blocked";
+type Segment = "built" | "unbuilt" | null;
 
-function PlanCard(props: {
-  index: number;
+interface RowProps {
   plan: PlanDefinition;
   previous: PlanDefinition | null;
   current: PlanDefinition | null;
@@ -342,8 +343,15 @@ function PlanCard(props: {
   canChange: boolean;
   contact: { name: string; email: string } | null;
   fleetQuote: BillingStatus["perDomainQuote"] | null;
-}) {
-  const { plan, previous, isCurrent, isPending, pendingTier, open, hasSubscription, cancelling, currency, interval, canChange } = props;
+  /** The plan ladder through this row: the line above and below its station. */
+  ladder: { above: Segment; below: Segment; station: "passed" | "here" | "ahead" };
+}
+
+/** The station's centre, from the top of the row: level with the plan's name. */
+const STATION_Y = 33;
+
+function PlanRow(props: RowProps) {
+  const { plan, previous, isCurrent, isPending, pendingTier, open, hasSubscription, cancelling, currency, interval, canChange, ladder } = props;
   const free = isFree(plan.prices[currency]);
   const added = addedFeatures(plan, previous);
   const perDomain = plan.pricing === "per_domain";
@@ -373,70 +381,111 @@ function PlanCard(props: {
     <article
       data-plan={plan.tier}
       aria-labelledby={`bill-${plan.tier}`}
-      className={clsx(
-        "relative flex flex-col gap-4 border-b border-rule px-0 pb-6 pt-5 sm:px-5",
-        props.index > 0 && "sm:border-l",
-        props.index === 2 && "sm:border-l-0 xl:border-l",
-        isCurrent && "bg-paper-2/70",
-      )}
+      aria-current={isCurrent ? "true" : undefined}
+      className="relative grid grid-cols-[30px_minmax(0,1fr)] border-b border-rule sm:grid-cols-[40px_minmax(0,1fr)]"
     >
-      {isCurrent ? <span aria-hidden className="absolute inset-x-0 -top-px h-[2px] bg-act" /> : null}
-      <header>
-        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-          <h3 id={`bill-${plan.tier}`} className="wide text-[20px] font-bold tracking-[-0.02em] text-fg">
-            {plan.label}
-          </h3>
-          {isCurrent ? (
-            <span className="text-meta font-semibold text-act">Your plan</span>
-          ) : isPending ? (
-            <span className="text-meta font-semibold text-act">Scheduled</span>
-          ) : null}
-        </div>
-        <p className="mt-1 text-ui text-fg-2">{plan.descriptor}</p>
-      </header>
-      <p className="tnum">
-        {perDomain ? (
-          <>
-            <span className="tnum inline-flex items-baseline [animation:hb-rise_220ms_ease-out_both]">
-              <span className="display text-[30px] leading-none text-fg">{formatMinor(fleetUnitMinor(plan, currency), currency)}</span>
-              <span className="ml-1 text-meta text-fg-3">per active domain a month, falling with volume</span>
-            </span>
-            <span className="mt-1 block text-meta text-fg-2">
-              Minimum {fleetMinimum} domains: <span className="tnum font-semibold text-fg">{formatMinor(fleetMinimumTotal, currency)}</span> a
-              month
-            </span>
-            <span className="mt-0.5 block text-meta text-fg-2">
-              {props.fleetQuote && measuredDomains >= fleetMinimum
-                ? `At your current ${measuredDomains} active domains: `
-                : `At the minimum of ${fleetMinimum} domains: `}
-              <span className="tnum font-semibold text-fg">{formatMinor(quoteTotal, currency)}</span> a month
-              {quoteQuantity > fleetMinimum
-                ? ` at ${formatMinor(quote.unitMinor, currency)} a domain${quoteQuantity > measuredDomains ? `, covering up to ${quoteQuantity}` : ""}`
-                : ""}
-            </span>
-            <span className="mt-0.5 block text-meta text-fg-3">
-              Billed monthly. The count is measured before each period starts; no proration.
-            </span>
-          </>
-        ) : (
-          <>
-            <span key={`${currency}-${interval}`} className="display inline-block text-[30px] leading-none text-fg [animation:hb-rise_220ms_ease-out_both]">
-              {priceOf(plan, currency, interval, props.fleetQuote)}
-            </span>
-            {free ? null : <span className="ml-1 text-meta text-fg-3">{interval === "annual" ? "a year" : "a month"}</span>}
-          </>
+      {/* The ladder: the segment above this station, the station, the segment below. */}
+      {ladder.above ? (
+        <span
+          aria-hidden
+          className={clsx("absolute left-[9px] top-0 w-[5px] sm:left-[13px]", ladder.above === "built" ? "bg-fg" : "bg-rule")}
+          style={{ height: STATION_Y }}
+        />
+      ) : null}
+      {ladder.below ? (
+        <span
+          aria-hidden
+          className={clsx("absolute bottom-0 left-[9px] w-[5px] sm:left-[13px]", ladder.below === "built" ? "bg-fg" : "bg-rule")}
+          style={{ top: STATION_Y }}
+        />
+      ) : null}
+      <span
+        aria-hidden
+        className={clsx(
+          "absolute -translate-y-1/2 rounded-full bg-paper",
+          ladder.station === "here" ? "left-[1px] size-[21px] border-[4px] border-fg sm:left-[5px]" : "left-[3.5px] size-4 border-[3px] sm:left-[7.5px]",
+          ladder.station === "passed" && "border-fg",
+          ladder.station === "ahead" && "border-rule-2",
         )}
-      </p>
-      <p className="text-meta text-fg-2">
-        {LIMITS.map((l) => `${limitLabel(plan[l.key])} ${plan[l.key] === 1 ? l.one : l.many}`).join(" · ")}
-        {perDomain ? " · contact us to add more" : ""}
-      </p>
+        style={{ top: STATION_Y }}
+      />
 
-      {open && action !== "current" ? (
-        <Decision {...props} action={action} verb={verb} />
-      ) : (
-        <>
-          {action === "current" ? null : action === "blocked" ? (
+      <div
+        className={clsx(
+          "col-start-2 grid gap-x-8 gap-y-3 py-5",
+          perDomain ? "md:grid-cols-[minmax(0,1fr)_minmax(0,19rem)_minmax(0,11rem)]" : "md:grid-cols-[minmax(0,1fr)_minmax(0,13rem)_minmax(0,11rem)]",
+        )}
+      >
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+            <h3 id={`bill-${plan.tier}`} className="text-[20px] font-bold leading-[26px] tracking-[-0.02em] text-fg">
+              {plan.label}
+            </h3>
+            {isCurrent ? (
+              <span className="text-meta font-bold text-fg">Your plan</span>
+            ) : isPending ? (
+              <span className="text-meta font-bold text-fg">Scheduled</span>
+            ) : null}
+            <span className="text-ui text-fg-3">{plan.descriptor}</span>
+          </div>
+          <p className="tnum mt-1 text-meta text-fg-2">
+            {LIMITS.map((l) => `${limitLabel(plan[l.key])} ${plan[l.key] === 1 ? l.one : l.many}`).join(" · ")}
+            {perDomain ? " · contact us to add more" : ""}
+          </p>
+          <div className="mt-3">
+            <p className="text-meta font-semibold text-fg-2">
+              {perDomain ? `Everything in ${previous?.label ?? "Harbor"}` : previous ? `Everything in ${previous.label}, plus` : "Includes"}
+            </p>
+            {perDomain ? (
+              <p className="mt-1 text-ui text-fg-3">Same features as {previous?.label ?? "Harbor"}; the difference is the limits and the per-domain price.</p>
+            ) : added.length === 0 && previous ? (
+              <p className="mt-1 text-ui text-fg-3">Higher limits; no added features.</p>
+            ) : (
+              <ul className="mt-1.5 grid gap-x-6 gap-y-1 text-ui text-fg sm:grid-cols-2">
+                {added.map((k) => (
+                  <li key={k} className="grid grid-cols-[16px_minmax(0,1fr)] gap-1.5">
+                    <Check size={13} className="mt-[3px] text-fg" />
+                    <span>{planFeatureLabel(k)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+
+        <div className="tnum min-w-0">
+          {perDomain ? (
+            <>
+              <p className="flex flex-wrap items-baseline gap-x-1.5">
+                <span className="text-[24px] font-semibold leading-none tracking-[-0.02em] text-fg">{formatMinor(fleetUnitMinor(plan, currency), currency)}</span>
+                <span className="text-meta text-fg-3">per active domain a month, falling with volume</span>
+              </p>
+              <p className="mt-1.5 text-meta text-fg-2">
+                Minimum {fleetMinimum} domains: <span className="font-semibold text-fg">{formatMinor(fleetMinimumTotal, currency)}</span> a month
+              </p>
+              <p className="mt-0.5 text-meta text-fg-2">
+                {props.fleetQuote && measuredDomains >= fleetMinimum
+                  ? `At your current ${measuredDomains} active domains: `
+                  : `At the minimum of ${fleetMinimum} domains: `}
+                <span className="font-semibold text-fg">{formatMinor(quoteTotal, currency)}</span> a month
+                {quoteQuantity > fleetMinimum
+                  ? ` at ${formatMinor(quote.unitMinor, currency)} a domain${quoteQuantity > measuredDomains ? `, covering up to ${quoteQuantity}` : ""}`
+                  : ""}
+              </p>
+              <p className="mt-0.5 text-meta text-fg-3">Billed monthly. The count is measured before each period starts; no proration.</p>
+            </>
+          ) : (
+            <p className="flex flex-wrap items-baseline gap-x-1.5">
+              <span className="text-[24px] font-semibold leading-none tracking-[-0.02em] text-fg">{priceOf(plan, currency, interval, props.fleetQuote)}</span>
+              {free ? null : <span className="text-meta text-fg-3">{interval === "annual" ? "a year" : "a month"}</span>}
+            </p>
+          )}
+        </div>
+
+        <div className="flex min-w-0 flex-col items-start gap-1.5 md:items-end md:text-right">
+          {open && action !== "current" ? null : action === "current" ? (
+            <span className="text-meta text-fg-3">{isCurrent ? "This workspace is on it." : null}</span>
+          ) : action === "blocked" ? (
             <p className="text-meta text-fg-3">
               There is no online subscription to cancel. Ask{" "}
               <a href="/support" className="link">
@@ -447,49 +496,31 @@ function PlanCard(props: {
           ) : action === "cancel" && cancelling ? (
             <p className="text-meta text-fg-3">Already moving to {plan.label} when the period ends.</p>
           ) : (
-            <Button
-              variant={action === "keep" ? "primary" : "secondary"}
-              onClick={props.onOpen}
-              disabled={!canChange}
-              className="w-full justify-center"
-              data-testid={`plan-choose-${plan.tier}`}
-            >
-              {verb}
-            </Button>
-          )}
-          {!canChange && action !== "current" && action !== "blocked" ? (
-            <p className="-mt-2 text-meta text-fg-3">Only the workspace owner can change the plan.</p>
-          ) : null}
-        </>
-      )}
-
-      <div>
-        <p className="text-meta font-semibold text-fg-2">
-          {perDomain ? `Everything in ${previous?.label ?? "Harbor"}` : previous ? `Everything in ${previous.label}, plus` : "Includes"}
-        </p>
-        <ul className="mt-2 flex flex-col gap-1.5 text-ui text-fg">
-          {perDomain ? (
-            <li className="text-fg-3">Same features as {previous?.label ?? "Harbor"}; the difference is the limits and the per-domain price.</li>
-          ) : (
             <>
-              {added.map((k) => (
-                <li key={k} className="grid grid-cols-[16px_minmax(0,1fr)] gap-1.5">
-                  <Check size={13} className="mt-[3px] text-ok" />
-                  <span>{planFeatureLabel(k)}</span>
-                </li>
-              ))}
-              {added.length === 0 && previous ? <li className="text-fg-3">Higher limits; no added features.</li> : null}
+              <Button
+                variant={action === "keep" ? "primary" : "secondary"}
+                onClick={props.onOpen}
+                disabled={!canChange}
+                data-testid={`plan-choose-${plan.tier}`}
+              >
+                {verb}
+              </Button>
+              {!canChange ? <p className="text-meta text-fg-3">Only the workspace owner can change the plan.</p> : null}
             </>
           )}
-        </ul>
+        </div>
+
+        {open && action !== "current" ? (
+          <div className="md:col-span-3">
+            <Decision {...props} action={action} verb={verb} />
+          </div>
+        ) : null}
       </div>
     </article>
   );
 }
 
-function Decision(
-  props: Parameters<typeof PlanCard>[0] & { action: Action; verb: string },
-) {
+function Decision(props: RowProps & { action: Action; verb: string }) {
   const router = useRouter();
   const id = useId();
   const { plan, current, action, provider, periodEnd, currency, interval, chargeable, capabilitiesKnown, organizationId, contact } = props;
@@ -577,70 +608,73 @@ function Decision(
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-ctl border border-act-line bg-paper px-3 py-3 [animation:hb-rise_200ms_ease-out]" data-testid={`plan-decision-${plan.tier}`}>
-      <p className="text-ui font-semibold text-fg">
-        {action === "keep" ? `Keep ${plan.label}` : `From ${currentLabel} to ${plan.label}`}
-      </p>
+    <div className="flex flex-col gap-4 rounded-sheet border border-rule-2 px-4 py-4 sm:px-5" data-testid={`plan-decision-${plan.tier}`}>
+      <p className="text-body font-bold text-fg">{action === "keep" ? `Keep ${plan.label}` : `From ${currentLabel} to ${plan.label}`}</p>
 
       {action !== "keep" ? (
-        <>
-          {gains.length ? (
-            <div>
-              <p className="legend pb-1 text-ok!">You gain</p>
-              <ul className="flex flex-col gap-0.5 text-meta text-fg">
-                {gains.map((k) => (
-                  <li key={k}>+ {planFeatureLabel(k)}</li>
+        <div className="grid gap-x-10 gap-y-4 md:grid-cols-2">
+          <div className="flex flex-col gap-3">
+            {gains.length ? (
+              <div>
+                <p className="text-meta font-semibold text-ok">You gain</p>
+                <ul className="mt-1 flex flex-col gap-0.5 text-meta text-fg">
+                  {gains.map((k) => (
+                    <li key={k}>+ {planFeatureLabel(k)}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {losses.length ? (
+              <div>
+                <p className="text-meta font-semibold text-fail">No longer included</p>
+                <ul className="mt-1 flex flex-col gap-0.5 text-meta text-fg">
+                  {losses.map((k) => (
+                    <li key={k}>− {planFeatureLabel(k)}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {!gains.length && !losses.length ? <p className="text-meta text-fg-2">The same features; only the limits and the price change.</p> : null}
+          </div>
+          <div className="flex flex-col gap-2">
+            <table className="w-full text-meta">
+              <caption className="sr-only">Limits before and after</caption>
+              <tbody>
+                {limitRows.map(({ l, before, after, u, over, maybe }) => (
+                  <tr key={l.key} className="border-b border-rule last:border-b-0">
+                    <th scope="row" className="py-1.5 pr-2 text-left font-medium text-fg-2">
+                      {l.label}
+                    </th>
+                    <td className="tnum py-1.5 text-right text-fg">
+                      {before === null ? "—" : limitLabel(before)} →{" "}
+                      <span className={clsx(after < (before ?? after) && "font-semibold", over && "text-fail")}>{limitLabel(after)}</span>
+                    </td>
+                    <td className="py-1.5 pl-2 text-right">
+                      {over && u ? (
+                        <span className="font-semibold text-fail">{u.used - after} over</span>
+                      ) : maybe ? (
+                        <span className="text-warn">may be over</span>
+                      ) : null}
+                    </td>
+                  </tr>
                 ))}
-              </ul>
-            </div>
-          ) : null}
-          {losses.length ? (
-            <div>
-              <p className="legend pb-1 text-fail!">No longer included</p>
-              <ul className="flex flex-col gap-0.5 text-meta text-fg">
-                {losses.map((k) => (
-                  <li key={k}>− {planFeatureLabel(k)}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          <table className="w-full text-meta">
-            <caption className="sr-only">Limits before and after</caption>
-            <tbody>
-              {limitRows.map(({ l, before, after, u, over, maybe }) => (
-                <tr key={l.key} className="border-b border-rule last:border-b-0">
-                  <th scope="row" className="py-1 pr-2 text-left font-medium text-fg-2">
-                    {l.label}
-                  </th>
-                  <td className="tnum py-1 text-right text-fg">
-                    {before === null ? "—" : limitLabel(before)} →{" "}
-                    <span className={clsx(after < (before ?? after) && "font-semibold", over && "text-fail")}>{limitLabel(after)}</span>
-                  </td>
-                  <td className="py-1 pl-2 text-right">
-                    {over && u ? (
-                      <span className="font-semibold text-fail">{u.used - after} over</span>
-                    ) : maybe ? (
-                      <span className="text-warn">may be over</span>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {down && knownOver.length > 0 ? (
-            <p className="text-meta font-semibold text-fail">
-              This workspace is already over {knownOver.map((r) => r.l.label.toLowerCase()).join(" and ")} for {plan.label}. The
-              change will be refused until the excess is removed; nothing is removed for you.
-            </p>
-          ) : down ? (
-            <p className="text-meta text-fg-3">The change is checked against what is used when you confirm, and refused if anything is over.</p>
-          ) : null}
-        </>
+              </tbody>
+            </table>
+            {down && knownOver.length > 0 ? (
+              <p className="text-meta font-semibold text-fail">
+                This workspace is already over {knownOver.map((r) => r.l.label.toLowerCase()).join(" and ")} for {plan.label}. The
+                change will be refused until the excess is removed; nothing is removed for you.
+              </p>
+            ) : down ? (
+              <p className="text-meta text-fg-3">The change is checked against what is used when you confirm, and refused if anything is over.</p>
+            ) : null}
+          </div>
+        </div>
       ) : (
         <p className="text-meta text-fg-2">The scheduled change is withdrawn and {plan.label} continues as now.</p>
       )}
 
-      {action === "keep" || (action === "checkout" && !checkoutOpen) ? null : <p className="text-meta text-fg-2">{timing}</p>}
+      {action === "keep" || (action === "checkout" && !checkoutOpen) ? null : <p className="text-ui text-fg-2">{timing}</p>}
 
       {action === "checkout" ? (
         !checkoutOpen ? (
@@ -655,11 +689,11 @@ function Decision(
               e.preventDefault();
               if (contactOk && ack) void go();
             }}
-            className="flex flex-col gap-2.5"
+            className="grid max-w-[640px] gap-3 sm:grid-cols-2"
           >
             {chargeable.length > 1 ? (
-              <Field label="Pay in">
-                <Select value={payCurrency} onChange={(e) => setPayCurrency(e.target.value as Currency)} className="w-full" size="sm">
+              <Field label="Pay in" className="sm:col-span-2">
+                <Select value={payCurrency} onChange={(e) => setPayCurrency(e.target.value as Currency)} className="w-full max-w-[280px]" size="sm">
                   {chargeable.map((c) => (
                     <option key={c} value={c}>
                       {c} ({PROVIDER_FOR[c]})
@@ -674,39 +708,45 @@ function Decision(
             <Field label="Billing email" hint="Receipts go here.">
               <Input size="sm" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
             </Field>
-            <Field label="Tax ID (optional)" hint="GSTIN or VAT number, if the invoice needs one.">
-              <Input size="sm" mono value={taxId} onChange={(e) => setTaxId(e.target.value)} maxLength={32} />
+            <Field label="Tax ID (optional)" hint="GSTIN or VAT number, if the invoice needs one." className="sm:col-span-2">
+              <Input size="sm" mono value={taxId} onChange={(e) => setTaxId(e.target.value)} maxLength={32} className="max-w-[280px]" />
             </Field>
-            <Checkbox
-              id={`${id}-ack`}
-              checked={ack}
-              onChange={(e) => setAck(e.target.checked)}
-              data-testid="checkout-refund-ack"
-              label={
-                <>
-                  I accept the{" "}
-                  <a href="/refunds" target="_blank" rel="noreferrer" className="link">
-                    Refund Policy
-                  </a>{" "}
-                  for this purchase.
-                </>
-              }
-            />
-            <Button type="submit" variant="primary" busy={busy} busyLabel="Opening checkout" disabled={!contactOk || !ack} className="w-full justify-center">
-              Continue to payment
-            </Button>
+            <div className="sm:col-span-2">
+              <Checkbox
+                id={`${id}-ack`}
+                checked={ack}
+                onChange={(e) => setAck(e.target.checked)}
+                data-testid="checkout-refund-ack"
+                label={
+                  <>
+                    I accept the{" "}
+                    <a href="/refunds" target="_blank" rel="noreferrer" className="link">
+                      Refund Policy
+                    </a>{" "}
+                    for this purchase.
+                  </>
+                }
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <Button type="submit" variant="primary" busy={busy} busyLabel="Opening checkout" disabled={!contactOk || !ack}>
+                Continue to payment
+              </Button>
+            </div>
           </form>
         )
       ) : (
-        <Button variant={action === "cancel" ? "danger" : "primary"} onClick={go} busy={busy} busyLabel="Sending" className="w-full justify-center">
-          {action === "cancel"
-            ? `Move to ${plan.label} at period end`
-            : action === "keep"
-              ? `Keep ${plan.label}`
-              : provider === "PADDLE"
-                ? `Move to ${plan.label} now`
-                : `Move to ${plan.label} at period end`}
-        </Button>
+        <div>
+          <Button variant={action === "cancel" ? "danger" : "primary"} onClick={go} busy={busy} busyLabel="Sending">
+            {action === "cancel"
+              ? `Move to ${plan.label} at period end`
+              : action === "keep"
+                ? `Keep ${plan.label}`
+                : provider === "PADDLE"
+                  ? `Move to ${plan.label} now`
+                  : `Move to ${plan.label} at period end`}
+          </Button>
+        </div>
       )}
 
       {error ? (
@@ -762,17 +802,19 @@ function Compare({
       <h2 id="compare-bill-head" className="text-h2 font-bold tracking-[-0.02em] text-fg">
         Every capability, by plan
       </h2>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px] border-collapse border-y border-fg text-left text-ui">
-          <thead className="border-b border-rule-2">
+      <div className="relative overflow-x-auto">
+        <table className="w-full min-w-[640px] border-collapse border-b border-rule text-left text-ui">
+          <caption className="sr-only">Every limit and capability of each plan</caption>
+          <thead className="border-b border-fg">
             <tr>
-              <th scope="col" className="sticky left-0 bg-paper py-2 pr-4">
+              {/* Narrow on phones, so a plan column is in view beside the labels. */}
+              <th scope="col" className="sticky left-0 w-[9.5rem] bg-paper py-2 pr-4 sm:w-auto">
                 <span className="sr-only">Detail</span>
               </th>
               {plans.map((p) => (
-                <th key={p.tier} scope="col" className="px-3 py-2 font-bold text-fg">
+                <th key={p.tier} scope="col" className="px-3 py-2 text-right font-bold text-fg">
                   {p.label}
-                  {p.tier === currentTier ? <span className="ml-1.5 text-meta font-semibold text-act">yours</span> : null}
+                  {p.tier === currentTier ? <span className="block text-meta font-semibold text-fg-3">your plan</span> : null}
                 </th>
               ))}
             </tr>
@@ -783,7 +825,7 @@ function Compare({
                 Price, {interval === "annual" ? "a year" : "a month"}
               </th>
               {plans.map((p) => (
-                <td key={p.tier} className="tnum px-3 py-2 font-semibold text-fg">
+                <td key={p.tier} className="tnum px-3 py-2 text-right font-semibold text-fg">
                   {priceOf(p, currency, interval, fleetQuote)}
                 </td>
               ))}
@@ -794,8 +836,8 @@ function Compare({
                   {l.label}
                 </th>
                 {plans.map((p) => (
-                  <td key={p.tier} className="tnum px-3 py-2 text-fg">
-                    {p[l.key]}
+                  <td key={p.tier} className="tnum px-3 py-2 text-right text-fg">
+                    {limitLabel(p[l.key])}
                   </td>
                 ))}
               </tr>
@@ -806,9 +848,9 @@ function Compare({
                   {planFeatureLabel(k)}
                 </th>
                 {plans.map((p) => (
-                  <td key={p.tier} className="px-3 py-2">
+                  <td key={p.tier} className="px-3 py-2 text-right">
                     {p.features[k as keyof PlanDefinition["features"]] ? (
-                      <span className="text-ok">
+                      <span className="inline-flex text-fg">
                         <Check size={14} />
                         <span className="sr-only">Included</span>
                       </span>

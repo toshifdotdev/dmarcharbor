@@ -80,7 +80,7 @@ White label: primary buttons are ink for our own brand and the tenant's primary 
 - Sample data uses `.example` domains and is labelled as sample in a caption.
 - Sample agency and client names are invented and checked against real businesses before use (the home page uses Wistholm IT, Pellowyn Dental, Corriwick Café, Haskerley Law, Ollerbeck Vets, Thrandle Build). No Acme, Contoso, Northwind or other names a real business uses. Real products appear only as the senders they are (Microsoft 365, HubSpot, Xero and so on).
 - Figures are open drawings on white with a figure head (bold name, lighter meta, hairline) and a caption, like the hero map. No framed UI mock-ups with fake buttons.
-- Visible text never hard-codes "DMARC Harbor": use `brandName(await readHostBrand())`.
+- Visible text never hard-codes "DMARC Harbor": use `brandName(await readHostBrand())` (`brandName` is exported from `components/harbor/public-frame.tsx`, `readHostBrand` from `lib/host-brand.ts`). `hostBrand.workspaceName` alone is wrong: on an unverified host it can hold an agency name the page must not show.
 
 ## App screens
 

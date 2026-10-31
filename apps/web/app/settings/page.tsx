@@ -24,7 +24,7 @@ export default async function SettingsIndex() {
   const ctx = await settingsContext();
   return (
     <AppShell workspaces={ctx.workspaces} activeWorkspace={ctx.active} trail={[{ label: "Settings" }]}>
-      <div className="flex max-w-[1180px] flex-col gap-8">
+      <div className="flex max-w-[1180px] flex-col gap-10">
         <PageHeader
           title="Settings"
           lede={

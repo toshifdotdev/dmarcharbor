@@ -16,6 +16,10 @@
  * There is no test endpoint. The secret is write-only; it is never returned and
  * never rendered after submit.
  *
+ * Each connection is drawn as a route (SsoRoute): provider, then the allowlist
+ * station where any other address is turned away, then the workspace and the
+ * role people arrive with. The add form stays the first form on the page.
+ *
  * Test hooks: inputs sit inside their <label> (label, issuer, entry, client id,
  * allowed email domains), the secret is the password input, "Add SSO
  * connection", sso-allowlist.
@@ -26,14 +30,13 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { createSsoConnection, removeSsoConnection, updateSsoConnection, type SsoCreateBody } from "@/lib/ops-client";
 import type { SsoConnectionRow } from "@/lib/types";
 import { ActionRefusal, type ActionError } from "@/components/harbor/plan-refusal";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch, Textarea } from "@/components/ui/choice";
 import { CopyValue } from "@/components/ui/copy";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { Input, Segmented, Select } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
-import { Panel } from "./parts";
+import { FigureHead, Panel, RouteColumn, StateWord, type RouteStop } from "./parts";
 
 /** A label that wraps its control, with the hint outside it. */
 function Labelled({ label, hint, children, className }: { label: string; hint?: ReactNode; children: ReactNode; className?: string }) {
@@ -45,6 +48,88 @@ function Labelled({ label, hint, children, className }: { label: string; hint?: 
       </label>
       {hint ? <p className="mt-1 text-meta text-fg-3">{hint}</p> : null}
     </div>
+  );
+}
+
+const article = (role: string) => (/^[aeiou]/.test(role) ? "an" : "a");
+
+/**
+ * A connection drawn as a route: the identity provider is the origin, the
+ * allowlist is the station every sign-in stops at, and the workspace is the
+ * terminus. An address at any other domain is turned away there, drawn the
+ * way the map draws an unknown sender refused: a dashed red branch ending at a
+ * red bar. A switched-off connection is the same route, closed.
+ */
+export function SsoRoute({
+  provider,
+  protocol,
+  domains,
+  provisioning,
+  role,
+  enabled = true,
+}: {
+  provider: string;
+  protocol: string;
+  domains: string[];
+  provisioning: "JIT" | "DISABLED";
+  role: string;
+  enabled?: boolean;
+}) {
+  const closed = !enabled;
+  const stops: RouteStop[] = [
+    { key: "idp", shape: "origin", closed, name: provider, kind: `${protocol} identity provider` },
+    {
+      key: "allow",
+      shape: "station",
+      closed,
+      arrive: closed ? "closed" : "travelled",
+      name: "Allowed email domains",
+      kind:
+        domains.length > 0 ? (
+          <>
+            {domains.map((d, i) => (
+              <span key={d}>
+                {i > 0 ? ", " : null}
+                <code className="data text-fg-2">{d}</code>
+              </span>
+            ))}
+          </>
+        ) : (
+          "none yet"
+        ),
+      refused: closed ? undefined : { name: "Any other address", kind: "is turned away here" },
+    },
+    provisioning === "JIT"
+      ? {
+          key: "join",
+          shape: "terminus",
+          closed,
+          arrive: closed ? "closed" : domains.length > 0 ? "travelled" : "planned",
+          name: `Joins as ${article(role)} ${role}`,
+          kind: "on their first sign-in",
+        }
+      : {
+          key: "join",
+          shape: "terminus",
+          closed,
+          arrive: closed ? "closed" : "travelled",
+          name: "Members and invited people only",
+          kind: "nobody is created",
+        },
+  ];
+  return <RouteColumn label={`Who ${provider} lets in`} stops={stops} />;
+}
+
+/** The same route with sample values, for a workspace that has no connection to draw. */
+export function SsoExplainer() {
+  return (
+    <figure className="flex max-w-[640px] flex-col gap-4">
+      <FigureHead name="How a connection decides who gets in" kind="sample" />
+      <SsoRoute provider="Entra ID" protocol="OIDC" domains={["wistholm.example"]} provisioning="JIT" role="analyst" />
+      <figcaption className="text-meta text-fg-3">
+        Sample connection for an invented agency, Wistholm IT. Yours is drawn from the domains and role you choose.
+      </figcaption>
+    </figure>
   );
 }
 
@@ -115,23 +200,27 @@ function Connection({
   }
 
   return (
-    <article className="flex flex-col gap-4 border-b border-rule pb-6 [animation:hb-rise_200ms_ease-out]">
-      <header className="flex flex-wrap items-center gap-x-3 gap-y-1">
+    <article className="flex flex-col gap-5 border-b border-rule pb-8 last:border-b-0">
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <h3 className="text-h3 font-bold text-fg">{c.label}</h3>
-        <Badge tone="neutral" boxed>
-          {c.protocol}
-        </Badge>
+        <span className="text-meta font-semibold text-fg-3">{c.protocol}</span>
         {paused ? (
-          <Badge tone="warn">Not on this plan</Badge>
+          <StateWord shape="half" tone="void">
+            Not on this plan
+          </StateWord>
         ) : canEdit ? (
-          <span className="flex items-center gap-2 text-ui text-fg-2">
+          <span className="flex items-center gap-2 text-ui font-semibold text-fg-2">
             <Switch checked={c.enabled} onChange={toggle} busy={busy === "toggle"} label={`Use ${c.label} for sign-in`} />
             {c.enabled ? "In use" : "Switched off"}
           </span>
         ) : c.enabled ? (
-          <Badge tone="ok">In use</Badge>
+          <StateWord shape="square" tone="ok">
+            In use
+          </StateWord>
         ) : (
-          <Badge tone="void">Switched off</Badge>
+          <StateWord shape="closed" tone="void">
+            Switched off
+          </StateWord>
         )}
         <span className="flex-1" />
         {canManage ? (
@@ -142,84 +231,94 @@ function Connection({
       </header>
       <ActionRefusal error={error} />
 
-      <div data-testid="sso-allowlist" className="rounded-ctl border border-rule bg-paper-2 px-4 py-3">
-        <p className="legend">Who can get in</p>
-        <p className="mt-1 text-ui text-fg">
-          {c.allowedEmailDomains.length > 0 ? (
-            <>
-              Addresses at{" "}
-              {c.allowedEmailDomains.map((d, i) => (
-                <span key={d}>
-                  {i > 0 ? (i === c.allowedEmailDomains.length - 1 ? " and " : ", ") : null}
-                  <code className="data font-semibold">{d}</code>
-                </span>
-              ))}
-              .
-            </>
-          ) : (
-            "No email domain is allowed, so nobody new can join through it."
-          )}
-        </p>
-        <p className="mt-1 text-ui text-fg-2">
-          {c.provisioning === "JIT"
-            ? `Someone at an allowed domain with no account here gets one on their first sign-in, as ${/^[aeiou]/.test(c.defaultRole) ? "an" : "a"} ${c.defaultRole}. Remove a person from your identity provider to stop new sign-ins.`
-            : "Only people who are already members, or hold a pending invitation, can sign in through it. Nobody is created automatically."}
-        </p>
-        {canEdit && !editing ? (
-          <button type="button" className="link mt-2 text-meta" onClick={() => setEditing(true)}>
-            Change who can get in
-          </button>
-        ) : null}
-        {editing ? (
-          <form onSubmit={save} className="mt-3 grid gap-3 border-t border-rule pt-3 md:grid-cols-2 [animation:hb-fade_120ms_ease-out]">
-            <Labelled label="Allowed email domains" hint="Separate with commas." className="md:col-span-2">
-              <Input mono value={domains} onChange={(e) => setDomains(e.target.value)} autoComplete="off" />
-            </Labelled>
-            <Labelled label="Who gets in">
-              <Select value={provisioning} onChange={(e) => setProvisioning(e.target.value as "JIT" | "DISABLED")} className="w-full">
-                <option value="JIT">Anyone at an allowed domain</option>
-                <option value="DISABLED">Members and invited people only</option>
-              </Select>
-            </Labelled>
-            <Labelled label="Role for people who join this way">
-              <Select value={defaultRole} onChange={(e) => setDefaultRole(e.target.value as "analyst" | "viewer" | "admin")} className="w-full">
-                <option value="viewer">viewer</option>
-                <option value="analyst">analyst</option>
-                <option value="admin">admin</option>
-              </Select>
-            </Labelled>
-            <div className="flex flex-col gap-2 md:col-span-2">
-              {provisioning === "JIT" && domainList.length === 0 ? (
-                <p className="text-meta font-medium text-warn">Letting anyone in needs at least one allowed email domain.</p>
-              ) : null}
-              <p className="text-meta text-fg-3">
-                Takes effect on the next sign-in. Existing members keep their access and their role.
-              </p>
-              <div className="flex items-center gap-3">
-                <Button type="submit" size="sm" variant="primary" busy={busy === "save"} busyLabel="Saving">
-                  Save
-                </Button>
-                <button
-                  type="button"
-                  className="link text-meta"
-                  onClick={() => {
-                    setEditing(false);
-                    setDomains(c.allowedEmailDomains.join(", "));
-                    setProvisioning(c.provisioning);
-                    setDefaultRole(c.defaultRole);
-                  }}
-                >
-                  Keep as it is
-                </button>
+      <div data-testid="sso-allowlist" className="grid gap-x-12 gap-y-5 md:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
+        <SsoRoute
+          provider={c.label}
+          protocol={c.protocol}
+          domains={c.allowedEmailDomains}
+          provisioning={c.provisioning}
+          role={c.defaultRole}
+          enabled={c.enabled && !paused}
+        />
+        <div className="min-w-0">
+          <p className="text-ui font-bold text-fg">Who can get in</p>
+          <p className="mt-1 text-ui text-fg">
+            {c.allowedEmailDomains.length > 0 ? (
+              <>
+                Addresses at{" "}
+                {c.allowedEmailDomains.map((d, i) => (
+                  <span key={d}>
+                    {i > 0 ? (i === c.allowedEmailDomains.length - 1 ? " and " : ", ") : null}
+                    <code className="data font-semibold">{d}</code>
+                  </span>
+                ))}
+                .
+              </>
+            ) : (
+              "No email domain is allowed, so nobody new can join through it."
+            )}
+          </p>
+          <p className="mt-1 text-ui text-fg-2">
+            {c.provisioning === "JIT"
+              ? `Someone at an allowed domain with no account here gets one on their first sign-in, as ${/^[aeiou]/.test(c.defaultRole) ? "an" : "a"} ${c.defaultRole}. Remove a person from your identity provider to stop new sign-ins.`
+              : "Only people who are already members, or hold a pending invitation, can sign in through it. Nobody is created automatically."}
+          </p>
+          {canEdit && !editing ? (
+            <button type="button" className="link mt-2 text-meta" onClick={() => setEditing(true)}>
+              Change who can get in
+            </button>
+          ) : null}
+          {editing ? (
+            <form onSubmit={save} className="mt-3 grid gap-3 border-t border-rule pt-3 md:grid-cols-2">
+              <Labelled label="Allowed email domains" hint="Separate with commas." className="md:col-span-2">
+                <Input mono value={domains} onChange={(e) => setDomains(e.target.value)} autoComplete="off" />
+              </Labelled>
+              <Labelled label="Who gets in">
+                <Select value={provisioning} onChange={(e) => setProvisioning(e.target.value as "JIT" | "DISABLED")} className="w-full">
+                  <option value="JIT">Anyone at an allowed domain</option>
+                  <option value="DISABLED">Members and invited people only</option>
+                </Select>
+              </Labelled>
+              <Labelled label="Role for people who join this way">
+                <Select value={defaultRole} onChange={(e) => setDefaultRole(e.target.value as "analyst" | "viewer" | "admin")} className="w-full">
+                  <option value="viewer">viewer</option>
+                  <option value="analyst">analyst</option>
+                  <option value="admin">admin</option>
+                </Select>
+              </Labelled>
+              <div className="flex flex-col gap-2 md:col-span-2">
+                {provisioning === "JIT" && domainList.length === 0 ? (
+                  <p className="text-meta font-medium text-warn">Letting anyone in needs at least one allowed email domain.</p>
+                ) : null}
+                <p className="text-meta text-fg-3">
+                  Takes effect on the next sign-in. Existing members keep their access and their role.
+                </p>
+                <div className="flex items-center gap-3">
+                  <Button type="submit" size="sm" variant="primary" busy={busy === "save"} busyLabel="Saving">
+                    Save
+                  </Button>
+                  <button
+                    type="button"
+                    className="link text-meta"
+                    onClick={() => {
+                      setEditing(false);
+                      setDomains(c.allowedEmailDomains.join(", "));
+                      setProvisioning(c.provisioning);
+                      setDefaultRole(c.defaultRole);
+                    }}
+                  >
+                    Keep as it is
+                  </button>
+                </div>
               </div>
-            </div>
-          </form>
-        ) : null}
+            </form>
+          ) : null}
+        </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-x-12 gap-y-4 border-t border-rule pt-4 md:grid-cols-2">
         <div className="flex flex-col gap-1.5">
-          <p className="legend">Give these to your identity provider</p>
+          <p className="text-ui font-bold text-fg">Give these to your identity provider</p>
           {c.protocol === "SAML" ? (
             <>
               <p className="text-meta text-fg-3">Assertion consumer service (ACS) URL</p>
@@ -235,7 +334,7 @@ function Connection({
           )}
         </div>
         <div className="flex flex-col gap-1.5">
-          <p className="legend">Your team signs in at</p>
+          <p className="text-ui font-bold text-fg">Your team signs in at</p>
           <CopyValue value={startUrl} label="sign-in link" />
           <p className="text-meta text-fg-3">
             Issuer <code className="data text-fg-2">{c.idpEntityId}</code>
@@ -349,7 +448,7 @@ export function SsoBoard({
   }
 
   return (
-    <div className="flex flex-col gap-10">
+    <div className="flex flex-col gap-14">
       {canManage && !paused ? (
         <Panel
           id="sso-add"
@@ -448,10 +547,17 @@ export function SsoBoard({
         id="sso-list"
         title="Connections"
         why="Switch a connection off to stop sign-ins without losing it. Who can get in is changed in place; the provider details are not: to correct them, add a new connection, check it works, then remove the old one."
-        aside={`${connections.length}`}
+        aside={
+          <span className="tnum font-semibold text-fg-2">
+            {connections.length === 0 ? "None yet" : `${connections.length} connection${connections.length === 1 ? "" : "s"}`}
+          </span>
+        }
       >
         {connections.length === 0 ? (
-          <p className="text-ui text-fg-2">No connection yet. Everyone signs in with a password or a social account.</p>
+          <div className="flex flex-col gap-6">
+            <p className="text-ui text-fg-2">No connection yet. Everyone signs in with a password or a social account.</p>
+            <SsoExplainer />
+          </div>
         ) : (
           <div className="flex flex-col gap-6">
             {connections.map((c) => (

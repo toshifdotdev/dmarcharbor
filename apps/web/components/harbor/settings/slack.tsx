@@ -3,6 +3,11 @@
 /**
  * slack.tsx — one Slack channel that receives the alerts your rules raise.
  *
+ * Read in the order an MSP checks it: is it connected and getting through (the
+ * line at the top, with the state in a word), what it holds (the masked
+ * webhook and the last delivery, which is the only proof alerts arrive), then
+ * how to connect or replace it, with Slack's own steps drawn beside the form.
+ *
  * The webhook URL is the credential: whoever holds it can post into the
  * channel. So it goes in, is stored encrypted, and never comes back: the
  * field is uncontrolled (no value attribute is ever written into the page),
@@ -25,6 +30,7 @@ import { ConfirmDialog } from "@/components/ui/dialog";
 import { Field, Input } from "@/components/ui/field";
 import { KeyValue, Notice } from "@/components/ui/notice";
 import { useToast } from "@/components/ui/toast";
+import { ConnectionLine, SetupSteps, type LineState } from "./lines";
 import { Panel } from "./parts";
 
 /** The API's reasons, as guidance. Never the code itself. */
@@ -106,52 +112,78 @@ export function SlackBoard({
     router.refresh();
   }
 
+  const failures = destination?.consecutiveFailures ?? 0;
+  const state: LineState = !destination ? "none" : failures > 0 ? "failing" : enabled ? "live" : "paused";
+  const word = { none: "Not connected", failing: "Failing", live: "Delivering", paused: "Paused", unknown: "Unknown" }[state];
+  const detail =
+    state === "none"
+      ? "Alerts go by email only."
+      : state === "failing"
+        ? `Slack refused the last ${failures === 1 ? "attempt" : `${failures} attempts in a row`}.`
+        : state === "paused"
+          ? "Switched off here: nothing is sent to Slack until it is on again."
+          : lastDeliveredLabel
+            ? `Last alert delivered ${lastDeliveredLabel}.`
+            : "Connected. No alert has been raised since, so nothing has been delivered yet.";
+
   return (
     <div className="flex flex-col gap-10">
-      {destination ? (
-        <Panel
-          id="slack-now"
-          title={destination.channelLabel ? `Sending to ${destination.channelLabel}` : "Sending to Slack"}
-          why="Every alert a rule raises goes here as well as to its email recipients."
-          aside={
-            canManage ? (
-              <span className="flex items-center gap-2 text-ui text-fg-2">
-                <Switch checked={enabled} onChange={toggle} busy={toggleBusy} label="Send alerts to Slack" />
-                {enabled ? "On" : "Paused"}
-              </span>
-            ) : enabled ? (
-              "On"
-            ) : (
-              "Paused"
-            )
+      <section aria-label="Slack status" className="flex flex-col gap-4">
+        <ConnectionLine
+          state={state}
+          word={word}
+          detail={detail}
+          label={
+            destination
+              ? `Alert rules to ${destination.channelLabel ?? "the Slack channel"}: ${word.toLowerCase()}.`
+              : "Alert rules to Slack: not connected."
           }
-        >
+          aside={
+            destination && canManage ? (
+              <>
+                <Switch checked={enabled} onChange={toggle} busy={toggleBusy} label="Send alerts to Slack" />
+                <span className="text-ui font-medium text-fg-2">{enabled ? "On" : "Off"}</span>
+              </>
+            ) : null
+          }
+          from={{ name: "Alert rules", kind: "every alert they raise" }}
+          to={
+            destination
+              ? { name: destination.channelLabel ?? "Slack channel", kind: "Slack, by incoming webhook" }
+              : { name: "Slack channel", kind: "not connected" }
+          }
+        />
+        {destination ? (
           <KeyValue
+            labelWidth={140}
             rows={[
               [
                 "Webhook",
-                <code key="m" data-testid="slack-masked" className="data text-fg">
+                <code key="m" data-testid="slack-masked" className="data break-all text-fg">
                   {destination.maskedUrl}
                 </code>,
               ],
+              ["Sends", "Every alert a rule raises, as it is raised, as well as to the rule's email recipients."],
               ["Last delivered", lastDeliveredLabel ?? <span className="text-fg-3">nothing delivered yet</span>],
-              destination.consecutiveFailures > 0
+              failures > 0
                 ? [
-                    "Failing",
+                    "Refused",
                     <span key="f" className="text-fail">
-                      {destination.consecutiveFailures} attempt{destination.consecutiveFailures === 1 ? "" : "s"} in a row
+                      {failures} attempt{failures === 1 ? "" : "s"} in a row
                       {destination.lastError ? `: ${destination.lastError}` : ""}
                     </span>,
                   ]
                 : null,
             ]}
           />
-          {destination.consecutiveFailures > 0 ? (
-            <Notice tone="warn" title="Slack is refusing the alerts">
-              The webhook may have been removed in Slack, or the channel archived. Paste a fresh webhook URL below; saving
-              resets the failure count.
-            </Notice>
-          ) : null}
+        ) : null}
+        {failures > 0 ? (
+          <Notice tone="warn" title="Slack is refusing the alerts">
+            The webhook may have been removed in Slack, or the channel archived. Paste a fresh webhook URL below; saving
+            resets the failure count.
+          </Notice>
+        ) : null}
+        {destination ? (
           <p className="text-meta text-fg-3">
             There is no test message. Raise one through an{" "}
             <Link href="/alerts" className="link">
@@ -159,61 +191,84 @@ export function SlackBoard({
             </Link>
             ; &ldquo;Last delivered&rdquo; shows when one got through.
           </p>
-        </Panel>
-      ) : null}
+        ) : null}
+      </section>
 
-      <Panel
-        id="slack-set"
-        title={destination ? "Replace the webhook" : "Connect a channel"}
-        why={
-          <>
-            In Slack, open the Incoming Webhooks app, choose <span className="font-semibold">Add to Slack</span>, pick the
-            channel, and copy the Webhook URL it gives you.
-          </>
-        }
-      >
-        {canManage ? (
-          <form ref={form} onSubmit={save} className="grid max-w-[640px] gap-4">
-            <Field
-              label="Webhook URL"
-              hint="Treat it like a password: it is a credential that lets anyone holding it post to the channel. It is stored encrypted and only its last four characters are ever shown."
-            >
-              <Input
-                ref={urlInput}
-                type="text"
-                mono
-                name="webhookUrl"
-                defaultValue=""
-                required
-                placeholder="https://hooks.slack.com/services/…"
-                autoComplete="off"
-                spellCheck={false}
-                data-testid="slack-webhook"
-              />
-            </Field>
-            <Field label="Channel name" hint="For your reference on this page. Slack decides the channel from the URL.">
-              <Input value={channel} onChange={(e) => setChannel(e.target.value)} placeholder="#security-alerts" maxLength={80} data-testid="slack-label" />
-            </Field>
-            {error ? (
-              <p role="alert" data-testid="slack-error" className="text-ui font-medium text-fail">
-                {error}
-              </p>
-            ) : null}
-            <div>
-              <Button type="submit" variant="primary" busy={busy} busyLabel="Saving the Slack destination" data-testid="slack-save">
-                {destination ? "Replace webhook" : "Connect Slack"}
-              </Button>
-            </div>
-          </form>
-        ) : (
-          <p className="text-ui text-fg-2">An owner or admin can connect or change the Slack channel.</p>
-        )}
-      </Panel>
+      <div className="grid gap-x-12 gap-y-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,17rem)]">
+        <Panel
+          id="slack-set"
+          title={destination ? "Replace the webhook" : "Connect a channel"}
+          why={
+            destination
+              ? "Paste a new webhook URL to move the alerts to another channel, or to recover from a removed webhook."
+              : "One channel per workspace. Alerts keep going by email either way."
+          }
+        >
+          {canManage ? (
+            <form ref={form} onSubmit={save} className="grid max-w-[640px] gap-4">
+              <Field
+                label="Webhook URL"
+                hint="Treat it like a password: it is a credential that lets anyone holding it post to the channel. It is stored encrypted and only its last four characters are ever shown."
+              >
+                <Input
+                  ref={urlInput}
+                  type="text"
+                  mono
+                  name="webhookUrl"
+                  defaultValue=""
+                  required
+                  placeholder="https://hooks.slack.com/services/…"
+                  autoComplete="off"
+                  spellCheck={false}
+                  data-testid="slack-webhook"
+                />
+              </Field>
+              <Field label="Channel name" hint="For your reference on this page. Slack decides the channel from the URL.">
+                <Input value={channel} onChange={(e) => setChannel(e.target.value)} placeholder="#security-alerts" maxLength={80} data-testid="slack-label" />
+              </Field>
+              {error ? (
+                <p role="alert" data-testid="slack-error" className="text-ui font-medium text-fail">
+                  {error}
+                </p>
+              ) : null}
+              <div>
+                <Button type="submit" variant="primary" busy={busy} busyLabel="Saving the Slack destination" data-testid="slack-save">
+                  {destination ? "Replace webhook" : "Connect Slack"}
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <p className="text-ui text-fg-2">An owner or admin can connect or change the Slack channel.</p>
+          )}
+        </Panel>
+
+        <SetupSteps
+          title="Getting the URL from Slack"
+          done={Boolean(destination)}
+          className="lg:pt-1"
+          steps={[
+            { key: "app", name: "Open the Incoming Webhooks app", detail: "In Slack, from the workspace's apps." },
+            { key: "add", name: "Choose Add to Slack", detail: "Pick the channel the alerts should land in." },
+            {
+              key: "copy",
+              name: "Copy the Webhook URL",
+              detail: (
+                <>
+                  It starts with <code className="data break-all">https://hooks.slack.com/services/</code>
+                </>
+              ),
+            },
+            { key: "paste", name: "Paste it here", detail: "Stored encrypted, never shown again." },
+          ]}
+        />
+      </div>
 
       {destination && canManage ? (
-        <section className="flex flex-col gap-2 border-t border-rule-2 pt-4">
-          <h2 className="text-h3 font-bold text-fg">Stop using Slack</h2>
-          <p className="text-ui text-fg-2">Alerts stop going to Slack. Email alerts carry on as before.</p>
+        <section aria-labelledby="slack-stop" className="flex flex-col gap-2 border-t border-rule pt-5">
+          <h2 id="slack-stop" className="text-h3 font-bold tracking-[-0.01em] text-fg">
+            Stop using Slack
+          </h2>
+          <p className="text-ui text-fg-2">Alerts stop going to Slack and the stored webhook is deleted. Email alerts carry on as before.</p>
           <div>
             <Button variant="secondary" onClick={() => setRemoveOpen(true)}>
               Remove Slack destination

@@ -14,12 +14,12 @@
  * so the audit trail can still name it.
  */
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, type FormEvent } from "react";
 import { deleteAllRevokedPortalAccess, deletePortalAccessRecord, grantPortalAccess, revokePortalAccess } from "@/lib/ops-client";
 import type { FeatureStatus } from "@/lib/entitlements";
 import { ActionRefusal, type ActionError } from "@/components/harbor/plan-refusal";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CopyValue } from "@/components/ui/copy";
 import { ConfirmDialog } from "@/components/ui/dialog";
@@ -27,7 +27,7 @@ import { Field, Input, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { UpgradeNotice } from "@/components/ui/states";
 import { useToast } from "@/components/ui/toast";
-import { Panel } from "./parts";
+import { FigureHead, Panel, RouteColumn, StateWord, plural } from "./parts";
 
 export interface GrantView {
   id: string;
@@ -132,27 +132,51 @@ export function PortalBoard({
   }
 
   return (
-    <div className="flex flex-col gap-10">
-      <section className="grid gap-4 rounded-ctl border border-rule bg-paper-2 px-4 py-3.5 md:grid-cols-2">
-        <div>
-          <p className="legend">A contact sees</p>
-          <p className="mt-1 text-ui text-fg-2">
-            Their own client only: one plain verdict per domain, the published policy, and when reports last arrived. In
-            your brand when white label is set up.
-          </p>
+    <div className="flex flex-col gap-14">
+      <figure aria-labelledby="pa-figure" className="flex flex-col gap-5">
+        <FigureHead
+          name={<span id="pa-figure">What a contact sees</span>}
+          kind="one client, read-only"
+          aside={
+            <Link href="/settings/branding" className="link font-semibold">
+              Preview it in your brand
+            </Link>
+          }
+        />
+        <div className="grid gap-x-14 gap-y-8 md:grid-cols-2">
+          <div className="flex flex-col gap-3">
+            <p className="text-ui font-semibold text-fg">Their line stops at</p>
+            <RouteColumn
+              label="What a client contact sees"
+              stops={[
+                { key: "client", shape: "origin", name: "Their own client", kind: "and no other" },
+                { key: "verdict", shape: "station", name: "A plain verdict per domain", kind: "in words, not codes" },
+                { key: "policy", shape: "station", name: "The published policy", kind: "and when reports last arrived" },
+                { key: "monthly", shape: "station", name: "Monthly reports", kind: "the ones you issue" },
+                { key: "approve", shape: "station", name: "Changes you ask them to approve", kind: "if you propose one" },
+                { key: "brand", shape: "terminus", name: "Under your name", kind: "and your logo and colours with white label" },
+              ]}
+            />
+          </div>
+          <div className="flex flex-col gap-3">
+            <p className="text-ui font-semibold text-fg">Closed to them</p>
+            <RouteColumn
+              label="What a client contact never sees"
+              stops={[
+                { key: "forensic", shape: "station", closed: true, name: "Forensic samples", kind: "message-level detail" },
+                { key: "recipients", shape: "station", closed: true, arrive: "closed", name: "Recipient addresses" },
+                { key: "others", shape: "station", closed: true, arrive: "closed", name: "Other clients", kind: "and their domains" },
+                { key: "billing", shape: "station", closed: true, arrive: "closed", name: "Billing and your plan" },
+                { key: "settings", shape: "terminus", closed: true, arrive: "closed", name: "Settings and people", kind: "they change nothing here" },
+              ]}
+            />
+          </div>
         </div>
-        <div>
-          <p className="legend">A contact never sees</p>
-          <p className="mt-1 text-ui text-fg-2">
-            Forensic samples, recipient addresses, other clients, billing, or anything else in this workspace. They cannot
-            change anything.
-          </p>
-        </div>
-        <div className="md:col-span-2">
-          <p className="text-meta text-fg-3">They sign in here, with the address you grant:</p>
-          <CopyValue value={portalUrl} label="portal address" className="mt-1 max-w-[520px]" />
-        </div>
-      </section>
+        <figcaption className="flex flex-col gap-1.5 border-t border-rule pt-3">
+          <span className="text-meta text-fg-3">They sign in here, with the address you grant:</span>
+          <CopyValue value={portalUrl} label="portal address" className="max-w-[520px]" />
+        </figcaption>
+      </figure>
 
       <Panel id="pa-grant" title="Give a contact access" why="Access is held against the email address and covers one client. It starts the first time that address signs in.">
         {!canManage ? (
@@ -209,44 +233,68 @@ export function PortalBoard({
         {byClient.length === 0 ? (
           <p className="text-ui text-fg-2">Nobody outside the workspace can see anything.</p>
         ) : (
-          <div className="flex flex-col gap-6">
-            {byClient.map((c) => (
-              <div key={c.id}>
-                <h3 className="text-ui font-semibold text-fg">{c.name}</h3>
-                <ul className="mt-1 flex flex-col border-t border-rule">
-                  {c.list.map((g) => (
-                    <li key={g.id} className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-rule py-2">
-                      <span className="min-w-0">
-                        <span className={g.active ? "data text-ui font-semibold text-fg" : "data text-ui text-fg-3 line-through"}>{g.email}</span>
-                        {g.displayName ? <span className="ml-2 text-meta text-fg-3">{g.displayName}</span> : null}
-                      </span>
-                      {g.active ? (
-                        g.firstSeenLabel ? (
-                          <Badge tone="ok">In use since {g.firstSeenLabel}</Badge>
-                        ) : (
-                          <Badge tone="neutral">Not signed in yet</Badge>
-                        )
-                      ) : (
-                        <Badge tone="void">Revoked</Badge>
-                      )}
-                      <span className="text-meta text-fg-3">Granted {g.grantedLabel}</span>
-                      <span className="flex-1" />
-                      {canManage ? (
-                        g.active ? (
-                          <Button size="sm" variant="ghost" className="text-fail hover:text-fail" onClick={() => setRevoking(g)}>
-                            Revoke
-                          </Button>
-                        ) : (
-                          <button type="button" className="link text-meta" onClick={() => removeRecord(g)}>
-                            Remove record
-                          </button>
-                        )
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
+          <div className="flex flex-col gap-8">
+            {byClient.map((c) => {
+              const live = c.list.filter((g) => g.active).length;
+              return (
+                <div key={c.id}>
+                  <h3 className="flex flex-wrap items-baseline gap-x-2 text-ui">
+                    <span className="font-bold text-fg">{c.name}</span>
+                    <span className="tnum text-fg-3">
+                      {live === 0 ? "no contact has access" : `${plural(live, "contact")} with access`}
+                    </span>
+                  </h3>
+                  <ul className="mt-2 flex flex-col border-t border-rule">
+                    {c.list.map((g) => (
+                      <li
+                        key={g.id}
+                        className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-1 border-b border-rule py-2.5 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,12.5rem)_6.5rem]"
+                      >
+                        <span className="min-w-0">
+                          <span className={g.active ? "data break-all text-ui font-semibold text-fg" : "data break-all text-ui text-fg-3 line-through"}>
+                            {g.email}
+                          </span>
+                          {g.displayName ? <span className="ml-2 text-meta text-fg-3">{g.displayName}</span> : null}
+                        </span>
+                        <span className="col-start-1 row-start-2 md:col-start-auto md:row-start-auto">
+                          {g.active ? (
+                            g.firstSeenLabel ? (
+                              <StateWord shape="square" tone="ok" size="meta">
+                                In use since {g.firstSeenLabel}
+                              </StateWord>
+                            ) : (
+                              <StateWord shape="ring" tone="warn" size="meta">
+                                Not signed in yet
+                              </StateWord>
+                            )
+                          ) : (
+                            <StateWord shape="closed" tone="void" size="meta">
+                              Revoked
+                            </StateWord>
+                          )}
+                        </span>
+                        <span className="col-start-1 row-start-3 text-meta text-fg-3 md:col-start-auto md:row-start-auto">
+                          Granted {g.grantedLabel}
+                        </span>
+                        <span className="col-start-2 row-start-1 flex justify-end md:col-start-auto md:row-start-auto">
+                          {canManage ? (
+                            g.active ? (
+                              <Button size="sm" variant="ghost" className="text-fail hover:text-fail" onClick={() => setRevoking(g)}>
+                                Revoke
+                              </Button>
+                            ) : (
+                              <button type="button" className="link text-meta" onClick={() => removeRecord(g)}>
+                                Remove record
+                              </button>
+                            )
+                          ) : null}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
           </div>
         )}
         {listError ? <Notice tone="fail" title={listError} /> : null}

@@ -8,7 +8,8 @@
  * weekday or a day of month) and read back as a sentence with the next send
  * worked out by the scheduler's own rule, so "Mondays at 09:00 UTC" never
  * surprises anyone in another timezone: the hour is also shown in the
- * reader's local time.
+ * reader's local time. The next send reads the clock, so it is worked out in
+ * the browser after hydration only; the server HTML carries the schedule.
  *
  * Recipients are typed or pasted (commas, spaces or new lines), cleaned and
  * deduplicated as they are typed, with anything that is not an address named
@@ -25,6 +26,7 @@ import { DIGEST_LIMITS, WEEKDAYS, nextDigestDue, parseRecipients, scheduleLabel 
 import { Button } from "@/components/ui/button";
 import { Checkbox, Textarea } from "@/components/ui/choice";
 import { Field, Select } from "@/components/ui/field";
+import { StateMark } from "./ops-parts";
 import { ActionRefusal, type ActionError } from "./plan-refusal";
 
 export interface ScheduleValue {
@@ -54,8 +56,14 @@ function nextLine(value: ScheduleValue): string {
   return `Next: ${next.toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "UTC" })} UTC.`;
 }
 
+/** False on the server and during hydration, true after: the clock is read only then. */
+function useMounted(): boolean {
+  return useSyncExternalStore(noop, () => true, () => false);
+}
+
 export function ScheduleFields({ value, onChange }: { value: ScheduleValue; onChange: (v: ScheduleValue) => void }) {
   const zone = useLocalZone();
+  const mounted = useMounted();
   const local = localHour(value.sendHourUtc, zone);
   return (
     <div className="flex flex-col gap-3">
@@ -104,9 +112,17 @@ export function ScheduleFields({ value, onChange }: { value: ScheduleValue; onCh
           </Select>
         </Field>
       )}
-      <p className="border-l-2 border-act pl-3 text-ui text-fg-2" aria-live="polite">
-        <span className="font-semibold text-fg">{scheduleLabel(value)}.</span> {nextLine(value)}
-      </p>
+      {/* The schedule read back as a departure: when it leaves, and the next one. */}
+      <div className="flex items-start gap-3 border-t border-rule pt-3" aria-live="polite">
+        <svg width="34" height="16" viewBox="0 0 34 16" aria-hidden className="mt-[2px] shrink-0">
+          <path d="M8 8H26" stroke="var(--color-fg)" strokeWidth="5" strokeLinecap="round" />
+          <circle cx="8" cy="8" r="5.5" fill="var(--color-paper)" stroke="var(--color-fg)" strokeWidth="3" />
+          <rect x="22" y="1.5" width="10" height="13" rx="5" fill="var(--color-paper)" stroke="var(--color-fg)" strokeWidth="3" />
+        </svg>
+        <p className="text-ui text-fg-2">
+          <span className="font-semibold text-fg">{scheduleLabel(value)}.</span> {mounted ? nextLine(value) : null}
+        </p>
+      </div>
     </div>
   );
 }
@@ -207,7 +223,7 @@ export function DigestForm({
   if (!first) {
     return (
       <section className="flex flex-col gap-2">
-        <h2 className="text-h3 font-bold tracking-[-0.01em] text-fg">New digest</h2>
+        <h2 className="display text-h3 text-fg">New digest</h2>
         <p className="text-ui text-fg-3">A digest summarises one domain. Add a domain on Clients first.</p>
       </section>
     );
@@ -215,9 +231,12 @@ export function DigestForm({
 
   return (
     <section aria-labelledby={`${id}-head`} className="flex flex-col gap-3">
-      <h2 id={`${id}-head`} className="text-h3 font-bold tracking-[-0.01em] text-fg">
-        New digest
-      </h2>
+      <div>
+        <h2 id={`${id}-head`} className="display text-h3 text-fg">
+          New digest
+        </h2>
+        <p className="mt-0.5 text-meta text-fg-3">One domain&rsquo;s summary, to the people who should read it.</p>
+      </div>
       <form onSubmit={submit} className="flex flex-col gap-3.5">
         <Field label="Domain">
           <Select value={domainId} onChange={(e) => setDomainId(e.target.value)} className="w-full">
@@ -247,11 +266,14 @@ export function DigestForm({
         />
         <ActionRefusal error={error} />
         {created ? (
-          <p role="status" className="text-ui font-semibold text-ok [animation:hb-rise_200ms_ease-out]">
+          <p role="status" className="flex items-baseline gap-2 text-ui font-semibold text-ok">
+            <span className="relative top-[1px]">
+              <StateMark shape="square" tone="ok" />
+            </span>
             Scheduled: {created}
           </p>
         ) : null}
-        <Button type="submit" variant="primary" busy={busy} busyLabel="Scheduling" disabled={!ok} className="self-start">
+        <Button type="submit" variant="primary" size="lg" busy={busy} busyLabel="Scheduling" disabled={!ok} className="self-start">
           Schedule digest
         </Button>
       </form>

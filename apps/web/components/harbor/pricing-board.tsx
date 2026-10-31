@@ -9,6 +9,13 @@
  * cadence ("per month"), the saving (computed from the two prices, never
  * typed in), and the plain feature labels from lib/plan-features.
  *
+ * Drawn in the Routes language (pricing.module.css): the plans are stations
+ * on one line, each stop carrying everything before it, and each station is
+ * labelled with the size of client book it holds, because that is the
+ * question a buyer arrives with. Fleet is a second line whose stops are its
+ * volume bands. The comparison is a line diagram: a feature's line is built
+ * from the first plan that carries it.
+ *
  * Currency choices are the currencies a checkout can complete, from
  * GET /api/capabilities: one is a fixed chip, two are a choice, and none shows
  * the deployment's default as list prices. The other currency's list price is
@@ -17,12 +24,12 @@
  * value a later checkout charges) unless a payment has locked it.
  *
  * Both choices live in the URL, so a link to "annual in USD" is shareable.
- * Figures are keyed by value: a switch is visibly a change, not a reflow.
+ * Figures are keyed by value, so a switch replaces the figure rather than
+ * editing it in place.
  */
 
-import { useId, useState, type ReactNode } from "react";
+import { useId, useState, type CSSProperties, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { clsx } from "clsx";
 import { formatMajor, formatMinor } from "@/lib/money";
 import { fleetBandRows, fleetIsMonthlyOnly, fleetMinimumQuantity, fleetMinimumTotalMinor, fleetUnitMinor } from "@/lib/fleet-pricing";
 import {
@@ -38,7 +45,8 @@ import {
 import { setBillingCurrency } from "@/lib/ops-client";
 import type { PlanDefinition, PlanPriceMinor } from "@/lib/types";
 import { ButtonLink } from "@/components/ui/button";
-import { Check } from "@/components/ui/icons";
+import { Reveal } from "./landing-motion";
+import s from "./pricing.module.css";
 
 export type PricingCurrency = "INR" | "USD";
 export type PricingInterval = "monthly" | "annual";
@@ -48,11 +56,17 @@ const SYMBOL: Record<PricingCurrency, string> = { USD: "$", INR: "₹" };
 /** What an agency hands to its clients: the grounds for recommending a plan. */
 const CLIENT_FACING = ["portal.client", "reports.forensicNamed", "reports.compliancePack", "trust.center"];
 
-/** Row labels stay in view while a narrow screen scrolls the plan columns. */
-const ROW_HEAD = "sticky left-0 z-[1] bg-paper py-2.5 pr-4 font-medium text-fg-2";
-
 function shown(price: PlanPriceMinor, interval: PricingInterval): number {
   return interval === "monthly" ? price.monthlyMinor : price.annualMinor;
+}
+
+const count = (n: number) => n.toLocaleString("en-GB");
+
+/** The size of client book a plan holds, as the station's label says it. */
+function capacity(plan: PlanDefinition): string {
+  const clients = `${count(plan.maxClients)} ${plan.maxClients === 1 ? "client" : "clients"}`;
+  const domains = `${count(plan.maxActiveDomains)} active ${plan.maxActiveDomains === 1 ? "domain" : "domains"}`;
+  return `${clients} · ${domains}`;
 }
 
 export function PricingBoard({
@@ -150,12 +164,14 @@ export function PricingBoard({
     return { label: ladderPlans[at].label, reasons: list };
   })();
 
+  const key = `${currency}-${interval}`;
+
   return (
-    <div className="flex flex-col gap-12">
-      <div className="flex flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-          <div data-testid="pricing-currency" className="flex items-center gap-2">
-            <span className="text-meta font-semibold text-fg-2">Currency</span>
+    <div>
+      <div>
+        <div className={s.controls}>
+          <div data-testid="pricing-currency" className={s.control}>
+            <span className={s.controlLabel}>Currency</span>
             {chargeable.length > 1 ? (
               <Toggle
                 label="Currency"
@@ -165,16 +181,13 @@ export function PricingBoard({
                 options={chargeable.map((c) => ({ value: c, label: `${SYMBOL[c]} ${c}`, testId: `pricing-currency-${c}` }))}
               />
             ) : (
-              <span
-                data-testid={`pricing-currency-${currency}`}
-                className="inline-flex h-8 items-center rounded-ctl border border-rule-2 bg-paper-2 px-3 text-ui font-semibold text-fg"
-              >
+              <span data-testid={`pricing-currency-${currency}`} className={s.chip}>
                 {SYMBOL[currency]} {currency}
               </span>
             )}
           </div>
-          <div data-testid="pricing-interval" className="flex items-center gap-2">
-            <span className="text-meta font-semibold text-fg-2">Billing</span>
+          <div data-testid="pricing-interval" className={s.control}>
+            <span className={s.controlLabel}>Billing</span>
             <Toggle
               label="Billing period"
               value={interval}
@@ -186,7 +199,7 @@ export function PricingBoard({
                   label: (
                     <>
                       Annual
-                      {months ? <span className="ml-1.5 font-medium text-ok">save {months} months</span> : null}
+                      {months ? <span className={s.saving}>save {months} months</span> : null}
                     </>
                   ),
                   testId: "pricing-interval-ANNUAL",
@@ -195,20 +208,20 @@ export function PricingBoard({
             />
           </div>
         </div>
-        <p className="text-meta text-fg-3">{checkoutNote}</p>
+        <p className={s.note}>{checkoutNote}</p>
         {locked ? (
-          <p role="status" data-testid="pricing-currency-locked" className="text-meta font-semibold text-warn">
+          <p role="status" data-testid="pricing-currency-locked" className={s.locked}>
             {persist?.reason ?? "The currency is fixed because this workspace has a payment."}
           </p>
         ) : null}
         {error ? (
-          <p role="alert" className="text-meta font-semibold text-fail">
+          <p role="alert" className={s.error}>
             {error}
           </p>
         ) : null}
       </div>
 
-      <div className="hb-stagger grid border-t border-rule sm:grid-cols-2 xl:grid-cols-4">
+      <Reveal className={s.plans}>
         {ladderPlans.map((plan, i) => {
           const price = plan.prices[currency];
           const otherPrice = plan.prices[other];
@@ -218,77 +231,71 @@ export function PricingBoard({
           const saving = annualSavingMinor(price);
           const current = currentTier === plan.tier;
           const recommended = plan.tier === RECOMMENDED_TIER;
-          const key = `${currency}-${interval}`;
+          // Clients and active domains are the station's label; the rest of
+          // the limits are listed under the button.
+          const otherLimits = limitRows(plan).slice(2);
           return (
             <article
               key={plan.tier}
               data-plan={plan.tier}
               data-recommended={recommended || undefined}
               aria-labelledby={`plan-${plan.tier}`}
-              style={{ "--i": i } as React.CSSProperties}
-              className={clsx(
-                "relative row-span-6 grid grid-rows-subgrid gap-y-0 border-b border-rule px-0 pb-7 pt-6 sm:px-5",
-                i > 0 && "sm:border-l",
-                i === 2 && "sm:border-l-0 xl:border-l",
-              )}
+              style={{ "--i": i } as CSSProperties}
+              className={s.plan}
             >
-              {/* The recommendation is structural: one accent hairline laid
-                  over the top rule of this card only. No fill, no shadow,
-                  nothing that moves the layout or the price. */}
-              {recommended ? <span aria-hidden className="absolute inset-x-0 -top-px h-px bg-act" /> : null}
-              <header>
-                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                  <h2 id={`plan-${plan.tier}`} className="wide text-[22px] font-bold tracking-[-0.02em] text-fg">
-                    {plan.label}
-                  </h2>
-                  {current ? (
-                    <span className="text-meta font-semibold text-act">Your plan</span>
-                  ) : recommended ? (
-                    <span data-testid="plan-recommended" className="relative pb-[3px] text-meta font-semibold text-act">
-                      Recommended for agencies
-                      <span aria-hidden className="hb-rule-draw absolute inset-x-0 bottom-0 h-px bg-act" />
-                    </span>
-                  ) : null}
-                </div>
-                <p className="mt-1 text-ui text-fg-2">{plan.descriptor}</p>
-              </header>
+              <div>
+                <span aria-hidden className={s.station} data-here={current ? "" : undefined} />
+                <h2 id={`plan-${plan.tier}`} className={s.name}>
+                  {plan.label}
+                </h2>
+                <p className={s.capacity}>{capacity(plan)}</p>
+                {current ? (
+                  <p className={s.marker}>Your plan</p>
+                ) : recommended ? (
+                  <p data-testid="plan-recommended" className={s.marker}>
+                    Recommended for agencies
+                  </p>
+                ) : null}
+              </div>
 
-              <div className="mt-5 flex items-baseline gap-0.5 text-fg">
+              <p className={s.desc}>{plan.descriptor}</p>
+
+              <div className={s.figure}>
                 {freePlan ? (
-                  <span key={key} data-testid={`plan-price-${plan.tier}`} className="hb-figure display text-[46px] leading-none">
+                  <span key={key} data-testid={`plan-price-${plan.tier}`} className={s.amount}>
                     Free
                   </span>
                 ) : (
-                  <span key={key} className="tnum flex items-baseline [animation:hb-rise_220ms_ease-out_both]">
-                    <span className="mr-0.5 text-[26px] font-semibold text-fg-2">{SYMBOL[currency]}</span>
-                    <span data-testid={`plan-price-${plan.tier}`} className="display text-[46px] leading-none">
+                  <span key={key} className={s.amountRow}>
+                    <span className={s.symbol}>{SYMBOL[currency]}</span>
+                    <span data-testid={`plan-price-${plan.tier}`} className={s.amount}>
                       {formatMajor(shown(price, interval), currency)}
                     </span>
                   </span>
                 )}
               </div>
 
-              <div key={`${key}-sub`} className="mt-2 flex flex-col gap-0.5 text-meta text-fg-2 [animation:hb-rise_220ms_ease-out_both]">
+              <div key={`${key}-sub`} className={s.terms}>
                 {freePlan ? (
                   <>
-                    <span className="font-semibold text-fg">No card needed</span>
+                    <b>No card needed</b>
                     <span>Every account starts here.</span>
                   </>
                 ) : interval === "monthly" ? (
                   <>
-                    <span className="font-semibold text-fg">per month</span>
+                    <b>per month</b>
                     <span>
                       or <span className="tnum">{formatMinor(price.annualMinor, currency)}</span> a year
                       {saving > 0 ? <> (saves <span className="tnum">{formatMinor(saving, currency)}</span>)</> : null}
                     </span>
-                    <span className="text-fg-3">
+                    <span className={s.dim}>
                       List price in {other}: <span className="tnum">{formatMinor(otherPrice.monthlyMinor, other)}</span> a month
                     </span>
                   </>
                 ) : (
                   <>
-                    <span className="font-semibold text-fg">per year, paid once</span>
-                    <span className={saving > 0 ? "text-ok" : undefined}>
+                    <b>per year, paid once</b>
+                    <span>
                       {saving > 0 ? (
                         <>
                           Saves <span className="tnum">{formatMinor(saving, currency)}</span> on 12 monthly payments
@@ -297,57 +304,60 @@ export function PricingBoard({
                         "Same as paying monthly"
                       )}
                     </span>
-                    <span className="text-fg-3">
+                    <span className={s.dim}>
                       List price in {other}: <span className="tnum">{formatMinor(otherPrice.annualMinor, other)}</span> a year
                     </span>
                   </>
                 )}
               </div>
 
-              <div className="mt-5">
+              <div className={s.cta}>
                 <ButtonLink
                   href={signedIn ? "/billing" : "/sign-up"}
                   variant={!signedIn && freePlan ? "primary" : "secondary"}
-                  className="w-full justify-center"
+                  size="lg"
                   data-testid={`plan-cta-${plan.tier}`}
                 >
                   {current ? "Manage on Billing" : !signedIn && freePlan ? "Start free" : `Choose ${plan.label}`}
                 </ButtonLink>
               </div>
 
-              <dl className="mt-6 grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 border-t border-rule pt-3 text-ui">
-                {limitRows(plan).map(([k, v]) => (
-                  <div key={k} className="col-span-2 grid grid-cols-subgrid py-0.5">
-                    <dt className="text-fg-2">{k}</dt>
-                    <dd className="tnum text-right font-semibold text-fg">{v}</dd>
+              <dl className={s.limits}>
+                {otherLimits.map(([k, v]) => (
+                  <div key={k}>
+                    <dt>{k}</dt>
+                    <dd>{v}</dd>
                   </div>
                 ))}
               </dl>
 
-              <div className="mt-5">
-                {previous ? (
-                  <p className="text-meta font-semibold text-fg-2">
-                    Everything in {previous.label}, plus
-                  </p>
-                ) : (
-                  <p className="text-meta font-semibold text-fg-2">Includes</p>
-                )}
-                <ul className="mt-2 flex flex-col gap-1.5 text-ui text-fg">
+              <div className={s.adds}>
+                <p className={s.addsHead}>{previous ? `Everything in ${previous.label}, plus` : "Includes"}</p>
+                <ul className={s.addsList}>
                   {added.map((k) => (
-                    <li key={k} className="grid grid-cols-[16px_minmax(0,1fr)] gap-1.5">
-                      <Check size={13} className="mt-[3px] text-ok" aria-hidden />
-                      <span>{planFeatureLabel(k)}</span>
-                    </li>
+                    <li key={k}>{planFeatureLabel(k)}</li>
                   ))}
-                  {added.length === 0 && previous ? (
-                    <li className="text-fg-3">Higher limits; no added features.</li>
-                  ) : null}
+                  {added.length === 0 && previous ? <li data-none="">Higher limits; no added features.</li> : null}
                 </ul>
               </div>
             </article>
           );
         })}
-      </div>
+      </Reveal>
+
+      {(free && !signedIn) || recommendation ? (
+        <div className={s.notes}>
+          {recommendation ? (
+            <p>
+              <b>Why we recommend {recommendation.label} to agencies:</b> it is the first plan with what you hand to a
+              client: {recommendation.reasons}.
+            </p>
+          ) : null}
+          {free && !signedIn ? (
+            <p>Every account starts on {free.label}. Move to another plan from Billing whenever the client book needs it.</p>
+          ) : null}
+        </div>
+      ) : null}
 
       {perDomainPlan ? (
         <FleetCard
@@ -360,57 +370,55 @@ export function PricingBoard({
         />
       ) : null}
 
-      {(free && !signedIn) || recommendation ? (
-        <div className="-mt-6 flex flex-col gap-1 text-meta text-fg-3">
-          {recommendation ? (
-            <p>
-              <span className="font-semibold text-fg-2">Why we recommend {recommendation.label} to agencies:</span> it is the
-              first plan with what you hand to a client: {recommendation.reasons}.
-            </p>
-          ) : null}
-          {free && !signedIn ? (
-            <p>Every account starts on {free.label}. Move to another plan from Billing whenever the client book needs it.</p>
-          ) : null}
-        </div>
-      ) : null}
-
       {between}
 
-      <section aria-labelledby="compare-head" className="flex flex-col gap-4">
-        <div>
-          <h2 id="compare-head" className="wide text-h2 font-bold tracking-[-0.02em] text-fg">
-            Compare everything
-          </h2>
-          <p className="mt-1 text-ui text-fg-2">
-            Every limit and every feature, on the four plans above. Fleet is priced per active domain and has the same
-            features as Harbor; its limits are on its card. Clients and active domains are counted across every workspace
-            an account owns; team members are counted per workspace. Prices in {currency},{" "}
-            {interval === "monthly" ? "per month" : "per year"}.
-          </p>
+      <section aria-labelledby="compare-head" className={s.section}>
+        <h2 id="compare-head" className={s.h2}>
+          Compare everything
+        </h2>
+        <p className={s.compareNote}>
+          Every limit and every feature, on the four plans above. Fleet is priced per active domain and has the same
+          features as Harbor; its limits are on its card. Clients and active domains are counted across every workspace
+          an account owns; team members are counted per workspace. Prices in {currency},{" "}
+          {interval === "monthly" ? "per month" : "per year"}.
+        </p>
+        <div className={s.legend} aria-hidden>
+          <span>
+            <span className={s.legendLine}>
+              <span />
+            </span>
+            On the plan
+          </span>
+          <span>
+            <span className={s.legendLine} data-off="">
+              <span />
+            </span>
+            Not on the plan
+          </span>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] border-collapse text-left text-ui">
+        <div className={s.scroll}>
+          <table className={s.table}>
             <thead>
-              <tr className="border-b border-rule-2">
-                <th scope="col" className="sticky left-0 z-[1] w-[34%] bg-paper py-2.5 pr-4">
+              <tr>
+                <th scope="col">
                   <span className="sr-only">Plan detail</span>
                 </th>
                 {ladderPlans.map((p) => (
-                  <th key={p.tier} scope="col" className="px-3 py-2.5 font-bold text-fg">
+                  <th key={p.tier} scope="col">
                     {p.label}
-                    {currentTier === p.tier ? <span className="ml-1.5 text-meta font-semibold text-act">yours</span> : null}
+                    {currentTier === p.tier ? <span className={s.yours}>yours</span> : null}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              <tr className="border-b border-rule">
-                <th scope="row" className={ROW_HEAD}>
+              <tr>
+                <th scope="row" className={s.rowHead}>
                   Price
                 </th>
                 {ladderPlans.map((p) => (
-                  <td key={p.tier} className="tnum px-3 py-2.5 font-semibold text-fg">
-                    <span key={`${currency}-${interval}`} className="hb-figure">
+                  <td key={p.tier} className={`${s.value} ${s.price}`}>
+                    <span key={key}>
                       {isFree(p.prices[currency]) ? "Free" : formatMinor(shown(p.prices[currency], interval), currency)}
                     </span>
                   </td>
@@ -418,43 +426,39 @@ export function PricingBoard({
               </tr>
               <GroupRow label="Limits" span={ladderPlans.length + 1} />
               {limitRows(ladderPlans[0] ?? null, "table").map(([label], row) => (
-                <tr key={label} className="border-b border-rule">
-                  <th scope="row" className={ROW_HEAD}>
+                <tr key={label}>
+                  <th scope="row" className={s.rowHead}>
                     {label}
                   </th>
                   {ladderPlans.map((p) => (
-                    <td key={p.tier} className="tnum px-3 py-2.5 text-fg">
+                    <td key={p.tier} className={s.value}>
                       {limitRows(p, "table")[row]?.[1]}
                     </td>
                   ))}
                 </tr>
               ))}
               <GroupRow label="Features" span={ladderPlans.length + 1} />
-              {features.map((k) => (
-                <tr key={k} className="border-b border-rule">
-                  <th scope="row" className={ROW_HEAD}>
-                    {planFeatureLabel(k)}
-                  </th>
-                  {ladderPlans.map((p) => {
-                    const on = p.features[k as keyof PlanDefinition["features"]] === true;
-                    return (
-                      <td key={p.tier} className="px-3 py-2.5">
-                        {on ? (
-                          <span className="text-ok">
-                            <Check size={14} />
-                            <span className="sr-only">Included</span>
-                          </span>
-                        ) : (
-                          <span className="text-fg-4">
-                            <span aria-hidden>–</span>
-                            <span className="sr-only">Not included</span>
-                          </span>
-                        )}
+              {features.map((k) => {
+                const on = ladderPlans.map((p) => p.features[k as keyof PlanDefinition["features"]] === true);
+                return (
+                  <tr key={k}>
+                    <th scope="row" className={s.rowHead}>
+                      {planFeatureLabel(k)}
+                    </th>
+                    {ladderPlans.map((p, i) => (
+                      <td
+                        key={p.tier}
+                        className={s.cell}
+                        data-l={i === 0 ? "none" : on[i - 1] && on[i] ? "on" : "off"}
+                        data-r={i === ladderPlans.length - 1 ? "none" : on[i] && on[i + 1] ? "on" : "off"}
+                      >
+                        <span aria-hidden className={s.stop} data-on={on[i] ? "" : undefined} />
+                        <span className="sr-only">{on[i] ? "Included" : "Not included"}</span>
                       </td>
-                    );
-                  })}
-                </tr>
-              ))}
+                    ))}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -485,7 +489,7 @@ function limitRows(plan: PlanDefinition | null, where: "card" | "table" = "card"
 function GroupRow({ label, span }: { label: string; span: number }) {
   return (
     <tr>
-      <th scope="colgroup" colSpan={span} className="legend sticky left-0 pb-1.5 pt-5 text-left">
+      <th scope="colgroup" colSpan={span} className={s.group}>
         {label}
       </th>
     </tr>
@@ -493,11 +497,13 @@ function GroupRow({ label, span }: { label: string; span: number }) {
 }
 
 /**
- * The per-domain plan, below the ladder rather than a fifth column.
+ * The per-domain plan, below the ladder rather than a fifth station.
  *
- * Its unit price is not comparable with a flat monthly price, and putting it in
- * the grid would invite exactly that comparison. The minimum is stated with the
- * total it produces, because "$2" alone reads as the monthly bill.
+ * Its unit price is not comparable with a flat monthly price, and putting it on
+ * the same line would invite exactly that comparison. So it is its own line:
+ * the stops are its volume bands, and the price per domain falls as the line
+ * runs on. The minimum is stated with the total it produces, because "$2"
+ * alone reads as the monthly bill.
  */
 function FleetCard({
   plan,
@@ -521,95 +527,96 @@ function FleetCard({
   const bandRows = fleetBandRows(plan, currency);
 
   return (
-    <article
-      data-plan-per-domain={plan.tier}
-      aria-labelledby={`plan-${plan.tier}`}
-      className="grid gap-x-10 gap-y-5 border-y border-rule bg-paper-2/50 px-0 py-7 sm:px-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)_minmax(0,0.8fr)] lg:items-start"
-    >
-      <header>
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <h2 id={`plan-${plan.tier}`} className="wide text-[24px] font-bold tracking-[-0.02em] text-fg">
+    <article data-plan-per-domain={plan.tier} aria-labelledby={`plan-${plan.tier}`} className={s.fleet}>
+      <div>
+        <div className={s.fleetHead}>
+          <h2 id={`plan-${plan.tier}`} className={s.fleetName}>
             {plan.label}
           </h2>
-          {isCurrent ? <span className="text-meta font-semibold text-act">Your plan</span> : null}
-          <span data-testid="fleet-minimum-label" className="text-meta font-semibold text-fg-3">
+          {isCurrent ? <span className={s.fleetMinimum}>Your plan</span> : null}
+          <span data-testid="fleet-minimum-label" className={s.fleetMinimum}>
             Minimum {minimum} domains
           </span>
         </div>
-        <p className="mt-1.5 max-w-[56ch] text-ui text-fg-2">{plan.descriptor}</p>
-        <p className="mt-2 text-meta text-fg-3">Everything in {baseLabel}.</p>
+        <p className={s.fleetDesc}>{plan.descriptor}</p>
+        <p className={s.fleetBase}>Everything in {baseLabel}.</p>
         {/* Fleet's limits were in the catalog and nowhere on the page. */}
-        <dl data-testid="fleet-limits" className="mt-3 grid max-w-[22rem] grid-cols-[minmax(0,1fr)_auto] gap-x-3 text-meta">
+        <dl data-testid="fleet-limits" className={`${s.limits} ${s.fleetLimits}`}>
           {limitRows(plan).map(([k, v]) => (
-            <div key={k} className="col-span-2 grid grid-cols-subgrid py-0.5">
-              <dt className="text-fg-2">{k}</dt>
-              <dd className="tnum text-right font-semibold text-fg">{v}</dd>
+            <div key={k}>
+              <dt>{k}</dt>
+              <dd>{v}</dd>
             </div>
           ))}
         </dl>
-      </header>
+      </div>
 
-      <div className="flex flex-col gap-1">
-        <p className="flex flex-wrap items-baseline gap-x-1.5 text-fg">
-          <span className="text-[22px] font-semibold text-fg-2">{SYMBOL[currency]}</span>
-          <span data-testid="fleet-price" className="tnum display text-[38px] leading-none">
-            {formatMajor(unit, currency)}
+      <div>
+        <p className={s.fleetPrice}>
+          <span className={s.amountRow}>
+            <span className={s.symbol}>{SYMBOL[currency]}</span>
+            <span data-testid="fleet-price" className={s.amount}>
+              {formatMajor(unit, currency)}
+            </span>
           </span>
-          <span className="text-meta font-semibold text-fg-2">per active domain a month{bandRows.length > 1 ? ", falling with volume" : ""}</span>
+          <span className={s.fleetPer}>
+            per active domain a month{bandRows.length > 1 ? ", falling with volume" : ""}
+          </span>
         </p>
-        <p data-testid="fleet-minimum" className="text-meta text-fg-2">
+        <p data-testid="fleet-minimum" className={s.fleetMinLine}>
           At least <span className="tnum">{minimum}</span> domains are billed, so the smallest bill is{" "}
           <span className="tnum">{formatMinor(minimumTotal, currency)}</span> a month.
         </p>
+
         {/* The price per domain falls with volume. Each band's minimum is shown
             as what that monthly amount covers, so a flat stretch reads as an
             allowance rather than as being billed for domains you do not have. */}
-        <table data-testid="fleet-bands" className="mt-1 w-full max-w-[26rem] text-meta">
-          <caption className="sr-only">Price per active domain by volume</caption>
-          <tbody>
+        <Reveal className={s.bandsWrap}>
+          <ol
+            data-testid="fleet-bands"
+            aria-label="Price per active domain by volume"
+            className={s.bands}
+            style={{ "--bands": bandRows.length } as CSSProperties}
+          >
             {bandRows.map((row, index) => (
-              <tr key={row.upTo} className="border-t border-rule">
-                <th scope="row" className="tnum py-1 pr-3 text-left font-medium text-fg-2">
-                  {index === 0 ? `Up to ${row.upTo.toLocaleString("en-GB")}` : `${row.from.toLocaleString("en-GB")} to ${row.upTo.toLocaleString("en-GB")}`}
-                </th>
-                <td className="tnum py-1 pr-3 text-right font-semibold text-fg">{formatMinor(row.unitMinor, currency)} each</td>
-                <td className="tnum py-1 text-right text-fg-3">
-                  {formatMinor(row.minimumTotalMinor, currency)} covers up to {row.minimum.toLocaleString("en-GB")}
-                </td>
-              </tr>
+              <li key={row.upTo} className={s.band} style={{ "--i": index } as CSSProperties}>
+                <p className={s.bandRange}>
+                  {index === 0 ? `Up to ${count(row.upTo)}` : `${count(row.from)} to ${count(row.upTo)}`}
+                </p>
+                <p className={s.bandUnit}>{formatMinor(row.unitMinor, currency)} each</p>
+                <p className={s.bandMin}>
+                  <span className="whitespace-nowrap">{formatMinor(row.minimumTotalMinor, currency)}</span>{" "}
+                  <span className="whitespace-nowrap">covers up to {count(row.minimum)}</span>
+                </p>
+              </li>
             ))}
-          </tbody>
-        </table>
-        <p className="text-meta font-semibold text-fg-2">
-          {monthlyOnly ? (interval === "annual" ? "Billed monthly only" : "Billed monthly") : "Billed per interval"}
-        </p>
-        <p className="text-meta text-fg-3">
-          Billed at the active-domain count measured before each period starts. No proration.
-        </p>
-      </div>
+          </ol>
+        </Reveal>
 
-      <div className="flex flex-col items-start gap-2">
-        <ButtonLink
-          href={signedIn ? "/billing" : "/sign-up"}
-          variant="secondary"
-          className="w-full justify-center sm:w-auto"
-          data-testid="fleet-cta"
-        >
-          {isCurrent ? "Manage on Billing" : `Choose ${plan.label}`}
-        </ButtonLink>
-        <p className="text-meta text-fg-2">
-          Up to 300 domains, Admiralty includes your own domain and SSO. Need them for more than 300 domains?{" "}
-          <a href="/support" className="link font-semibold">
-            Contact us
-          </a>
-          .
+        <p className={s.fleetBilling}>
+          <b>{monthlyOnly ? (interval === "annual" ? "Billed monthly only" : "Billed monthly") : "Billed per interval"}</b>,
+          at the active-domain count measured before each period starts. No proration.
         </p>
+
+        <div className={s.fleetAction}>
+          <ButtonLink href={signedIn ? "/billing" : "/sign-up"} variant="secondary" size="lg" data-testid="fleet-cta">
+            {isCurrent ? "Manage on Billing" : `Choose ${plan.label}`}
+          </ButtonLink>
+          <p className={s.fleetSupport}>
+            Up to 300 domains, Admiralty includes your own domain and SSO. Need them for more than 300 domains?{" "}
+            <a href="/support" className="link font-semibold">
+              Contact us
+            </a>
+            .
+          </p>
+        </div>
       </div>
     </article>
   );
 }
 
-/** Two to four exclusive choices: native radios, so arrow keys work. */
+/** Two to four exclusive choices: native radios, so arrow keys work. A pill
+ *  track with the chosen option filled, as the shared Segmented control. */
 function Toggle<T extends string>({
   label,
   value,
@@ -625,21 +632,12 @@ function Toggle<T extends string>({
 }) {
   const name = useId();
   return (
-    <fieldset disabled={disabled} className="inline-flex rounded-ctl border border-rule-2 bg-paper-3 p-[2px] disabled:opacity-60">
+    <fieldset disabled={disabled} className={s.track}>
       <legend className="sr-only">{label}</legend>
       {options.map((o) => {
         const on = o.value === value;
         return (
-          <label
-            key={o.value}
-            data-testid={o.testId}
-            className={clsx(
-              "relative inline-flex h-7 cursor-pointer items-center rounded-[2px] px-3 text-ui font-semibold transition-colors duration-100",
-              "has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-act",
-              "has-[:disabled]:cursor-not-allowed",
-              on ? "bg-paper-2 text-fg shadow-[0_0_0_1px_var(--color-rule-2)]" : "text-fg-3 hover:text-fg",
-            )}
-          >
+          <label key={o.value} data-testid={o.testId} data-on={on ? "" : undefined} className={s.option}>
             <input
               type="radio"
               name={name}

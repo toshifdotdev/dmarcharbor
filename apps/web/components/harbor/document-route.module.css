@@ -1,0 +1,506 @@
+/*
+ * document-route.module.css — the figures in the documents that leave the
+ * product (share report, client portal, prospect check), in the Routes
+ * language (.kiro/steering/design-system.md).
+ *
+ * Two drawings, both strip maps, so they stay legible at any width and print
+ * as they look:
+ *
+ *   .route   how one domain's mail was handled: a row per source, its line
+ *            running from an origin through the DMARC check and the domain's
+ *            policy to the inbox, or turned away at a short red bar.
+ *   .policy  where a domain stands on the way to blocking forgeries: three
+ *            stations (monitor, spam, block), travelled in ink, the step an
+ *            approval would take drawn dashed, the way a map draws a line
+ *            under construction.
+ *
+ * Positions along a track are fractions in custom properties; every stop is
+ * placed with the same formula, so a column of stops lines up across rows.
+ */
+
+/* ── Figure frame: an open drawing with a head and a caption ─────────── */
+
+.figure {
+  min-width: 0;
+  margin: 0;
+}
+
+.figHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-rule);
+}
+
+.figName {
+  color: var(--color-fg);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  overflow-wrap: anywhere;
+}
+
+.figMeta {
+  color: var(--color-fg-4);
+  font-size: 14px;
+}
+
+.caption {
+  margin-top: 12px;
+  max-width: 72ch;
+  color: var(--color-fg-4);
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+/* ── The route: a row per source ─────────────────────────────────────── */
+
+.route {
+  --a: 0.4;
+  --b: 0.7;
+  --r: 0.86;
+}
+
+.row,
+.scale {
+  display: grid;
+  grid-template-areas:
+    "who out"
+    "track track";
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 16px;
+}
+
+.scale {
+  grid-template-areas: "track";
+  grid-template-columns: minmax(0, 1fr);
+  padding: 16px 0 4px;
+}
+
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  align-items: center;
+  padding: 14px 0 12px;
+  border-bottom: 1px solid var(--color-rule);
+}
+
+.who {
+  grid-area: who;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  min-width: 0;
+  margin: 0;
+}
+
+.name {
+  color: var(--color-fg);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  overflow-wrap: anywhere;
+}
+
+.name[data-mono] {
+  font-family: var(--font-data);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.kind {
+  color: var(--color-fg-4);
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.out {
+  grid-area: out;
+  margin: 0;
+  color: var(--color-fg-2);
+  font-size: 14px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.out b {
+  font-weight: 700;
+}
+
+.out[data-tone="ok"] b {
+  color: var(--color-ok);
+}
+
+.out[data-tone="fail"] b {
+  color: var(--color-fail);
+}
+
+.out span {
+  margin-left: 6px;
+  color: var(--color-fg-4);
+}
+
+/* A track: the strip itself. Stops sit at --p along it. */
+.track {
+  grid-area: track;
+  position: relative;
+  height: 30px;
+}
+
+.at {
+  position: absolute;
+  top: 50%;
+  left: calc(12px + (100% - 24px) * var(--p));
+}
+
+.seg {
+  position: absolute;
+  top: 50%;
+  left: calc(12px + (100% - 24px) * var(--from));
+  width: calc((100% - 24px) * (var(--to) - var(--from)));
+  height: 5px;
+  margin-top: -2.5px;
+  border-radius: 3px;
+  background: var(--line);
+}
+
+/* Failed mail: the dashed red line. */
+.row[data-failing] .seg {
+  border-radius: 0;
+  background: repeating-linear-gradient(90deg, var(--color-fail) 0 9px, transparent 9px 15px);
+}
+
+.origin {
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border: 3px solid var(--color-fg);
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+.row[data-failing] .origin {
+  border-color: var(--color-fail);
+}
+
+/* A station lies across the line: a short upright capsule. */
+.station {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 26px;
+  margin: -13px 0 0 -8px;
+  border: 3px solid var(--color-fg);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+/* Absent: hollow and grey, the transit map's closed station. */
+.station[data-closed] {
+  border-color: var(--color-rule-2);
+}
+
+.cross {
+  display: block;
+  width: 8px;
+  height: 8px;
+}
+
+/* The inbox: the larger capsule at the end of the line. */
+.terminus {
+  width: 20px;
+  height: 30px;
+  margin: -15px 0 0 -10px;
+  border: 3px solid var(--color-fg);
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+/* Turned away: a short red bar. */
+.bar {
+  width: 5px;
+  height: 24px;
+  margin: -12px 0 0 -2.5px;
+  border-radius: 1.5px;
+  background: var(--color-fail);
+}
+
+/* The spam folder: a small capsule off the inbox line. */
+.spam {
+  width: 14px;
+  height: 22px;
+  margin: -11px 0 0 -7px;
+  border: 3px solid var(--color-fg);
+  border-radius: 7px;
+  background: #ffffff;
+}
+
+/* The scale above the rows: each station's name over its column. */
+.scaleTrack {
+  grid-area: track;
+  position: relative;
+  height: 36px;
+}
+
+.stop {
+  position: absolute;
+  bottom: 0;
+  left: calc(12px + (100% - 24px) * var(--p));
+  transform: translateX(-50%);
+  color: var(--color-fg);
+  font-size: 13.5px;
+  line-height: 17px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.stop[data-end] {
+  left: auto;
+  right: 0;
+  transform: none;
+  text-align: right;
+}
+
+.stop b {
+  display: block;
+  font-weight: 700;
+}
+
+.stop span {
+  display: block;
+  color: var(--color-fg-4);
+  font-size: 12.5px;
+}
+
+.stop[data-closed] b {
+  color: var(--color-fg-4);
+}
+
+/* ── The policy strip: monitor, spam, block ──────────────────────────── */
+
+.policy {
+  position: relative;
+  height: 24px;
+}
+
+.policy::before,
+.travel,
+.plan {
+  position: absolute;
+  top: 50%;
+  height: 5px;
+  margin-top: -2.5px;
+}
+
+.policy::before {
+  content: "";
+  right: 11px;
+  left: 11px;
+  border-radius: 3px;
+  background: var(--color-rule);
+}
+
+/* Not measured: the line is dotted, the stations closed. */
+.policy[data-void]::before {
+  background: repeating-linear-gradient(90deg, var(--color-rule-2) 0 4px, transparent 4px 10px);
+}
+
+.travel {
+  left: 11px;
+  width: calc((100% - 22px) * var(--at));
+  border-radius: 3px;
+  background: var(--color-fg);
+}
+
+/* Ready but not taken: dashed, the way a map draws a line being built. */
+.plan {
+  left: calc(11px + (100% - 22px) * var(--at));
+  width: calc((100% - 22px) * (var(--to) - var(--at)));
+  background: repeating-linear-gradient(90deg, var(--color-fg) 0 8px, transparent 8px 14px);
+}
+
+.pStop {
+  position: absolute;
+  top: 50%;
+  left: calc(11px + (100% - 22px) * var(--p));
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border: 3px solid var(--color-rule-2);
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+.pStop[data-reached] {
+  border-color: var(--color-fg);
+}
+
+.pStop[data-here] {
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  border-width: 4px;
+}
+
+.pScale {
+  position: relative;
+  height: 18px;
+  color: var(--color-fg-4);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pScale span {
+  position: absolute;
+  top: 0;
+}
+
+.pScale span:nth-child(1) {
+  left: 0;
+}
+
+.pScale span:nth-child(2) {
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.pScale span:nth-child(3) {
+  right: 0;
+}
+
+.pScale span[data-here] {
+  color: var(--color-fg);
+}
+
+/* ── Widths ──────────────────────────────────────────────────────────── */
+
+@media (min-width: 900px) {
+  .row,
+  .scale {
+    grid-template-areas: "who track out";
+    grid-template-columns: minmax(0, 15rem) minmax(0, 1fr) minmax(0, 11rem);
+    column-gap: 32px;
+  }
+
+  .scale {
+    grid-template-columns: minmax(0, 15rem) minmax(0, 1fr) minmax(0, 11rem);
+  }
+
+  .who {
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .out {
+    text-align: left;
+    white-space: normal;
+  }
+
+  .out span {
+    display: block;
+    margin-left: 0;
+  }
+}
+
+/* A phone sets the station names on one line each, without their kind. */
+@media (max-width: 639px) {
+  .stop span {
+    display: none;
+  }
+
+  .scaleTrack {
+    height: 20px;
+  }
+}
+
+@media print {
+  .row {
+    break-inside: avoid;
+  }
+
+  .seg,
+  .travel,
+  .plan,
+  .bar,
+  .policy::before {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}
+
+/* ── Steps: findings as stations on one line, read top to bottom ─────── */
+
+/*
+ * A list of things to do is a line not built yet: each step a station, the
+ * segments between them dashed (the map's line under construction). Things
+ * already in place are the travelled line, solid ink.
+ */
+.steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  column-gap: 20px;
+  padding-bottom: 40px;
+}
+
+.step:last-child {
+  padding-bottom: 0;
+}
+
+/* From this station to the next: drawn on the step, so it spans the gap. */
+.step::before {
+  content: "";
+  position: absolute;
+  top: 18px;
+  bottom: -4px;
+  left: 11.5px;
+  width: 5px;
+  background: repeating-linear-gradient(180deg, var(--color-fg) 0 8px, transparent 8px 14px);
+}
+
+.steps[data-done] .step::before {
+  border-radius: 3px;
+  background: var(--color-fg);
+}
+
+.step:last-child::before {
+  content: none;
+}
+
+/* The station lies across the line. */
+.stepCap {
+  position: relative;
+  z-index: 1;
+  width: 28px;
+  height: 16px;
+  margin-top: 3px;
+  border: 3px solid var(--color-fg);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+@media print {
+  .step {
+    break-inside: avoid;
+  }
+
+  .step::before {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}

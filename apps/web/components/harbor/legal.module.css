@@ -1,0 +1,173 @@
+/*
+ * legal.module.css — the public document set in the Routes language
+ * (.kiro/steering/design-system.md).
+ *
+ * The contents list is a line with a stop per section: the sections already
+ * read are travelled in ink, the one being read is the larger stop, and the
+ * rest of the line is unbuilt (rule). A long agreement reads as a route, and
+ * the reader always knows where on it they are.
+ */
+
+/* ── Contents: one line, a stop per section ──────────────────────────── */
+
+.contents {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  position: relative;
+  padding: 0 0 12px 26px;
+}
+
+.item:last-child {
+  padding-bottom: 0;
+}
+
+/* Above the stop and below it: two halves, so the line can be travelled up
+   to the section being read and unbuilt after it. */
+.item::before,
+.item::after {
+  content: "";
+  position: absolute;
+  left: 5.5px;
+  width: 3px;
+  background: var(--color-rule);
+}
+
+.item::before {
+  top: 0;
+  height: 9px;
+}
+
+.item::after {
+  top: 9px;
+  bottom: 0;
+}
+
+.item:first-child::before,
+.item:last-child::after {
+  content: none;
+}
+
+.item[data-state="past"]::before,
+.item[data-state="past"]::after,
+.item[data-state="here"]::before {
+  background: var(--color-fg);
+}
+
+.stop {
+  position: absolute;
+  z-index: 1;
+  top: 3px;
+  left: 1px;
+  width: 12px;
+  height: 12px;
+  border: 2.5px solid var(--color-rule-2);
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+.item[data-state="past"] .stop {
+  border-color: var(--color-fg);
+}
+
+.item[data-state="here"] .stop {
+  top: 1px;
+  left: -1px;
+  width: 16px;
+  height: 16px;
+  border-width: 3.5px;
+  border-color: var(--color-fg);
+}
+
+.link {
+  display: flex;
+  gap: 4px;
+  color: var(--color-fg-4);
+  font-size: 14px;
+  line-height: 18px;
+  text-wrap: pretty;
+  transition: color 120ms ease;
+}
+
+.link:hover {
+  color: var(--color-fg);
+}
+
+.item[data-state="past"] .link {
+  color: var(--color-fg-2);
+}
+
+.item[data-state="here"] .link {
+  color: var(--color-fg);
+  font-weight: 650;
+}
+
+/* A clause number hangs in its own column, so the titles line up. */
+.num {
+  flex: none;
+  min-width: 1.7em;
+  white-space: pre;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── A document heading with its clause number in the margin ─────────── */
+
+.h2 {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 64px 0 0;
+  padding-top: 32px;
+  border-top: 1px solid var(--color-rule);
+  scroll-margin-top: 24px;
+  color: var(--color-fg);
+  font-size: 24px;
+  font-weight: 740;
+  line-height: 1.18;
+  letter-spacing: -0.022em;
+  text-wrap: balance;
+}
+
+.h2:first-child {
+  margin-top: 0;
+}
+
+.h2Num {
+  flex: none;
+  color: var(--color-fg-4);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (min-width: 640px) {
+  .h2 {
+    font-size: 27px;
+  }
+}
+
+@media (min-width: 1100px) {
+  /* The number sits in the gutter left of the text column. */
+  .h2[data-num] .h2Num {
+    position: absolute;
+    left: -64px;
+    width: 52px;
+    text-align: right;
+  }
+}
+
+@media print {
+  .h2 {
+    margin-top: 28px;
+    padding-top: 14px;
+    font-size: 15pt;
+    break-after: avoid;
+  }
+
+  .h2[data-num] .h2Num {
+    position: static;
+    width: auto;
+  }
+}

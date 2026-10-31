@@ -165,18 +165,18 @@ export function ScanHistory({
       </div>
 
       {!verified ? (
-        <p id="scan-unverified" role="status" className="border-l-2 border-warn-mark bg-warn-wash/70 px-3 py-2 text-ui text-fg-2">
+        <p id="scan-unverified" role="status" className="rounded-[10px] border border-warn/30 bg-warn-wash px-3.5 py-2.5 text-ui text-fg-2">
           Ownership of this domain is not verified, so the API refuses a scan against it. Verify the ownership TXT
           record first, from the domain&rsquo;s setup page.
         </p>
       ) : null}
       {notice ? (
-        <p role="status" data-testid="scan-notice" className="border-l-2 border-ok bg-ok-wash/70 px-3 py-2 text-ui text-fg">
+        <p role="status" data-testid="scan-notice" className="rounded-[10px] border border-ok/30 bg-ok-wash px-3.5 py-2.5 text-ui text-fg">
           {notice}
         </p>
       ) : null}
       {error ? (
-        <p role="alert" className="border-l-2 border-fail bg-fail-wash/70 px-3 py-2 text-ui font-medium text-fail">
+        <p role="alert" className="rounded-[10px] border border-fail/30 bg-fail-wash px-3.5 py-2.5 text-ui font-medium text-fail">
           {error}
         </p>
       ) : null}
@@ -418,7 +418,7 @@ function TransportDetails({
           {bimi.logo?.detail ? <p className="mt-1 text-meta text-fg-2">{bimi.logo.detail}</p> : null}
           <p className="mt-2 text-meta text-fg-3">
             {bimi.authorityUrl
-              ? `Certificate published at ${bimi.authorityUrl}. DMARC Harbor does not verify it.`
+              ? `Certificate published at ${bimi.authorityUrl}. It is not verified here.`
               : "No certificate (a=). Gmail shows BIMI logos only with a Verified Mark Certificate or Common Mark Certificate."}
           </p>
           <p className="mt-1 text-meta text-fg-3">
@@ -477,7 +477,7 @@ function ScanDetail({
           : r.dmarc.status === "error"
             ? "lookup failed"
             : "no record found"
-      }${hostedByUs ? " (hosted by DMARC Harbor)" : ""}`,
+      }${hostedByUs ? " (hosted here)" : ""}`,
     ],
     [
       "SPF",
@@ -490,7 +490,7 @@ function ScanDetail({
           : r.spf.status === "error"
             ? "lookup failed"
             : "no record found"
-      }${spfManaged ? " (managed by DMARC Harbor)" : ""}`,
+      }${spfManaged ? " (managed here)" : ""}`,
     ],
     [
       "DKIM",

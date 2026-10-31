@@ -93,7 +93,10 @@ export function ManagedSpf({
   hasFeature,
   spfServices,
   currentSpf,
+  brand = "DMARC Harbor",
 }: {
+  /** The name on this host: the agency's on a verified custom domain. */
+  brand?: string;
   organizationId: string;
   domainId: string;
   domainName: string;
@@ -192,9 +195,9 @@ export function ManagedSpf({
     sync(res.data);
     setNotice(
       res.data.managed?.status === "ACTIVE"
-        ? "The apex now redirects to DMARC Harbor."
+        ? `The apex now redirects to ${brand}.`
         : res.data.managed?.status === "RELEASED"
-          ? "The apex no longer references DMARC Harbor and your own record is published."
+          ? `The apex no longer references ${brand} and your own record is published.`
           : "Checked just now. Nothing has changed yet.",
     );
     router.refresh();
@@ -251,8 +254,8 @@ export function ManagedSpf({
     setConfirmRelease(false);
     setNotice(
       res.data.managed?.status === "RELEASED"
-        ? "Managed SPF stopped at once; the apex never referenced DMARC Harbor."
-        : "Release requested. We keep serving the flattened addresses until the apex stops referencing DMARC Harbor.",
+        ? `Managed SPF stopped at once; the apex never referenced ${brand}.`
+        : `Release requested. We keep serving the flattened addresses until the apex stops referencing ${brand}.`,
     );
     router.refresh();
   }
@@ -282,7 +285,7 @@ export function ManagedSpf({
         </h2>
         {current?.available && !managed ? (
           <p className="mt-1 max-w-[72ch] text-ui text-fg-2">
-            Keep SPF under the 10-lookup limit automatically: DMARC Harbor resolves your sending services to their
+            Keep SPF under the 10-lookup limit automatically: {brand} resolves your sending services to their
             addresses and keeps them current.
           </p>
         ) : null}
@@ -437,7 +440,7 @@ export function ManagedSpf({
           {managed.status === "RELEASED" ? (
             <div className="flex flex-col gap-3">
               <p className="text-ui text-fg-2">
-                This domain no longer reads its SPF record from DMARC Harbor. The TXT you published at the apex is the
+                This domain no longer reads its SPF record from {brand}. The TXT you published at the apex is the
                 record receivers use.
               </p>
               {canEdit && hasFeature !== false && !current.capacity.full ? (
@@ -667,7 +670,7 @@ export function ManagedSpf({
           <div className="flex flex-col gap-2">
             <p>
               Publish the unflattened record at your DNS host and remove our redirect at the same time. We keep serving
-              until a check sees the apex no longer references DMARC Harbor.
+              until a check sees the apex no longer references {brand}.
             </p>
             {managed?.status === "PENDING" ? <p>This record was never delegated, so it is removed at once.</p> : null}
           </div>

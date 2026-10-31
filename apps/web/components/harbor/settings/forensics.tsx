@@ -4,7 +4,10 @@
  * forensics.tsx — per-message failure samples (DMARC ruf reports) for one
  * domain at a time.
  *
- * Three decisions, in order of how much they cost to get wrong:
+ * The line at the top answers "are samples arriving here?" the way the
+ * integration pages do: receivers on one side, this workspace on the other,
+ * the domain's ruf= address as the station between. Then three decisions, in
+ * order of how much they cost to get wrong:
  *   collecting   switching collection on or off. Off deletes nothing.
  *   naming       keeping recipient addresses, subjects and senders. Personal
  *                data: on needs a lawful basis confirmed; off destroys what is
@@ -38,9 +41,10 @@ import { Checkbox, Switch, Textarea } from "@/components/ui/choice";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/field";
 import { KeyValue, Notice } from "@/components/ui/notice";
-import { Table, TBody, Td, TEmptyRow, Th, THead, Tr } from "@/components/ui/table";
+import { Nil, Table, TBody, Td, TEmptyRow, Th, THead, Tr } from "@/components/ui/table";
 import { UpgradeNotice } from "@/components/ui/states";
 import { useToast } from "@/components/ui/toast";
+import { ConnectionLine, type LineState } from "./lines";
 import { DangerZone, Panel } from "./parts";
 
 export interface SampleView {
@@ -204,11 +208,31 @@ export function ForensicsBoard({
     router.refresh();
   }
 
+  const lineState: LineState = state === null ? "unknown" : !state.rufPublished ? "none" : collecting ? "live" : "paused";
+  const lineWord =
+    lineState === "unknown"
+      ? "Collection settings unread"
+      : lineState === "none"
+        ? "Not asked for"
+        : lineState === "live"
+          ? "Collecting"
+          : "Not stored";
+  const lineDetail =
+    lineState === "unknown"
+      ? "Whether samples are being collected is unknown just now."
+      : lineState === "none"
+        ? "Nothing arrives until the domain's record asks for samples."
+        : lineState === "live"
+          ? retention
+            ? `Samples that arrive are kept ${retention.days} days.`
+            : "Samples that arrive are stored."
+          : "Samples that arrive are not stored while this is off.";
+
   return (
     <div className="flex flex-col gap-10">
-      <label className="flex flex-wrap items-center gap-3">
+      <label className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <span className="text-meta font-semibold text-fg-2">Domain</span>
-        <Select value={domain.id} onChange={(e) => router.push(forensicsHref({ domain: e.target.value }))} className="min-w-[300px]">
+        <Select value={domain.id} onChange={(e) => router.push(forensicsHref({ domain: e.target.value }))} className="min-w-[min(100%,300px)]">
           {domains.map((d) => (
             <option key={d.id} value={d.id}>
               {d.name} ({d.clientName})
@@ -217,23 +241,31 @@ export function ForensicsBoard({
         </Select>
       </label>
 
-      <Panel
-        id="fx-collect"
-        title="Collecting samples"
-        why={
-          retention
-            ? `Samples are kept ${retention.days} days. Recipient names, when kept, go after ${retention.piiDays} days.`
-            : "Receivers send a sample of a failing message when the domain's record asks for one."
-        }
-        aside={
-          canCollect && state ? (
-            <span className="flex items-center gap-2 text-ui text-fg-2">
-              <Switch checked={collecting} onChange={toggleCollection} busy={busy === "collect"} label={`Collect samples for ${domain.name}`} />
-              {collecting ? "Collecting" : "Off"}
-            </span>
-          ) : null
-        }
-      >
+      <section aria-labelledby="fx-collect" className="flex flex-col gap-4">
+        <h2 id="fx-collect" className="sr-only">
+          Collecting samples
+        </h2>
+        <ConnectionLine
+          state={lineState}
+          word={lineWord}
+          detail={lineDetail}
+          label={`Receivers to stored samples for ${domain.name}: ${lineWord.toLowerCase()}.`}
+          aside={
+            canCollect && state ? (
+              <>
+                <Switch checked={collecting} onChange={toggleCollection} busy={busy === "collect"} label={`Collect samples for ${domain.name}`} />
+                <span className="text-ui font-medium text-fg-2">{collecting ? "Collecting" : "Off"}</span>
+              </>
+            ) : null
+          }
+          from={{ name: "Receivers", kind: "a sample of each failing message" }}
+          via={{
+            name: <code className="data">ruf=</code>,
+            kind: state && !state.rufPublished ? `missing from ${domain.name}'s record` : `in ${domain.name}'s record`,
+            closed: Boolean(state && !state.rufPublished),
+          }}
+          to={{ name: "Samples", kind: retention ? `kept ${retention.days} days` : "stored here" }}
+        />
         {state === null ? (
           <Notice tone="warn" title="This domain's collection settings could not be read">
             Whether samples are being collected is unknown just now. Reload to try again.
@@ -259,18 +291,33 @@ export function ForensicsBoard({
         ) : (
           <p className="text-ui text-fg-2">
             {collecting
-              ? "Samples that arrive for this domain are stored. Turning this off stops new ones and deletes nothing."
-              : "Samples that arrive are not stored while this is off."}
+              ? "Turning collection off stops new samples and deletes nothing already stored."
+              : "Turning collection on stores the samples that arrive from now on."}
           </p>
         )}
-      </Panel>
+      </section>
 
       <Panel
         id="fx-names"
         title="Recipient names"
         why="By default a sample's recipients, subject and sender are replaced with pseudonyms. Keeping the real values is personal data about people outside your workspace."
-        aside={naming ? <Badge tone="warn">Kept</Badge> : <Badge tone="neutral">Pseudonyms only</Badge>}
+        aside={
+          naming ? (
+            <Badge tone="warn">Names kept{retention ? ` for ${retention.piiDays} days` : ""}</Badge>
+          ) : (
+            <Badge tone="neutral">Pseudonyms only</Badge>
+          )
+        }
       >
+        <KeyValue
+          labelWidth={150}
+          rows={[
+            ["Replaced by default", "Recipient addresses, subject lines and envelope senders."],
+            ["Kept as they arrive", "The sending IP, the SPF and DKIM results, what the receiver did, and when."],
+            retention ? ["Deleted on their own", `Samples after ${retention.days} days; kept names after ${retention.piiDays} days.`] : null,
+            ["Who sees names", "Owners and admins, and only while names are kept."],
+          ]}
+        />
         {namedEntitled === false ? (
           <UpgradeNotice message="Keeping recipient names is not included in this workspace's plan." feature="reports.forensicNamed" />
         ) : !canIdentify ? (
@@ -294,11 +341,17 @@ export function ForensicsBoard({
       <Panel
         id="fx-list"
         title="Samples"
+        why={`Each row is one failing message a receiver reported for ${domain.name}, newest first.`}
         aside={
           paging.onLaterPage ? (
             <Link href={forensicsHref({ domain: domain.id })} className="link">
               Newest first
             </Link>
+          ) : samples ? (
+            <span className="tnum">
+              {samples.length}
+              {paging.hasMore ? "+" : ""} shown
+            </span>
           ) : null
         }
       >
@@ -347,14 +400,19 @@ export function ForensicsBoard({
           </div>
         ) : null}
         {canCollect ? (
-          <details className="mt-2 rounded-ctl border border-rule px-4 py-3">
-            <summary className="cursor-pointer text-ui font-semibold text-fg">Add a sample by hand</summary>
-            <div className="mt-3 flex flex-col gap-3">
+          <details className="group border-t border-rule pt-3">
+            <summary className="flex cursor-pointer list-none items-center gap-2 text-ui font-semibold text-fg [&::-webkit-details-marker]:hidden">
+              <span aria-hidden className="text-fg-3 transition-transform duration-150 group-open:rotate-90">
+                ›
+              </span>
+              Add a sample by hand
+            </summary>
+            <div className="mt-3 flex max-w-[760px] flex-col gap-3">
               <p className="text-meta text-fg-3">
                 For a sample that reached you some other way. Paste the whole raw message, headers included, as the receiver
                 sent it.
               </p>
-              <Textarea mono rows={6} value={raw} onChange={(e) => setRaw(e.target.value)} placeholder="Received: from …" />
+              <Textarea mono rows={6} value={raw} onChange={(e) => setRaw(e.target.value)} placeholder="Received: from …" aria-label="Raw sample message" />
               <div className="flex items-center gap-3">
                 <Button size="sm" onClick={ingest} busy={busy === "ingest"} busyLabel="Storing the sample" disabled={!raw.trim()}>
                   Store sample
@@ -479,16 +537,12 @@ function SampleRow({
   return (
     <>
       <Tr>
-        <Td className="whitespace-nowrap text-meta">{s.receivedLabel}</Td>
+        <Td className="tnum whitespace-nowrap text-meta">{s.receivedLabel}</Td>
         <Td mono className="text-meta">
           {s.sourceIp}
         </Td>
-        <Td>
-          <Badge tone={pass(s.spf)}>{s.spf ?? "—"}</Badge>
-        </Td>
-        <Td>
-          <Badge tone={pass(s.dkim)}>{s.dkim ?? "—"}</Badge>
-        </Td>
+        <Td>{s.spf ? <Badge tone={pass(s.spf)}>{s.spf}</Badge> : <Nil label="not reported" />}</Td>
+        <Td>{s.dkim ? <Badge tone={pass(s.dkim)}>{s.dkim}</Badge> : <Nil label="not reported" />}</Td>
         <Td className="text-meta">{s.disposition ?? <span className="text-fg-4">not reported</span>}</Td>
         <Td numeric>{s.recipients}</Td>
         <Td className="text-meta">{s.identity === "stored" ? "Kept" : s.identity === "withheld" ? "Kept, hidden from you" : "Pseudonyms"}</Td>
@@ -504,14 +558,14 @@ function SampleRow({
         </Td>
       </Tr>
       {opened ? (
-        <tr className="border-b border-rule bg-paper-3/50">
-          <td colSpan={8} className="px-3 py-3">
+        <tr className="border-b border-rule">
+          <td colSpan={8} className="px-2.5 pb-4 pt-1">
             {opened.error ? (
               <p className="text-ui text-fail">{opened.error}</p>
             ) : !r ? (
               <p className="text-ui text-fg-3">Reading the sample…</p>
             ) : (
-              <div className="grid gap-4 [animation:hb-fade_120ms_ease-out] md:grid-cols-2">
+              <div className="grid gap-x-8 gap-y-4 md:grid-cols-2">
                 <KeyValue
                   labelWidth={150}
                   rows={[
