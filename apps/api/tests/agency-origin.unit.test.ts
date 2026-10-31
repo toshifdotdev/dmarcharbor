@@ -46,12 +46,25 @@ vi.mock('../src/services/branding.service.js', () => ({
 vi.mock('../src/database/prisma.js', () => ({
   prisma: {
     clientPortalAccess: {
-      findFirst: async ({ where }: { where: { organizationId: string; OR: [{ email: string }, { userId: string }] } }) =>
-        (world.contacts.get(where.organizationId) ?? []).includes(where.OR[0].email) ? { id: 'grant' } : null,
+      // `organizationId` is either one workspace or `{ not: id }`, every other one.
+      findFirst: async ({
+        where,
+      }: {
+        where: { organizationId: string | { not: string }; OR: [{ email: string }, { userId: string }] };
+      }) => {
+        const email = where.OR[0].email;
+        const matches = [...world.contacts.entries()].some(([organizationId, emails]) =>
+          (typeof where.organizationId === 'string'
+            ? organizationId === where.organizationId
+            : organizationId !== where.organizationId.not) && emails.includes(email),
+        );
+        return matches ? { id: 'grant' } : null;
+      },
     },
     member: {
-      findFirst: async ({ where }: { where: { organizationId: string; userId: string } }) =>
-        (world.members.get(where.organizationId) ?? []).includes(where.userId) ? { id: 'member' } : null,
+      // A seat in any workspace.
+      findFirst: async ({ where }: { where: { userId: string } }) =>
+        [...world.members.values()].some((ids) => ids.includes(where.userId)) ? { id: 'member' } : null,
     },
   },
 }));
@@ -253,16 +266,39 @@ describe('emailed reset and verification links', () => {
     expect(link.from).toBe(agencyFromHeader('Wistholm IT'));
   });
 
-  it('keeps the port and scheme of the local harness, and works for a member too', async () => {
+  it('keeps the port and scheme of the local harness', async () => {
     const organizationId = claim('brand-test.example');
-    world.members.set(organizationId, ['user_staff']);
-    const callback = 'http://brand-test.example:3200/welcome';
+    world.contacts.set(organizationId, [contact.email]);
+    const callback = 'http://brand-test.example:3200/portal';
     const url = `https://api.harbor.example/api/auth/verify-email?token=jwt.part.sig&callbackURL=${encodeURIComponent(callback)}`;
 
-    const link = await agencyAuthLink(url, { id: 'user_staff', email: 'staff@wistholm.example' });
+    const link = await agencyAuthLink(url, contact);
 
     expect(link.url).toBe(`http://brand-test.example:3200/api/auth/verify-email?token=jwt.part.sig&callbackURL=${encodeURIComponent(callback)}`);
     expect(link.agency?.workspaceName).toBe('Wistholm IT');
+  });
+
+  it('keeps the link on our app for the agency team, whose account may hold other seats', async () => {
+    const organizationId = claim(agencyHost);
+    world.members.set(organizationId, ['user_staff']);
+
+    const link = await agencyAuthLink(resetUrl(`${agencyOrigin}/sign-in`), { id: 'user_staff', email: 'staff@wistholm.example' });
+    const parsed = new URL(link.url);
+
+    expect(parsed.origin).toBe('https://api.harbor.example');
+    expect(parsed.searchParams.get('callbackURL')).toBe(`${env.APP_URL.replace(/\/+$/, '')}/sign-in`);
+    expect(link.agency).toBeNull();
+  });
+
+  it('keeps the link on our app for a contact another agency also serves', async () => {
+    const organizationId = claim(agencyHost);
+    world.contacts.set(organizationId, [contact.email]);
+    world.contacts.set('org_other_agency', [contact.email]);
+
+    const link = await agencyAuthLink(resetUrl(`${agencyOrigin}/sign-in`), contact);
+
+    expect(new URL(link.url).origin).toBe('https://api.harbor.example');
+    expect(link.agency).toBeNull();
   });
 
   it('sends anyone outside the agency to our app instead, so the token never goes to its host', async () => {
