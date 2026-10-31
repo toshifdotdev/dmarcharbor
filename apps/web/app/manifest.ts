@@ -1,14 +1,15 @@
 import type { MetadataRoute } from "next";
+import { brandName } from "@/components/harbor/public-frame";
+import { readHostBrand } from "@/lib/host-brand";
 
 /**
  * manifest.ts — the install surface.
  *
- * The icons are the brand's own files, copied verbatim into public/icons/ rather
- * than redrawn. `brand/icons/` ships a real set at 16, 32, 48, 180, 192, 512 and
- * a maskable 512, and the tab icon (`app/icon.svg`) is already the Pier mark, so
- * the only thing missing was a manifest pointing at them. Redrawing any of them
- * here would create a second mark, which is the mistake this repo has already
- * made once.
+ * The icons are the brand's own files in public/icons/, built with the tab
+ * icon (`app/icon.svg`) from the one Pier mark by brand/build-icons.mjs, at
+ * 16, 32, 48, 180, 192, 512 and a maskable 512. Redrawing any of them by hand
+ * would create a second mark, which is the mistake this repo has already made
+ * once.
  *
  * The maskable entry is separate and deliberate. Android crops a maskable icon
  * to whatever shape the device's launcher uses, so it needs its own safe zone;
@@ -22,16 +23,26 @@ import type { MetadataRoute } from "next";
  * `theme_color` is the white ground every screen sits on (Routes,
  * app/globals.css), not an accent hue: it colours the status bar and splash,
  * which should read as the page continuing, not as a band of colour.
+ *
+ * Per host. On an agency's verified domain the installed app is named after
+ * the agency, and proxy.ts serves the agency's icon at the same /icons/
+ * addresses (app/brand-icon/route.tsx), so nothing a client installs names
+ * the vendor. Reading the host makes this manifest render per request.
  */
 
 const GROUND = "#ffffff";
 
-export default function manifest(): MetadataRoute.Manifest {
+export default async function manifest(): Promise<MetadataRoute.Manifest> {
+  const brand = await readHostBrand();
+  const agency = brand.state === "verified";
+  const name = brandName(brand);
   return {
-    name: "DMARC Harbor",
-    short_name: "DMARC",
-    description:
-      "Per-domain DMARC posture, compliance packs with a published fingerprint, and a client portal in your brand. Measurement first; DNS changes only when you ask.",
+    name,
+    // A home-screen label is about twelve characters before it is cut.
+    short_name: agency ? (name.length <= 12 ? name : name.split(/\s+/)[0]!.slice(0, 12)) : "DMARC",
+    description: agency
+      ? `Email authentication reports for clients of ${name}.`
+      : "Per-domain DMARC posture, compliance packs with a published fingerprint, and a client portal in your brand. Measurement first; DNS changes only when you ask.",
     // The marketing route, not /sign-in. An install opens the product and finds
     // its own way to a session, the same way a browser does.
     start_url: "/",

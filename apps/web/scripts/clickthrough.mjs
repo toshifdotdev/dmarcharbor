@@ -21,6 +21,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import WebSocket from "ws";
+import { request as httpRequest } from "node:http";
 
 const WEB = process.env.WEB_BASE ?? "http://localhost:3100";
 const WEB_PORT = new URL(WEB).port || "80";
@@ -2461,11 +2462,23 @@ await evalJs(`(() => {
 // button and never sent the request). So: click only while the button is
 // enabled and not already busy, and stop as soon as the request is pending.
 // A busy button swallows clicks, so this never sends two requests.
+// The confirmation word is typed again while the button stays disabled: a fill
+// that landed before hydration sits in the DOM but never reached React's
+// state, so the button never enabled and no request was ever sent.
+await waitForHydration();
 for (let i = 0; i < 40; i++) {
   const state = await evalJs(`(() => {
     if (document.querySelector('[data-testid="erasure-pending"]')) return 'pending';
     const b = document.querySelector('[data-testid="erasure-submit"]');
     if (b && !b.disabled && b.getAttribute('aria-busy') !== 'true') { b.click(); return 'clicked'; }
+    const input = document.querySelector('[data-testid="erasure-confirm"]');
+    if (input) {
+      const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      set.call(input, '');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      set.call(input, 'ERASE');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
     return 'waiting';
   })()`);
   if (state === "pending") break;
@@ -3144,6 +3157,61 @@ check(
   JSON.stringify(hostAudit),
 );
 const shotCustomHost = await shot("29-custom-host-brand.png");
+
+// The tab and install icons, and the installed app's name, are the agency's on
+// its verified host: the static Pier files and "DMARC Harbor" were the last
+// place a custom domain named the vendor. Every icon address must answer an
+// image of its own type that differs from the product host's file, and the
+// manifest must carry the agency's name.
+//
+// Read from here over node:http with the custom Host, not from the page: the
+// policy's upgrade-insecure-requests turns the page's own fetches on this
+// plain-http test host into https ones, which fail. (node's fetch cannot send
+// a Host header; see proxy.ts.)
+function readOnHost(path, host) {
+  return new Promise((resolve) => {
+    const req = httpRequest({ hostname: "127.0.0.1", port: Number(WEB_PORT), path, headers: { host } }, (res) => {
+      const chunks = [];
+      res.on("data", (c) => chunks.push(c));
+      res.on("end", () => resolve({ status: res.statusCode, type: String(res.headers["content-type"] ?? "").split(";")[0], body: Buffer.concat(chunks) }));
+    });
+    req.on("error", (error) => resolve({ status: 0, type: "", body: Buffer.alloc(0), error: String(error) }));
+    req.end();
+  });
+}
+const iconTypes = {
+  "/favicon.ico": "image/png",
+  "/icon.svg": "image/svg+xml",
+  "/apple-icon.png": "image/png",
+  "/icons/icon-192.png": "image/png",
+  "/icons/maskable-512.png": "image/png",
+};
+const iconAudit = {};
+for (const [path, type] of Object.entries(iconTypes)) {
+  const agency = await readOnHost(path, `${CUSTOM_HOST}:${WEB_PORT}`);
+  const ours = await readOnHost(path, `localhost:${WEB_PORT}`);
+  iconAudit[path] = {
+    status: agency.status,
+    type: agency.type,
+    bytes: agency.body.length,
+    agencyOwn: agency.status === 200 && agency.type === type && agency.body.length > 0 && !agency.body.equals(ours.body),
+  };
+}
+// Each size is its own image, not one picture behind every address.
+const iconSizesDiffer = iconAudit["/apple-icon.png"]?.bytes !== iconAudit["/icons/maskable-512.png"]?.bytes;
+const manifestOnHost = await readOnHost("/manifest.webmanifest", `${CUSTOM_HOST}:${WEB_PORT}`);
+const manifestName = (() => {
+  try {
+    return JSON.parse(manifestOnHost.body.toString("utf8")).name ?? null;
+  } catch {
+    return null;
+  }
+})();
+check(
+  "custom domain: tab icon, home-screen icons and the installed app's name are the agency's",
+  Object.values(iconAudit).every((i) => i.agencyOwn) && iconSizesDiffer && String(manifestName ?? "").toLowerCase().includes("example agency"),
+  JSON.stringify({ manifestName, iconSizesDiffer, icons: iconAudit }),
+);
 
 // And the honesty rule: an UNVERIFIED record must say so plainly rather than
 // serving half-branded.

@@ -242,6 +242,15 @@ export async function proxy(request: NextRequest) {
     }
   }
 
+  // On an agency's verified domain the tab and app icons are the agency's,
+  // never our Pier (app/brand-icon/route.tsx).
+  const agencyIcon = requestHeaders.get("x-harbor-host-state") === "verified" ? agencyIconTarget(request) : null;
+  if (agencyIcon) {
+    const iconResponse = NextResponse.rewrite(agencyIcon, { request: { headers: requestHeaders } });
+    iconResponse.headers.set("Content-Security-Policy", csp);
+    return iconResponse;
+  }
+
   const exportPage = exportDownloadPage(request);
   // The address the person opened, for the export page to read. A rewritten
   // route handler does not reliably see the rewrite's own query string, so the
@@ -281,8 +290,37 @@ function exportDownloadPage(request: NextRequest): URL | null {
   return target;
 }
 
-// Everything except static assets is a candidate for branded chrome — the
-// lookup is cached, and app-local hosts short-circuit above.
+/**
+ * The static icon addresses, and the agency icon each one becomes on a
+ * verified agency host. The browser asks for /favicon.ico on its own, the
+ * page links /icon.svg and /apple-icon.png (with a cache-busting query), and
+ * the manifest names /icons/*.
+ */
+const ICON_SIZE = /^\/icons\/icon-(16|32|48|180|192|512)\.png$/;
+
+function agencyIconTarget(request: NextRequest): URL | null {
+  if (request.method !== "GET" && request.method !== "HEAD") return null;
+  const path = request.nextUrl.pathname;
+  // The shape is in the path: a rewritten route does not see the query string.
+  let spec: string | null = null;
+  if (path === "/favicon.ico") spec = "48-tab-png";
+  else if (path === "/icon.svg") spec = "128-tab-svg";
+  else if (path === "/apple-icon.png") spec = "180-bleed-png";
+  else if (path === "/icons/maskable-512.png") spec = "512-mask-png";
+  else {
+    const match = ICON_SIZE.exec(path);
+    if (match) spec = `${match[1]}-bleed-png`;
+  }
+  if (!spec) return null;
+  const target = request.nextUrl.clone();
+  target.pathname = `/brand-icon/${spec}`;
+  target.search = "";
+  return target;
+}
+
+// Everything except Next's own build assets is a candidate for branded chrome,
+// the favicon included (an agency host serves its own). The lookup is cached,
+// and app-local hosts short-circuit above.
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!_next/static|_next/image).*)"],
 };

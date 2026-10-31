@@ -1,7 +1,9 @@
 /**
  * mark.tsx — The Pier (brand/pier.svg): an H for Harbor built as a pier —
  * two pilings standing in water, the crossbar drawn as the waterline between
- * them. Single colour, inherits currentColor (bone on ink).
+ * them. Single colour, inherits currentColor: ink on the white page, or a
+ * verified agency's colour. The tab and app icons are built from the same
+ * geometry by brand/build-icons.mjs.
  */
 
 export function PierMark({
