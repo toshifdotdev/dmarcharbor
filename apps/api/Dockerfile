@@ -30,6 +30,9 @@ RUN npm ci --ignore-scripts
 
 COPY tsconfig.base.json ./
 COPY apps/api ./apps/api
+# The product documentation, which the in-product assistant answers from
+# (services/assistant/corpus.ts). It is public content; nothing in docs/ is a secret.
+COPY docs ./docs
 
 # Generation needs the schema, which arrives with the sources above.
 RUN npm run db:generate --workspace @dmarcharbor/api \
@@ -68,6 +71,11 @@ COPY --from=build /repo/apps/api/dist ./apps/api/dist
 COPY --from=build /repo/apps/api/prisma ./apps/api/prisma
 COPY --from=build /repo/apps/api/package.json ./apps/api/package.json
 COPY --from=build /repo/package.json ./package.json
+# The fonts the compliance pack PDF embeds (services/trust/pdf-fonts.ts resolves
+# them as ../../../assets/fonts from dist/services/trust).
+COPY --from=build /repo/apps/api/assets ./apps/api/assets
+# Found by the assistant as ../../docs from the working directory below.
+COPY --from=build /repo/docs ./docs
 
 WORKDIR /app/apps/api
 

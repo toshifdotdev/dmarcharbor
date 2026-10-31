@@ -19,16 +19,37 @@
  * Every page here is public and loads signed out. A document is never
  * summarised on another page: pages link here, because a paraphrase of a DPA
  * is not a DPA.
+ *
+ * The developer documents (the API reference at /docs/api) use the same
+ * frame, stating the API version instead of the legal set's version and
+ * listing the developer documents instead of the legal ones.
  */
 
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
+import { DEVELOPER_INDEX, developerDoc, developerDocBody, localImageSizes } from "@/lib/docs-registry";
 import { readHostBrand } from "@/lib/host-brand";
 import { LEGAL_DOCS, LEGAL_EFFECTIVE_DATE, LEGAL_VERSION, legalBody } from "@/lib/legal-docs";
 import { ChevronDown } from "@/components/ui/icons";
 import { Contents, PrintButton } from "./legal-client";
 import { LEGAL_TEXT, LegalBody, LegalHeading2, legalHeadings, PENDING_MARK, slugify, type LegalHeading } from "./legal-render";
 import { brandName, PublicFooter, PublicHeader } from "./public-frame";
+
+/**
+ * What a developer document states instead of the legal set's version and
+ * effective date: which API it describes, where it lives, and the other
+ * developer documents beside it.
+ */
+export interface DeveloperIdentity {
+  /** The API version the document describes, e.g. "v1". */
+  version: string;
+  /** The path every request starts with, e.g. "/api/v1". */
+  basePath: string;
+  /** The page's own address, printed at the foot. */
+  path: string;
+  index: Array<{ href: string; title: string }>;
+}
 
 /** The shared frame: identity header, contents rail, body, document index. */
 export async function DocumentFrame({
@@ -37,6 +58,7 @@ export async function DocumentFrame({
   title,
   headings,
   current,
+  developer,
   children,
 }: {
   slug: string;
@@ -44,12 +66,25 @@ export async function DocumentFrame({
   title: string;
   headings: LegalHeading[];
   current?: "support" | "legal";
+  /** Set for a developer document: an API version in place of the legal
+   *  version, and the developer index in place of the legal one. */
+  developer?: DeveloperIdentity;
   children: ReactNode;
 }) {
   const brand = await readHostBrand();
   const name = brandName(brand);
   const pending = LEGAL_EFFECTIVE_DATE.includes("to be set");
   const showContents = headings.length >= 2;
+  const index = developer ? (
+    <DeveloperIndex items={developer.index} active={developer.path} />
+  ) : (
+    <DocumentIndex active={slug} />
+  );
+  const railIndex = developer ? (
+    <DeveloperIndex items={developer.index} active={developer.path} rail />
+  ) : (
+    <DocumentIndex active={slug} rail />
+  );
 
   return (
     <div data-harbor data-host-brand={brand.state}>
@@ -62,28 +97,40 @@ export async function DocumentFrame({
             document, what it is, which text, from when. */}
         <header className={`${RAIL_GRID} border-b border-fg pb-10 print:block print:pb-5`}>
           <p className="text-[15px] leading-[1.4] text-fg-4 min-[68.75rem]:pt-[0.55em]">
-            <span className="font-bold text-fg">{name}</span> {kicker === "Support" ? "support" : "legal documents"}
+            <span className="font-bold text-fg">{name}</span>{" "}
+            {developer ? "developer documentation" : kicker === "Support" ? "support" : "legal documents"}
           </p>
           <div className="min-w-0">
             <h1 className="max-w-[20ch] text-[40px] font-[760] leading-[0.98] tracking-[-0.035em] text-fg [text-wrap:balance] sm:text-[52px] min-[68.75rem]:text-[64px] print:text-[24pt]">
               {title}
             </h1>
             <div className="mt-7 flex flex-wrap items-center gap-x-6 gap-y-3">
-              <p data-testid="legal-version" className="tnum text-[15px] text-fg-2">
-                {/* Real spaces between the parts, so copied and spoken text
-                    reads "Version 1.0 · Effective ..." rather than running the
-                    words together. */}
-                <span>Version</span> <span className="font-bold text-fg">{LEGAL_VERSION}</span>{" "}
-                <span aria-hidden className="mx-1 text-fg-4">
-                  ·
-                </span>{" "}
-                <span>Effective</span>{" "}
-                {pending ? (
-                  <mark className={PENDING_MARK}>{LEGAL_EFFECTIVE_DATE}</mark>
-                ) : (
-                  <span className="font-bold text-fg">{LEGAL_EFFECTIVE_DATE}</span>
-                )}
-              </p>
+              {developer ? (
+                <p data-testid="docs-version" className="tnum text-[15px] text-fg-2">
+                  <span>API version</span> <span className="font-bold text-fg">{developer.version}</span>{" "}
+                  <span aria-hidden className="mx-1 text-fg-4">
+                    ·
+                  </span>{" "}
+                  <span>Base path</span>{" "}
+                  <code className="data rounded-[4px] bg-paper-3 px-1 py-px text-[0.9em] text-fg">{developer.basePath}</code>
+                </p>
+              ) : (
+                <p data-testid="legal-version" className="tnum text-[15px] text-fg-2">
+                  {/* Real spaces between the parts, so copied and spoken text
+                      reads "Version 1.0 · Effective ..." rather than running the
+                      words together. */}
+                  <span>Version</span> <span className="font-bold text-fg">{LEGAL_VERSION}</span>{" "}
+                  <span aria-hidden className="mx-1 text-fg-4">
+                    ·
+                  </span>{" "}
+                  <span>Effective</span>{" "}
+                  {pending ? (
+                    <mark className={PENDING_MARK}>{LEGAL_EFFECTIVE_DATE}</mark>
+                  ) : (
+                    <span className="font-bold text-fg">{LEGAL_EFFECTIVE_DATE}</span>
+                  )}
+                </p>
+              )}
               <PrintButton />
             </div>
           </div>
@@ -110,19 +157,25 @@ export async function DocumentFrame({
           <aside className="hidden min-[68.75rem]:block print:hidden">
             <div className="sticky top-8 flex max-h-[calc(100vh-4rem)] flex-col gap-12 overflow-y-auto pb-6 pr-2">
               <Contents headings={headings} />
-              <DocumentIndex active={slug} rail />
+              {railIndex}
             </div>
           </aside>
           <article className="min-w-0">{children}</article>
         </div>
 
         <div className="mt-20 border-t border-rule pt-10 min-[68.75rem]:hidden print:hidden">
-          <DocumentIndex active={slug} />
+          {index}
         </div>
 
-        <p className="mt-10 hidden border-t border-fg pt-3 text-[9pt] text-fg-2 print:block">
-          {title} · version {LEGAL_VERSION} · {name}. The current text is published at /{slug === "support" ? "support" : slug}.
-        </p>
+        {developer ? (
+          <p className="mt-10 hidden border-t border-fg pt-3 text-[9pt] text-fg-2 print:block">
+            {title} · API {developer.version} · {name}. The current text is published at {developer.path}.
+          </p>
+        ) : (
+          <p className="mt-10 hidden border-t border-fg pt-3 text-[9pt] text-fg-2 print:block">
+            {title} · version {LEGAL_VERSION} · {name}. The current text is published at /{slug === "support" ? "support" : slug}.
+          </p>
+        )}
       </main>
 
       <div className="print:hidden">
@@ -162,6 +215,70 @@ function DocumentIndex({ active, rail }: { active: string; rail?: boolean }) {
         ))}
       </ul>
     </nav>
+  );
+}
+
+/** The developer documents, with the one open marked. Kept apart from the
+ *  legal index: these carry an API version, not the legal set's version. */
+function DeveloperIndex({
+  items,
+  active,
+  rail,
+}: {
+  items: Array<{ href: string; title: string }>;
+  active: string;
+  rail?: boolean;
+}) {
+  return (
+    <nav aria-label="Developer documentation" className="print:hidden">
+      <p className="pb-3 text-[14px] font-bold text-fg">
+        Developer documentation <span className="font-normal text-fg-4">and setup</span>
+      </p>
+      <ul className={rail ? "grid gap-y-2" : "grid gap-x-8 gap-y-2.5 sm:grid-cols-2 md:grid-cols-3"}>
+        {items.map(({ href, title }) => (
+          <li key={href}>
+            <Link
+              href={href}
+              aria-current={href === active ? "page" : undefined}
+              className={
+                href === active
+                  ? "text-[14px] font-semibold text-fg underline decoration-fg decoration-[3px] underline-offset-[6px]"
+                  : "text-[14px] text-fg-4 transition-colors duration-150 hover:text-fg"
+              }
+            >
+              {title}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+}
+
+/**
+ * A developer document (the API reference): the same reading frame as the
+ * legal set, with every endpoint and webhook event addressable, code examples
+ * that copy exactly, and images sized before they load. Public; loads signed
+ * out. The body is the markdown file under docs/, so the published page and
+ * the file in the repository are the same text.
+ */
+export async function DeveloperDocument({ slug }: { slug: string }) {
+  const doc = developerDoc(slug);
+  if (!doc) notFound();
+
+  const body = developerDocBody(doc);
+  const headings = legalHeadings(body.text);
+
+  return (
+    <DocumentFrame
+      slug={doc.slug}
+      kicker="Developer"
+      title={doc.title}
+      headings={headings}
+      developer={{ version: doc.version, basePath: doc.basePath, path: doc.path, index: DEVELOPER_INDEX }}
+    >
+      <LegalBody markdown={body.text} subheadingAnchors images={body.images} />
+    </DocumentFrame>
   );
 }
 
@@ -214,7 +331,9 @@ export async function LegalDocument({ slug }: { slug: string }) {
         );
       })}
 
-      {body.kind === "file" ? <LegalBody markdown={body.text} idOffset={requiredTitles} /> : null}
+      {body.kind === "file" ? (
+        <LegalBody markdown={body.text} idOffset={requiredTitles} images={localImageSizes(body.text)} />
+      ) : null}
     </DocumentFrame>
   );
 }

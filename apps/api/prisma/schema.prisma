@@ -2663,6 +2663,15 @@ enum AuditAction {
   POLICY_PROPOSAL_DECLINED
   SUBDOMAIN_DISMISSED
   SUBDOMAIN_RESTORED
+  /// A client was renamed or given a new slug. The detail carries both the old
+  /// and the new values, because an integration keyed on the slug needs to
+  /// know what it used to be.
+  CLIENT_UPDATED
+  /// A domain was moved from one client to another, with its reports, scans,
+  /// alerts, digests and share links. The detail names both clients.
+  DOMAIN_MOVED
+  /// The workspace itself was renamed.
+  WORKSPACE_UPDATED
 }
 
 enum AuditOutcome {
@@ -2787,4 +2796,26 @@ model EmailDelivery {
   @@index([state, nextAttemptAt])
   @@index([state, createdAt])
   @@map("email_delivery")
+}
+/// A question the product assistant could not answer, kept so the
+/// documentation can be improved.
+///
+/// Deliberately holds no workspace data: no user, workspace, email or address
+/// column, and the question is redacted before it is stored (email addresses,
+/// links, IP addresses, domain names and anything shaped like a key are
+/// replaced). That is also why it is outside the erasure inventory, which
+/// tracks tables keyed by organizationId. Rows are deleted after
+/// ASSISTANT_QUESTION_RETENTION_DAYS (180) by the retention sweep.
+model AssistantQuestion {
+  id               String   @id @default(cuid())
+  /// Trimmed, redacted, at most 500 characters.
+  question         String   @db.VarChar(500)
+  /// no_match, model_unsure, refused or provider_error.
+  reason           String   @db.VarChar(32)
+  /// The corpus section ids that ranked closest, best first.
+  closestSourceIds String[] @default([])
+  createdAt        DateTime @default(now())
+  @@index([createdAt])
+  @@index([reason, createdAt])
+  @@map("assistant_question")
 }

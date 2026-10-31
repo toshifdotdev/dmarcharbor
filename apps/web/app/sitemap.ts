@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { DEVELOPER_DOCS } from "@/lib/docs-registry";
 import { requestOrigin } from "@/lib/metadata-origin";
 import { INDEXABLE_ROUTES, LEGAL_ROUTE_PRIORITY } from "@/lib/seo";
 
@@ -7,7 +8,9 @@ import { INDEXABLE_ROUTES, LEGAL_ROUTE_PRIORITY } from "@/lib/seo";
  *
  * The list is the indexable set from lib/seo.ts, so the sitemap and the
  * no-index rules cannot disagree: adding a route there adds it here, and the
- * tenant artefacts never appear in either.
+ * tenant artefacts never appear in either. The developer documents come from
+ * their own registry (lib/docs-registry.ts), so publishing one adds it here on
+ * the same edit.
  *
  * `lastModified` is the moment the sitemap was rendered. There is no per-page
  * content date to read — the legal documents carry a version and an effective
@@ -17,8 +20,9 @@ import { INDEXABLE_ROUTES, LEGAL_ROUTE_PRIORITY } from "@/lib/seo";
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const origin = await requestOrigin();
   const now = new Date();
+  const routes = [...new Set([...INDEXABLE_ROUTES, ...DEVELOPER_DOCS.map((d) => d.path)])];
 
-  return INDEXABLE_ROUTES.map((route) => ({
+  return routes.map((route) => ({
     url: new URL(route, origin).toString(),
     lastModified: now,
     changeFrequency: route === "/" ? ("weekly" as const) : ("monthly" as const),

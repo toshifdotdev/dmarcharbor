@@ -50,7 +50,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       <div
         role="region"
         aria-label="Notifications"
-        className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-[min(380px,calc(100vw-32px))] flex-col gap-2"
+        // --hb-dock: the app shell's question launcher keeps the corner, so
+        // toasts rise above it. Unset (public pages), they sit at 16px.
+        className="pointer-events-none fixed bottom-[calc(16px+var(--hb-dock,0px))] right-4 z-50 flex w-[min(380px,calc(100vw-32px))] flex-col gap-2"
       >
         <div aria-live="polite" className="flex flex-col gap-2">
           {items

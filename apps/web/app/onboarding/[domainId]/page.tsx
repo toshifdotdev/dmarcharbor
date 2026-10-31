@@ -9,6 +9,7 @@ import { strongestRole } from "@/lib/settings-map";
 import type { DomainRow, HostedDmarcView, ManagedSpfView, OnboardingState, ReportShareRow } from "@/lib/types";
 import { AppShell } from "@/components/harbor/app-shell";
 import { DomainRecords } from "@/components/harbor/domain-records";
+import { DomainMove } from "@/components/harbor/domain-move";
 import { DomainRemoval } from "@/components/harbor/domain-removal";
 import { PageHeader, SectionHead } from "@/components/harbor/page-header";
 import { brandName } from "@/components/harbor/public-frame";
@@ -41,7 +42,7 @@ import { ErrorState } from "@/components/ui/states";
  * Layout, for the technician who hands records to someone else: the records
  * and the DNS check on the left, each record saying where it goes and whether
  * it is live; the steps as stations on one line on the right (after the
- * records on a phone); sharing and deletion last.
+ * records on a phone); sharing, moving to another client and deletion last.
  */
 
 /** The retired pct canary step. The API no longer sends it (RFC 9989 retired
@@ -78,12 +79,15 @@ export default async function OnboardingPage({ params }: { params: Promise<{ dom
   ]);
   const role = strongestRole(members?.members.find((member) => (member.userId ?? member.user?.id) === userId)?.role ?? null);
   const canPublish = role === null || ["owner", "admin", "analyst"].includes(role);
+  // Moving a domain between clients is `client: update`: owner and admin.
+  const canMoveClients = role === null || ["owner", "admin"].includes(role);
   const publishConnections = dnsConnections?.connections ?? [];
 
   // Three facts kept apart: the client list failed (an API problem), the
   // domain is not in this workspace (a real 404), and the domain exists.
   let domain: DomainRow | null = null;
   let clientName = "";
+  let clientId = "";
   let clientsFailed = false;
   const clients = await listClients(active.id).catch(() => {
     clientsFailed = true;
@@ -94,6 +98,7 @@ export default async function OnboardingPage({ params }: { params: Promise<{ dom
     if (hit) {
       domain = hit;
       clientName = c.name;
+      clientId = c.id;
       break;
     }
   }
@@ -192,7 +197,15 @@ export default async function OnboardingPage({ params }: { params: Promise<{ dom
       includeForensics: s.includeForensics,
     }));
 
-  const steps = onboarding.steps.filter((s) => !HIDDEN_STEPS.has(s.id));
+  const brand = brandName(await readHostBrand());
+  // The API writes its own product name into some step sentences ("reports
+  // will be delivered to DMARC Harbor"). On an agency's verified domain the
+  // page says the agency's name instead; elsewhere `brand` is that same name
+  // and this changes nothing.
+  const rebrand = (text: string) => text.replaceAll("DMARC Harbor", brand);
+  const steps = onboarding.steps
+    .filter((s) => !HIDDEN_STEPS.has(s.id))
+    .map((s) => ({ ...s, title: rebrand(s.title), detail: rebrand(s.detail) }));
   const required = steps.filter((s) => s.status !== "optional");
   const doneCount = required.filter((s) => s.status === "done").length;
   const nextStep = steps.find((s) => s.status === "pending") ?? null;
@@ -216,7 +229,6 @@ export default async function OnboardingPage({ params }: { params: Promise<{ dom
     }
   })();
 
-  const brand = brandName(await readHostBrand());
   const dmarcStep = steps.find((s) => s.id === "dmarc_published")?.status ?? null;
 
   return shell(
@@ -272,7 +284,11 @@ export default async function OnboardingPage({ params }: { params: Promise<{ dom
               domainName={domain.name}
               slug={domain.slug}
               verified={verified}
-              dmarc={onboarding.suggestedRecord ?? null}
+              dmarc={
+                onboarding.suggestedRecord
+                  ? { ...onboarding.suggestedRecord, notes: onboarding.suggestedRecord.notes.map(rebrand) }
+                  : null
+              }
               dmarcStep={dmarcStep}
               tlsRpt={onboarding.tlsRpt}
               publishedPolicy={onboarding.reporting.publishedPolicy}
@@ -312,6 +328,17 @@ export default async function OnboardingPage({ params }: { params: Promise<{ dom
           ) : (
             <ShareLinks organizationId={active.id} domainId={domain.id} domainName={domain.name} shares={shares} />
           )}
+
+          {/* Owner and admin only, as the API decides; shown while there is
+              another client to move it to. */}
+          {canMoveClients && clients.length > 1 ? (
+            <DomainMove
+              organizationId={active.id}
+              domain={{ id: domain.id, name: domain.name }}
+              from={{ id: clientId, name: clientName }}
+              clients={clients.map((c) => ({ id: c.id, name: c.name }))}
+            />
+          ) : null}
 
           <DomainRemoval
             organizationId={active.id}

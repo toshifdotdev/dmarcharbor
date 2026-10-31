@@ -149,7 +149,10 @@ export async function getPublicShareReport(
     `${API_BASE}/api/reports/share/${encodeURIComponent(token)}`,
     { cache: "no-store", credentials: "omit", headers: { accept: "application/json" } },
   );
-  if (res.status === 404) return null;
+  // 404 is revoked, expired or unknown; 410 is the same answer from a stricter
+  // proxy. Both mean the link no longer serves a report. Anything else throws,
+  // so the page can say "not just now" instead of "never again".
+  if (res.status === 404 || res.status === 410) return null;
   const text = await res.text();
   if (!res.ok) {
     let body: ApiErrorBody | null;

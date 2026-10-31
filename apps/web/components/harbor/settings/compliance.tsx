@@ -66,7 +66,7 @@ function PackResult({
             </div>
           </div>
           <p className="text-ui text-fg-2">
-            Send the fingerprint with the PDF. Anyone can check it on the{" "}
+            Send the fingerprint with the PDF; the reference is printed in the foot of every page. Anyone can check it on the{" "}
             <Link href={verifyHref(issued.reference)} className="link" target="_blank">
               public verify page
             </Link>
@@ -196,7 +196,7 @@ export function ComplianceBoard({
       <Panel
         id="cp-pack"
         title="Evidence pack"
-        why={`A PDF of ${clientName}'s DMARC evidence as of today, fingerprinted so an auditor can check it was not altered. Issuing a new one marks the previous one superseded.`}
+        why={`A PDF for ${clientName}'s auditor or insurer, as of today: each domain's DMARC, SPF, DKIM, MTA-STS, TLS-RPT and BIMI posture, the policy history, monitoring coverage, senders, open findings and how the data is held. It is fingerprinted so anyone can check it was not altered. Issuing a new one marks the previous one superseded.`}
       >
         {packFeature === false ? (
           <UpgradeNotice message="Compliance packs are not included in this workspace's plan." feature="reports.compliancePack" />
@@ -288,7 +288,7 @@ export function ComplianceBoard({
       <Panel
         id="cp-trust"
         title="Trust Center"
-        why={`A public page about how ${clientName}'s data is held here: what is kept, who can read it, the sub-processors, and the erasures done. Anyone with the address can open it; it is not listed by search engines.`}
+        why={`A public page about ${clientName}'s email security and how its data is held here: posture per domain from the newest check, monitoring coverage, open findings, what is kept, who can read it, the sub-processors and the packs issued. Anyone with the address can open it; it is not listed by search engines.`}
         aside={
           trustUrl ? (
             <StateWord shape="square" tone="ok">

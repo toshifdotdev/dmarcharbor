@@ -1696,10 +1696,21 @@ if (funnelHref) {
   // one press on the confirm button that names the consequence — the DELETE
   // and the re-render both take seconds on this box; a click storm races
   // router.refresh() and the check can read the page before it repaints.
-  await evalJs(`(() => { const b = document.querySelector('[data-testid="revoke-share"]'); if (b) b.click(); return true; })()`);
+  //
+  // The new link's row (and its revoke button) only exists once the
+  // router.refresh() that followed the create has landed: the link itself is
+  // shown from client state first. So wait for the row, then arm; and arm
+  // again only while the confirm has not opened, which a click on a node the
+  // refresh replaced would leave closed.
+  await waitForEval(`!!document.querySelector('[data-testid="revoke-share"]')`, (v) => v === true, 30000);
   for (let i = 0; i < 40; i++) {
-    const confirm = await evalJs(`(() => { const b = document.querySelector('[data-testid="revoke-share-confirm-button"]'); if (b && !b.disabled) { b.click(); return true; } return false; })()`);
-    if (confirm) break;
+    const step = await evalJs(`(() => {
+      const confirm = document.querySelector('[data-testid="revoke-share-confirm-button"]');
+      if (confirm && confirm.closest('dialog[open]') && !confirm.disabled) { confirm.click(); return 'confirmed'; }
+      if (!document.querySelector('dialog[open]')) document.querySelector('[data-testid="revoke-share"]')?.click();
+      return 'armed';
+    })()`);
+    if (step === "confirmed") break;
     await new Promise((res) => setTimeout(res, 700));
   }
   for (let i = 0; i < 40; i++) {
@@ -2477,6 +2488,30 @@ check(
   JSON.stringify({ wording: erasureWording, flow: erasureAudit }),
 );
 const shotErasure = await shot("22-settings-erasure.png");
+
+// The erasure above is real: left pending, it deletes the sample workspace
+// once its grace period ends, and every later run starts without its data
+// (that is how the sample account was lost once). Cancel it through the same
+// button an owner would use, and prove it is no longer pending.
+await evalJs(`(() => { const b = document.querySelector('[data-testid="erasure-cancel"]'); if (b && !b.disabled) b.click(); return Boolean(b); })()`);
+const erasureCancelled = await waitForEval(
+  `(async () => {
+    const ws = await (await fetch('/api/workspaces', { credentials: 'include' })).json();
+    const list = Array.isArray(ws) ? ws : ws.items ?? [];
+    const id = (list.find((w) => w.slug === 'example-agency') ?? list[0])?.id;
+    if (!id) return null;
+    const res = await (await fetch('/api/workspaces/' + id + '/erasures', { credentials: 'include' })).json();
+    const rows = Array.isArray(res) ? res : res.items ?? res.requests ?? [];
+    return { pending: rows.filter((r) => r.state === 'PENDING').length, cancelled: rows.filter((r) => r.state === 'CANCELLED').length };
+  })()`,
+  (v) => v && v.pending === 0,
+  30000,
+);
+check(
+  "erasure: the test's own erasure is cancelled, so the sample workspace survives",
+  Boolean(erasureCancelled && erasureCancelled.pending === 0),
+  JSON.stringify(erasureCancelled),
+);
 
 // 6g. Branding: the custom-domain truth is stated plainly (verified vs not).
 await openSettingsSection("branding");

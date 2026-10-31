@@ -14,18 +14,28 @@
  * Open events are the default view. Silence is only meaningful when something
  * is watching, so the empty state says which: no events with rules enabled is
  * calm, no events with no rules is nothing to report because nothing looks.
+ *
+ * After an outage there can be dozens open at once, so the open view also
+ * offers "Acknowledge all open", confirmed with the count, through the bulk
+ * route: the same acknowledgement per alert, one request. Test hooks:
+ * ack-all, ack-all-confirm, ack-all-confirm-button.
  */
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { clsx } from "clsx";
-import { acknowledgeAlert } from "@/lib/ops-client";
+import { acknowledgeAlert, acknowledgeAlerts } from "@/lib/ops-client";
 import type { EventState } from "@/lib/alert-rules";
 import { domainHref } from "@/lib/route-hrefs";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/dialog";
 import { Segmented } from "@/components/ui/field";
+import { useToast } from "@/components/ui/toast";
 import { EscalationLine, StateMark, StateWord } from "./ops-parts";
+
+/** What the bulk route takes in one call. */
+const BULK_LIMIT = 100;
 
 export interface EventView {
   id: string;
@@ -63,9 +73,41 @@ export function AlertEvents({
   truncated: boolean;
   watching: boolean;
 }) {
+  const router = useRouter();
+  const toast = useToast();
   const count = (s: EventState) => events.filter((e) => e.state === s).length;
   const [filter, setFilter] = useState<Filter>(count("open") > 0 || events.length === 0 ? "open" : "all");
   const shown = filter === "all" ? events : events.filter((e) => e.state === filter);
+  const open = events.filter((e) => e.state === "open").slice(0, BULK_LIMIT);
+  const [confirming, setConfirming] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+
+  async function acknowledgeAllOpen() {
+    if (open.length === 0 || bulkBusy) return;
+    setBulkBusy(true);
+    setBulkError(null);
+    const res = await acknowledgeAlerts(
+      organizationId,
+      open.map((e) => e.id),
+    );
+    setBulkBusy(false);
+    if (!res.ok) {
+      setBulkError(res.error.message ?? "The alerts could not be acknowledged. Nothing changed.");
+      return;
+    }
+    const skipped = res.data.skipped.length;
+    toast({
+      title: `${res.data.acknowledged} alert${res.data.acknowledged === 1 ? "" : "s"} acknowledged`,
+      body:
+        skipped > 0
+          ? `${skipped} had already been acknowledged or had resolved on ${skipped === 1 ? "its" : "their"} own.`
+          : undefined,
+      tone: "ok",
+    });
+    setConfirming(false);
+    router.refresh();
+  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -83,7 +125,44 @@ export function AlertEvents({
           ]}
         />
         {truncated ? <span className="text-meta text-fg-3">Showing the latest {events.length}.</span> : null}
+        {filter === "open" && open.length > 1 ? (
+          <Button
+            size="sm"
+            variant="secondary"
+            className="ml-auto"
+            data-testid="ack-all"
+            onClick={() => {
+              setBulkError(null);
+              setConfirming(true);
+            }}
+          >
+            Acknowledge all open
+          </Button>
+        ) : null}
       </div>
+
+      <ConfirmDialog
+        open={confirming}
+        onClose={() => setConfirming(false)}
+        onConfirm={acknowledgeAllOpen}
+        title={`Acknowledge ${open.length} open alerts?`}
+        body={
+          <>
+            <p>
+              Each one stops sending reminders and stops rolling up to the workspace owner, and its PSA ticket, if it has
+              one, gets a note saying who acknowledged it. The rules stay on: anything that crosses a threshold again
+              fires a new alert.
+            </p>
+            {count("open") > open.length ? (
+              <p className="mt-2">This takes the first {open.length}; acknowledge the rest after.</p>
+            ) : null}
+          </>
+        }
+        confirmLabel={`Acknowledge ${open.length}`}
+        busy={bulkBusy}
+        error={bulkError}
+        testId="ack-all"
+      />
 
       {shown.length === 0 ? (
         <div role="status" data-testid={events.length === 0 ? "state-empty" : undefined} className="border-y border-rule py-6">

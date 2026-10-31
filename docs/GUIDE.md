@@ -34,6 +34,11 @@ when your client book needs it.
 Then press Check. DNS can take a few minutes to an hour to update; checking again
 is safe.
 
+![The Clients page: each client with its report address and its domains, each domain with its ownership state and the policy it publishes](/docs-media/client-book.png "Clients. Each client lists its report address and domains; each domain shows whether ownership is verified and which DMARC policy it publishes. Sample data: invented clients on .example domains.")
+
+Put a domain under the wrong client? Choose Move on its row. Its reports, alerts
+and history go with it, and the confirmation says what changes first.
+
 ## 3. Start receiving reports
 
 Pick one of three ways.
@@ -55,6 +60,8 @@ move, so no data is lost on the day you switch.
 
 Reports usually arrive within 24 to 48 hours. Until then the domain reads as
 unmeasured.
+
+![A domain's setup page: ownership verified, the DMARC record to publish with its host and value ready to copy, and the setup steps beside it](/docs-media/setup-records.png "A setup page after ownership is verified. The record to publish is on the left with copy buttons, and the steps on the right say what the platform is waiting for. Sample data.")
 
 ## 4. Review who sends as the domain
 
@@ -113,7 +120,8 @@ SAML or OIDC single sign-on instead.
   month and download a CSV with each client's domains, reports, messages and
   alerts, so you can bill them for what they used.
 - **Trust Center and compliance pack** (Harbor and above): a public page and a
-  signed PDF that state what data is held, by whom, and for how long.
+  PDF with a recorded fingerprint that show each domain's authentication evidence
+  and state what data is held, by whom, and for how long.
 - **Your brand** (Harbor and above): your logo and colours on the portal,
   reports and client emails. On Admiralty, client pages can also run on your own
   domain.

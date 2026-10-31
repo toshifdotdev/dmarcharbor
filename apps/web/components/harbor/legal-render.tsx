@@ -1,44 +1,56 @@
 /**
- * legal-render.tsx — the legal documents' markdown, rendered for reading and
+ * legal-render.tsx — the public documents' markdown, rendered for reading and
  * for citing.
  *
- * The documents use a small, deliberate subset of markdown: headings,
- * paragraphs, bullets, numbered lists, blockquotes, tables, bold and inline
- * code. A full markdown engine would be a dependency whose output nobody can
- * audit, on a page where the rendered text IS the legal text. Anything this
- * renderer does not know falls through to a paragraph rather than being
- * dropped.
+ * The documents use a small, deliberate subset of markdown (parsed in
+ * legal-markdown.ts): headings, paragraphs, bullets, numbered lists,
+ * blockquotes, tables, bold and inline code, and for the developer documents
+ * fenced code blocks, images, links and nested lists. A full markdown engine
+ * would be a dependency whose output nobody can audit, on a page where the
+ * rendered text IS the legal text. Anything the parser does not know falls
+ * through to a paragraph rather than being dropped.
  *
  * Every section heading gets a stable id from its text, so a clause can be
  * linked to (an MSP forwarding "the sub-processor clause" to a client sends a
  * link that lands on it), and the page builds its contents list from the
- * same ids.
+ * same ids. A developer document can ask for ids on its sub-headings too, so
+ * every endpoint has an address.
  *
  * Hard-wrapped source lines are joined into one paragraph: the Paddle
  * paragraph is quoted verbatim by requirement and must stay one sentence run.
  */
 
 import type { ReactNode } from "react";
+import { CopyButton } from "@/components/ui/copy";
 import { SectionAnchor } from "./legal-client";
+import {
+  codeLabel,
+  INLINE_SPLIT,
+  LINK_TOKEN,
+  parseBlocks,
+  safeHref,
+  safeImageSrc,
+  slugify,
+  splitClauseNumber,
+  splitEndpoint,
+  uniqueIds,
+  uniqueIdsAvoiding,
+  type ImageRef,
+  type ListBlock,
+} from "./legal-markdown";
 import ls from "./legal.module.css";
+
+export { slugify };
 
 export interface LegalHeading {
   id: string;
   text: string;
 }
 
-interface Block {
-  type: "h2" | "h3" | "p" | "ul" | "ol" | "quote" | "table" | "hr";
-  lines: string[];
-}
-
-export function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[`*]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64);
+/** An image's intrinsic size, so the page reserves its height before it loads. */
+export interface ImageSize {
+  width: number;
+  height: number;
 }
 
 /** A pending fact: the warn wash and word colour, a state notice in place.
@@ -49,8 +61,10 @@ export const PENDING_MARK =
 /** Bracketed tokens the business has not supplied yet, e.g. "[phone number: ...]". */
 const PENDING = /(\[[^\]]*(?:supplied by the business|to be set)[^\]]*\]|to be set at launch|\[[A-Z][A-Z0-9 _-]{2,}\])/;
 
+const INLINE_CODE = "data rounded-[4px] bg-paper-3 px-1 py-px text-[0.9em] text-fg";
+
 function inline(text: string): ReactNode {
-  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+  const parts = text.split(INLINE_SPLIT);
   return parts.map((part, i) => {
     if (part.startsWith("**") && part.endsWith("**")) {
       return (
@@ -69,9 +83,21 @@ function inline(text: string): ReactNode {
         );
       }
       return (
-        <code key={i} className="data rounded-[4px] bg-paper-3 px-1 py-px text-[0.9em] text-fg">
+        <code key={i} className={INLINE_CODE}>
           {part.slice(1, -1)}
         </code>
+      );
+    }
+    const link = LINK_TOKEN.exec(part);
+    if (link) {
+      const href = safeHref(link[2]!);
+      // A target this renderer will not follow keeps its words and loses the link.
+      return href ? (
+        <a key={i} href={href} className="link">
+          {inline(link[1]!)}
+        </a>
+      ) : (
+        <span key={i}>{inline(link[1]!)}</span>
       );
     }
     // A fact the business has not supplied is shown as visibly pending, never
@@ -89,118 +115,11 @@ function inline(text: string): ReactNode {
   });
 }
 
-function parseBlocks(markdown: string): Block[] {
-  const blocks: Block[] = [];
-  const lines = markdown.split(/\r?\n/);
-  let i = 0;
-  const isRule = (l: string) => /^(-{3,}|\*{3,}|_{3,})$/.test(l.trim());
-  while (i < lines.length) {
-    const line = lines[i];
-    if (line.trim() === "") {
-      i++;
-      continue;
-    }
-    if (isRule(line)) {
-      blocks.push({ type: "hr", lines: [] });
-      i++;
-      continue;
-    }
-    if (/^###\s+/.test(line)) {
-      blocks.push({ type: "h3", lines: [line.replace(/^###\s+/, "")] });
-      i++;
-    } else if (/^##\s+/.test(line)) {
-      blocks.push({ type: "h2", lines: [line.replace(/^##\s+/, "")] });
-      i++;
-    } else if (/^#\s+/.test(line)) {
-      // The document's own title is already the page heading.
-      i++;
-    } else if (/^>\s?/.test(line)) {
-      const paragraphs: string[] = [];
-      let current = "";
-      while (i < lines.length && /^>\s?/.test(lines[i])) {
-        const text = lines[i].replace(/^>\s?/, "").trim();
-        if (text === "") {
-          if (current) paragraphs.push(current);
-          current = "";
-        } else current = current ? `${current} ${text}` : text;
-        i++;
-      }
-      if (current) paragraphs.push(current);
-      blocks.push({ type: "quote", lines: paragraphs });
-    } else if (/^[-*]\s+/.test(line)) {
-      const items: string[] = [];
-      while (i < lines.length && /^[-*]\s+/.test(lines[i])) {
-        let item = lines[i].replace(/^[-*]\s+/, "");
-        i++;
-        // Hard-wrapped continuation lines belong to the item.
-        while (i < lines.length && /^\s{2,}\S/.test(lines[i])) {
-          item += ` ${lines[i].trim()}`;
-          i++;
-        }
-        items.push(item);
-      }
-      blocks.push({ type: "ul", lines: items });
-    } else if (/^\d+\.\s+/.test(line)) {
-      const items: string[] = [];
-      while (i < lines.length && /^\d+\.\s+/.test(lines[i])) {
-        let item = lines[i].replace(/^\d+\.\s+/, "");
-        i++;
-        while (i < lines.length && /^\s{2,}\S/.test(lines[i])) {
-          item += ` ${lines[i].trim()}`;
-          i++;
-        }
-        items.push(item);
-      }
-      blocks.push({ type: "ol", lines: items });
-    } else if (/^\|/.test(line) && i + 1 < lines.length && /^\|[\s:|-]+\|$/.test(lines[i + 1].trim())) {
-      const rows: string[] = [];
-      while (i < lines.length && /^\|/.test(lines[i])) {
-        rows.push(lines[i]);
-        i++;
-      }
-      blocks.push({ type: "table", lines: rows });
-    } else {
-      const para: string[] = [];
-      while (
-        i < lines.length &&
-        lines[i].trim() !== "" &&
-        !/^#{1,3}\s/.test(lines[i]) &&
-        !/^[-*]\s+/.test(lines[i]) &&
-        !/^\d+\.\s+/.test(lines[i]) &&
-        !/^>\s?/.test(lines[i]) &&
-        !/^\|/.test(lines[i]) &&
-        !isRule(lines[i])
-      ) {
-        para.push(lines[i].trim());
-        i++;
-      }
-      blocks.push({ type: "p", lines: para });
-    }
-  }
-  return blocks;
-}
-
-function uniqueIds(texts: string[]): string[] {
-  const seen = new Map<string, number>();
-  return texts.map((t) => {
-    const base = slugify(t) || "section";
-    const n = seen.get(base) ?? 0;
-    seen.set(base, n + 1);
-    return n ? `${base}-${n + 1}` : base;
-  });
-}
-
 /** The section headings of a document, with the ids the renderer gives them. */
 export function legalHeadings(markdown: string, extra: string[] = []): LegalHeading[] {
-  const texts = [...extra, ...parseBlocks(markdown).filter((b) => b.type === "h2").map((b) => b.lines[0])];
+  const texts = [...extra, ...parseBlocks(markdown).filter((b) => b.type === "h2").map((b) => b.lines[0]!)];
   const ids = uniqueIds(texts);
-  return texts.map((text, i) => ({ id: ids[i], text: text.replace(/[`*]/g, "") }));
-}
-
-/** "6. Order process" → ["6.", "Order process"]; no leading number → [null, text]. */
-function splitClauseNumber(text: string): [string | null, string] {
-  const m = /^(\d+(?:\.\d+)*\.?)\s+(.+)$/.exec(text);
-  return m ? [m[1]!, m[2]!] : [null, text];
+  return texts.map((text, i) => ({ id: ids[i]!, text: text.replace(/[`*]/g, "") }));
 }
 
 /**
@@ -240,54 +159,184 @@ export function LegalHeading2({
   );
 }
 
-export function LegalBody({ markdown, idOffset = [] }: { markdown: string; idOffset?: string[] }) {
+const H3_CLASS = "mt-5 text-[18px] font-bold leading-[1.3] tracking-[-0.01em] text-fg sm:text-[19px] print:text-[12pt]";
+/** An endpoint opens its own small section, so it stands further from the
+ *  text above it than a plain sub-heading does. */
+const H3_ENDPOINT_CLASS =
+  "mt-10 text-[18px] font-bold leading-[1.3] tracking-[-0.01em] text-fg sm:text-[19px] print:mt-5 print:text-[12pt] print:break-after-avoid";
+
+/** A sub-heading. An endpoint ("GET /api/v1/clients") sets the method as a
+ *  bold label and the path in the data face, both copied exactly. */
+function Heading3({ text, id }: { text: string; id?: string }) {
+  const endpoint = splitEndpoint(text);
+  const content = endpoint ? (
+    <>
+      <span className="data font-bold">{endpoint[0]}</span>{" "}
+      <span className="data font-semibold [overflow-wrap:anywhere]">{endpoint[1]}</span>
+    </>
+  ) : (
+    inline(text)
+  );
+
+  if (!id) {
+    return <h3 className={H3_CLASS}>{content}</h3>;
+  }
+  return (
+    <h3 id={id} className={`group flex scroll-mt-6 items-baseline gap-2 ${endpoint ? H3_ENDPOINT_CLASS : H3_CLASS}`}>
+      <span className="min-w-0 flex-1">{content}</span>
+      <SectionAnchor id={id} />
+    </h3>
+  );
+}
+
+/** A list, and any list nested in its items. A flat list renders exactly as
+ *  the legal documents always have. */
+function List({ block, nested }: { block: ListBlock; nested?: boolean }) {
+  const outer = nested ? "mt-2 flex flex-col gap-2" : "flex max-w-[68ch] flex-col gap-2";
+  if (block.type === "ul") {
+    return (
+      <ul className={outer}>
+        {block.lines.map((item, j) => {
+          const child = block.children[j];
+          return (
+            <li key={j} className="relative pl-6">
+              <span aria-hidden className="absolute left-1 top-[0.68em] block size-[6px] rounded-full bg-fg-4" />
+              {inline(item)}
+              {child ? <List block={child} nested /> : null}
+            </li>
+          );
+        })}
+      </ul>
+    );
+  }
+  // The number is drawn, not the list marker, so `start` only matters to
+  // assistive technology; it is set only when the list does not start at 1.
+  return (
+    <ol className={outer} start={block.start !== 1 ? block.start : undefined}>
+      {block.lines.map((item, j) => {
+        const child = block.children[j];
+        return (
+          <li key={j} className="grid grid-cols-[32px_minmax(0,1fr)]">
+            <span className="tnum font-semibold text-fg-4">{block.start + j}.</span>
+            {child ? (
+              <div className="min-w-0">
+                {inline(item)}
+                <List block={child} nested />
+              </div>
+            ) : (
+              <span>{inline(item)}</span>
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/**
+ * A code example: the data face in the one recessed well, with its language
+ * and a Copy control. It scrolls inside itself; the page never scrolls
+ * sideways. Copied exactly as written, so an example pasted into a terminal
+ * runs as shown.
+ */
+function CodeBlock({ lang, lines }: { lang: string | null; lines: string[] }) {
+  const label = codeLabel(lang);
+  const code = lines.join("\n");
+  return (
+    <div data-copy-scope className={ls.code}>
+      <div className={ls.codeHead}>
+        <span className={ls.codeLang}>{label}</span>
+        <CopyButton value={code} label={`Copy this ${label} example`} className="print:hidden" />
+      </div>
+      {/* Focusable, so a keyboard can scroll a long line into view. */}
+      <pre className={ls.codePre} tabIndex={0} role="group" aria-label={`${label} example`}>
+        <code data-copy-value className="data">
+          {code}
+        </code>
+      </pre>
+    </div>
+  );
+}
+
+/**
+ * An image with its caption. The width and height are always set when they
+ * are known (from the markdown, or read from the file by the registry), so
+ * the page holds the right space before it loads; an image of unknown size
+ * sits in a fixed 16:10 frame instead, so nothing below it moves either way.
+ */
+function Figure({ image, size }: { image: ImageRef; size: ImageSize | null }) {
+  const src = safeImageSrc(image.src);
+  const caption = image.title ?? (image.alt || null);
+  if (!src) {
+    return caption ? <p>{caption}</p> : null;
+  }
+  const width = image.width ?? size?.width ?? null;
+  const height = image.height ?? size?.height ?? null;
+  return (
+    <figure className={ls.figure}>
+      {width && height ? (
+        <img src={src} alt={image.alt} width={width} height={height} loading="lazy" decoding="async" className={ls.img} />
+      ) : (
+        <span className={ls.imgFrame}>
+          <img src={src} alt={image.alt} loading="lazy" decoding="async" className={ls.imgFill} />
+        </span>
+      )}
+      {caption ? <figcaption className={ls.caption}>{caption}</figcaption> : null}
+    </figure>
+  );
+}
+
+export function LegalBody({
+  markdown,
+  idOffset = [],
+  subheadingAnchors = false,
+  images,
+}: {
+  markdown: string;
+  idOffset?: string[];
+  /** Give every sub-heading an id and a link, as the developer documents do. */
+  subheadingAnchors?: boolean;
+  /** Intrinsic sizes by image source, read by the registry. */
+  images?: Record<string, ImageSize>;
+}) {
   const blocks = parseBlocks(markdown);
   // Ids continue after any headings rendered before the body (required
   // sections), so the contents list and the anchors agree.
-  const h2Texts = blocks.filter((b) => b.type === "h2").map((b) => b.lines[0]);
-  const ids = uniqueIds([...idOffset, ...h2Texts]).slice(idOffset.length);
+  const h2Texts = blocks.filter((b) => b.type === "h2").map((b) => b.lines[0]!);
+  const allH2Ids = uniqueIds([...idOffset, ...h2Texts]);
+  const ids = allH2Ids.slice(idOffset.length);
+  // Sub-heading ids never take an id a section already has, so a section's
+  // address is the same with or without them.
+  const h3Ids = subheadingAnchors
+    ? uniqueIdsAvoiding(
+        blocks.filter((b) => b.type === "h3").map((b) => b.lines[0]!),
+        allH2Ids,
+      )
+    : [];
   let h2 = 0;
+  let h3 = 0;
 
   return (
     <div className={LEGAL_TEXT}>
       {blocks.map((block, i) => {
         switch (block.type) {
           case "h2": {
-            const [number, text] = splitClauseNumber(block.lines[0]);
+            const [number, text] = splitClauseNumber(block.lines[0]!);
             return (
-              <LegalHeading2 key={i} id={ids[h2++]} variant="document" number={number}>
+              <LegalHeading2 key={i} id={ids[h2++]!} variant="document" number={number}>
                 {inline(text)}
               </LegalHeading2>
             );
           }
           case "h3":
-            return (
-              <h3 key={i} className="mt-5 text-[18px] font-bold leading-[1.3] tracking-[-0.01em] text-fg sm:text-[19px] print:text-[12pt]">
-                {inline(block.lines[0])}
-              </h3>
-            );
+            return <Heading3 key={i} text={block.lines[0]!} id={subheadingAnchors ? h3Ids[h3++] : undefined} />;
           case "ul":
-            return (
-              <ul key={i} className="flex max-w-[68ch] flex-col gap-2">
-                {block.lines.map((item, j) => (
-                  <li key={j} className="relative pl-6">
-                    <span aria-hidden className="absolute left-1 top-[0.68em] block size-[6px] rounded-full bg-fg-4" />
-                    {inline(item)}
-                  </li>
-                ))}
-              </ul>
-            );
           case "ol":
-            return (
-              <ol key={i} className="flex max-w-[68ch] flex-col gap-2">
-                {block.lines.map((item, j) => (
-                  <li key={j} className="grid grid-cols-[32px_minmax(0,1fr)]">
-                    <span className="tnum font-semibold text-fg-4">{j + 1}.</span>
-                    <span>{inline(item)}</span>
-                  </li>
-                ))}
-              </ol>
-            );
+            return <List key={i} block={block} />;
+          case "code":
+            return <CodeBlock key={i} lang={block.lang} lines={block.lines} />;
+          case "image":
+            return <Figure key={i} image={block.image} size={images?.[block.image.src] ?? null} />;
           case "quote":
             return (
               <blockquote key={i} className="max-w-[68ch] border-l-[3px] border-rule-2 pl-5 text-fg-2">

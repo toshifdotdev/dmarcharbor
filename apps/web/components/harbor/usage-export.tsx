@@ -15,7 +15,7 @@
  */
 
 import { useState } from "react";
-import { downloadUsageExport } from "@/lib/ops-client";
+import { downloadClientBook, downloadUsageExport } from "@/lib/ops-client";
 import { ActionRefusal, type ActionError } from "@/components/harbor/plan-refusal";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/field";
@@ -87,6 +87,48 @@ export function UsageExport({
           Usage CSV
         </Button>
       </div>
+      <ActionRefusal error={error} className="max-w-[28rem]" />
+    </div>
+  );
+}
+
+/**
+ * The client book as a spreadsheet: one row per domain with its client, slug,
+ * ids, report address, ownership state and policy, for a PSA or CRM import or
+ * to hand to a client. On every plan, because it is the client list itself.
+ *
+ * Test hook: client-book-download.
+ */
+export function ClientBookExport({ organizationId }: { organizationId: string }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<ActionError | null>(null);
+
+  async function download() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    const res = await downloadClientBook(organizationId);
+    setBusy(false);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    save(res.data.bytes, res.data.filename);
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-2">
+      <Button
+        size="sm"
+        variant="secondary"
+        onClick={download}
+        busy={busy}
+        busyLabel="Preparing the file"
+        data-testid="client-book-download"
+        title="Every client and domain: ids, report address, ownership and policy, one row per domain"
+      >
+        Client book CSV
+      </Button>
       <ActionRefusal error={error} className="max-w-[28rem]" />
     </div>
   );

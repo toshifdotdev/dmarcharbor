@@ -1,9 +1,10 @@
 "use client";
 
 /**
- * workspace.tsx — deleting the workspace.
+ * workspace.tsx — renaming the workspace (WorkspaceRename, at the end of the
+ * file) and deleting it.
  *
- * The only control on the Workspace page, and the most destructive one in the
+ * Deleting is the most destructive control in the
  * product: every client, domain, report and share link goes, at once, with no
  * grace period. So the confirmation is built from the API's own count of what
  * would go (the preview endpoint; the same numbers the delete reports after),
@@ -13,10 +14,12 @@
  */
 
 import Link from "next/link";
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useState, type FormEvent } from "react";
 import {
   deleteWorkspace,
   previewWorkspaceDeletion,
+  renameWorkspace,
   type DeletionSummary,
   type HostedDeletionPreview,
   type ManagedSpfDeletionPreview,
@@ -26,6 +29,7 @@ import { DnsRecord } from "@/components/ui/copy";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
+import { useToast } from "@/components/ui/toast";
 import { DangerZone } from "./parts";
 
 const LINES: Array<[keyof DeletionSummary, string, string]> = [
@@ -243,5 +247,91 @@ export function WorkspaceDeletion({
         </div>
       </Dialog>
     </DangerZone>
+  );
+}
+
+/**
+ * Renaming the workspace, for an agency that renames itself. The slug and the
+ * workspace id stay, so links, support references and the delete confirmation
+ * keep working. Owner or admin; anyone else reads the name and is told who can
+ * change it.
+ *
+ * Test hooks: workspace-rename-input, workspace-rename-save.
+ */
+export function WorkspaceRename({
+  organizationId,
+  name,
+  canRename,
+}: {
+  organizationId: string;
+  name: string;
+  /** null: the role could not be read; the API decides. */
+  canRename: boolean | null;
+}) {
+  const router = useRouter();
+  const toast = useToast();
+  const [value, setValue] = useState(name);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const trimmed = value.trim();
+  const valid = trimmed.length >= 2 && trimmed.length <= 80;
+  const changed = trimmed !== name;
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    if (!valid || !changed || busy) return;
+    setBusy(true);
+    setError(null);
+    const res = await renameWorkspace(organizationId, trimmed);
+    setBusy(false);
+    if (!res.ok) {
+      setError(res.error.message ?? "The workspace could not be renamed. Nothing changed.");
+      return;
+    }
+    toast({ title: `The workspace is now ${res.data.workspace.name}`, tone: "ok" });
+    router.refresh();
+  }
+
+  if (canRename === false) {
+    return (
+      <p className="text-ui text-fg-2">
+        An owner or admin of this workspace can rename it.
+      </p>
+    );
+  }
+
+  return (
+    <form onSubmit={save} className="flex max-w-[560px] flex-col gap-3">
+      <Field
+        label="Workspace name"
+        hint="Shown in the app, in invitation and alert emails, and to your clients' portal contacts. The slug and ID stay the same."
+        error={trimmed.length > 0 && !valid ? "Between 2 and 80 characters." : undefined}
+      >
+        <Input
+          size="lg"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          autoComplete="off"
+          data-testid="workspace-rename-input"
+        />
+      </Field>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button
+          type="submit"
+          variant="secondary"
+          disabled={!valid || !changed}
+          busy={busy}
+          busyLabel="Saving"
+          data-testid="workspace-rename-save"
+        >
+          Save name
+        </Button>
+        {error ? (
+          <p role="alert" className="text-ui font-medium text-fail">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </form>
   );
 }

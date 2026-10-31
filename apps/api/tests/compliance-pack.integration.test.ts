@@ -7,6 +7,7 @@ import { grantPlan } from './helpers/plan.js';
 import { forensicPiiRetentionDays, forensicRetentionDays, reportRetentionDays } from '../src/services/privacy.service.js';
 import { setOverride } from '../src/services/entitlements/entitlement.service.js';
 import { buildCompliancePackPdf, issueCompliancePack } from '../src/services/trust/compliance-pack.service.js';
+import { extractPdfText, normalisePdfText } from './helpers/pdf-text.js';
 import type { PlanTier } from '@prisma/client';
 
 /**
@@ -21,40 +22,15 @@ let fixtureId = 0;
 const password = 'correct-horse-battery-staple';
 
 /**
- * Pulls the visible text back out of a rendered PDF.
+ * The visible text of a rendered pack.
  *
- * pdfkit writes each run of text as a positioned operator, so a phrase is not
- * contiguous in the raw bytes and a plain substring check proves nothing. The
- * documents are generated uncompressed precisely so the content streams can be
- * read, and this joins the string literals back into readable text.
+ * The 2.0 pack embeds Albert Sans and Atkinson Hyperlegible Mono, so its text
+ * is written as glyph ids rather than characters. The shared helper maps each
+ * glyph back through the font's ToUnicode table (and still reads the standard
+ * faces as latin1, for the fallback), which is what an auditor's copy and
+ * search do too.
  */
-function extractPdfText(buffer: Buffer): string {
-  const raw = buffer.toString('latin1');
-  // pdfkit embeds font subsets, so visible text is written as hex strings
-  // inside a TJ array rather than as literal parentheses.
-  const pattern = /<([0-9a-fA-F]+)>/g;
-  const parts: string[] = [];
-
-  let match = pattern.exec(raw);
-  while (match !== null) {
-    const hex = match[1]!;
-    if (hex.length % 2 === 0) {
-      parts.push(Buffer.from(hex, 'hex').toString('latin1'));
-    }
-    match = pattern.exec(raw);
-  }
-
-  return parts.join(' ');
-}
-
-/**
- * pdfkit emits kerned runs, so a word can arrive as two fragments separated by
- * an adjustment. Comparing without whitespace is the only reliable way to
- * assert on a phrase.
- */
-function normalise(value: string): string {
-  return value.replace(/\s+/g, '').toLowerCase();
-}
+const normalise = normalisePdfText;
 
 /**
  * The custom pack headers lower case to `x-dmarc-pack-*` rather than
@@ -338,6 +314,50 @@ describe('compliance pack', () => {
     expect(await prisma.compliancePack.count({ where: { clientId: theirClient.id } })).toBe(0);
   });
 
+  it('states the posture from the newest stored check, for its own client only', async () => {
+    const { agent, organizationId } = await setupWorkspace('HARBOR');
+    const own = await addClient(agent, organizationId, 'Haskerley Law');
+    const sibling = await addClient(agent, organizationId, 'Secret Sibling Partners');
+    const ownDomain = await addDomain(agent, organizationId, own.id, 'haskerley-law.test');
+    const siblingDomain = await addDomain(agent, organizationId, sibling.id, 'secret-sibling.test');
+
+    const result = (domain: string, record: string) => ({
+      domain,
+      scannedAt: new Date().toISOString(),
+      status: 'healthy',
+      score: 90,
+      scoreBreakdown: { base: 100, final: 90, factors: [] },
+      dmarc: { status: 'found', record, policy: 'reject', tags: { v: 'DMARC1', p: 'reject' }, hasAggregateReports: false, hasForensicReports: false, aggregateMailtoTargets: [], aggregateWebTargets: [] },
+      spf: { status: 'found', record: 'v=spf1 -all', valid: true, lookupCount: 0 },
+      dkim: { status: 'found', selectors: ['s1'], checkedSelectors: ['s1'], records: {} },
+      mx: { status: 'found', records: [] },
+      issues: [],
+      recommendations: [],
+    });
+    const now = new Date();
+    await prisma.scan.create({
+      data: { domainId: ownDomain, status: 'COMPLETED', result: result('haskerley-law.test', 'v=DMARC1; p=reject; adkim=s'), startedAt: now, completedAt: now },
+    });
+    await prisma.scan.create({
+      data: { domainId: siblingDomain, status: 'COMPLETED', result: result('secret-sibling.test', 'v=DMARC1; p=reject; fo=siblingmarker'), startedAt: now, completedAt: now },
+    });
+
+    const response = await agent.post(`/api/workspaces/${organizationId}/clients/${own.id}/compliance-packs`).send({});
+    expect(response.status).toBe(200);
+
+    const text = normalise(extractPdfText(response.body as Buffer));
+    expect(text).toContain(normalise('v=DMARC1; p=reject; adkim=s'));
+    expect(text).toContain(normalise('Authentication posture'));
+    expect(text).toContain(normalise('How this evidence was gathered'));
+    expect(text).not.toContain(normalise('siblingmarker'));
+    expect(text).not.toContain(normalise('secret-sibling.test'));
+
+    // The faces the document is set in are embedded, not substituted.
+    const raw = (response.body as Buffer).toString('latin1');
+    expect(raw).toMatch(/\/BaseFont \/[A-Z]{6}\+AlbertSans-Regular/);
+    expect(raw).toMatch(/\/BaseFont \/[A-Z]{6}\+AtkinsonHyperlegibleMono-Regular/);
+  });
+
   it('records the issue in the audit trail', async () => {
     const { agent, organizationId } = await setupWorkspace('HARBOR');
     const client = await addClient(agent, organizationId, 'Audited Client');
@@ -351,7 +371,7 @@ describe('compliance pack', () => {
       orderBy: { createdAt: 'desc' },
     });
 
-    expect(audit.detail).toMatchObject({ clientId: client.id, hash, documentVersion: '1.0' });
+    expect(audit.detail).toMatchObject({ clientId: client.id, hash, documentVersion: '2.0' });
   });
 });
 
@@ -534,7 +554,7 @@ describe('compliance pack reference', () => {
     );
   });
 
-  it('renders the same facts in three pages rather than seven', async () => {
+  it('renders a one-domain client in a bounded number of pages', async () => {
     const { client, organizationId } = await issue();
 
     // Issued directly so the page count is on the returned value rather than having
@@ -543,10 +563,12 @@ describe('compliance pack reference', () => {
 
     // Row heights were once estimated from string length, which reserved 80 to 95
     // points for a single 8.5pt line and produced a document that was mostly empty
-    // grey bands. Same facts, seven pages. This is the cheapest guard against that
-    // estimate coming back.
-    expect(fresh.pageCount).toBeGreaterThan(0);
-    expect(fresh.pageCount).toBeLessThanOrEqual(4);
+    // grey bands. The 2.0 pack has a cover, a contents page and twelve sections,
+    // so one domain with no reports is more than the old three pages, but rows are
+    // measured and sections flow, so it stays well short of one page per section.
+    // An estimate coming back would push this past the bound.
+    expect(fresh.pageCount).toBeGreaterThan(2);
+    expect(fresh.pageCount).toBeLessThanOrEqual(10);
   });
 
   it('is a filename a header can carry safely', async () => {

@@ -345,7 +345,7 @@ export function WebhooksBoard({
         <Panel
           id="wh-log"
           title="What was sent"
-          why="The last fifty deliveries, newest first. A failed one is retried after 1, 5, 30, 120 and 720 minutes before it is given up; one that gave up can be sent again."
+          why="The last fifty deliveries, newest first. A failed one is tried again after 1, 5, 30 and 120 minutes, five attempts in all, before it is given up; one that gave up can be sent again."
         >
           {deliveries === null ? (
             <Notice tone="warn" title="The delivery record could not be read">

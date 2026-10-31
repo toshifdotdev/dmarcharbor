@@ -345,7 +345,7 @@ export const dataClasses: DataClass[] = [
   {
     key: 'compliancePack',
     label: 'Compliance packs',
-    description: 'Signed evidence documents issued to a client. They describe the system, not the person.',
+    description: 'Fingerprinted evidence documents issued to a client. They describe the system, not the person.',
     containsPersonalData: false,
     erasure: 'delete',
   },

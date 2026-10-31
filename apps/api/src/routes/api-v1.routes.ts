@@ -10,6 +10,7 @@ import {
   apiListDomainScansController,
   apiListDomainSendersController,
   apiMeController,
+  apiMoveDomainController,
   apiPolicyReadinessController,
   apiTlsSummaryController,
   bulkClientsController,
@@ -78,6 +79,8 @@ apiV1Router.get('/domains', ...apiRoute('read', listApiDomainsController));
 apiV1Router.post('/domains', ...apiRoute('write', createApiDomainController));
 apiV1Router.post('/domains/bulk', ...apiRoute('write', bulkDomainsController));
 apiV1Router.post('/domains/:domainId/verify', ...apiRoute('write', verifyApiDomainController));
+// Basic operations: move a domain to another client, for a PSA sync.
+apiV1Router.post('/domains/:domainId/move', ...apiRoute('write', apiMoveDomainController));
 
 // ─── Item 16 additions ───────────────────────────────────────────────────────
 

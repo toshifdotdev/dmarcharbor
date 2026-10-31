@@ -153,6 +153,9 @@ const ACTION_SENTENCES: Record<AuditAction, string> = {
   POLICY_PROPOSAL_DECLINED: "Client declined a stricter DMARC policy",
   SUBDOMAIN_DISMISSED: "Discovered subdomain dismissed",
   SUBDOMAIN_RESTORED: "Discovered subdomain listed again",
+  CLIENT_UPDATED: "Client renamed",
+  DOMAIN_MOVED: "Domain moved to another client",
+  WORKSPACE_UPDATED: "Workspace renamed",
 };
 
 /**

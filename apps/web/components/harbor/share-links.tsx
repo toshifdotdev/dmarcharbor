@@ -15,6 +15,8 @@
  *   POST   /report-shares/:id/revoke         stops the link at once
  *   DELETE /report-shares/:id                removes a revoked row
  *   DELETE /report-shares/revoked            removes every revoked row
+ *   POST   /report-shares/revoke             revokes every live link listed here
+ *                                            (test hook: share-revoke-all-live)
  *
  * The link handed out is the rendered page (/share/<token>) on whichever host
  * the operator is on, so an agency's own domain hands out its own links. Dates
@@ -29,6 +31,7 @@ import {
   deleteAllRevokedReportShares,
   deleteReportShareRecord,
   revokeReportShare,
+  revokeReportShares,
 } from "@/lib/ops-client";
 import { shareHref } from "@/lib/route-hrefs";
 import { Button, ButtonLink } from "@/components/ui/button";
@@ -67,6 +70,7 @@ type Pending =
   | { kind: "revoke"; share: ShareView }
   | { kind: "remove"; share: ShareView }
   | { kind: "clear"; count: number }
+  | { kind: "revoke-live"; ids: string[]; views: number }
   | null;
 
 export function ShareLinks({
@@ -125,13 +129,16 @@ export function ShareLinks({
         ? await revokeReportShare(organizationId, pending.share.id)
         : pending.kind === "remove"
           ? await deleteReportShareRecord(organizationId, pending.share.id)
-          : await deleteAllRevokedReportShares(organizationId);
+          : pending.kind === "revoke-live"
+            ? await revokeReportShares(organizationId, pending.ids)
+            : await deleteAllRevokedReportShares(organizationId);
     setConfirmBusy(false);
     if (!res.ok) {
       setConfirmError(res.error.message ?? "That did not go through.");
       return;
     }
     if (pending.kind === "revoke" && pending.share.token === created) setCreated(null);
+    if (pending.kind === "revoke-live") setCreated(null);
     setPending(null);
     router.refresh();
   }
@@ -227,19 +234,38 @@ export function ShareLinks({
         <div>
           <div className="flex flex-wrap items-baseline justify-between gap-2 pb-2">
             <p className="text-ui font-bold text-fg">Links for this domain</p>
-            {revoked.length > 0 ? (
-              <button
-                type="button"
-                className="link text-meta font-semibold"
-                data-testid="share-remove-all-revoked"
-                onClick={() => {
-                  setConfirmError(null);
-                  setPending({ kind: "clear", count: revoked.length });
-                }}
-              >
-                Remove {revoked.length} revoked
-              </button>
-            ) : null}
+            <span className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+              {live.length > 1 ? (
+                <button
+                  type="button"
+                  className="link text-meta font-semibold"
+                  data-testid="share-revoke-all-live"
+                  onClick={() => {
+                    setConfirmError(null);
+                    setPending({
+                      kind: "revoke-live",
+                      ids: live.map((s) => s.id),
+                      views: live.reduce((n, s) => n + s.viewCount, 0),
+                    });
+                  }}
+                >
+                  Revoke {live.length} live
+                </button>
+              ) : null}
+              {revoked.length > 0 ? (
+                <button
+                  type="button"
+                  className="link text-meta font-semibold"
+                  data-testid="share-remove-all-revoked"
+                  onClick={() => {
+                    setConfirmError(null);
+                    setPending({ kind: "clear", count: revoked.length });
+                  }}
+                >
+                  Remove {revoked.length} revoked
+                </button>
+              ) : null}
+            </span>
           </div>
           <ul className="border-t border-rule">
             {shares.map((s) => {
@@ -316,24 +342,44 @@ export function ShareLinks({
         onConfirm={confirm}
         busy={confirmBusy}
         error={confirmError}
-        danger={pending?.kind === "revoke"}
+        danger={pending?.kind === "revoke" || pending?.kind === "revoke-live"}
         testId={
-          pending?.kind === "revoke" ? "revoke-share" : pending?.kind === "remove" ? `remove-share-${pending.share.id}` : "share-remove-all-revoked"
+          pending?.kind === "revoke"
+            ? "revoke-share"
+            : pending?.kind === "remove"
+              ? `remove-share-${pending.share.id}`
+              : pending?.kind === "revoke-live"
+                ? "share-revoke-all-live"
+                : "share-remove-all-revoked"
         }
         title={
           pending?.kind === "revoke"
             ? "Revoke this share link?"
             : pending?.kind === "remove"
               ? "Remove this revoked link?"
-              : `Remove ${pending?.kind === "clear" ? pending.count : 0} revoked links?`
+              : pending?.kind === "revoke-live"
+                ? `Revoke all ${pending.ids.length} live links for ${domainName}?`
+                : `Remove ${pending?.kind === "clear" ? pending.count : 0} revoked links?`
         }
-        confirmLabel={pending?.kind === "revoke" ? "Revoke link" : "Remove"}
+        confirmLabel={
+          pending?.kind === "revoke"
+            ? "Revoke link"
+            : pending?.kind === "revoke-live"
+              ? `Revoke ${pending.ids.length} links`
+              : "Remove"
+        }
         body={
           pending?.kind === "revoke" ? (
             <>
               The link stops working immediately for anyone who has it. It has been opened{" "}
               <span className="tnum font-semibold text-fg">{pending.share.viewCount}</span> time
               {pending.share.viewCount === 1 ? "" : "s"}. This cannot be undone; you can always create a new link.
+            </>
+          ) : pending?.kind === "revoke-live" ? (
+            <>
+              Every one of them stops working immediately for anyone who has it. Between them they have been opened{" "}
+              <span className="tnum font-semibold text-fg">{pending.views}</span> time{pending.views === 1 ? "" : "s"}.
+              This cannot be undone; you can create new links, and the revoked ones stay listed until you remove them.
             </>
           ) : (
             "Revoked links already stopped working, so nobody loses access. This only clears them from the list, with their view counts."

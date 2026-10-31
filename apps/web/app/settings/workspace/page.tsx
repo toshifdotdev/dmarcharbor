@@ -7,17 +7,18 @@ import { readHostBrand } from "@/lib/host-brand";
 import { brandName } from "@/components/harbor/public-frame";
 import { SettingsFrame } from "@/components/harbor/settings/frame";
 import { Panel, StateWord } from "@/components/harbor/settings/parts";
-import { WorkspaceDeletion } from "@/components/harbor/settings/workspace";
+import { WorkspaceDeletion, WorkspaceRename } from "@/components/harbor/settings/workspace";
+import { mayChange } from "@/lib/settings-map";
 import { CopyValue } from "@/components/ui/copy";
 import { KeyValue } from "@/components/ui/notice";
 
 export const metadata: Metadata = { title: "Workspace" };
 
 /**
- * /settings/workspace — what this workspace is, and deleting it.
+ * /settings/workspace — what this workspace is, renaming it, and deleting it.
  *
- * Read-only facts first (the API offers no rename route of its own, so none is
- * offered here), then the one destructive control, set apart.
+ * Facts first, then the rename (POST /workspaces/:id/rename, owner or admin,
+ * audited; the slug and id stay), then the one destructive control, set apart.
  */
 export default async function WorkspacePage() {
   const ctx = await settingsContext();
@@ -124,6 +125,18 @@ export default async function WorkspacePage() {
               ),
             ],
           ]}
+        />
+      </Panel>
+
+      <Panel
+        id="ws-rename"
+        title="Rename the workspace"
+        why="For an agency that changes its name. Clients, domains, links and the workspace ID are not affected."
+      >
+        <WorkspaceRename
+          organizationId={ctx.active.id}
+          name={ctx.active.name}
+          canRename={ctx.role === null ? null : mayChange(ctx.role, "admin")}
         />
       </Panel>
 

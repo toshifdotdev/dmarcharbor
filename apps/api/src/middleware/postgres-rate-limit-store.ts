@@ -1,4 +1,4 @@
-import type { Store } from 'express-rate-limit';
+import type { Options, Store } from 'express-rate-limit';
 import { prisma } from '../database/prisma.js';
 
 /**
@@ -75,8 +75,29 @@ export class PostgresRateLimitStore implements Store {
    */
   readonly localKeys = true;
 
+  /**
+   * The owning limiter's window, learned from `init`.
+   *
+   * Sixty seconds until then, the shortest window this service uses. Before `init`
+   * existed every bucket lasted sixty seconds whatever the limiter said, so the three
+   * hourly limiters (monthly report issue, DNS publish, policy proposal) were in
+   * effect per minute: twenty an hour was twenty a minute.
+   */
+  private windowMs = 60_000;
+
   constructor(private readonly limiterName: string) {
     this.name = `postgres:${limiterName}`;
+  }
+
+  /**
+   * Called once by `express-rate-limit` when the limiter is created, with the
+   * limiter's options. `increment` receives no window, so this is the only place
+   * the store can learn it.
+   */
+  init(options: Pick<Options, 'windowMs'>): void {
+    if (Number.isFinite(options.windowMs) && options.windowMs > 0) {
+      this.windowMs = options.windowMs;
+    }
   }
 
   /**
@@ -90,11 +111,7 @@ export class PostgresRateLimitStore implements Store {
  * that is the unit the library's headers use.
  */
 async increment(key: string): Promise<{ totalHits: number; resetTime: Date }> {
-  // The library does not pass the window here, so the default is the shortest this
-  // service uses. `express-rate-limit` overrides the store's increment with its own
-  // windowed variant when the middleware is configured with one; see
-  // `incrementWithWindow` for the same statement with the window supplied.
-  return this.incrementWithWindow(key, Date.now() + 60_000);
+  return this.incrementWithWindow(key, Date.now() + this.windowMs);
 }
 
 /**

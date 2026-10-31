@@ -1384,7 +1384,8 @@ export type EntitlementKey =
   | "integrations.psa"
   | "prospects.reports"
   | "reports.usageExport"
-  | "dns.spfUsage";
+  | "dns.spfUsage"
+  | "assistant.docs";
 
 export type QuotaKey = "client" | "activeDomain" | "member";
 
@@ -1692,7 +1693,10 @@ export type AuditAction =
   | "POLICY_PROPOSAL_APPROVED"
   | "POLICY_PROPOSAL_DECLINED"
   | "SUBDOMAIN_DISMISSED"
-  | "SUBDOMAIN_RESTORED";
+  | "SUBDOMAIN_RESTORED"
+  | "CLIENT_UPDATED"
+  | "DOMAIN_MOVED"
+  | "WORKSPACE_UPDATED";
 
 /**
  * AuditOutcome is SUCCESS or DENIED. There is no FAILED value: the trail records

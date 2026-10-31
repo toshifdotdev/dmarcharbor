@@ -75,6 +75,44 @@ Add our address beside it rather than replacing it.
 Yes. Paste or import a list on a client's page, or use the API's bulk endpoints.
 Each row is checked on its own, so one bad line does not stop the rest.
 
+**I filed a domain under the wrong client. Can I move it?**
+Yes. On the Clients page, choose Move on the domain's row, or open the domain's
+setup page and choose Move at the bottom. An owner or admin can move it. Before
+anything changes you see what moves with it: reports, scans, alerts, digests,
+sender reviews and hosted records all stay attached to the domain. Share links
+follow the domain to the new client. Approval requests waiting on the old client's
+contacts are withdrawn, because they were asked about their own domain. Monthly
+reports already issued stay with the client they were issued for. The DMARC record
+in DNS is not changed: if it names the old client's report address, reports keep
+arriving, and the confirmation gives the new client's address to publish when you
+can. A domain in the middle of a provider switch cannot be moved until the switch
+ends. To undo a move, move the domain back.
+
+**Can I rename a client or the workspace?**
+Yes. Rename on a client's row in the Clients page changes its name, its short
+name (the slug), or both. Its report address, its Trust Center address and its
+domains stay the same. The workspace name is in Settings, Workspace; its address
+and id stay the same. Owners and admins can rename, and each rename is in the
+audit trail with the old and new names.
+
+**Can I deal with many alerts or share links at once?**
+Yes. On the Alerts page, Acknowledge all open acknowledges every open alert after
+you confirm the count, each with its own audit entry. On a domain's setup page, the
+Revoke button above the share links (it says how many are live) withdraws every
+live link for that domain at once. A withdrawn link stops working the next time
+someone opens it.
+
+**Can I export my client list?**
+Yes. Client book CSV on the Clients page downloads every client and domain, one row
+per domain, with the ids, report address, ownership state and DMARC policy, ready
+for a PSA or CRM import. Any role can download it, and each download is recorded.
+
+**Can I undo a delete?**
+No. Deleting a domain, a client or the workspace removes its reports and history
+for good, which is why each one first shows what it will delete and asks you to
+type the name. To put a domain under another client, move it instead; its history
+goes with it.
+
 **Can I check a domain without an account?**
 Yes. Enter it on the home page. That is one lookup at one moment, not monitoring.
 
@@ -298,15 +336,25 @@ addresses you choose. A monthly report is a PDF per client for each complete mon
 downloadable by you and by the client in the portal. Both start on Harbor.
 
 **What is a compliance pack?**
-A signed PDF, per client, stating what data is held, who can read it, how long it is
-kept and which sub-processors are used. It carries a SHA-256 fingerprint that anyone
-can check on the verify page. Starts on Harbor.
+A PDF, per client, with each domain's email authentication evidence and a statement
+of what data is held, who can read it, how long it is kept and which sub-processors
+are used. When it is issued its SHA-256 fingerprint is recorded, and anyone holding
+a copy can check it on the verify page: a changed copy does not match. The PDF does
+not carry a digital signature. Starts on Harbor.
+
+![Settings, Trust Center and evidence packs: the button to issue a pack, how an auditor checks one, and the packs issued so far with their fingerprints](/docs-media/evidence-packs.png "Settings, Trust Center and evidence packs. Every pack issued is listed with its reference and fingerprint; a newer pack marks the older one superseded. Sample data.")
 
 **What is a Trust Center?**
-A public page per client, at an address that cannot be guessed, showing the same
-facts as the compliance pack: data held, access, retention, where it is stored,
-sub-processors and completed erasures. You can forward it to an auditor. Starts on
-Harbor.
+A public page per client, at an address that cannot be guessed and that search
+engines are asked not to list. It shows each domain's email authentication as last
+checked (DMARC policy, SPF, DKIM, MTA-STS, TLS-RPT and BIMI), the policy history,
+how much of the mail is reported, the senders seen and the open findings. It then
+states how the data is handled: what is held, who can read it, retention, where it
+is stored, sub-processors and completed erasures, and lists the compliance packs
+issued so a holder can check one. Everything is generated from the live record
+when the page opens. You can forward it to an auditor. Starts on Harbor.
+
+![The top of a Trust Center: published by the agency, a plain statement of what the page is, and four figures for the client's domains](/docs-media/trust-center.png "The top of a Trust Center page, as an auditor opens it. Sample data: an invented agency and client.")
 
 **What is a prospect report?**
 A plain-language email security check of a company you want to win, shared as a
@@ -366,7 +414,10 @@ Slack and Teams addresses alerts post to. We never show a stored secret in full
 again.
 
 **Where is my data stored?**
-`[DATA_RESIDENCY_REGION]`. See the Sub-processors notice for who processes it.
+The hosting region is not confirmed yet, so it is not stated here. Your Trust
+Center and compliance packs say "Not confirmed yet" until it is, rather than
+guess. The Sub-processors notice lists who processes the data, with each region
+where it is confirmed.
 
 **How do I bill my clients for what they used?**
 On the Clients page, choose a month and download the usage CSV. It has one row per

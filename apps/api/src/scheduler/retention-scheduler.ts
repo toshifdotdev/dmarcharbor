@@ -1,5 +1,6 @@
 import { env } from '../config/env.js';
 import { purgeExpiredData, type RetentionSweep } from '../services/retention.service.js';
+import { purgeOldAssistantQuestions } from '../services/assistant/question-log.js';
 import { withJobLease } from './job-lease.service.js';
 import { recordJobFailure, recordJobSuccess } from './heartbeat.js';
 
@@ -61,6 +62,14 @@ export async function runRetentionOnce(): Promise<RetentionSweep> {
           `[retention] removed ${swept.exportJobs} export job(s), ${swept.idempotencyRecords} idempotency record(s), ${swept.ssoAuthRequests} SSO request(s), emptied ${swept.billingPayloads} billing payload(s), dropped ${swept.rateLimitBuckets} expired rate limit bucket(s), ${swept.scheduledScans} old scheduled scan(s), ${swept.monthlyReportFiles} monthly report file(s), ${swept.monthlyReportLinks} monthly report link(s) and ${swept.sourceIpIntel} stale IP intelligence row(s)`,
         );
       }
+
+      // Unanswered assistant questions, kept for improving the docs. Its own
+      // catch, so a failure here never fails the sweep above.
+      const assistantQuestions = await purgeOldAssistantQuestions().catch((error: unknown) => {
+        console.warn(`[retention] assistant question sweep failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+        return 0;
+      });
+      if (assistantQuestions > 0) console.info(`[retention] removed ${assistantQuestions} old unanswered assistant question(s)`);
 
       return swept;
     });

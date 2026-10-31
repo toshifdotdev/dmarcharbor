@@ -342,6 +342,50 @@ const envSchema = z.object({
     .trim()
     .refine(isOriginOnly, 'HOSTED_BIMI_ORIGIN must be an origin such as https://bimi.example.com, with no path, query or fragment.')
     .optional(),
+
+  /**
+   * The in-product assistant, which answers questions about the product from
+   * its own documentation (services/assistant).
+   *
+   * Written answers need a model provider and a key. Without a key the
+   * assistant still works: it returns the best matching documentation sections
+   * as links and says written answers are not enabled here, which is the local
+   * and CI case. The key is server-only: it is read here, sent only to the
+   * provider, and never returned, logged or put in an error.
+   */
+  ASSISTANT_PROVIDER: z.enum(['anthropic']).default('anthropic'),
+  ASSISTANT_MODEL: z.string().trim().min(1).max(100).default('claude-haiku-5-5'),
+  ASSISTANT_API_KEY: optionalSecret,
+  /** Accepted when ASSISTANT_API_KEY is unset and the provider is anthropic. */
+  ANTHROPIC_API_KEY: optionalSecret,
+  /** Answers are a few sentences; a low ceiling is the cost control. */
+  ASSISTANT_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(64).max(1024).default(350),
+  /**
+   * Sent only when set. Recent Anthropic models (Claude 4.7 and later, which
+   * includes Haiku 5.5) refuse a request that sets a sampling temperature, so
+   * the default is to send none.
+   */
+  ASSISTANT_TEMPERATURE: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.coerce.number().min(0).max(1).optional(),
+  ),
+  ASSISTANT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60_000).default(15_000),
+  /** Questions one signed-in person may ask per minute. */
+  ASSISTANT_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(1000).default(10),
+  /** Questions one workspace may have answered per day, across all its members. */
+  ASSISTANT_WORKSPACE_DAILY_LIMIT: z.coerce.number().int().min(1).max(100_000).default(200),
+  ASSISTANT_MAX_QUESTION_CHARS: z.coerce.number().int().min(50).max(2000).default(500),
+  /** How long an unanswered question is kept for improving the docs. */
+  ASSISTANT_QUESTION_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(180),
+  /** Where docs/ is. Found next to the repository root when unset. */
+  ASSISTANT_DOCS_DIR: optionalSecret,
+
+  /**
+   * The hosting region the Trust Center and the compliance pack state, for
+   * example "European Union (Frankfurt)". Unset, both say "Not confirmed yet"
+   * rather than guess (services/trust/trust-center.service.ts).
+   */
+  DATA_RESIDENCY_REGION: z.string().trim().max(120).optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

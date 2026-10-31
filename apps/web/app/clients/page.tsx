@@ -10,7 +10,7 @@ import { ClientBook, type ClientView } from "@/components/harbor/client-book";
 import { PageHeader } from "@/components/harbor/page-header";
 import { brandName } from "@/components/harbor/public-frame";
 import { RefreshButton } from "@/components/harbor/refresh-button";
-import { UsageExport } from "@/components/harbor/usage-export";
+import { ClientBookExport, UsageExport } from "@/components/harbor/usage-export";
 import { ErrorState } from "@/components/ui/states";
 
 export const metadata: Metadata = { title: "Clients" };
@@ -46,7 +46,8 @@ function dateLabel(value: string | null): string | null {
  * Posture and report volume live on the Portfolio; this screen is about the
  * structure and the setup work, so it does not repeat measurements. The one
  * exception is the monthly usage file in the header, because billing clients
- * is done from the client list.
+ * is done from the client list. Beside it, the client book itself as a CSV,
+ * for a PSA import or a client's own records.
  *
  * Three states, never two: a failed read is never "no clients yet".
  */
@@ -99,6 +100,7 @@ export default async function ClientsPage() {
           }
           actions={
             <>
+              {clients && clients.length > 0 ? <ClientBookExport organizationId={active.id} /> : null}
               {clients && clients.length > 0 ? <UsageExport organizationId={active.id} months={completeMonths()} /> : null}
               <RefreshButton />
             </>

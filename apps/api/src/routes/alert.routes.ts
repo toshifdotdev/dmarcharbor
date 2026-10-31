@@ -9,6 +9,7 @@ import {
   updateAlertRuleController,
   updateNotificationPreferenceController,
 } from '../controllers/alert.controller.js';
+import { bulkAcknowledgeAlertsController } from '../controllers/operations.controller.js';
 import { requireSession } from '../middleware/auth.middleware.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
 import { requireFeature } from '../middleware/entitlement.middleware.js';
@@ -65,6 +66,17 @@ alertRouter.get(
   requireSession,
   requireOrganizationPermission('report', 'read'),
   listAlertEventsController,
+);
+/**
+ * Many at once, for the morning after an outage: the same right and the same
+ * service as the single acknowledge below, answered per alert.
+ */
+alertRouter.post(
+  '/workspaces/:organizationId/alerts/acknowledge',
+  requireSession,
+  requireOrganizationPermission('report', 'update'),
+  alertJsonParser,
+  bulkAcknowledgeAlertsController,
 );
 alertRouter.post(
   '/workspaces/:organizationId/alerts/:eventId/acknowledge',

@@ -25,10 +25,17 @@
  * still holds portal access is refused by the API; the refusal says where to
  * revoke it.
  *
+ * Renaming a client (its name, its slug, or both) is a small dialog on the
+ * client row; moving a domain to another client is "Move" on the domain row,
+ * which opens the confirmation in domain-move.tsx. Both answer with a notice
+ * above the table saying what changed.
+ *
  * Test hooks kept: client-usage, data-client-id, data-domain-id,
  * copy-report-address-<id>, switch-domains-<id> (in the same row as the
  * client's name), monthly-reports-<id>, delete-client, delete-client-confirm,
  * delete-client-confirm-button, delete-client-error, state-empty.
+ * Added: rename-client-<id>, rename-client-confirm, rename-client-confirm-button,
+ * move-domain-<id>.
  */
 
 import Link from "next/link";
@@ -38,6 +45,7 @@ import { clsx } from "clsx";
 import {
   deleteClient,
   previewWorkspaceDeletion,
+  renameClient,
   type DeletionSummary,
   type HostedDeletionPreview,
   type ManagedSpfDeletionPreview,
@@ -47,11 +55,12 @@ import type { DomainStatus } from "@/lib/types";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { CopyButton, DnsRecord } from "@/components/ui/copy";
 import { Dialog } from "@/components/ui/dialog";
-import { Input, SearchInput, Segmented } from "@/components/ui/field";
+import { Field, Input, SearchInput, Segmented } from "@/components/ui/field";
 import { External, Plus } from "@/components/ui/icons";
 import { Notice } from "@/components/ui/notice";
 import { Nil } from "@/components/ui/table";
 import { AddClient, AddDomains } from "./client-forms";
+import { MoveDomainDialog, movedLine } from "./domain-move";
 import { PolicyStrip } from "./policy-strip";
 
 export interface DomainView {
@@ -119,6 +128,9 @@ export function ClientBook({
   const [target, setTarget] = useState<string>(clients[0]?.id ?? "");
   const [removing, setRemoving] = useState<ClientView | null>(null);
   const [removed, setRemoved] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<ClientView | null>(null);
+  const [moving, setMoving] = useState<{ domain: DomainView; client: ClientView } | null>(null);
+  const [changed, setChanged] = useState<{ title: string; line: string } | null>(null);
   const domainInput = useRef<HTMLInputElement | null>(null);
   const formsRef = useRef<HTMLDivElement | null>(null);
 
@@ -168,6 +180,20 @@ export function ClientBook({
             {removed}
           </Notice>
         ) : null}
+        {changed ? (
+          <Notice
+            tone="ok"
+            title={changed.title}
+            role="status"
+            action={
+              <Button size="sm" variant="ghost" onClick={() => setChanged(null)}>
+                Dismiss
+              </Button>
+            }
+          >
+            {changed.line}
+          </Notice>
+        ) : null}
 
         {clients.length === 0 ? (
           <section role="status" data-testid="state-empty" className="flex flex-col gap-3 border-t border-rule pt-6">
@@ -205,7 +231,7 @@ export function ClientBook({
             </div>
 
             <div className="relative overflow-x-auto">
-              <table className="w-full min-w-[720px] border-collapse text-left text-ui">
+              <table className="w-full min-w-[780px] border-collapse text-left text-ui">
                 <caption className="sr-only">Clients and their domains</caption>
                 <thead className="border-b border-rule-2">
                   <tr>
@@ -221,7 +247,7 @@ export function ClientBook({
                     <th scope="col" className="legend w-[104px] px-2.5 py-2 align-bottom font-semibold">
                       Added
                     </th>
-                    <th scope="col" className="w-[130px] px-2.5 py-2">
+                    <th scope="col" className="w-[170px] px-2.5 py-2">
                       <span className="sr-only">Actions</span>
                     </th>
                   </tr>
@@ -244,6 +270,9 @@ export function ClientBook({
                         total={all.domains.length}
                         onAddDomains={() => addDomainsTo(c.id)}
                         onDelete={() => setRemoving(all)}
+                        onRename={() => setRenaming(all)}
+                        onMove={(d) => setMoving({ domain: d, client: all })}
+                        canMove={clients.length > 1}
                       />
                     );
                   })
@@ -287,6 +316,28 @@ export function ClientBook({
           setRemoved(line);
         }}
       />
+
+      <RenameClientDialog
+        organizationId={organizationId}
+        client={renaming}
+        onClose={() => setRenaming(null)}
+        onRenamed={(line) => {
+          setRenaming(null);
+          setChanged({ title: "Client renamed", line });
+        }}
+      />
+
+      <MoveDomainDialog
+        organizationId={organizationId}
+        domain={moving ? { id: moving.domain.id, name: moving.domain.name } : null}
+        from={moving ? { id: moving.client.id, name: moving.client.name } : { id: "", name: "" }}
+        clients={clients.map((c) => ({ id: c.id, name: c.name }))}
+        onClose={() => setMoving(null)}
+        onMoved={(result) => {
+          setMoving(null);
+          setChanged({ title: "Domain moved", line: movedLine(result) });
+        }}
+      />
     </div>
   );
 }
@@ -301,12 +352,19 @@ function ClientGroup({
   total,
   onAddDomains,
   onDelete,
+  onRename,
+  onMove,
+  canMove,
 }: {
   client: ClientView;
   /** Every domain the client has, whatever the filter leaves. */
   total: number;
   onAddDomains: () => void;
   onDelete: () => void;
+  onRename: () => void;
+  onMove: (domain: DomainView) => void;
+  /** False while there is only one client: there is nowhere to move a domain to. */
+  canMove: boolean;
 }) {
   const hasRows = c.domains.length > 0;
   return (
@@ -368,6 +426,15 @@ function ClientGroup({
               <Button
                 size="sm"
                 variant="ghost"
+                onClick={onRename}
+                data-testid={`rename-client-${c.id}`}
+                aria-label={`Rename ${c.name}`}
+              >
+                Rename
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
                 onClick={onDelete}
                 data-testid="delete-client"
                 aria-label={`Delete ${c.name}`}
@@ -379,7 +446,14 @@ function ClientGroup({
         </th>
       </tr>
       {hasRows ? (
-        c.domains.map((d, i) => <DomainRow key={d.id} domain={d} last={i === c.domains.length - 1} />)
+        c.domains.map((d, i) => (
+          <DomainRow
+            key={d.id}
+            domain={d}
+            last={i === c.domains.length - 1}
+            onMove={canMove ? () => onMove(d) : null}
+          />
+        ))
       ) : (
         <tr className="border-b border-rule">
           <td colSpan={5} className="relative py-2.5 pl-9 pr-2.5 text-meta text-fg-3">
@@ -396,7 +470,16 @@ function ClientGroup({
   );
 }
 
-function DomainRow({ domain: d, last }: { domain: DomainView; last: boolean }) {
+function DomainRow({
+  domain: d,
+  last,
+  onMove,
+}: {
+  domain: DomainView;
+  last: boolean;
+  /** Null while there is no other client to move it to. */
+  onMove: (() => void) | null;
+}) {
   const own = OWNERSHIP[d.status];
   const live = d.status === "VERIFIED";
   return (
@@ -439,6 +522,22 @@ function DomainRow({ domain: d, last }: { domain: DomainView; last: boolean }) {
         <Link href={domainHref(d.slug)} className="link font-semibold">
           Evidence
         </Link>
+        {onMove ? (
+          <>
+            <span aria-hidden className="px-1.5 text-fg-4">
+              ·
+            </span>
+            <button
+              type="button"
+              className="link font-semibold"
+              onClick={onMove}
+              data-testid={`move-domain-${d.id}`}
+              aria-label={`Move ${d.name} to another client`}
+            >
+              Move
+            </button>
+          </>
+        ) : null}
       </td>
     </tr>
   );
@@ -631,6 +730,138 @@ function DeleteClientDialog({
                 </ButtonLink>
               ) : null}
             </div>
+          ) : null}
+        </form>
+      ) : null}
+    </Dialog>
+  );
+}
+
+const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/**
+ * Renaming a client. The name is what every screen, report and portal page
+ * shows; the slug is the short handle integrations may look the client up by.
+ * Neither touches DNS: the report address is built from the client's own
+ * token, so nothing published changes.
+ */
+function RenameClientDialog({
+  organizationId,
+  client,
+  onClose,
+  onRenamed,
+}: {
+  organizationId: string;
+  client: ClientView | null;
+  onClose: () => void;
+  onRenamed: (line: string) => void;
+}) {
+  const router = useRouter();
+  const [shownFor, setShownFor] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (client && client.id !== shownFor) {
+    setShownFor(client.id);
+    setName(client.name);
+    setSlug(client.slug);
+    setError(null);
+  }
+  if (!client && shownFor !== null) {
+    setShownFor(null);
+  }
+
+  const trimmedName = name.trim();
+  const trimmedSlug = slug.trim();
+  const nameOk = trimmedName.length >= 2 && trimmedName.length <= 100;
+  const slugOk = trimmedSlug.length >= 2 && trimmedSlug.length <= 60 && SLUG_PATTERN.test(trimmedSlug);
+  const slugChanged = client !== null && trimmedSlug !== client.slug;
+  const nameChanged = client !== null && trimmedName !== client.name;
+  const canSave = Boolean(client && nameOk && slugOk && (slugChanged || nameChanged) && !busy);
+
+  async function run() {
+    if (!client || !canSave) return;
+    setBusy(true);
+    setError(null);
+    const res = await renameClient(organizationId, client.id, {
+      ...(nameChanged ? { name: trimmedName } : {}),
+      ...(slugChanged ? { slug: trimmedSlug } : {}),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      setError(res.error.message ?? "The client could not be renamed. Nothing changed.");
+      return;
+    }
+    const parts: string[] = [];
+    if (nameChanged) parts.push(`${client.name} is now ${res.data.client.name}.`);
+    if (slugChanged) parts.push(`Its slug is now ${res.data.client.slug}.`);
+    onRenamed(parts.join(" "));
+    router.refresh();
+  }
+
+  return (
+    <Dialog
+      open={client !== null}
+      onClose={busy ? () => {} : onClose}
+      title={client ? `Rename ${client.name}` : ""}
+      testId="rename-client-confirm"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            onClick={run}
+            disabled={!canSave}
+            busy={busy}
+            busyLabel="Saving"
+            data-testid="rename-client-confirm-button"
+          >
+            Save
+          </Button>
+        </>
+      }
+    >
+      {client ? (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void run();
+          }}
+          className="flex flex-col gap-4"
+        >
+          <Field
+            label="Client name"
+            error={trimmedName.length > 0 && !nameOk ? "Between 2 and 100 characters." : undefined}
+          >
+            <Input size="lg" value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" />
+          </Field>
+          <Field
+            label="Slug"
+            hint="Lowercase letters, digits and single hyphens."
+            error={trimmedSlug.length > 0 && !slugOk ? "Lowercase letters, digits and single hyphens, 2 to 60 characters." : undefined}
+          >
+            <Input
+              size="lg"
+              mono
+              value={slug}
+              onChange={(e) => setSlug(e.target.value)}
+              autoComplete="off"
+              autoCapitalize="none"
+              spellCheck={false}
+            />
+          </Field>
+          <p className="text-meta text-fg-3">
+            Nothing in DNS changes: the report address, the domains and the Trust Center link stay as they are.
+            {slugChanged ? " An integration that looks this client up by its slug needs the new one; the client id does not change." : ""}
+          </p>
+          {error ? (
+            <p role="alert" className="text-ui font-medium text-fail">
+              {error}
+            </p>
           ) : null}
         </form>
       ) : null}

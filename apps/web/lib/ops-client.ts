@@ -1578,3 +1578,135 @@ export const removePsaMapping = (orgId: string, clientId: string) =>
 
 export const retryPsaJob = (orgId: string, jobId: string) =>
   call<{ jobs: PsaJobView[] }>(psaPath(orgId, `/jobs/${jobId}/retry`), { method: "POST" });
+
+// ─── basic operations: rename, move, export, bulk ────────────────────────────
+
+/** POST /clients/:id/rename — a new name, a new slug, or both. The id, the
+ *  report address and the Trust Center address do not change. */
+export const renameClient = (orgId: string, clientId: string, body: { name?: string; slug?: string }) =>
+  call<{ client: { id: string; name: string; slug: string }; changed: boolean }>(
+    wsPath(orgId, `/clients/${clientId}/rename`),
+    { method: "POST", body: JSON.stringify(body) },
+  );
+
+/** The report address part of a move: whether the DNS record still names the
+ *  previous client's address, and the one to publish instead. */
+export interface DomainMoveReportAddress {
+  previous: string;
+  next: string;
+  recordNamesPrevious: boolean;
+  hosted: boolean;
+}
+
+/** GET /domains/:id/move-preview?clientId= — what a move would do. */
+export interface DomainMovePreview {
+  domain: { id: string; name: string; slug: string; status: string };
+  from: { id: string; name: string };
+  to: { id: string; name: string };
+  alreadyThere: boolean;
+  moves: {
+    dmarcReports: number;
+    forensicReports: number;
+    scans: number;
+    alertRules: number;
+    openAlerts: number;
+    reportDigests: number;
+    liveShareLinks: number;
+  };
+  digestRecipients: string[];
+  pendingProposals: number;
+  portal: { losingContacts: number; gainingContacts: number };
+  monthlyReports: { fromScheduled: boolean; toScheduled: boolean };
+  psa: { fromCompany: string | null; toCompany: string | null; openTickets: number };
+  reportAddress: DomainMoveReportAddress;
+  blockers: Array<{ code: string; message: string }>;
+}
+
+export interface DomainMoveResult {
+  moved: boolean;
+  domain: { id: string; name: string; slug: string; clientId: string };
+  from: { id: string; name: string };
+  to: { id: string; name: string };
+  shareLinksMoved: number;
+  withdrawnProposals: number;
+  reportAddress: DomainMoveReportAddress;
+}
+
+export const previewDomainMove = (orgId: string, domainId: string, clientId: string) =>
+  call<DomainMovePreview>(
+    wsPath(orgId, `/domains/${domainId}/move-preview?clientId=${encodeURIComponent(clientId)}`),
+  );
+
+/** POST /domains/:id/move — owner or admin. A refusal (a provider switch under
+ *  way) arrives as a 409 with `error.blockers` as sentences. */
+export const moveDomain = (orgId: string, domainId: string, clientId: string) =>
+  call<DomainMoveResult>(wsPath(orgId, `/domains/${domainId}/move`), {
+    method: "POST",
+    body: JSON.stringify({ clientId }),
+  });
+
+/**
+ * GET /clients/export — the client book as CSV, one row per domain. The
+ * response is the file; the name comes from Content-Disposition.
+ */
+export async function downloadClientBook(
+  orgId: string,
+): Promise<
+  | { ok: true; data: { bytes: Blob; filename: string } }
+  | { ok: false; status: number; error: ApiErrorBody["error"] }
+> {
+  try {
+    const res = await fetch(wsPath(orgId, "/clients/export"), { credentials: "include" });
+    if (!res.ok) {
+      const raw = await res.text().catch(() => "");
+      const ui = errorFromResponse(res.status, raw);
+      const code = extractErrorCode(raw) ?? String(res.status);
+      return { ok: false, status: ui.status, error: { code, message: ui.message } };
+    }
+    const disposition = res.headers.get("content-disposition") ?? "";
+    const filenameMatch = disposition.match(/filename="([^"]+)"/);
+    return { ok: true, data: { bytes: await res.blob(), filename: filenameMatch?.[1] ?? "client-book.csv" } };
+  } catch {
+    const network = networkUiError();
+    return { ok: false, status: network.status, error: { code: "NETWORK", message: network.message } };
+  }
+}
+
+/** POST /rename — the workspace's name. The slug and id stay. */
+export const renameWorkspace = (orgId: string, name: string) =>
+  call<{ workspace: { id: string; name: string; slug: string }; changed: boolean }>(wsPath(orgId, "/rename"), {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+
+export interface BulkSkip {
+  id: string;
+  reason: "not_found" | "already_handled" | "already_revoked";
+}
+
+/** POST /alerts/acknowledge — up to 100 alerts, answered per alert. */
+export const acknowledgeAlerts = (orgId: string, eventIds: string[]) =>
+  call<{ acknowledged: number; acknowledgedIds: string[]; skipped: BulkSkip[] }>(wsPath(orgId, "/alerts/acknowledge"), {
+    method: "POST",
+    body: JSON.stringify({ eventIds }),
+  });
+
+/** POST /report-shares/revoke — up to 100 links, answered per link. */
+export const revokeReportShares = (orgId: string, shareIds: string[]) =>
+  call<{ revoked: number; revokedIds: string[]; skipped: BulkSkip[] }>(wsPath(orgId, "/report-shares/revoke"), {
+    method: "POST",
+    body: JSON.stringify({ shareIds }),
+  });
+
+/**
+ * Sends a pending invitation again, through the organization plugin's own
+ * `resend` flag: the same invitation, a fresh expiry and a fresh email. The
+ * plugin checks the caller's right to invite exactly as it does for a new one.
+ */
+export const resendInvitation = (orgId: string, email: string, role: "admin" | "analyst" | "viewer") =>
+  orgCall<{ id: string; email: string; role: string; expiresAt?: string }>("invite-member", {
+    organizationId: orgId,
+    email,
+    role,
+    resend: true,
+  });

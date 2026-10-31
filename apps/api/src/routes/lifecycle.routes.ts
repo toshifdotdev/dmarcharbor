@@ -4,6 +4,7 @@ import { prisma } from '../database/prisma.js';
 import { managedSpfRepublish } from '../services/hosted-dns/managed-spf.service.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
 import { requireSession } from '../middleware/auth.middleware.js';
+import { renameWorkspaceController } from '../controllers/operations.controller.js';
 
 /**
  * Deleting what was created.
@@ -198,6 +199,19 @@ lifecycleRouter.get(
       },
     });
   },
+);
+
+/**
+ * Renaming the workspace sits beside deleting it: both act on the workspace's
+ * own record. `organization: update` is held by owner and admin, the same
+ * right Better Auth's own update route checks; this one also writes an audit
+ * row, which that route does not.
+ */
+lifecycleRouter.post(
+  '/workspaces/:organizationId/rename',
+  requireSession,
+  requireOrganizationPermission('organization', 'update'),
+  renameWorkspaceController,
 );
 
 lifecycleRouter.delete(

@@ -8,6 +8,12 @@ import {
   listDomainsController,
   verifyDomainController,
 } from '../controllers/client.controller.js';
+import {
+  clientBookExportController,
+  domainMovePreviewController,
+  moveDomainController,
+  renameClientController,
+} from '../controllers/operations.controller.js';
 import { requireSession } from '../middleware/auth.middleware.js';
 import { requireQuota } from '../middleware/entitlement.middleware.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
@@ -20,12 +26,31 @@ clientRouter.get(
   requireOrganizationPermission('client', 'read'),
   listClientsController,
 );
+/**
+ * The client book as CSV. Declared before any `/clients/:clientId` read so the
+ * word "export" can never be taken for a client id, even if a single-client
+ * read is added later.
+ */
+clientRouter.get(
+  '/workspaces/:organizationId/clients/export',
+  requireSession,
+  requireOrganizationPermission('client', 'read'),
+  clientBookExportController,
+);
 clientRouter.post(
   '/workspaces/:organizationId/clients',
   requireSession,
   requireOrganizationPermission('client', 'create'),
   requireQuota('client'),
   createClientController,
+);
+clientRouter.post(
+  '/workspaces/:organizationId/clients/:clientId/rename',
+  requireSession,
+  // `client: update` is declared in permissions.ts and held by owner and admin,
+  // the same people who may create and delete a client.
+  requireOrganizationPermission('client', 'update'),
+  renameClientController,
 );
 clientRouter.get(
   '/workspaces/:organizationId/clients/:clientId/report-address',
@@ -62,4 +87,23 @@ clientRouter.post(
   requireSession,
   requireOrganizationPermission('domain', 'update'),
   verifyDomainController,
+);
+/**
+ * Moving a domain between clients changes what two clients hold and which
+ * portal contacts can see it, so it takes `client: update` (owner and admin)
+ * rather than `domain: update`, which an analyst also holds. The preview takes
+ * the same right: it names digest recipients and counts both clients' portal
+ * contacts.
+ */
+clientRouter.get(
+  '/workspaces/:organizationId/domains/:domainId/move-preview',
+  requireSession,
+  requireOrganizationPermission('client', 'update'),
+  domainMovePreviewController,
+);
+clientRouter.post(
+  '/workspaces/:organizationId/domains/:domainId/move',
+  requireSession,
+  requireOrganizationPermission('client', 'update'),
+  moveDomainController,
 );

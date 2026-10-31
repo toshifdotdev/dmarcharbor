@@ -1,5 +1,7 @@
 # DMARC Harbor API — Changelog
 
+The full `/api/v1` reference, with every endpoint, error and webhook, is [docs/API.md](API.md), published at `/docs/api`. Where this changelog and the reference disagree, the reference describes the current code.
+
 The `/api/v1` surface is a contract with customers' own software, not with our
 interface. Changes here are additive within `v1`. A removal, a rename, a type
 change, or a change in the meaning of an existing field will be released as
@@ -233,8 +235,11 @@ match. Reject deliveries older than five minutes to stop replays.
 | 2 | 1 minute |
 | 3 | 5 minutes |
 | 4 | 30 minutes |
-| 5 | 2 hours |
-| 6 | 12 hours, then given up |
+| 5 | 2 hours, then given up |
+
+(Corrected 2026-12-02: an earlier version of this table listed a sixth attempt
+after 12 hours. The service has always made five attempts. See
+[API.md](API.md#retries-suspension-and-the-delivery-log) for the full rules.)
 
 Respond `2xx` to acknowledge. Anything else, or no response within 10 seconds,
 is treated as a failure. After 20 consecutive failures an endpoint is suspended
@@ -246,6 +251,58 @@ for 24 hours rather than retried forever.
 response code and last error, so a failing integration is diagnosable without
 waiting for a customer complaint. `POST .../webhook-deliveries/{id}/replay`
 requeues a failed delivery with a fresh signature.
+
+---
+
+## 2026-12-02 — Moving domains, renames, bulk actions, the assistant and evidence pack 2.0
+
+**`/api/v1` addition.** `POST /api/v1/domains/{domainId}/move` moves a domain,
+with its reports, scans, alerts, digests, sender reviews and hosted records, to
+another client in the key's workspace. Write scope; honours `Idempotency-Key`.
+Share links follow the domain; pending approval requests put to the previous
+client's contacts are withdrawn. The DMARC record in DNS is not changed, so the
+answer's `reportAddress.next` is the address to publish. A domain in the middle
+of a provider switch answers 409 `CONFLICT`. Moving a domain to the client it is
+already under answers 200 with `moved: false`. Additive; nothing else in `v1`
+changes. See [API.md](API.md).
+
+**Browser routes** (session authenticated, not versioned):
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/workspaces/{id}/clients/export` | The client book as CSV, one row per domain |
+| `POST` | `/api/workspaces/{id}/clients/{clientId}/rename` | Rename a client or change its slug (409 on a slug in use) |
+| `GET` | `/api/workspaces/{id}/domains/{domainId}/move-preview?clientId=` | What a move would carry and change, and what blocks it |
+| `POST` | `/api/workspaces/{id}/domains/{domainId}/move` | Move a domain to another client |
+| `POST` | `/api/workspaces/{id}/rename` | Rename the workspace (the slug and id stay) |
+| `POST` | `/api/workspaces/{id}/alerts/acknowledge` | Acknowledge up to 100 alerts, answered per alert |
+| `POST` | `/api/workspaces/{id}/report-shares/revoke` | Revoke up to 100 share links, answered per link |
+| `GET` | `/api/workspaces/{id}/assistant` | Starter questions, and whether written answers are on |
+| `POST` | `/api/workspaces/{id}/assistant/ask` | Ask a question about the product |
+
+New audit actions: `CLIENT_UPDATED`, `DOMAIN_MOVED`, `WORKSPACE_UPDATED`. The
+bulk routes write one row per item with `bulk: true`, the same action as the
+single route.
+
+**Assistant.** A new entitlement, `assistant.docs`, is included on Harbor,
+Admiralty and Fleet and listed by `GET /api/plans`. The assistant answers only
+from the product's own documentation and never reads workspace data. A lower
+plan gets 402 `FEATURE_NOT_IN_PLAN` from both assistant routes. Questions are
+limited per person per minute and per workspace per day (429 `RATE_LIMITED`).
+
+**Trust Center and compliance pack.** `GET /api/trust/{slug}` gains optional,
+additive fields: `evidence` (per-domain authentication posture, policy history,
+coverage, senders and open findings), `monitoring`, `evidencePacks`,
+`retentionDetail`, `connectedServices`, `noTracking`, `contact`,
+`provider.branded`, `provider.logoUrl`, `provider.primaryColor` (both null
+unless the workspace's brand is verified) and a `region` on each sub-processor. Existing fields keep
+their meaning. Compliance packs issued from today carry `documentVersion`
+`2.0`; earlier packs keep their version and still verify. The residency region
+is read from `DATA_RESIDENCY_REGION`, and both documents say "Not confirmed
+yet" when it is unset.
+
+**Correction.** The webhook retry table above listed a sixth attempt; it has
+always been five.
 
 ---
 

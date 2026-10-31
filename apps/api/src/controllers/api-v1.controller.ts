@@ -35,6 +35,7 @@ import { assessPolicyReadiness } from '../services/onboarding.service.js';
 import { getTlsReportSummary } from '../services/tls-report/tls-report-query.service.js';
 import { acknowledgeAlertEvent, listAlertEvents } from '../services/alert.service.js';
 import { acknowledgeDnsChange, listDnsChanges } from '../services/monitoring/dns-change.service.js';
+import { moveDomain } from '../services/domain-move.service.js';
 import {
   serializeAlert,
   serializeDnsChange,
@@ -1011,4 +1012,79 @@ export async function apiAcknowledgeDnsChangeController(request: Request, respon
   }
 
   response.json({ change: serializeDnsChange(updated) });
+}
+
+/**
+ * POST /v1/domains/:domainId/move
+ *
+ * The API twin of the client book's "Move to another client", for a PSA sync
+ * or a script that keeps the client a domain sits under in step with the PSA.
+ * The same service runs both, so the browser and an integration move a domain
+ * the same way: share links follow it, pending approval requests to the
+ * previous client's contacts are withdrawn, and the audit row names the key.
+ *
+ * Moving a domain to the client it is already under answers 200 with
+ * `moved: false`, so a nightly sync is safe to repeat. A key on the request
+ * replays the first answer instead.
+ */
+export async function apiMoveDomainController(request: Request, response: Response): Promise<void> {
+  const organizationId = response.locals.organizationId as string;
+  const apiKeyId = response.locals.apiKeyId as string;
+  const domainId = resourceIdSchema.safeParse(request.params.domainId);
+  const body = resourceIdSchema.max(64).safeParse((request.body as { clientId?: unknown } | undefined)?.clientId);
+
+  if (!domainId.success || !body.success) {
+    invalid(response, 'A domain in the path and a clientId in the body are required.');
+    return;
+  }
+
+  try {
+    await withIdempotency(request, response, async () => {
+      const outcome = await moveDomain({
+        organizationId,
+        domainId: domainId.data,
+        toClientId: body.data,
+        actorUserId: null,
+        apiKeyId,
+        requestId: response.locals.requestId,
+      });
+
+      if (!outcome.ok) {
+        if (outcome.reason === 'blocked') {
+          return {
+            status: 409,
+            body: {
+              error: {
+                code: 'CONFLICT',
+                message: outcome.blockers.map((blocker) => blocker.message).join(' '),
+                blockers: outcome.blockers,
+              },
+            },
+          };
+        }
+        if (outcome.reason === 'changed') {
+          return {
+            status: 409,
+            body: { error: { code: 'CONFLICT', message: 'The domain changed client while this was being sent. Try again.' } },
+          };
+        }
+        return {
+          status: 404,
+          body: {
+            error: {
+              code: 'NOT_FOUND',
+              message:
+                outcome.reason === 'client_not_found'
+                  ? 'That client is not in this workspace.'
+                  : 'That domain is not in this workspace.',
+            },
+          },
+        };
+      }
+
+      return { status: 200, body: outcome.result };
+    });
+  } catch (error) {
+    sendError(response, error);
+  }
 }

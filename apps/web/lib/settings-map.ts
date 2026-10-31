@@ -132,7 +132,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       s({
         key: "compliance",
         label: "Trust Center and evidence packs",
-        does: "A public trust page per client, and a signed PDF of their DMARC evidence.",
+        does: "A public trust page per client, and a fingerprinted PDF of their DMARC evidence.",
         tasks: ["send a client proof", "compliance pdf", "evidence pack", "trust page", "fingerprint", "auditor"],
         who: "admin",
       }),

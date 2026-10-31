@@ -21,6 +21,7 @@ import {
   setSenderOwnerController,
 } from '../controllers/sender.controller.js';
 import { dismissSubdomainController, listSubdomainsController } from '../controllers/subdomain.controller.js';
+import { bulkRevokeReportSharesController } from '../controllers/operations.controller.js';
 
 const onboardingJsonParser = express.json({ limit: '16kb' });
 
@@ -105,6 +106,14 @@ onboardingRouter.get(
  * "revoked" is read as a share id and the call 404s for a share that does not
  * exist. The same mistake on the portal routes shipped once already.
  */
+/** Revoke many live links at once: the same right as revoking one. */
+onboardingRouter.post(
+  '/workspaces/:organizationId/report-shares/revoke',
+  requireSession,
+  requireOrganizationPermission('report', 'update'),
+  onboardingJsonParser,
+  bulkRevokeReportSharesController,
+);
 onboardingRouter.delete(
   '/workspaces/:organizationId/report-shares/revoked',
   requireSession,

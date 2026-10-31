@@ -58,6 +58,7 @@ import { requireWorkspaceMfa } from './middleware/mfa-requirement.middleware.js'
 import { sendError } from './utils/api-error.js';
 import { withReadableAuthErrors } from './middleware/auth-error-rewrite.middleware.js';
 import { lifecycleRouter } from './routes/lifecycle.routes.js';
+import { assistantRouter } from './routes/assistant.routes.js';
 import helmet from 'helmet';
 
 export function createApp(): express.Express {
@@ -262,6 +263,7 @@ export function createApp(): express.Express {
   app.use('/api', hostedBimiRouter);
   app.use('/api', hostedMtaStsRouter);
   app.use('/api', psaRouter);
+  app.use('/api', assistantRouter);
 
   // Deliberately not through the guard above: this is the route that records the
   // acceptance, and it has to stay reachable for someone stuck on the old one.

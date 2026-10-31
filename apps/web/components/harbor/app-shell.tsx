@@ -41,6 +41,8 @@ import { LEGAL_FOOTER_LINKS } from "@/lib/site-links";
 import { PierMark } from "@/components/mark";
 import { ToastProvider } from "@/components/ui/toast";
 import { AccountMenu } from "./account-menu";
+import { AssistantWidget } from "./assistant/assistant-widget";
+import { brandName } from "./public-frame";
 import { Jump } from "./jump";
 import { SectionNav } from "./section-nav";
 import { DpaBanner, HostUnverifiedBanner } from "./shell-banners";
@@ -107,7 +109,13 @@ export async function AppShell({
   }
 
   return (
-    <div data-harbor data-host-brand={hostBrand.state} className="flex min-h-screen flex-col">
+    // --hb-dock is the corner the question launcher keeps: the footer gets that
+    // much more room at the bottom and toasts rise above it (ui/toast.tsx).
+    <div
+      data-harbor
+      data-host-brand={hostBrand.state}
+      className={`flex min-h-screen flex-col ${accountLevel ? "" : "[--hb-dock:60px] sm:[--hb-dock:68px]"}`}
+    >
       <a
         href="#main"
         className="sr-only z-50 rounded-full bg-cta px-4 py-2 text-ui font-semibold text-cta-ink focus:not-sr-only focus:fixed focus:left-3 focus:top-3"
@@ -198,7 +206,7 @@ export async function AppShell({
         </main>
       </ToastProvider>
 
-      <footer className="border-t border-rule px-4 py-5 sm:px-6 lg:px-8">
+      <footer className="border-t border-rule px-4 pb-[calc(20px+var(--hb-dock,0px))] pt-5 sm:px-6 lg:px-8">
         <nav aria-label="Legal" className="flex flex-wrap gap-x-5 gap-y-1.5 text-meta">
           {LEGAL_FOOTER_LINKS.map(([href, label]) => (
             <Link key={href} href={href} className="text-fg-3 hover:text-fg">
@@ -207,6 +215,8 @@ export async function AppShell({
           ))}
         </nav>
       </footer>
+
+      {accountLevel ? null : <AssistantWidget organizationId={activeWorkspace.id} brand={brandName(hostBrand)} />}
     </div>
   );
 }

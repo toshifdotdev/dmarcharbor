@@ -16,6 +16,7 @@ export const LEGAL_FOOTER_LINKS: Array<[string, string]> = [
   ["/sub-processors", "Sub-processors"],
   ["/complaints", "Complaints"],
   ["/guide", "Setup guide"],
+  ["/docs/api", "API docs"],
   ["/faq", "FAQ"],
   ["/cookies", "Cookies"],
   ["/support", "Support"],

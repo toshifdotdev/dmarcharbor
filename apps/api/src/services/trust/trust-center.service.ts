@@ -1,8 +1,12 @@
 import { randomBytes } from 'node:crypto';
+import { env } from '../../config/env.js';
 import { prisma } from '../../database/prisma.js';
 import { recordAuditEvent } from '../audit.service.js';
+import { resolveBranding } from '../branding.service.js';
 import { resolveEntitlements } from '../entitlements/entitlement.service.js';
-import { forensicRetentionDays, reportRetentionDays } from '../privacy.service.js';
+import { erasureGraceDays } from '../erasure/erasure.service.js';
+import { forensicPiiRetentionDays, forensicRetentionDays, reportRetentionDays } from '../privacy.service.js';
+import { collectClientEvidence, type ClientEvidence } from './client-evidence.service.js';
 
 /**
  * The client facing Trust Center.
@@ -44,65 +48,119 @@ export class TrustCenterError extends Error {
  * that names a different set of processors than the signed document is worse
  * than no Trust Center at all.
  */
-export const subProcessors: { name: string; purpose: string; data: string }[] = [
-  {
-    name: 'Amazon Web Services',
-    purpose: 'Application hosting, database and object storage for customer logos',
-    data: 'Everything the service holds, in a single region',
-  },
-  {
-    name: 'PostgreSQL hosting',
-    purpose: 'Primary database, including report records',
-    data: 'Client identifiers, DMARC report metadata',
-  },
-  {
-    // Named because report collection actually depends on it. The default
-    // deployment does not use it, and saying so unconditionally would be the same
-    // class of error as naming a processor we do not use: a Trust Center that
-    // overstates its own sub-processors is worse than one that understates them.
-    name: 'Migadu',
-    purpose: 'Hosted mailbox that receives aggregate and forensic DMARC reports',
-    data: 'Inbound report XML, which may contain recipient email addresses',
-  },
+export interface SubProcessor {
+  name: string;
+  purpose: string;
+  data: string;
+  /** As the sub-processor list states it. "Not confirmed yet" is an open decision, said as one. */
+  region: string;
+}
+
+/**
+ * The list in docs/SUB-PROCESSORS.md, row for row and in its order.
+ *
+ * That document is the one an agency's clients are given under the DPA, so
+ * this list follows it rather than the other way round. It disagreed before:
+ * it named Amazon Web Services as the host of the database and everything
+ * held, where the document names it for logo storage only, and it had no
+ * regions. Where the document still says TBD, this says "Not confirmed yet":
+ * a region that has not been decided is not one to print.
+ */
+export const subProcessors: SubProcessor[] = [
   {
     name: 'Resend',
-    purpose: 'Transactional email, such as alerts and digests',
-    data: 'Recipient email addresses',
+    purpose: 'Transactional and alert email',
+    data: 'Email addresses and names of the people notified, and the notification content. Alert content may include domain names, sender sources and counts.',
+    region: 'Not confirmed yet',
   },
   {
     // Reports pass through its email routing on the way in, and the records an
-    // agency delegates to us (hosted DMARC, SPF, BIMI, MTA-STS) are served from
-    // a zone it hosts. It was missing here while both depended on it.
+    // agency delegates (hosted DMARC, SPF, BIMI, MTA-STS) are served from a zone
+    // it hosts.
     name: 'Cloudflare',
-    purpose: 'Inbound report routing, and serving the DNS records and MTA-STS policies a workspace delegates to us',
-    data: 'Report messages in transit; public DNS values and policy files',
+    purpose:
+      'Email routing and the report ingress Worker; the DNS zone that serves delegated records (hosted DMARC, SPF and BIMI); hosted MTA-STS policy files',
+    data: 'Raw DMARC report messages in transit only, which the Worker forwards and does not store. Public DNS values and policy files.',
+    region: 'Global edge',
+  },
+  {
+    name: 'Amazon Web Services',
+    purpose: 'Object storage for workspace logos (S3)',
+    data: 'The logo files a workspace uploads',
+    region: 'Not confirmed yet',
+  },
+  {
+    name: 'Managed PostgreSQL provider',
+    purpose: 'Primary database',
+    data: 'All stored data',
+    region: 'Not confirmed yet',
+  },
+  {
+    // Named because report collection depends on it, as the document does.
+    name: 'Migadu',
+    purpose: 'Hosted mailbox that receives aggregate and forensic reports',
+    data: 'Inbound report messages, which may contain recipient email addresses',
+    region: 'Not confirmed yet',
   },
   {
     name: 'Razorpay',
-    purpose: 'Subscription billing in Indian rupees',
-    data: 'Workspace name, billing contact, transaction reference',
+    purpose: 'Subscription billing in Indian rupees, as payment gateway',
+    data: 'Company name, billing contact email, plan and amount. Not DMARC data.',
+    region: 'India',
   },
   {
     name: 'Paddle',
     purpose: 'Subscription billing in US dollars, as merchant of record',
-    data: 'Workspace name, billing contact, transaction reference',
+    data: 'Company name, billing contact email, plan and amount. Not DMARC data.',
+    region: "Provider's region",
   },
   {
     name: 'Google and Microsoft',
-    purpose: 'Optional single sign-on, only where an agency has enabled it',
-    data: 'Email address and profile of the person signing in',
+    purpose: 'Optional federated sign-in',
+    data: 'Name, email address and provider identifier, only where social sign-in is used',
+    region: "Provider's region",
   },
 ];
+
+/** From the same document: what an agency connects is under its own agreements. */
+export const connectedServicesStatement =
+  'Services the managing agency chooses to connect (chat for alerts, ticketing, webhooks, its own DNS account, its own report mailbox, its own identity provider) are not sub-processors. They run under its own agreement with each provider and receive only what it configures.';
+
+/** Provable in the code: the web app loads no analytics, advertising or replay script. */
+export const noTrackingStatement =
+  'No third-party analytics, advertising or session-replay service is used, and workspace activity is not profiled for marketing.';
 
 /**
  * The region the deployment's data actually sits in.
  *
  * Read from configuration rather than hardcoded, because a Trust Center that
  * names the wrong jurisdiction is a compliance statement that is wrong rather
- * than one that is missing.
+ * than one that is missing. Unset, it says so in words a client can read: the
+ * old fallback pointed at an internal launch checklist from a public page.
  */
 export function dataResidencyRegion(env: { DATA_RESIDENCY_REGION?: string }): string {
-  return env.DATA_RESIDENCY_REGION?.trim() || 'Not configured - see the launch checklist';
+  return env.DATA_RESIDENCY_REGION?.trim() || 'Not confirmed yet';
+}
+
+/**
+ * Retention as the code enforces it, line by line, for both documents.
+ *
+ * Each line names a window a sweep applies, or says plainly that none is.
+ */
+export function retentionLines(): { label: string; value: string }[] {
+  return [
+    { label: 'DMARC aggregate reports', value: `${reportRetentionDays()} days from receipt, then deleted automatically` },
+    { label: 'TLS reports', value: `${reportRetentionDays()} days from receipt, then deleted automatically` },
+    { label: 'Forensic reports', value: `${forensicRetentionDays()} days from receipt, then deleted automatically` },
+    { label: 'Named recipients in forensic data', value: `${forensicPiiRetentionDays()} days, the shortest window, for the most sensitive data` },
+    {
+      label: 'DNS check history',
+      value:
+        'The 30 most recent scheduled checks of each domain. Checks a person ran, and checks that recorded a change, are kept with the domain.',
+    },
+    { label: 'Audit trail', value: 'Kept until a deletion request removes it. No automatic expiry is scheduled.' },
+    { label: 'Deletion window', value: `${erasureGraceDays} days between a deletion request and it running` },
+  ];
 }
 
 /**
@@ -139,7 +197,18 @@ function retentionFor(): { data: string; audit: string } {
 export interface TrustCenterPayload {
   generatedAt: string;
   client: { name: string; domains: string[] };
-  provider: { workspaceName: string };
+  /**
+   * Who publishes the page. The name always; the logo and colours only when the
+   * workspace is white-labelled, the same rule the client portal and the
+   * prospect report follow.
+   */
+  provider: {
+    workspaceName: string;
+    branded: boolean;
+    logoUrl: string | null;
+    primaryColor: string | null;
+    accentColor: string | null;
+  };
   statement: {
     isolation: string;
     coveredByTests: string;
@@ -148,10 +217,30 @@ export interface TrustCenterPayload {
   dataHeld: { category: string; description: string; containsPersonalData: boolean }[];
   access: { role: string; canRead: string }[];
   retention: { data: string; audit: string; deletionWindow: string };
+  /** Every window the code enforces, one line each. `retention` keeps its shape for older readers. */
+  retentionDetail: { label: string; value: string }[];
   residency: { region: string; hosting: string };
-  subProcessors: { name: string; purpose: string; data: string }[];
+  subProcessors: SubProcessor[];
+  connectedServices: string;
+  noTracking: string;
   rights: { export: string; erasure: string };
   erasures: { scope: string; completedAt: string; recordCount: number }[];
+  /** Posture, policy history, monitoring coverage, senders and open findings, as of `generatedAt`. */
+  evidence: ClientEvidence;
+  /** The scheduled DNS monitor as this deployment runs it. */
+  monitoring: { scheduled: boolean; intervalMinutes: number };
+  /** The packs issued for this client, newest first, so a holder can check a copy here too. */
+  evidencePacks: {
+    reference: string;
+    sha256: string;
+    issuedAt: string;
+    dataAsOf: string;
+    superseded: boolean;
+    documentVersion: string;
+    pageCount: number;
+  }[];
+  /** No contact address is held for a client page, and none is invented. */
+  contact: { name: string; detail: string };
 }
 
 /**
@@ -261,8 +350,10 @@ export async function buildTrustCenter(slug: string): Promise<TrustCenterPayload
     throw new TrustCenterError('No Trust Center at this address.', 'TRUST_CENTER_NOT_FOUND', 404);
   }
 
+  const generatedAt = new Date();
+
   // Scoped to the client id, never the workspace.
-  const [domains, grants, erasures] = await Promise.all([
+  const [domains, grants, erasures, branding, evidence, packs] = await Promise.all([
     prisma.domain.findMany({
       where: { clientId: client.id },
       select: { name: true },
@@ -279,6 +370,30 @@ export async function buildTrustCenter(slug: string): Promise<TrustCenterPayload
       select: { id: true, scope: true, targetId: true, completedAt: true },
       orderBy: { completedAt: 'desc' },
       take: 20,
+    }),
+    resolveBranding(client.organizationId),
+    collectClientEvidence({
+      clientId: client.id,
+      organizationId: client.organizationId,
+      asOf: generatedAt,
+      domainLimit: 200,
+    }),
+    // Packs for this client only. Their references and digests are already
+    // public through the verifier; listing them here is what makes the pack's
+    // own instruction, "compare it with the value on the Trust Center", true.
+    prisma.compliancePack.findMany({
+      where: { clientId: client.id, organizationId: client.organizationId, scope: 'CLIENT' },
+      select: {
+        reference: true,
+        pdfHash: true,
+        createdAt: true,
+        asOf: true,
+        supersededAt: true,
+        documentVersion: true,
+        pageCount: true,
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 5,
     }),
   ]);
 
@@ -300,9 +415,15 @@ export async function buildTrustCenter(slug: string): Promise<TrustCenterPayload
   );
 
   return {
-    generatedAt: new Date().toISOString(),
+    generatedAt: generatedAt.toISOString(),
     client: { name: client.name, domains: domains.map((domain) => domain.name) },
-    provider: { workspaceName: client.organization.name },
+    provider: {
+      workspaceName: client.organization.name,
+      branded: branding.branded,
+      logoUrl: branding.branded ? branding.logoUrl : null,
+      primaryColor: branding.branded ? branding.primaryColor : null,
+      accentColor: branding.branded ? branding.accentColor : null,
+    },
     statement: {
       isolation:
         'Records for this client are stored under a tenant boundary keyed to this client. No other client of the same provider, and no other provider using this platform, can read them. Access is checked on every request, not only at sign in.',
@@ -314,7 +435,8 @@ export async function buildTrustCenter(slug: string): Promise<TrustCenterPayload
     dataHeld: [
       { category: 'DMARC aggregate reports', description: 'Volume, authentication results and sending source counts per reporting period.', containsPersonalData: false },
       { category: 'Domain and DNS records', description: 'Domain names, DMARC policy, and the ownership record used to prove control.', containsPersonalData: false },
-      { category: 'Scans', description: 'SPF, DKIM and MX results captured when a domain is added or re-checked.', containsPersonalData: false },
+      { category: 'DNS checks', description: 'DMARC, SPF, DKIM, MX, MTA-STS, TLS-RPT and BIMI results captured at each check, and the changes between checks.', containsPersonalData: false },
+      { category: 'TLS reports', description: 'Counts of successful and failed TLS sessions reported by receiving mail servers.', containsPersonalData: false },
       { category: 'Forensic reports', description: 'Per message source detail including sending IP addresses.', containsPersonalData: Boolean(entitlements.features['reports.forensicNamed']) },
       { category: 'Named recipients', description: 'Individual recipients, collected only on plans that include it. Never shown to portal contacts.', containsPersonalData: Boolean(entitlements.features['reports.forensicNamed']) },
       { category: 'Account and billing records', description: 'Workspace members, portal grants and payment history.', containsPersonalData: true },
@@ -330,18 +452,36 @@ export async function buildTrustCenter(slug: string): Promise<TrustCenterPayload
     retention: {
       data: retention.data,
       audit: retention.audit,
-      deletionWindow: '7 days between requesting deletion and it running',
+      deletionWindow: `${erasureGraceDays} days between requesting deletion and it running`,
     },
+    retentionDetail: retentionLines(),
     residency: {
-      region: 'As configured for the provider account',
-      hosting: 'Managed PostgreSQL and object storage, in the region above',
+      region: dataResidencyRegion(process.env),
+      hosting: 'A managed PostgreSQL database for records; object storage for workspace logos only',
     },
     subProcessors,
+    connectedServices: connectedServicesStatement,
+    noTracking: noTrackingStatement,
     rights: {
       export: 'A machine readable export of everything held can be requested at any time, and is available on every plan including the free one.',
       erasure: 'Deletion can be requested for this client, the workspace, or a single domain. A certificate proving what was removed is retained.',
     },
     erasures: relevantErasures,
+    evidence,
+    monitoring: { scheduled: env.DNS_MONITOR_ENABLED, intervalMinutes: env.DNS_MONITOR_INTERVAL_MINUTES },
+    evidencePacks: packs.map((pack) => ({
+      reference: pack.reference,
+      sha256: pack.pdfHash,
+      issuedAt: pack.createdAt.toISOString(),
+      dataAsOf: pack.asOf.toISOString(),
+      superseded: pack.supersededAt !== null,
+      documentVersion: pack.documentVersion,
+      pageCount: pack.pageCount,
+    })),
+    contact: {
+      name: client.organization.name,
+      detail: `${client.organization.name} publishes this page and manages these domains for ${client.name}. Send questions to your usual contact there. This page does not carry a contact address.`,
+    },
   };
 }
 

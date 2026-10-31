@@ -15,6 +15,8 @@
  *
  * Invitations are emailed by the API (sendInvitationEmail) with a link to
  * /welcome, where the invited address finds them; the portfolio lists them too.
+ * A pending one can be sent again (the plugin's own resend: same invitation,
+ * new expiry, new email) or withdrawn.
  *
  * The page reads in the order the job comes: who is here, invite someone, the
  * workspace's two-step rule, then what each role can do. That last table is
@@ -31,6 +33,7 @@ import {
   cancelInvitation,
   inviteMember,
   removeMember,
+  resendInvitation,
   resetMemberMfa,
   setWorkspaceMfaRequirement,
   updateMemberRole,
@@ -80,6 +83,7 @@ function diff(from: Role, to: Role) {
 }
 
 const asRole = (r: string): Role => ((ROLES as readonly string[]).includes(r) ? (r as Role) : "viewer");
+const isAssignable = (r: string): r is Assignable => (ASSIGNABLE as readonly string[]).includes(r);
 
 export interface MemberView {
   id: string;
@@ -129,6 +133,7 @@ export function MembersBoard({
   const [change, setChange] = useState<{ m: MemberView; to: Role } | null>(null);
   const [removing, setRemoving] = useState<MemberView | null>(null);
   const [cancelling, setCancelling] = useState<InvitationView | null>(null);
+  const [resending, setResending] = useState<string | null>(null);
   const [resetting, setResetting] = useState<MemberView | null>(null);
   const [resetBusy, setResetBusy] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
@@ -175,6 +180,23 @@ export function MembersBoard({
   }
 
   const changeDiff = change ? diff(asRole(change.m.role), change.to) : null;
+
+  /**
+   * The same invitation again, with a fresh expiry and a fresh email. Not
+   * confirmed: it only repeats what was already sent to the same address.
+   */
+  async function resend(inv: InvitationView) {
+    if (resending !== null || !isAssignable(inv.role)) return;
+    setResending(inv.id);
+    const res = await resendInvitation(organizationId, inv.email, inv.role);
+    setResending(null);
+    if (!res.ok) {
+      toast({ title: res.error?.message ?? "The invitation could not be sent again.", tone: "fail" });
+      return;
+    }
+    toast({ title: `Invitation sent to ${inv.email} again`, body: "It has a new expiry, shown in the list.", tone: "ok" });
+    router.refresh();
+  }
 
   async function resetTwoStep() {
     if (!resetting) return;
@@ -426,16 +448,30 @@ export function MembersBoard({
                     {inv.expiresLabel ? `Lapses ${inv.expiresLabel}` : "No end date recorded"}
                   </span>
                   {canManage ? (
-                    <button
-                      type="button"
-                      className="link col-start-3 row-start-1 text-meta sm:col-start-auto sm:row-start-auto"
-                      onClick={() => {
-                        setError(null);
-                        setCancelling(inv);
-                      }}
-                    >
-                      Withdraw
-                    </button>
+                    <span className="col-start-3 row-start-1 flex items-baseline gap-3 text-meta sm:col-start-auto sm:row-start-auto">
+                      {isAssignable(inv.role) ? (
+                        <button
+                          type="button"
+                          className="link disabled:opacity-60"
+                          disabled={resending !== null}
+                          data-testid={`resend-invitation-${inv.id}`}
+                          aria-label={`Send the invitation to ${inv.email} again`}
+                          onClick={() => void resend(inv)}
+                        >
+                          {resending === inv.id ? "Sending" : "Resend"}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="link"
+                        onClick={() => {
+                          setError(null);
+                          setCancelling(inv);
+                        }}
+                      >
+                        Withdraw
+                      </button>
+                    </span>
                   ) : (
                     <span />
                   )}

@@ -34,7 +34,8 @@ export type EntitlementKey =
   | 'integrations.psa'
   | 'prospects.reports'
   | 'reports.usageExport'
-  | 'dns.spfUsage';
+  | 'dns.spfUsage'
+  | 'assistant.docs';
 
 export type QuotaKey = 'client' | 'activeDomain' | 'member';
 
@@ -80,6 +81,7 @@ export const entitlementLabels: Record<EntitlementKey, string> = {
   'prospects.reports': 'Prospect risk reports',
   'reports.usageExport': 'Monthly usage export per client',
   'dns.spfUsage': 'SPF check for unused includes',
+  'assistant.docs': 'Product help answered from the docs',
 };
 
 /**
@@ -227,6 +229,7 @@ const allFeatures = (overrides: Partial<Record<EntitlementKey, boolean>> = {}): 
   'prospects.reports': true,
   'reports.usageExport': true,
   'dns.spfUsage': true,
+  'assistant.docs': true,
   ...overrides,
 });
 
@@ -425,6 +428,19 @@ const noSpfUsage = { 'dns.spfUsage': false } as const;
 const noTlsRpt = { 'reports.tlsrpt': false } as const;
 
 /**
+ * The product assistant starts at Harbor, and so reaches Fleet through
+ * harborFeatures.
+ *
+ * Every answer is a paid model call, bounded by a per-person and a daily
+ * per-workspace limit. Harbor is where a team of up to 25 runs a full client
+ * book and asks the most questions; Fleet is the same features for a larger
+ * book with an unlimited team, so it gets it too rather than breaking the
+ * promise that the two grant the same things. Nothing is stored per
+ * workspace, so a downgrade only hides it.
+ */
+const noAssistant = { 'assistant.docs': false } as const;
+
+/**
  * Harbor's feature set, shared by FLEET rather than copied.
  *
  * FLEET is Harbor's features for a much larger portfolio. A copy would drift
@@ -471,7 +487,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     maxWorkspaces: 1,
     activeDomainWindowDays: 30,
     maxProspectReportsPerMonth: 0,
-    features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noIntegrations, ...noDnsAutomation, ...noDnsHosted, ...noManagedSpf, ...noHostedBimi, ...noHostedMtaSts, ...noPsa, ...noProspects, ...noTlsRpt, ...noUsageExport, ...noSpfUsage, ...off }),
+    features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noIntegrations, ...noDnsAutomation, ...noDnsHosted, ...noManagedSpf, ...noHostedBimi, ...noHostedMtaSts, ...noPsa, ...noProspects, ...noTlsRpt, ...noUsageExport, ...noSpfUsage, ...noAssistant, ...off }),
   },
   FAIRWAY: {
     tier: 'FAIRWAY',
@@ -491,7 +507,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     maxWorkspaces: 2,
     activeDomainWindowDays: 365,
     maxProspectReportsPerMonth: 10,
-    features: allFeatures({ ...noNamedForensic, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noDigests, ...noManagedSpf, ...noHostedBimi, ...noHostedMtaSts, ...noPsa, ...noUsageExport }),
+    features: allFeatures({ ...noNamedForensic, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noDigests, ...noManagedSpf, ...noHostedBimi, ...noHostedMtaSts, ...noPsa, ...noUsageExport, ...noAssistant }),
   },
   HARBOR: {
     tier: 'HARBOR',
