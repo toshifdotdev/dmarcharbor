@@ -2791,6 +2791,11 @@ model EmailDelivery {
   /// cannot turn into two password reset links arriving minutes apart.
   idempotencyKey String?            @unique
   organizationId String?
+  /// The full From header for this message, such as `"Wistholm IT" <reports@relay.example>`.
+  /// Null sends from EMAIL_FROM, which is every message except client facing mail
+  /// from a white-labelled agency. Stored on the row because the message may be
+  /// delivered by a later pass, after the agency has been renamed.
+  fromHeader     String?
   createdAt      DateTime           @default(now())
 
   @@index([state, nextAttemptAt])

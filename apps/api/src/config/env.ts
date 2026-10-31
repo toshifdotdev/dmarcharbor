@@ -76,6 +76,24 @@ const envSchema = z.object({
    */
   SHUTDOWN_DRAIN_MS: z.coerce.number().int().positive().max(300_000).default(30_000),
   EMAIL_FROM: z.string().trim().min(3).default('DMARC Harbor <no-reply@dmarcharbor.com>'),
+  /**
+   * The address client facing email is sent from when the agency's white label
+   * is on, for example `reports@mail-relay.example`.
+   *
+   * The display name becomes the agency's workspace name, so a client contact
+   * reads "Wistholm IT" in their inbox rather than our product. The address
+   * itself should be neutral, a domain that names neither us nor any one
+   * agency, because every agency's mail leaves from it. Its domain must be
+   * verified with the email provider and publish SPF and DKIM, exactly as the
+   * EMAIL_FROM domain does, or the messages fail DMARC at the receiver.
+   *
+   * Unset, the address part of EMAIL_FROM is used with the agency's name in
+   * front of it.
+   */
+  CLIENT_EMAIL_FROM_ADDRESS: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.string().trim().email().optional(),
+  ),
   RESEND_API_KEY: optionalSecret,
   GOOGLE_CLIENT_ID: optionalSecret,
   GOOGLE_CLIENT_SECRET: optionalSecret,

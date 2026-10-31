@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { DEVELOPER_DOCS } from "@/lib/docs-registry";
+import { readHostBrand } from "@/lib/host-brand";
 import { requestOrigin } from "@/lib/metadata-origin";
 import { INDEXABLE_ROUTES, LEGAL_ROUTE_PRIORITY } from "@/lib/seo";
 
@@ -16,8 +17,14 @@ import { INDEXABLE_ROUTES, LEGAL_ROUTE_PRIORITY } from "@/lib/seo";
  * content date to read — the legal documents carry a version and an effective
  * date that is still "to be set at launch", and inventing a date to make a
  * sitemap look maintained would be worse than an honest one.
+ *
+ * On an agency's verified domain the list is empty. Our pages redirect to the
+ * portal there (lib/white-label.ts), and the pages a client uses are reached
+ * from the links the agency sends, so none is ours to offer a crawler under
+ * the agency's name.
  */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  if ((await readHostBrand()).state === "verified") return [];
   const origin = await requestOrigin();
   const now = new Date();
   const routes = [...new Set([...INDEXABLE_ROUTES, ...DEVELOPER_DOCS.map((d) => d.path)])];

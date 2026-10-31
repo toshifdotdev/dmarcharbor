@@ -17,12 +17,20 @@
 
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
+import { readHostBrand } from "@/lib/host-brand";
 import type { PortalBranding } from "@/lib/types";
 import { chartBrandVars } from "@/components/brand-applier";
 import { PierMark } from "@/components/mark";
 import { PortalSignOut } from "./portal-client";
 
-export function PortalFrame({
+/**
+ * A notice page (no grant, a paused portal, an unreachable report) has no
+ * portal branding to show, because the API answered with a refusal. On the
+ * agency's verified domain the host already names the agency, so the frame
+ * takes its name and logo from there and never falls back to ours: no Pier
+ * mark, no "produced with" line. Elsewhere it renders as before.
+ */
+export async function PortalFrame({
   brand,
   email,
   back,
@@ -37,7 +45,13 @@ export function PortalFrame({
   home?: string;
   children: ReactNode;
 }) {
-  const agency = brand?.workspaceName ?? "Your provider";
+  const host = brand ? null : await readHostBrand();
+  const hostAgency = host?.state === "verified" ? host : null;
+  const agency = brand?.workspaceName ?? hostAgency?.workspaceName ?? "Your provider";
+  const branded = brand ? brand.branded : hostAgency !== null;
+  const logo = brand ? (brand.branded ? brand.logoUrl : null) : (hostAgency?.logoUrl ?? null);
+  // The host's colours are already on the page root (BrandApplier); only the
+  // portal's own branding needs setting here.
   const vars = brand?.branded ? chartBrandVars(brand.primaryColor, brand.accentColor) : {};
   return (
     <div data-harbor data-surface="portal" style={vars as CSSProperties} className="flex min-h-screen flex-col bg-paper">
@@ -47,9 +61,9 @@ export function PortalFrame({
             href={home}
             className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 rounded-md text-[16px] leading-[1.3] sm:text-[17px]"
           >
-            {brand?.branded && brand.logoUrl ? (
-              <img src={brand.logoUrl} alt="" height={28} className="h-7 w-auto max-w-[160px] object-contain" />
-            ) : brand?.branded ? null : (
+            {logo ? (
+              <img src={logo} alt="" height={28} className="h-7 w-auto max-w-[160px] object-contain" />
+            ) : branded ? null : (
               <PierMark size={22} className="shrink-0 text-fg" />
             )}
             <span className="font-bold tracking-[-0.01em] text-fg">{agency}</span>
@@ -86,7 +100,7 @@ export function PortalFrame({
             You can ask {agency} for an export or erasure of the data held about you: export and erasure are available at
             no cost, on every plan.
           </p>
-          {!brand?.branded ? <p>Reports produced with DMARC Harbor.</p> : null}
+          {!branded ? <p>Reports produced with DMARC Harbor.</p> : null}
         </div>
       </footer>
     </div>

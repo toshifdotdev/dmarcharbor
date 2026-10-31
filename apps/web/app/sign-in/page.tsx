@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSessionUserId } from "@/lib/api";
+import { readHostBrand } from "@/lib/host-brand";
 import { safeNext } from "@/lib/session";
 import { AuthFrame } from "@/components/harbor/auth-frame";
 import { AuthPanel } from "@/components/harbor/auth-panel";
@@ -11,6 +12,10 @@ import { AuthPanel } from "@/components/harbor/auth-panel";
  *
  * Someone already signed in is sent on, not shown a form for an account they
  * are already using.
+ *
+ * On an agency's verified custom domain the reader is the agency's client:
+ * the form speaks to them, lands on the portal, and offers email and password
+ * only (the panel's `portal` mode explains why).
  */
 
 const URL_ERRORS: Record<string, string> = {
@@ -43,8 +48,11 @@ export default async function SignInPage({
       (Array.isArray(error) && error.includes("social") ? URL_ERRORS.social : "That did not work. Try again."))
     : null;
 
+  const brand = await readHostBrand();
+  const portal = brand.state === "verified" ? { agency: brand.workspaceName } : null;
+
   // A reset link is for someone who cannot sign in, so it never redirects.
-  if (!token && (await getSessionUserId())) redirect(next ?? "/");
+  if (!token && (await getSessionUserId())) redirect(next ?? (portal ? "/portal" : "/"));
 
   return (
     <AuthFrame
@@ -62,6 +70,7 @@ export default async function SignInPage({
         next={next}
         resetToken={token && !errorCode ? token : null}
         initialError={errorMessage}
+        portal={portal}
       />
     </AuthFrame>
   );

@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express';
-import { env } from '../config/env.js';
+import { clientOrigin } from '../services/client-origin.js';
 import { EntitlementError } from '../services/entitlements/entitlement.service.js';
 import {
   TrustCenterError,
@@ -58,7 +58,9 @@ export async function createTrustCenterController(request: Request, response: Re
     const client = await assertClientInWorkspace(clientId, organizationId);
 
     const slug = await ensureTrustSlug(client.id, response.locals.session?.user?.id);
-    response.status(200).json({ url: `${env.APP_URL.replace(/\/$/, '')}/trust/${slug}`, slug });
+    // The agency forwards this to its client's auditor, so it is on the
+    // agency's own domain when it has a verified one.
+    response.status(200).json({ url: `${await clientOrigin(organizationId)}/trust/${slug}`, slug });
   } catch (error) {
     sendError(response, error);
   }

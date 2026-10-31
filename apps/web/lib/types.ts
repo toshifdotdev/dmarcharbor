@@ -992,6 +992,9 @@ export interface CreatedShare {
   /** The existing public surface, e.g. /api/reports/share/<token> — linked,
    *  never rebuilt. */
   url: string;
+  /** The absolute page a client opens: https://<agency verified domain>/share/<token>,
+   *  or our address when the workspace has none. Absent from an older API. */
+  pageUrl?: string;
   expiresAt: string;
   includeForensics: boolean;
   includeSources: boolean;
@@ -1000,6 +1003,8 @@ export interface CreatedShare {
 export interface ReportShareRow {
   id: string;
   token: string;
+  /** As CreatedShare.pageUrl. Absent from an older API. */
+  pageUrl?: string;
   expiresAt: string;
   revokedAt: string | null;
   lastViewedAt: string | null;
@@ -1784,6 +1789,9 @@ export interface BrandingSettings {
   brandAccentColor: string | null;
   customDomain: string | null;
   customDomainVerifiedAt: string | null;
+  /** The absolute origin for client links: the verified custom domain when the
+   *  plan serves it, else our own address. Absent from an older API. */
+  clientOrigin?: string;
 }
 
 export interface ReportInboxSettings {

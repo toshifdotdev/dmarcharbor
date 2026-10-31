@@ -3,6 +3,7 @@ import { env } from '../../config/env.js';
 import { prisma } from '../../database/prisma.js';
 import { recordAuditEvent } from '../audit.service.js';
 import { resolveBranding } from '../branding.service.js';
+import { clientOriginFor } from '../client-origin.js';
 import { resolveEntitlements } from '../entitlements/entitlement.service.js';
 import { withPdfSlot } from '../pdf-concurrency.js';
 import { collectClientEvidence } from './client-evidence.service.js';
@@ -182,8 +183,7 @@ async function collectFacts(clientId: string, asOf: Date, reference: string): Pr
 
   // The verifier the document points at: the agency's own verified domain when
   // it is white-labelled, as the monthly report does, and ours otherwise.
-  const verifyBase =
-    branding.branded && branding.customDomain ? `https://${branding.customDomain}` : env.APP_URL.replace(/\/$/, '');
+  const verifyBase = clientOriginFor(branding);
 
   return {
     client: { name: client.name },

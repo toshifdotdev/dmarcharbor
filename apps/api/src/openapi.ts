@@ -825,7 +825,7 @@ export const openApiDocument = {
       get: {
         tags: ['White label'],
         summary: 'Stored white label settings',
-        description: 'The raw branding values held for this workspace, including the custom domain and whether its DNS record has been verified. Agency side.',
+        description: 'The raw branding values held for this workspace, including the custom domain and whether its DNS record has been verified, and clientOrigin: the origin every link the workspace\'s clients receive is built on (https:// and the custom domain once the plan includes it and it is verified, APP_URL otherwise). Agency side.',
         parameters: [orgParam],
         responses: { 200: { description: 'Stored branding values.' }, ...standardErrors },
       },
@@ -904,7 +904,7 @@ export const openApiDocument = {
         ],
         responses: {
           ...standardErrors,
-          200: { description: 'The public URL and slug.' },
+          200: { description: 'The public URL and slug. The URL is on the workspace\'s verified custom domain when it has one, and APP_URL otherwise.' },
           402: { description: 'The trust.center entitlement is not on this plan.' },
           404: { description: 'That client is not in this workspace.' },
         },
@@ -930,6 +930,7 @@ export const openApiDocument = {
           'Public and unauthenticated, because the person verifying a document is an auditor at the client organisation holding the file and with no account here.',
           'Returns the digest, dates and kind for a document reference, and nothing else. Monthly reports also return their period. No client name, no domain, no personal data, so it cannot be used as a public directory of clients.',
           'Deliberately not routed under /trust/{slug}, because a literal path there would be captured by that parameter and answer a confusing 404.',
+          'trustCenter is the relative path /trust, under which Trust Center pages live on whichever host the verifier was opened.',
         ].join(' '),
         parameters: [{ name: 'reference', in: 'query', required: true, schema: { type: 'string' } }],
         responses: {
@@ -4112,7 +4113,7 @@ export const openApiDocument = {
         tags: ['Reports'],
         summary: 'Create a prospect risk report',
         description: [
-          'Scans any public domain (no verification: the prospect is not a client yet) and stores the result as a snapshot behind an expiring public link at APP_URL/prospect/{token}. Opening the link never scans again.',
+          'Scans any public domain (no verification: the prospect is not a client yet) and stores the result as a snapshot behind an expiring public link at /prospect/{token}, on the workspace\'s verified custom domain when it has one and APP_URL otherwise. Opening the link never scans again.',
           'Body: domain, and optionally prospectName (120), note (600), contactEmail, expiresInDays (1-90, default 30).',
           'Counts against the plan\'s monthly allowance (Fairway 10, Harbor 50, Admiralty and Fleet 200), checked under a lock so two requests cannot both take the last one. A scan that fails is not saved and not counted (502 SCAN_FAILED). Rate limited like the scanner. 402 PROSPECT_LIMIT_REACHED with used, limit and resetsAt at the allowance. Requires report update permission.',
         ].join(' '),
@@ -4159,16 +4160,16 @@ export const openApiDocument = {
       get: {
         tags: ['Onboarding and sharing'],
         summary: 'List share links',
-        description: 'Includes view count and last viewed time so an agency can tell whether a client opened the link.',
+        description: 'Includes view count and last viewed time so an agency can tell whether a client opened the link, and pageUrl, the absolute page a client opens (on the agency\'s verified custom domain when it has one).',
         parameters: [orgParam, ...queryPagination],
         responses: { 200: { description: 'Page of share links.' }, ...standardErrors },
       },
       post: {
         tags: ['Onboarding and sharing'],
         summary: 'Create a share link',
-        description: 'Requires report update. The public response never contains personal data or pseudonyms.',
+        description: 'Requires report update. The public response never contains personal data or pseudonyms. url is the relative API path that returns the report as JSON; pageUrl is the absolute page to send the client, {clientOrigin}/share/{token}, on the agency\'s verified custom domain when it has one and APP_URL otherwise.',
         parameters: [orgParam],
-        responses: { 201: { description: 'Share created, with the public url.' }, ...standardErrors },
+        responses: { 201: { description: 'Share created, with the API url and the client pageUrl.' }, ...standardErrors },
       },
     },
     '/workspaces/{organizationId}/report-shares/{shareId}': {

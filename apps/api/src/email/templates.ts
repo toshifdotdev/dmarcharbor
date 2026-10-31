@@ -196,7 +196,10 @@ export function portalAccessGranted(input: {
     heading: `You can now see DMARC reports for ${input.clientName}`,
     paragraphs: [
       `${input.agencyName} has given you access to the DMARC reporting for ${input.clientName}. You can see report volume, senders, and any spoofing warnings.`,
-      'Sign in with this email address to view it. There is no separate account to create and no password to remember.',
+      // Contacts sign in with an email address and a password, so the copy says
+      // how to get one. It used to promise there was no account and no
+      // password, which sent people to a sign-in form with nothing to type.
+      'Sign in with this email address to view it. The first time, choose Create an account and use this same address.',
       'This access is managed by your IT provider. If you did not expect it, you can ignore this message.',
     ],
     action: { label: 'View reports', url: input.signInUrl },

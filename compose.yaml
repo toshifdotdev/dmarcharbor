@@ -48,6 +48,9 @@ services:
       REPORT_AGGREGATE_ADDRESS: ${REPORT_AGGREGATE_ADDRESS:?REPORT_AGGREGATE_ADDRESS must be set}
       REPORT_FORENSIC_ADDRESS: ${REPORT_FORENSIC_ADDRESS:?REPORT_FORENSIC_ADDRESS must be set}
       EMAIL_FROM: ${EMAIL_FROM:?EMAIL_FROM must be set}
+      # Optional: the address client email from a white-label agency is sent from,
+      # with the agency's name in front. Empty uses the address part of EMAIL_FROM.
+      CLIENT_EMAIL_FROM_ADDRESS: ${CLIENT_EMAIL_FROM_ADDRESS:-}
       EMAIL_PROVIDER: resend
       RESEND_API_KEY: ${RESEND_API_KEY:?RESEND_API_KEY must be set when EMAIL_PROVIDER=resend}
 

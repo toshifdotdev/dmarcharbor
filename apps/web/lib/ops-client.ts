@@ -788,7 +788,9 @@ export const createReportShare = (
     expiresInDays?: number;
   },
 ) =>
-  call<{ id: string; token: string; url: string; expiresAt: string }>(
+  // pageUrl: the absolute page a client opens, on the agency's verified
+  // domain when it has one. Absent from an older API.
+  call<{ id: string; token: string; url: string; pageUrl?: string; expiresAt: string }>(
     wsPath(orgId, "/report-shares"),
     { method: "POST", body: JSON.stringify(body) },
   );

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/api";
 import { getPortalDomain, getPortalMonthlyReports, getPortalOverview, getPortalProposals, PortalError } from "@/lib/api-portal";
 import { dayLabel, policyPlain, verdictFor, type Verdict } from "@/lib/portal-verdict";
@@ -13,6 +14,19 @@ import { buttonClass } from "@/components/ui/button";
 import { ArrowRight } from "@/components/ui/icons";
 
 export const metadata: Metadata = { title: "Your domains", robots: { index: false, follow: false } };
+
+/**
+ * Better Auth sends a verification link that failed back to its callback (this
+ * page, for a client who signed up on the agency's domain) as ?error=CODE, and
+ * that click carries no session. The code becomes the sign-in form's sentence
+ * instead of a bare form: the same mapping /welcome makes.
+ */
+const VERIFY_ERRORS: Record<string, string> = {
+  TOKEN_EXPIRED: "verify_expired",
+  INVALID_TOKEN: "verify_invalid",
+  USER_NOT_FOUND: "verify_invalid",
+  INVALID_USER: "verify_invalid",
+};
 
 /**
  * /portal — the agency's client, reading how their email is doing.
@@ -30,10 +44,18 @@ export const metadata: Metadata = { title: "Your domains", robots: { index: fals
  *
  * Access is the API's: a grant on the signed-in email address decides it. A
  * signed-out reader goes to sign-in and comes back here.
+ *
+ * A client who signs up on the agency's domain is sent here by the
+ * verification link, which signs them in.
  */
-export default async function PortalPage({ searchParams }: { searchParams: Promise<{ org?: string }> }) {
+export default async function PortalPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ org?: string; error?: string | string[] }>;
+}) {
   // The provider, for a contact invited by more than one.
-  const { org } = await searchParams;
+  const { org, error: rawError } = await searchParams;
+  const verifyError = VERIFY_ERRORS[(Array.isArray(rawError) ? rawError.at(-1) : rawError) ?? ""] ?? null;
   const [overviewResult, user] = await Promise.all([
     getPortalOverview(org).then(
       (o) => ({ ok: true as const, o }),
@@ -44,7 +66,10 @@ export default async function PortalPage({ searchParams }: { searchParams: Promi
 
   if (!overviewResult.ok) {
     const e = overviewResult.e;
-    if (e instanceof PortalError && e.status === 401) await signInRedirect();
+    if (e instanceof PortalError && e.status === 401) {
+      if (verifyError) redirect(`/sign-in?error=${verifyError}&next=${encodeURIComponent("/portal")}`);
+      await signInRedirect();
+    }
     if (e instanceof PortalError && e.code === "PORTAL_PAUSED") {
       return <PortalPaused email={user?.email ?? null} provider={e.workspaceName} />;
     }

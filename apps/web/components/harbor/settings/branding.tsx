@@ -271,7 +271,7 @@ export function BrandingBoard({
       <Panel
         id="wl-preview"
         title="What a client sees"
-        why="The client portal always carries your name, and your logo and colours once white label is on. Share links, Trust Centers and the sign-in page carry them on your verified custom domain."
+        why="The client portal always carries your name, and your logo and colours once white label is on, as do monthly reports, Trust Centers, prospect reports and the emails clients receive. With a verified custom domain, every page a client opens is on your address, sign-in and share links included."
       >
         <figure className="flex flex-col gap-3">
           <div
@@ -426,7 +426,7 @@ export function BrandingBoard({
       <Panel
         id="wl-domain"
         title="Custom domain"
-        why="Client links open on your own address, such as reports.youragency.example, instead of ours. A TXT record proves the domain is yours; the hostname must also point at this service for the pages to open on it."
+        why="Once it is verified, everything a client opens is on your address, such as reports.youragency.example: the portal and its sign-in, share links, Trust Centers, prospect reports, and the links in monthly report and password reset emails. Clients sign in there with email and password, because Google and Microsoft sign-in cannot complete on your domain. A TXT record proves the domain is yours; the hostname must also point at this service for the pages to open on it."
         aside={
           customDomain ? (
             domainFeature === false ? (
@@ -509,7 +509,7 @@ export function BrandingBoard({
             context={
               customDomain
                 ? "The domain you set up on Admiralty is kept but not used. Remove it below, or upgrade to use it again."
-                : "Your logo and colours already appear on client pages served from our address."
+                : "Your logo and colours already appear in the portal and on reports, served from our address."
             }
           />
         ) : null}

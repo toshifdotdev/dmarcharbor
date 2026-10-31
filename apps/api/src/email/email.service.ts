@@ -25,6 +25,11 @@ export interface EmailMessage {
   text: string;
   /** Collapses identical alerts so a repeated event does not flood an inbox. */
   idempotencyKey?: string;
+  /**
+   * A From header for this message only, built by `email/sender.ts` for an
+   * agency's client mail. Absent sends from EMAIL_FROM.
+   */
+  from?: string | null;
 }
 
 export async function sendEmail(message: EmailMessage): Promise<void> {
@@ -50,7 +55,7 @@ export async function sendEmail(message: EmailMessage): Promise<void> {
       () =>
         resend.emails.send(
           {
-            from: env.EMAIL_FROM,
+            from: message.from || env.EMAIL_FROM,
             to: message.to,
             subject: message.subject,
             html: message.html,
@@ -73,7 +78,7 @@ export async function sendEmail(message: EmailMessage): Promise<void> {
     throw new Error('Console email delivery is disabled in production.');
   }
 
-  console.info(`[email] ${message.subject} for ${message.to}\n${message.text}`);
+  console.info(`[email] ${message.subject} for ${message.to}${message.from ? ` from ${message.from}` : ''}\n${message.text}`);
 }
 
 /**
@@ -90,7 +95,12 @@ export async function sendEmail(message: EmailMessage): Promise<void> {
  * rather than floated. A floating queue write can lose the row along with the request
  * that caused it.
  */
-export function queueEmail(rendered: RenderedEmail, to: string, idempotencyKey?: string): void {
+export function queueEmail(
+  rendered: RenderedEmail,
+  to: string,
+  idempotencyKey?: string,
+  options: { from?: string } = {},
+): void {
   void enqueueEmail({
     kind: 'notification',
     to,
@@ -98,11 +108,12 @@ export function queueEmail(rendered: RenderedEmail, to: string, idempotencyKey?:
     html: rendered.html,
     text: rendered.text,
     ...(idempotencyKey ? { idempotencyKey } : {}),
+    ...(options.from ? { from: options.from } : {}),
   });
 }
 
 /** Kept so the auth flow's existing import keeps working. */
-export function queueAuthEmail(message: { to: string; subject: string; text: string }): void {
+export function queueAuthEmail(message: { to: string; subject: string; text: string; from?: string }): void {
   /**
    * Auth email goes through the same durable queue as everything else.
    *
@@ -120,10 +131,11 @@ export function queueAuthEmail(message: { to: string; subject: string; text: str
       .map((line) => `<p style="margin:0 0 12px;">${escapeAuthText(line)}</p>`)
       .join('')}</p>`,
     text: message.text,
+    ...(message.from ? { from: message.from } : {}),
   });
 }
 
-export async function sendAuthEmail(message: { to: string; subject: string; text: string }): Promise<void> {
+export async function sendAuthEmail(message: { to: string; subject: string; text: string; from?: string }): Promise<void> {
   await sendEmail({
     to: message.to,
     subject: message.subject,
@@ -132,6 +144,7 @@ export async function sendAuthEmail(message: { to: string; subject: string; text
       .map((line) => `<p style="margin:0 0 12px;">${escapeAuthText(line)}</p>`)
       .join('')}</p>`,
     text: message.text,
+    ...(message.from ? { from: message.from } : {}),
   });
 }
 

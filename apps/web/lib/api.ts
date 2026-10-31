@@ -18,6 +18,7 @@
 import { cache } from "react";
 import { redirect } from "next/navigation";
 import { API_BASE, apiFetch as apiRequest } from "./api-fetch";
+import { sessionCookieHeader } from "./session-cookie";
 import { cookies } from "next/headers";
 import type {
   ApiErrorBody,
@@ -69,8 +70,9 @@ export class ApiError extends Error {
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const jar = await cookies();
   const header = new Headers(init?.headers);
-  const session = jar.get("better-auth.session_token");
-  if (session) header.set("cookie", `better-auth.session_token=${session.value}`);
+  // Under either name: production's cookie carries the __Secure- prefix.
+  const session = sessionCookieHeader(jar);
+  if (session) header.set("cookie", session);
 
   /**
    * Through the shared requester, so every call from this module inherits its

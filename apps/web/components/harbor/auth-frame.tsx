@@ -10,6 +10,11 @@
  * never sees ours. The way to the other mode (sign in / create account) is top
  * right, where it is looked for, and the legal links sit at the foot. Header,
  * content and footer share the public pages' page-wrap edge.
+ *
+ * On an agency's verified domain the foot carries only the agency's name: our
+ * legal pages are about us and the proxy sends them to the portal there, so a
+ * client signing in is never offered a link that lands somewhere else. The
+ * brand links to the portal, the client's landing on that host.
  */
 
 import Link from "next/link";
@@ -49,7 +54,11 @@ export async function AuthFrame({
           so following "Sign in" from the home page does not move it. */}
       <header>
         <div className="page-wrap flex h-16 items-center gap-4 sm:h-[72px]">
-          <Link href="/" className="inline-flex shrink-0 items-center gap-2.5 text-fg" aria-label={`${brandName(brand)} home`}>
+          <Link
+            href={branded ? "/portal" : "/"}
+            className="inline-flex shrink-0 items-center gap-2.5 text-fg"
+            aria-label={`${brandName(brand)} home`}
+          >
             {branded && brand.logoUrl ? (
               <img src={brand.logoUrl} alt="" height={24} className="h-6 w-auto" />
             ) : (
@@ -66,13 +75,19 @@ export async function AuthFrame({
         <div className={clsx("mx-auto w-full", WIDTH[width])}>{children}</div>
       </main>
       <footer className="page-wrap">
-        <nav aria-label="Legal" className="flex flex-wrap gap-x-4 gap-y-1.5 border-t border-rule py-4 text-meta">
-          {LEGAL_FOOTER_LINKS.map(([href, label]) => (
-            <Link key={href} href={href} className="text-fg-3 hover:text-fg">
-              {label}
-            </Link>
-          ))}
-        </nav>
+        {branded ? (
+          <p className="border-t border-rule py-4 text-meta text-fg-3">
+            <span className="font-semibold text-fg-2">{brand.workspaceName}</span> client reports
+          </p>
+        ) : (
+          <nav aria-label="Legal" className="flex flex-wrap gap-x-4 gap-y-1.5 border-t border-rule py-4 text-meta">
+            {LEGAL_FOOTER_LINKS.map(([href, label]) => (
+              <Link key={href} href={href} className="text-fg-3 hover:text-fg">
+                {label}
+              </Link>
+            ))}
+          </nav>
+        )}
       </footer>
     </div>
   );

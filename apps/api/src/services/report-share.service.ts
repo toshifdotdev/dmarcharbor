@@ -6,9 +6,19 @@ import { resolveLimit } from '../utils/pagination.js';
 import { domainRef } from './domain-ref.js';
 import { assessPolicyReadiness } from './onboarding.service.js';
 import { recordAuditEvent } from './audit.service.js';
+import { clientOrigin } from './client-origin.js';
 import { resolveEntitlements } from './entitlements/entitlement.service.js';
 
 const defaultShareDays = 30;
+
+/**
+ * The page a client opens for a share link: `${origin}/share/${token}`, on the
+ * agency's own verified domain when it has one. `url` beside it stays the
+ * relative API path that returns the report as JSON.
+ */
+export function sharePageUrl(origin: string, token: string): string {
+  return `${origin}/share/${token}`;
+}
 const maximumShareDays = 365;
 
 function clamp(value: number, minimum: number, maximum: number): number {
@@ -18,7 +28,10 @@ function clamp(value: number, minimum: number, maximum: number): number {
 export interface CreatedShare {
   id: string;
   token: string;
+  /** The API path that returns the shared report as JSON, relative. */
   url: string;
+  /** The absolute page a client opens, on the agency's own domain when it has one. */
+  pageUrl: string;
   expiresAt: Date;
   includeForensics: boolean;
   includeSources: boolean;
@@ -73,12 +86,22 @@ export async function createReportShare(input: {
     ...share,
     domainId: domain.id,
     url: `/api/reports/share/${share.token}`,
+    pageUrl: sharePageUrl(await clientOrigin(input.organizationId), share.token),
   };
 }
 
 export async function listReportShares(organizationId: string, options: { limit?: number; cursor?: string } = {}) {
   const limit = resolveLimit(options.limit);
-  const rows = await prisma.reportShare.findMany({
+  const [rows, origin] = await Promise.all([
+    listShareRows(organizationId, limit, options.cursor),
+    clientOrigin(organizationId),
+  ]);
+
+  return { rows: rows.map((row) => ({ ...row, pageUrl: sharePageUrl(origin, row.token) })), limit };
+}
+
+function listShareRows(organizationId: string, limit: number, cursor: string | undefined) {
+  return prisma.reportShare.findMany({
     where: { organizationId },
     select: {
       id: true,
@@ -95,10 +118,8 @@ export async function listReportShares(organizationId: string, options: { limit?
     },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     take: limit + 1,
-    ...(options.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
   });
-
-  return { rows, limit };
 }
 
 export async function revokeReportShare(organizationId: string, shareId: string): Promise<boolean> {

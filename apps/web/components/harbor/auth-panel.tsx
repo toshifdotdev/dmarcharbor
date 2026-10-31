@@ -24,6 +24,18 @@
  * With `route`, the sign-up form sits beside the setup route, and the route
  * moves on to "Verify email" when the link has been sent, so the drawing
  * never says a step is current after it is done.
+ *
+ * With `portal` (the page sets it on an agency's verified custom domain) the
+ * reader is the agency's client, here for the client portal:
+ * - No Google or Microsoft buttons, and no lookup for them: their callback is
+ *   on our API host, so they cannot complete on the agency's domain.
+ * - The words speak to a client (reports, not a portfolio, no setup route),
+ *   and every way in lands on /portal: after signing in, and from the
+ *   verification link a new account is sent.
+ * - No Terms notice: a client never creates a workspace, and our legal pages
+ *   are not served on the agency's domain.
+ * The marker `data-auth-audience` says which one rendered, for the
+ * clickthrough.
  */
 
 import Link from "next/link";
@@ -56,6 +68,7 @@ export function AuthPanel({
   resetToken,
   initialError,
   route = false,
+  portal,
 }: {
   initialMode: "sign-in" | "sign-up";
   /** A same-site path to return to after signing in (already validated). */
@@ -66,6 +79,8 @@ export function AuthPanel({
   initialError?: string | null;
   /** Sign-up only: lay the form beside the setup route. */
   route?: boolean;
+  /** On an agency's verified domain: the agency whose client is signing in. */
+  portal?: { agency: string } | null;
 }) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>(resetToken ? "reset" : initialMode);
@@ -84,7 +99,9 @@ export function AuthPanel({
   const emailRef = useRef<HTMLInputElement | null>(null);
   const codeRef = useRef<HTMLInputElement | null>(null);
 
-  const destination = next ?? "/";
+  const destination = next ?? (portal ? "/portal" : "/");
+  /** Where an emailed verification link lands: the portal for a client, the next setup stop otherwise. */
+  const verifyReturn = portal ? "/portal" : undefined;
 
   function go(m: Mode) {
     setMode(m);
@@ -129,7 +146,7 @@ export function AuthPanel({
         return;
       }
       if (mode === "sign-up") {
-        await signUp(name.trim(), email.trim(), password);
+        await signUp(name.trim(), email.trim(), password, verifyReturn);
         setSentTo(email.trim());
         return;
       }
@@ -177,7 +194,9 @@ export function AuthPanel({
     route && mode === "sign-up" ? <SetupLayout current={sentTo ? "email" : "account"}>{content}</SetupLayout> : content;
 
   if (mode === "sign-up" && sentTo) {
-    return withRoute(<CheckInbox email={sentTo} onChangeEmail={() => setSentTo(null)} />);
+    return withRoute(
+      <CheckInbox email={sentTo} onChangeEmail={() => setSentTo(null)} returnTo={verifyReturn} portal={Boolean(portal)} />,
+    );
   }
 
   const heading: Record<Mode, string> = {
@@ -188,8 +207,10 @@ export function AuthPanel({
     "two-factor": "Enter your code",
   };
   const lede: Record<Mode, string> = {
-    "sign-in": "Welcome back. Your portfolio is where you left it.",
-    "sign-up": "Free to start, no card. Next you name a workspace and add a first client domain.",
+    "sign-in": portal ? "Sign in to see your email reports." : "Welcome back. Your portfolio is where you left it.",
+    "sign-up": portal
+      ? `Use the address ${portal.agency || "your provider"} invited. Your email reports open once it is verified.`
+      : "Free to start, no card. Next you name a workspace and add a first client domain.",
     forgot: "Enter the address you sign in with and we will email a reset link. It works for one hour.",
     reset: "Every other session on this account is signed out once the new password is set.",
     "two-factor": backupCode
@@ -198,7 +219,7 @@ export function AuthPanel({
   };
 
   return withRoute(
-    <div className="flex flex-col gap-7">
+    <div className="flex flex-col gap-7" data-auth-audience={portal ? "portal" : "operator"}>
       <div>
         <h1 className="text-balance text-[34px] font-[760] leading-[1.02] tracking-[-0.035em] text-fg sm:text-[40px]">
           {heading[mode]}
@@ -206,7 +227,8 @@ export function AuthPanel({
         <p className="mt-3 text-lead text-fg-2">{lede[mode]}</p>
       </div>
 
-      {next && mode === "sign-in" ? (
+      {/* A client sent to sign in from the portal is going where this form goes anyway. */}
+      {next && mode === "sign-in" && !(portal && next === "/portal") ? (
         <Notice tone="info" title="Sign in to carry on">
           You will go straight back to <span className="data text-fg">{next}</span>.
         </Notice>
@@ -217,7 +239,9 @@ export function AuthPanel({
         </Notice>
       ) : null}
 
-      {mode === "sign-in" || mode === "sign-up" ? <Providers destination={mode === "sign-up" ? "/welcome" : destination} /> : null}
+      {!portal && (mode === "sign-in" || mode === "sign-up") ? (
+        <Providers destination={mode === "sign-up" ? "/welcome" : destination} />
+      ) : null}
 
       <form onSubmit={submit} className="flex flex-col gap-4" noValidate={false}>
         {mode === "sign-up" ? (
@@ -287,7 +311,7 @@ export function AuthPanel({
         ) : null}
 
         {unverified ? (
-          <UnverifiedNotice email={email.trim()} />
+          <UnverifiedNotice email={email.trim()} returnTo={verifyReturn} />
         ) : error ? (
           <Notice tone="fail" title={error} />
         ) : null}
@@ -320,10 +344,11 @@ export function AuthPanel({
         </Button>
       </form>
 
-      {mode === "sign-in" ? null : mode === "sign-up" ? (
+      {mode === "sign-in" || (mode === "sign-up" && portal) ? null : mode === "sign-up" ? (
         // The Terms are accepted, and recorded, when the first workspace is
         // created: the server refuses a workspace without them. This is the
-        // notice; the gate is on the next screen.
+        // notice; the gate is on the next screen. A client on an agency's
+        // domain never creates a workspace, so it has no such screen.
         <p className="border-t border-rule pt-4 text-meta text-fg-3">
           You accept the{" "}
           <Link href="/terms" className="link">
@@ -380,14 +405,14 @@ function useCooldown(seconds: number) {
   return { left, start: () => setLeft(seconds) };
 }
 
-function UnverifiedNotice({ email }: { email: string }) {
+function UnverifiedNotice({ email, returnTo }: { email: string; returnTo?: string }) {
   const cool = useCooldown(RESEND_AFTER_S);
   const [state, setState] = useState<"idle" | "busy" | "sent" | "failed">("idle");
   useEffect(() => cool.start(), []); // the API already sent one with this attempt
   async function resend() {
     setState("busy");
     try {
-      await resendVerification(email);
+      await resendVerification(email, returnTo);
       setState("sent");
       cool.start();
     } catch {
@@ -411,14 +436,26 @@ function UnverifiedNotice({ email }: { email: string }) {
   );
 }
 
-function CheckInbox({ email, onChangeEmail }: { email: string; onChangeEmail: () => void }) {
+function CheckInbox({
+  email,
+  onChangeEmail,
+  returnTo,
+  portal = false,
+}: {
+  email: string;
+  onChangeEmail: () => void;
+  /** Where the link lands; the API's default setup stop when absent. */
+  returnTo?: string;
+  /** A client of an agency, on its domain: the link opens their reports, not a next setup step. */
+  portal?: boolean;
+}) {
   const cool = useCooldown(RESEND_AFTER_S);
   const [state, setState] = useState<"idle" | "busy" | "sent" | "failed">("idle");
   useEffect(() => cool.start(), []);
   async function resend() {
     setState("busy");
     try {
-      await resendVerification(email);
+      await resendVerification(email, returnTo);
       setState("sent");
       cool.start();
     } catch {
@@ -433,7 +470,7 @@ function CheckInbox({ email, onChangeEmail }: { email: string; onChangeEmail: ()
         </h1>
         <p className="mt-3 text-lead text-fg-2">
           To verify your email, open the link we sent to <span className="font-semibold text-fg">{email}</span>. It signs
-          you in and takes you to the next step. The link works for 24 hours.
+          you in and {portal ? "opens your email reports" : "takes you to the next step"}. The link works for 24 hours.
         </p>
       </div>
       <SentRoute email={email} />

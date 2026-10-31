@@ -1,12 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import type { Prisma, ProspectReport } from '@prisma/client';
-import { env } from '../../config/env.js';
 import { prisma } from '../../database/prisma.js';
 import type { ScanResult } from '../../models/scan.model.js';
 import { DomainValidationError, normalizeDomain } from '../../scanner/domain.js';
 import { scanDomain } from '../../scanner/scanner.js';
 import { recordAuditEvent } from '../audit.service.js';
 import { resolveBranding } from '../branding.service.js';
+import { appOrigin, clientOrigin } from '../client-origin.js';
 import { resolveEntitlements } from '../entitlements/entitlement.service.js';
 import { planCatalog } from '../entitlements/plan-catalog.js';
 import { assessProspect, type ProspectAssessment } from './prospect-findings.js';
@@ -48,8 +48,13 @@ function scanner(): Scanner {
   return scannerOverride ?? ((domain) => scanDomain(domain));
 }
 
-export function prospectReportUrl(token: string): string {
-  return `${env.APP_URL.replace(/\/$/, '')}/prospect/${token}`;
+/**
+ * The page the prospect opens. The prospect reads the agency's name on it, so
+ * it is on the agency's own verified domain when there is one (`origin`, from
+ * `clientOrigin`), and on APP_URL otherwise.
+ */
+export function prospectReportUrl(token: string, origin: string = appOrigin()): string {
+  return `${origin}/prospect/${token}`;
 }
 
 function startOfMonth(now: Date): Date {
@@ -109,6 +114,7 @@ export interface ProspectReportRow {
 function rowView(
   row: ProspectReport & { createdBy: { id: string; name: string } | null },
   now: Date,
+  origin: string,
 ): ProspectReportRow {
   const assessment = assessProspect(row.result as unknown as ScanResult);
   return {
@@ -117,7 +123,7 @@ function rowView(
     prospectName: row.prospectName,
     score: row.score,
     level: assessment.level,
-    url: prospectReportUrl(row.token),
+    url: prospectReportUrl(row.token, origin),
     scannedAt: row.scannedAt.toISOString(),
     createdAt: row.createdAt.toISOString(),
     expiresAt: row.expiresAt.toISOString(),
@@ -133,7 +139,7 @@ export async function listProspectReports(
   organizationId: string,
   now: Date = new Date(),
 ): Promise<{ reports: ProspectReportRow[]; usage: ProspectUsage }> {
-  const [rows, usage] = await Promise.all([
+  const [rows, usage, origin] = await Promise.all([
     prisma.prospectReport.findMany({
       where: { organizationId },
       include: { createdBy: { select: { id: true, name: true } } },
@@ -141,8 +147,9 @@ export async function listProspectReports(
       take: 100,
     }),
     prospectUsage(organizationId, now),
+    clientOrigin(organizationId),
   ]);
-  return { reports: rows.map((row) => rowView(row, now)), usage };
+  return { reports: rows.map((row) => rowView(row, now, origin)), usage };
 }
 
 function cleanText(value: string | undefined | null, limit: number): string | null {
@@ -226,7 +233,7 @@ export async function createProspectReport(input: {
     detail: { domain, prospectName: created.prospectName, expiresInDays: days, score: created.score },
   });
 
-  return rowView(created, now);
+  return rowView(created, now, await clientOrigin(input.organizationId));
 }
 
 export async function revokeProspectReport(input: {

@@ -121,6 +121,19 @@ STAFF_API_KEY=...
 `PORT` is the only one that should stay at its default if you are on a platform
 that injects it.
 
+Optional, for agencies with white label:
+
+```
+CLIENT_EMAIL_FROM_ADDRESS=reports@mail-relay.example
+```
+
+Client facing email from a white-labelled workspace (portal invitations,
+approval requests, monthly reports, digests, and a password reset or email
+verification started on an agency's own domain) is sent as
+`"<agency workspace name>" <CLIENT_EMAIL_FROM_ADDRESS>`. Unset, the address part
+of `EMAIL_FROM` is used with the agency's name in front. See step 5 for the DNS
+it needs.
+
 ### 5. Trans transactional email
 
 Before any customer-facing flow, because invites, password resets, domain
@@ -131,6 +144,35 @@ otherwise.
 - Set `EMAIL_FROM` to a subdomain you can afford to have a DMARC record on.
 - Send one real message from a scratch account and confirm it arrives.
 - Add a DMARC record for the sending subdomain, starting at `p=none`.
+- If `CLIENT_EMAIL_FROM_ADDRESS` is set, its domain needs the same treatment:
+  verify it in Resend, publish the SPF include and the DKIM records Resend gives
+  for it, and give it a DMARC record. Without them, receivers fail every agency's
+  client mail on DMARC. Pick a neutral domain that names neither us nor any one
+  agency, since all agencies send from it. There is no Reply-To on these
+  messages, so a reply goes to this address; route it somewhere a person reads,
+  or say in its auto-reply that it is not monitored.
+
+### 5a. Agency custom domains
+
+An Admiralty agency serves its clients on its own domain once its ownership
+TXT record is verified. For that host to work, it must reach the web app, and
+the web app must keep proxying `/api/*` here with `x-forwarded-host` set to the
+host the browser asked for (Next.js rewrites do this). The API then trusts that
+exact origin for sign-in, sign-out, password reset and email verification
+(`apps/api/src/auth/agency-origin.ts`). Nothing to add to `CORS_ORIGIN` per
+agency.
+
+- Do not put a proxy in front of the API that sets or rewrites
+  `x-forwarded-host` for direct requests. The rule depends on it arriving only
+  from the web app's proxy.
+- The web app needs a TLS certificate for each agency hostname. Production
+  refuses an `http://` agency origin; plain http is accepted outside production
+  only, for the local verify harness.
+- A verified domain's DNS is the agency's to point. The ownership record proves
+  control of DNS, not that the host serves our app, so emailed reset and
+  verification links go to an agency domain only for an account whose only
+  access is that agency's client portal. The agency's own team, and a contact
+  another agency also serves, get links on our address.
 
 ### 6. Object storage for logos
 

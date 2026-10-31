@@ -101,6 +101,23 @@ describe('email templates', () => {
     expect(rendered.text).toContain('Northgate Digital');
   });
 
+  it('tells a portal contact how to sign in, truthfully', () => {
+    const rendered = portalAccessGranted({
+      brand: agencyBrand,
+      clientName: 'Pellowyn Dental',
+      signInUrl: 'https://reports.wistholm.example/portal',
+      agencyName: 'Wistholm IT',
+    });
+
+    // Contacts sign in with an email address and a password. The old copy
+    // promised there was no account to create and no password to remember.
+    expect(rendered.text).toContain('Sign in with this email address');
+    expect(rendered.text).toContain('The first time, choose Create an account and use this same address.');
+    expect(rendered.text).not.toContain('no password');
+    expect(rendered.text).not.toContain('no separate account');
+    expect(rendered.text).toContain('https://reports.wistholm.example/portal');
+  });
+
   it('falls back to product branding when an agency has none', () => {
     const rendered = portalAccessGranted({
       brand: { workspaceName: 'Northgate Digital' },

@@ -122,9 +122,15 @@ SAML or OIDC single sign-on instead.
 - **Trust Center and compliance pack** (Harbor and above): a public page and a
   PDF with a recorded fingerprint that show each domain's authentication evidence
   and state what data is held, by whom, and for how long.
-- **Your brand** (Harbor and above): your logo and colours on the portal,
-  reports and client emails. On Admiralty, client pages can also run on your own
-  domain.
+- **Your brand** (Harbor and above): your name, logo and colours on the portal,
+  monthly reports, Trust Centers, prospect reports and client emails, which come
+  from your agency's name. These open at our address. On Admiralty, add your own
+  domain under Settings, White label, publish the TXT record it shows and point
+  the hostname at this service. Once it is verified, everything a client opens is
+  on your address: the portal and its sign-in, share links, Trust Centers,
+  prospect reports, and the links in monthly report and password reset emails.
+  Clients sign in there with email and password; Google and Microsoft sign-in are
+  not offered on your domain.
 
 ## 8. Move to enforcement
 

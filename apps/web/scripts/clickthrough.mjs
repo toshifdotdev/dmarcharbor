@@ -3213,6 +3213,100 @@ check(
   JSON.stringify({ manifestName, iconSizesDiffer, icons: iconAudit }),
 );
 
+// The verified agency domain is the client's address, not ours (proxy.ts,
+// lib/white-label.ts): our home page and marketing pages redirect to the
+// portal, sign-in is the client form with no social buttons and no link to
+// our pricing, and a password sign-in posted through the agency's own origin
+// is not refused as a foreign origin. Over node:http for the same reason as
+// the icons above, and so a redirect is read as the answer itself rather
+// than followed. Still verified here: the unverified write comes after.
+function sendOnHost(path, { method = "GET", headers = {}, body } = {}) {
+  return new Promise((resolve) => {
+    const req = httpRequest(
+      {
+        hostname: "127.0.0.1",
+        port: Number(WEB_PORT),
+        path,
+        method,
+        headers: {
+          host: `${CUSTOM_HOST}:${WEB_PORT}`,
+          ...(body === undefined ? {} : { "content-length": Buffer.byteLength(body) }),
+          ...headers,
+        },
+      },
+      (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks).toString("utf8") }));
+      },
+    );
+    req.on("error", (error) => resolve({ status: 0, headers: {}, body: "", error: String(error) }));
+    if (body !== undefined) req.write(body);
+    req.end();
+  });
+}
+function redirectedTo(res) {
+  if (res.status < 300 || res.status >= 400 || !res.headers.location) return null;
+  try {
+    return new URL(res.headers.location, CUSTOM_ORIGIN).pathname;
+  } catch {
+    return null;
+  }
+}
+const rootOnHost = await sendOnHost("/");
+check(
+  "custom domain: our home page redirects to the client portal",
+  redirectedTo(rootOnHost) === "/portal",
+  JSON.stringify({ status: rootOnHost.status, location: rootOnHost.headers.location ?? null }),
+);
+const pricingOnHost = await sendOnHost("/pricing");
+check(
+  "custom domain: our pricing page redirects to the client portal",
+  redirectedTo(pricingOnHost) === "/portal",
+  JSON.stringify({ status: pricingOnHost.status, location: pricingOnHost.headers.location ?? null }),
+);
+const signInOnHost = await sendOnHost("/sign-in");
+const clientSignIn = {
+  status: signInOnHost.status,
+  // The panel marks which form it rendered; the portal one never renders or
+  // looks up the Google and Microsoft buttons.
+  clientForm: signInOnHost.body.includes('data-auth-audience="portal"'),
+  noSocial: !signInOnHost.body.includes("data-provider"),
+  noPricingLink: !/href="\/pricing"|"href":"\/pricing"/.test(signInOnHost.body),
+};
+check(
+  "custom domain: sign-in is the client form, with no social buttons and no link to our pricing",
+  clientSignIn.status === 200 && clientSignIn.clientForm && clientSignIn.noSocial && clientSignIn.noPricingLink,
+  JSON.stringify(clientSignIn),
+);
+// The same body the sign-in form sends (lib/auth-client.ts), callbackURL
+// included, from the agency's origin through this app's /api rewrite. A 403 is
+// the origin check refusing the agency's domain; a 200 (signed in, or a
+// two-step challenge), a 401 or a 429 all mean the origin was accepted.
+const agencySignIn = await sendOnHost("/api/auth/sign-in/email", {
+  method: "POST",
+  headers: { origin: CUSTOM_ORIGIN, "content-type": "application/json" },
+  body: JSON.stringify({ email: "sam@example.test", password: "harbor-test-2026", callbackURL: `${CUSTOM_ORIGIN}/portal` }),
+});
+check(
+  "custom domain: a password sign-in through the agency's own origin is not refused",
+  agencySignIn.status > 0 && agencySignIn.status !== 403 && agencySignIn.status < 500,
+  JSON.stringify({ status: agencySignIn.status, body: agencySignIn.body.slice(0, 240), error: agencySignIn.error ?? null }),
+);
+// Leave no extra session behind for the session checks that follow.
+const agencySession = []
+  .concat(agencySignIn.headers["set-cookie"] ?? [])
+  .map((cookie) => String(cookie).split(";")[0])
+  .filter((pair) => pair.startsWith("better-auth."))
+  .join("; ");
+if (agencySession) {
+  await sendOnHost("/api/auth/sign-out", {
+    method: "POST",
+    headers: { origin: CUSTOM_ORIGIN, cookie: agencySession, "content-type": "application/json" },
+    body: "{}",
+  });
+}
+
 // And the honesty rule: an UNVERIFIED record must say so plainly rather than
 // serving half-branded.
 await writeCustomDomainState(customHostOrgId, {

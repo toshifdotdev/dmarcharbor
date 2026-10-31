@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { readHostBrand } from "@/lib/host-brand";
 import { requestOrigin } from "@/lib/metadata-origin";
 import { NOINDEX_PREFIXES } from "@/lib/seo";
 
@@ -17,19 +18,22 @@ import { NOINDEX_PREFIXES } from "@/lib/seo";
  *
  * The word `Crawl-delay` is absent on purpose: Google ignores it, and Googlebot
  * has its own console setting for the crawl rate.
+ *
+ * An agency's verified domain names no sitemap, because its sitemap is empty
+ * (app/sitemap.ts). The rules stay the same, so a crawler can still read the
+ * noindex on each page.
  */
 export default async function robots(): Promise<MetadataRoute.Robots> {
+  const rules: MetadataRoute.Robots["rules"] = [
+    {
+      userAgent: "*",
+      allow: "/",
+      disallow: ["/api/", ...NOINDEX_PREFIXES],
+    },
+  ];
+  if ((await readHostBrand()).state === "verified") return { rules };
   // Against the request's host, not a constant, because this deployment serves
   // dmarcharbor.com and every agency's custom domain from one build.
   const origin = await requestOrigin();
-  return {
-    rules: [
-      {
-        userAgent: "*",
-        allow: "/",
-        disallow: ["/api/", ...NOINDEX_PREFIXES],
-      },
-    ],
-    sitemap: new URL("/sitemap.xml", origin).toString(),
-  };
+  return { rules, sitemap: new URL("/sitemap.xml", origin).toString() };
 }

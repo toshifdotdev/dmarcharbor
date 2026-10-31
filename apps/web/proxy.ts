@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import http from "node:http";
+import { hasSessionCookie } from "./lib/session-cookie";
+import { isVendorRoute, signedOutPortalNext } from "./lib/white-label";
 
 /**
  * Custom-domain resolution (Phase 8 — the Admiralty feature that did not work
@@ -29,6 +31,10 @@ import http from "node:http";
  * A domain that is pointed here but whose record is NOT verified is flagged
  * `unverified` — the shell says so plainly rather than serving half-branded,
  * because half a brand looks like a bug in ours.
+ *
+ * A VERIFIED agency domain is the client's address, not ours: our landing,
+ * pricing, guides and legal pages redirect to the portal there (see
+ * agencyHostTarget below and lib/white-label.ts).
  *
  * Two workspaces can never claim the same host: customDomain is a unique
  * column server-side, so the lookup cannot be spoofed into stealing one.
@@ -251,6 +257,13 @@ export async function proxy(request: NextRequest) {
     return iconResponse;
   }
 
+  // On an agency's verified domain the reader is the agency's client, so the
+  // pages about us (our landing, pricing, guides, legal pages, creating a
+  // workspace) are not served there: they go to the portal, the client's own
+  // landing. Unverified, unmatched and our own hosts never reach this.
+  const agencyTarget = requestHeaders.get("x-harbor-host-state") === "verified" ? agencyHostTarget(request) : null;
+  if (agencyTarget) return NextResponse.redirect(agencyTarget, 307);
+
   const exportPage = exportDownloadPage(request);
   // The address the person opened, for the export page to read. A rewritten
   // route handler does not reliably see the rewrite's own query string, so the
@@ -288,6 +301,42 @@ function exportDownloadPage(request: NextRequest): URL | null {
   const token = request.nextUrl.searchParams.get("token");
   if (token) target.searchParams.set("token", token);
   return target;
+}
+
+/**
+ * Where a request on an agency's verified domain goes instead, or null to
+ * serve it (lib/white-label.ts holds the policy and its tests).
+ *
+ * - Our home page and the routes about us go to /portal. Temporary (307), so
+ *   nothing caches it: the same path is our page again if the domain stops
+ *   being verified. No query travels except the portal's own `org`.
+ * - /portal with no session cookie goes straight to sign-in, which the page
+ *   would otherwise do from inside a streamed render: a loading mark and a
+ *   one-second meta refresh before the form.
+ *
+ * Only GET and HEAD: a form post or a server action is never redirected. The
+ * target keeps the request's own host, so Next sends it as a relative
+ * Location and the browser stays on the agency's domain.
+ */
+function agencyHostTarget(request: NextRequest): URL | null {
+  if (request.method !== "GET" && request.method !== "HEAD") return null;
+  const path = request.nextUrl.pathname;
+  const org = request.nextUrl.searchParams.get("org");
+  const target = request.nextUrl.clone();
+  target.search = "";
+  if (isVendorRoute(path)) {
+    target.pathname = "/portal";
+    if (org) target.searchParams.set("org", org);
+    return target;
+  }
+  // Either name: production's cookie carries the __Secure- prefix (lib/session-cookie.ts).
+  const next = signedOutPortalNext(path, request.nextUrl.searchParams, hasSessionCookie(request.cookies));
+  if (next) {
+    target.pathname = "/sign-in";
+    target.searchParams.set("next", next);
+    return target;
+  }
+  return null;
 }
 
 /**

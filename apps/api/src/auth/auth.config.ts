@@ -8,7 +8,10 @@ import { recordAuditEvent } from '../services/audit.service.js';
 import { memberAllowance, memberLimitMessage, resolveEntitlements } from '../services/entitlements/entitlement.service.js';
 import { accessControl, organizationRoles } from './permissions.js';
 import { queueAuthEmail, queueEmail } from '../email/email.service.js';
+import { oneLine } from '../email/sender.js';
 import { workspaceInvitationEmail } from '../email/templates.js';
+import { agencyAuthLink } from './agency-auth-link.js';
+import { trustedOriginsFor } from './agency-origin.js';
 
 /**
  * Session creation is denied by default for a user with two-step verification.
@@ -249,7 +252,12 @@ export const auth = betterAuth({
   baseURL: env.BETTER_AUTH_URL,
   secret: env.BETTER_AUTH_SECRET,
   database: prismaAdapter(prisma, { provider: 'postgresql' }),
-  trustedOrigins: env.CORS_ORIGINS,
+  /**
+   * Our web origins, plus the agency's own verified domain when a request came
+   * through it, so a client can sign in where the agency sends them. The rule
+   * for when an agency origin is trusted is in agency-origin.ts.
+   */
+  trustedOrigins: (request?: Request) => trustedOriginsFor(request),
   /**
    * Workspaces are created through POST /api/workspaces only.
    *
@@ -268,11 +276,19 @@ export const auth = betterAuth({
     requireEmailVerification: true,
     revokeSessionsOnPasswordReset: true,
     resetPasswordTokenExpiresIn: 60 * 60,
+    /**
+     * A reset started on an agency's own domain is answered in the agency's
+     * name, with the link on that domain (agency-auth-link.ts says when).
+     * Everyone else gets the message as before.
+     */
     sendResetPassword: async ({ user, url }) => {
+      const link = await agencyAuthLink(url, user);
+      const agency = link.agency ? oneLine(link.agency.workspaceName) : null;
       queueAuthEmail({
         to: user.email,
-        subject: 'Reset your DMARC Harbor password',
-        text: `Reset your password using this link: ${url}\n\nIf you did not request this, you can ignore this email.`,
+        subject: agency ? `Reset your password for ${agency}` : 'Reset your DMARC Harbor password',
+        text: `Reset your password using this link: ${link.url}\n\nIf you did not request this, you can ignore this email.`,
+        ...(link.from ? { from: link.from } : {}),
       });
     },
     /**
@@ -290,12 +306,15 @@ export const auth = betterAuth({
      * must not claim an account was created. It says a link was sent if one can be,
      * which is true either way. The enumeration protection is the point; pretending
      * success is what had to go.
+     *
+     * The text names no product, because a client on an agency's own domain can
+     * trigger it and should not learn whose service runs underneath.
      */
     onExistingUserSignUp: async ({ user }) => {
       queueAuthEmail({
         to: user.email,
         subject: 'Someone tried to sign up with your email',
-        text: 'Someone tried to create a DMARC Harbor account using this email address. If this was you, sign in instead. If not, you can ignore this email.',
+        text: 'Someone tried to create an account using this email address. If this was you, sign in instead. If not, you can ignore this email.',
       });
     },
   },
@@ -304,11 +323,17 @@ export const auth = betterAuth({
     sendOnSignIn: true,
     autoSignInAfterVerification: true,
     expiresIn: 60 * 60 * 24,
+    /** Same rule as the password reset: the agency's name and domain when it started there. */
     sendVerificationEmail: async ({ user, url }) => {
+      const link = await agencyAuthLink(url, user);
+      const agency = link.agency ? oneLine(link.agency.workspaceName) : null;
       queueAuthEmail({
         to: user.email,
-        subject: 'Verify your DMARC Harbor email',
-        text: `Verify your email address using this link: ${url}\n\nThe link expires in 24 hours.`,
+        subject: agency ? `Verify your email for ${agency}` : 'Verify your DMARC Harbor email',
+        text: agency
+          ? `Verify your email address for ${agency} using this link: ${link.url}\n\nThe link expires in 24 hours.`
+          : `Verify your email address using this link: ${link.url}\n\nThe link expires in 24 hours.`,
+        ...(link.from ? { from: link.from } : {}),
       });
     },
   },

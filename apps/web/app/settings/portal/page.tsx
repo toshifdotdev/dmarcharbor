@@ -6,6 +6,7 @@ import { instantLabel } from "@/lib/instant";
 import { requestOrigin } from "@/lib/metadata-origin";
 import { settingsContext } from "@/lib/settings-context";
 import { mayChange } from "@/lib/settings-map";
+import { httpOrigin } from "@/lib/white-label";
 import { PlanUnknown } from "@/components/harbor/plan-refusal";
 import { SettingsFrame } from "@/components/harbor/settings/frame";
 import { PortalBoard, type GrantView } from "@/components/harbor/settings/portal";
@@ -23,7 +24,12 @@ export default async function PortalAccessPage() {
     getBranding(ctx.active.id).catch(() => null),
     requestOrigin(),
   ]);
-  const host = branding?.customDomain && branding.customDomainVerifiedAt ? `https://${branding.customDomain}` : origin;
+  // Where the client signs in: the API's clientOrigin, which already weighs the
+  // plan (a domain kept after a downgrade is not served). An older API without
+  // it falls back to the verified domain, then to this host.
+  const host =
+    httpOrigin(branding?.clientOrigin) ??
+    (branding?.customDomain && branding.customDomainVerifiedAt ? `https://${branding.customDomain}` : origin);
 
   const grants: GrantView[] = (access?.grants ?? []).map((g) => ({
     id: g.id,

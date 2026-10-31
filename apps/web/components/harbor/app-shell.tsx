@@ -206,14 +206,19 @@ export async function AppShell({
         </main>
       </ToastProvider>
 
+      {/* Our legal pages are not served on an agency's verified domain (they
+          go to the portal there, lib/white-label.ts), so the links would only
+          bounce. The footer stays for the room it keeps above the launcher. */}
       <footer className="border-t border-rule px-4 pb-[calc(20px+var(--hb-dock,0px))] pt-5 sm:px-6 lg:px-8">
-        <nav aria-label="Legal" className="flex flex-wrap gap-x-5 gap-y-1.5 text-meta">
-          {LEGAL_FOOTER_LINKS.map(([href, label]) => (
-            <Link key={href} href={href} className="text-fg-3 hover:text-fg">
-              {label}
-            </Link>
-          ))}
-        </nav>
+        {hostBrand.state === "verified" ? null : (
+          <nav aria-label="Legal" className="flex flex-wrap gap-x-5 gap-y-1.5 text-meta">
+            {LEGAL_FOOTER_LINKS.map(([href, label]) => (
+              <Link key={href} href={href} className="text-fg-3 hover:text-fg">
+                {label}
+              </Link>
+            ))}
+          </nav>
+        )}
       </footer>
 
       {accountLevel ? null : <AssistantWidget organizationId={activeWorkspace.id} brand={brandName(hostBrand)} />}

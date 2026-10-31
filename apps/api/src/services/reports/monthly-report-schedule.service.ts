@@ -1,9 +1,10 @@
 import { prisma } from '../../database/prisma.js';
-import { env } from '../../config/env.js';
 import { recordAuditEvent } from '../audit.service.js';
 import { queueEmail } from '../../email/email.service.js';
+import { clientEmailFrom } from '../../email/sender.js';
 import { monthlyReportEmail } from '../../email/templates.js';
 import { resolveBranding } from '../branding.service.js';
+import { clientOriginFor } from '../client-origin.js';
 import { resolveEntitlements } from '../entitlements/entitlement.service.js';
 import {
   isMonthlyScheduleDue,
@@ -252,6 +253,10 @@ export async function runMonthlyReportSchedules(now = new Date()): Promise<Month
 
       const brand = await resolveBranding(schedule.organizationId);
       const passRate = percentageText(issued.summary.dmarcPass, issued.summary.messages);
+      // The client's download link is on the agency's own domain when it has
+      // one, and the message is from the agency when its white label is on.
+      const origin = clientOriginFor(brand);
+      const from = clientEmailFrom(brand);
 
       for (const link of issued.links) {
         const email = monthlyReportEmail({
@@ -268,7 +273,7 @@ export async function runMonthlyReportSchedules(now = new Date()): Promise<Month
           messages: issued.summary.messages,
           passRate,
           domainsAtReject: issued.summary.domainsAtReject,
-          downloadUrl: `${env.APP_URL.replace(/\/$/, '')}/reports/download?token=${encodeURIComponent(link.token)}`,
+          downloadUrl: `${origin}/reports/download?token=${encodeURIComponent(link.token)}`,
           reference: issued.reference,
           verifyUrl: `${issued.verifyBase}/verify?reference=${encodeURIComponent(issued.reference)}`,
         });
@@ -276,6 +281,7 @@ export async function runMonthlyReportSchedules(now = new Date()): Promise<Month
           email,
           link.recipientEmail,
           `monthly-report:${schedule.id}:${previous.key}:${link.recipientEmail}`,
+          from ? { from } : {},
         );
         emailsQueued += 1;
       }

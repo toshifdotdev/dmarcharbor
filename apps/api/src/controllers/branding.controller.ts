@@ -9,6 +9,7 @@ import {
   updateBranding,
   verifyCustomDomain,
 } from '../services/branding.service.js';
+import { clientOrigin } from '../services/client-origin.js';
 import { EntitlementError, assertFeature } from '../services/entitlements/entitlement.service.js';
 import { LogoStorageError, createLogoUploadUrl, publicLogoUrl, uploadLogoDirect } from '../services/branding/logo-storage.service.js';
 import { zodMessage } from '../utils/zod-messages.js';
@@ -161,20 +162,31 @@ export async function portalBrandingController(_request: Request, response: Resp
   response.json(await resolveBranding(response.locals.organizationId));
 }
 
-/** Raw branding row, for the agency interface only. Never exposed to a contact. */
+/**
+ * Raw branding row, for the agency interface only. Never exposed to a contact.
+ *
+ * `clientOrigin` is where the links this workspace's clients receive point:
+ * `https://` and the custom domain once it is licensed and verified, APP_URL
+ * otherwise. The settings page shows it so the agency knows which address its
+ * clients are given.
+ */
 export async function getStoredBrandingController(_request: Request, response: Response): Promise<void> {
-  const organization = await prisma.organization.findUniqueOrThrow({
-    where: { id: response.locals.organizationId },
-    select: {
-      brandLogoUrl: true,
-      brandPrimaryColor: true,
-      brandAccentColor: true,
-      customDomain: true,
-      customDomainVerifiedAt: true,
-    },
-  });
+  const organizationId = response.locals.organizationId as string;
+  const [organization, origin] = await Promise.all([
+    prisma.organization.findUniqueOrThrow({
+      where: { id: organizationId },
+      select: {
+        brandLogoUrl: true,
+        brandPrimaryColor: true,
+        brandAccentColor: true,
+        customDomain: true,
+        customDomainVerifiedAt: true,
+      },
+    }),
+    clientOrigin(organizationId),
+  ]);
 
-  response.json(organization);
+  response.json({ ...organization, clientOrigin: origin });
 }
 
 /* ------------------------------------------------------------------- logo */

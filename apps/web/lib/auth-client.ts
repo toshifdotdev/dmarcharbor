@@ -169,16 +169,20 @@ export async function regenerateBackupCodes(password: string): Promise<string[]>
  * synthetic user when the email already has an account, on purpose, so the
  * form cannot enumerate who is registered. The caller only ever learns that a
  * link was sent if one could be.
+ *
+ * `returnTo` is the same-site path the verification link lands on: the next
+ * setup stop (/welcome) for someone starting a workspace, /portal for an
+ * agency's client signing up on the agency's domain.
  */
-export async function signUp(name: string, email: string, password: string): Promise<void> {
-  const res = await post("sign-up/email", { name, email, password, callbackURL: `${origin()}/welcome` });
+export async function signUp(name: string, email: string, password: string, returnTo = "/welcome"): Promise<void> {
+  const res = await post("sign-up/email", { name, email, password, callbackURL: `${origin()}${returnTo}` });
   if (!res.ok) await fail(res);
 }
 
-/** Sends another verification link. Answers the same whether or not the
- *  address has an account. */
-export async function resendVerification(email: string): Promise<void> {
-  const res = await post("send-verification-email", { email, callbackURL: `${origin()}/welcome` });
+/** Sends another verification link, landing on `returnTo` as signUp's does.
+ *  Answers the same whether or not the address has an account. */
+export async function resendVerification(email: string, returnTo = "/welcome"): Promise<void> {
+  const res = await post("send-verification-email", { email, callbackURL: `${origin()}${returnTo}` });
   if (!res.ok) await fail(res);
 }
 

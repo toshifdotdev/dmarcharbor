@@ -3,6 +3,8 @@ import { env } from '../config/env.js';
 import { queueEmail } from './email.service.js';
 import { planLabel } from '../services/entitlements/plan-catalog.js';
 import { resolveBranding } from '../services/branding.service.js';
+import { clientOriginFor } from '../services/client-origin.js';
+import { clientEmailFrom } from './sender.js';
 import {
   domainVerificationNotice,
   erasureCompletedEmail,
@@ -30,7 +32,9 @@ import {
  */
 
 /** A page in the web app. APP_URL is the web origin; BETTER_AUTH_URL is the
- *  API's, which serves none of these pages. */
+ *  API's, which serves none of these pages. For the agency's staff only:
+ *  links a client receives use `clientOriginFor`, which is the agency's own
+ *  domain when it has a verified one. */
 function appUrl(path = ''): string {
   return `${env.APP_URL.replace(/\/$/, '')}${path}`;
 }
@@ -82,9 +86,11 @@ async function workspaceName(organizationId: string): Promise<string> {
 /**
  * Tells a client contact that an agency has granted them portal access.
  *
- * This is the one client facing message, so it carries the agency's branding
- * rather than DMARC Harbor's. A customer receiving "DMARC Harbor" here would
- * reasonably assume the whole service belongs to the agency.
+ * Client facing, so it carries the agency's branding rather than DMARC
+ * Harbor's. A customer receiving "DMARC Harbor" here would reasonably assume
+ * the whole service belongs to the agency. The link is on the agency's own
+ * domain when it has a verified one, and the From name is the agency's when its
+ * white label is on.
  */
 export async function sendPortalAccessGrantedEmailImpl(input: {
   organizationId: string;
@@ -108,14 +114,17 @@ export async function sendPortalAccessGrantedEmailImpl(input: {
     accentColor: brand?.accentColor ?? null,
   };
 
+  const from = clientEmailFrom(brand);
   queueEmail(
     portalAccessGranted({
       brand: look,
       clientName: client.name,
       agencyName: look.workspaceName,
-      signInUrl: appUrl('/portal'),
+      signInUrl: `${clientOriginFor(brand)}/portal`,
     }),
     input.contactEmail,
+    undefined,
+    from ? { from } : {},
   );
 }
 
@@ -156,10 +165,12 @@ async function sendPolicyApprovalRequestedEmailImpl(input: { proposalId: string 
     note: portal.note,
     openPoints: portal.blockers,
     expiresAt: portal.expiresAt,
-    url: appUrl(`/portal/domain/${portal.domain.id}?org=${encodeURIComponent(found.organizationId)}`),
+    // Client facing: the agency's own domain when it has one.
+    url: `${clientOriginFor(brand)}/portal/domain/${portal.domain.id}?org=${encodeURIComponent(found.organizationId)}`,
   });
+  const from = clientEmailFrom(brand);
   for (const contact of contacts) {
-    queueEmail(rendered, contact.email, `policy-proposal:${portal.id}:${contact.email}`);
+    queueEmail(rendered, contact.email, `policy-proposal:${portal.id}:${contact.email}`, from ? { from } : {});
   }
 }
 

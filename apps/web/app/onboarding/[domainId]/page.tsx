@@ -195,6 +195,8 @@ export default async function OnboardingPage({ params }: { params: Promise<{ dom
       viewCount: s.viewCount,
       includeSources: s.includeSources,
       includeForensics: s.includeForensics,
+      // The page on the agency's verified domain when it has one (the API decides).
+      pageUrl: s.pageUrl ?? null,
     }));
 
   const brand = brandName(await readHostBrand());

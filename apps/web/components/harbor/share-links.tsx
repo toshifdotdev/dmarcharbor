@@ -18,9 +18,13 @@
  *   POST   /report-shares/revoke             revokes every live link listed here
  *                                            (test hook: share-revoke-all-live)
  *
- * The link handed out is the rendered page (/share/<token>) on whichever host
- * the operator is on, so an agency's own domain hands out its own links. Dates
- * arrive formatted from the server; nothing here formats a timestamp.
+ * The link handed out is the rendered page (/share/<token>) at the address the
+ * API names for it (`pageUrl`): the agency's verified custom domain when its
+ * plan serves one, our address otherwise. That holds whichever host the
+ * operator is on, so a colleague copying a link on our domain still hands the
+ * client the agency's. An older API without `pageUrl` falls back to this
+ * host's address, as before. Dates arrive formatted from the server; nothing
+ * here formats a timestamp.
  */
 
 import { useRouter } from "next/navigation";
@@ -34,6 +38,7 @@ import {
   revokeReportShares,
 } from "@/lib/ops-client";
 import { shareHref } from "@/lib/route-hrefs";
+import { absoluteHttpUrl } from "@/lib/white-label";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/choice";
 import { ConfirmDialog } from "@/components/ui/dialog";
@@ -51,6 +56,8 @@ export interface ShareView {
   viewCount: number;
   includeSources: boolean;
   includeForensics: boolean;
+  /** The absolute page a client opens, from the API. Absent from an older API. */
+  pageUrl?: string | null;
 }
 
 const EXPIRY = [
@@ -91,12 +98,14 @@ export function ShareLinks({
   const [includeForensics, setIncludeForensics] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ code: string; message: string } | null>(null);
-  const [created, setCreated] = useState<string | null>(null);
+  const [created, setCreated] = useState<{ token: string; pageUrl: string | null } | null>(null);
   const [pending, setPending] = useState<Pending>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
 
-  const absolute = (token: string) => (origin ? `${origin}${shareHref(token)}` : shareHref(token));
+  /** The address a client is given: the API's, else this host's. */
+  const linkFor = (token: string, pageUrl?: string | null) =>
+    absoluteHttpUrl(pageUrl) ?? (origin ? `${origin}${shareHref(token)}` : shareHref(token));
   const live = shares.filter((s) => !s.revokedLabel && !s.expired);
   const revoked = shares.filter((s) => s.revokedLabel);
 
@@ -116,7 +125,7 @@ export function ShareLinks({
       setError({ code: res.error.code ?? String(res.status), message: res.error.message ?? "The link could not be created." });
       return;
     }
-    setCreated(res.data.token);
+    setCreated({ token: res.data.token, pageUrl: res.data.pageUrl ?? null });
     router.refresh();
   }
 
@@ -137,7 +146,7 @@ export function ShareLinks({
       setConfirmError(res.error.message ?? "That did not go through.");
       return;
     }
-    if (pending.kind === "revoke" && pending.share.token === created) setCreated(null);
+    if (pending.kind === "revoke" && pending.share.token === created?.token) setCreated(null);
     if (pending.kind === "revoke-live") setCreated(null);
     setPending(null);
     router.refresh();
@@ -216,16 +225,16 @@ export function ShareLinks({
           </p>
           <div className="flex flex-wrap items-start gap-2 pl-4">
             <a
-              href={shareHref(created)}
+              href={absoluteHttpUrl(created.pageUrl) ?? shareHref(created.token)}
               target="_blank"
               rel="noreferrer"
               data-testid="share-link"
               data-copy-value
               className="data min-w-0 flex-1 break-all pt-[3px] text-meta font-semibold text-fg underline decoration-rule-2 underline-offset-2 hover:decoration-current"
             >
-              {absolute(created)}
+              {linkFor(created.token, created.pageUrl)}
             </a>
-            <CopyButton value={absolute(created)} label="Copy the share link" testId="copy-share-link" />
+            <CopyButton value={linkFor(created.token, created.pageUrl)} label="Copy the share link" testId="copy-share-link" />
           </div>
         </div>
       ) : null}
@@ -278,7 +287,7 @@ export function ShareLinks({
                   <div className="min-w-0">
                     <p className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
                       <a
-                        href={shareHref(s.token)}
+                        href={absoluteHttpUrl(s.pageUrl) ?? shareHref(s.token)}
                         target="_blank"
                         rel="noreferrer"
                         className={clsx("data text-meta font-semibold", dead ? "text-fg-3 line-through decoration-fg-4" : "link")}
@@ -302,7 +311,7 @@ export function ShareLinks({
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    {!dead ? <CopyButton value={absolute(s.token)} label="Copy this share link" testId="copy-share-row" /> : null}
+                    {!dead ? <CopyButton value={linkFor(s.token, s.pageUrl)} label="Copy this share link" testId="copy-share-row" /> : null}
                     {!s.revokedLabel ? (
                       <Button
                         size="sm"

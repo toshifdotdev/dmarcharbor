@@ -1,9 +1,9 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../database/prisma.js';
-import { env } from '../../config/env.js';
 import { recordAuditEvent } from '../audit.service.js';
 import { resolveBranding } from '../branding.service.js';
+import { clientOriginFor } from '../client-origin.js';
 import { withPdfSlot } from '../pdf-concurrency.js';
 import { reportRetentionDays } from '../privacy.service.js';
 import { attributeSourceIp, type AuthSignal, type CachedIntel } from '../senders/attribution.js';
@@ -535,10 +535,8 @@ async function reportBranding(organizationId: string): Promise<{
   logo: ReportLogo | null;
 }> {
   const resolved = await resolveBranding(organizationId);
-  const verifyBase =
-    resolved.branded && resolved.customDomain
-      ? `https://${resolved.customDomain}`
-      : env.APP_URL.replace(/\/$/, '');
+  // The agency's own verified domain when it has one, ours otherwise.
+  const verifyBase = clientOriginFor(resolved);
   const logo = resolved.branded ? await loadMonthlyReportLogo(resolved.logoUrl) : null;
 
   return {

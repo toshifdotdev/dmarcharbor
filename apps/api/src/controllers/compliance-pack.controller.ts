@@ -1,5 +1,4 @@
 import type { Request, Response } from 'express';
-import { env } from '../config/env.js';
 import { prisma } from '../database/prisma.js';
 import { EntitlementError } from '../services/entitlements/entitlement.service.js';
 import { compliancePackFilename } from '../services/trust/compliance-pack.service.js';
@@ -116,7 +115,16 @@ export async function verifyCompliancePackController(request: Request, response:
         'Compute the SHA-256 digest of the downloaded file and compare it with sha256 above. A match means the file has not been altered since it was issued.',
       limitations:
         'This is a self attestation. It proves the document is unaltered, not that the provider is trustworthy, and it is not a third party audit.',
-      trustCenter: `${env.APP_URL.replace(/\/$/, '')}/trust`,
+      /**
+       * Where Trust Center pages live, as a path. Each client's page is
+       * `/trust/{slug}`, and the slug is not given here because a reference
+       * must not unlock it. Relative, because the anonymous auditor reading
+       * this may have opened the verifier on an agency's own domain, which
+       * proxies this endpoint; an absolute APP_URL named our host to them. A
+       * path resolves against whichever host the verifier page is on, ours or
+       * the agency's, and needs no lookup of whose pack it is (a 404 has none).
+       */
+      trustCenter: '/trust',
     });
   } catch (error) {
     sendError(response, error);

@@ -61,6 +61,16 @@ is paying for.
   signed in without it is refused there
 - **Single sign-on** with SAML or OIDC on Admiralty. Just-in-time provisioning admits
   only the email domains a workspace allows, and never grants the owner role
+- **Sign-in on an agency's own domain** is accepted only from a domain the agency
+  has proved it controls (a verified DNS record) and whose plan includes it. The
+  request must arrive through our web app, which says which host the browser asked
+  for; the same `Origin` sent straight to the API is refused, as is any other
+  website. Production accepts https only
+- **Password reset and verification links** go to an agency's domain only for an
+  account whose only access is that agency's client portal. Anyone else who starts
+  a reset there, the agency's own team included, gets a link to our own address,
+  so a token is never sent to a host the agency points for an account that can
+  reach anything the agency does not already control
 
 ## Tenant isolation
 

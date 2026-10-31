@@ -254,6 +254,70 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-12-04 — Client links and sign-in on an agency's own domain
+
+An Admiralty agency whose custom domain is verified now has its clients sent
+there, and its clients can sign in there. Everything below is on the browser
+routes under `/api`; `/api/v1` is unchanged.
+
+### Additive changes
+
+- **`pageUrl` on report shares.** `POST /api/workspaces/{id}/report-shares`
+  answers `pageUrl`, the absolute page to send the client:
+  `{clientOrigin}/share/{token}`. Every item of `GET
+  /api/workspaces/{id}/report-shares` carries it too. `url` is unchanged: the
+  relative API path `/api/reports/share/{token}` that returns the report as JSON.
+- **`clientOrigin` on branding.** `GET /api/workspaces/{id}/branding` answers
+  `clientOrigin`, the origin every link the workspace's clients receive is
+  built on: `https://` and the custom domain once the plan includes it and its
+  record is verified, and `APP_URL` otherwise. No trailing slash.
+
+### Links that moved to the agency's domain
+
+When the workspace has a verified custom domain its plan includes, these are on
+that domain instead of `APP_URL`. For every other workspace they are unchanged.
+
+- The Trust Center link from `POST
+  /api/workspaces/{id}/clients/{clientId}/trust-center` (`url`).
+- Prospect report links (`url` on `GET` and `POST
+  /api/workspaces/{id}/prospect-reports`).
+- The link in the portal invitation email, the approval request email and the
+  scheduled monthly report email (download and verify links). The compliance
+  pack and monthly report PDFs already named the agency's domain and are
+  unchanged.
+
+`trustCenter` in the public `GET /api/compliance-packs/verify` answer is now the
+relative path `/trust` instead of an absolute `APP_URL` address, so an auditor
+who opened the verifier on an agency's domain is not pointed at ours.
+
+### Client email from the agency
+
+For a workspace whose plan includes white label, client facing email (the
+portal invitation, approval requests, scheduled monthly reports and digests)
+is sent as `"<workspace name>" <CLIENT_EMAIL_FROM_ADDRESS>`, falling back to the
+address part of `EMAIL_FROM`. There is no Reply-To. Digests from such a
+workspace are tagged `[<workspace name>]` in the subject and no longer name
+DMARC Harbor. The portal invitation now says how to sign in: with the invited
+address, choosing Create an account the first time.
+
+### Sign-in, reset and verification on the agency's domain
+
+`/api/auth/*` reached through the agency's verified domain (the web app's
+proxy, which sends the browser's `Origin` and an `x-forwarded-host` naming the
+same host) no longer answers 403 `INVALID_ORIGIN`, and accepts a
+`callbackURL` or `redirectTo` on that domain. The same `Origin` sent to the API
+without the matching `x-forwarded-host`, an unverified domain and a domain the
+plan no longer includes are still refused. Production accepts https only.
+
+A password reset or email verification started there, for an account whose
+only access is that agency's client portal, is emailed in the agency's name
+with the link on the agency's domain. For anyone else, the agency's own team
+included, the link stays on our API host and its `callbackURL` is moved to
+`APP_URL`. The "someone tried to sign up" email no
+longer names the product.
+
+---
+
 ## 2026-12-03 — Fixes to /api/v1 responses
 
 Every item that was listed under Known issues in [API.md](API.md#known-issues)

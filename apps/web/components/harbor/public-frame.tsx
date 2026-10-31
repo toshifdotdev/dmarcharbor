@@ -10,6 +10,12 @@
  * name replaces ours everywhere and BrandApplier recolours the primary action;
  * an unverified one says so plainly and serves the default brand. Every link
  * here resolves to a route that exists.
+ *
+ * On a verified custom domain the reader is the agency's client, and the
+ * proxy sends our pricing, guides and legal pages to the portal there. So the
+ * frame links to none of them on that host: no section nav, no "Start free",
+ * no legal list, and no Pier mark beside the agency's name. What is left is
+ * the agency's name, its logo when it has one, the portal and sign-in.
  */
 
 import Link from "next/link";
@@ -31,32 +37,46 @@ const NAV: Array<{ href: string; label: string; key: Current }> = [
   { href: "/support", label: "Support", key: "support" },
 ];
 
+/** The agency's logo on its verified domain, our Pier everywhere else, nothing when the agency has no logo. */
+function HostMark({ brand, size }: { brand: HostBrand; size: number }) {
+  if (brand.state !== "verified") return <PierMark size={size} />;
+  // Only a platform-served uploaded object ever reaches here (lib/host-brand.ts).
+  return brand.logoUrl ? <img src={brand.logoUrl} alt="" height={size + 2} style={{ height: size + 2 }} className="w-auto" /> : null;
+}
+
 export function PublicHeader({ brand, current }: { brand: HostBrand; current?: Current }) {
   const name = brandName(brand);
+  const agency = brand.state === "verified";
   return (
     <>
       {brand.state === "unverified" ? <HostUnverifiedBanner /> : null}
       <header className="bg-paper">
         <div className="page-wrap flex h-16 items-center gap-3 sm:h-[72px] sm:gap-10">
-          <Link href="/" className="inline-flex shrink-0 items-center gap-2.5 text-fg" aria-label={`${name} home`}>
-            <PierMark size={22} />
+          <Link
+            href={agency ? "/portal" : "/"}
+            className="inline-flex shrink-0 items-center gap-2.5 text-fg"
+            aria-label={`${name} home`}
+          >
+            <HostMark brand={brand} size={22} />
             <span className="whitespace-nowrap text-[17px] font-bold tracking-[-0.01em] max-[380px]:hidden">{name}</span>
           </Link>
-          <nav aria-label="Site" className="hidden items-center gap-[30px] min-[900px]:flex">
-            {NAV.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={current === item.key ? "page" : undefined}
-                className={clsx(
-                  "text-[15.5px] font-medium transition-colors duration-100",
-                  current === item.key ? "text-fg" : "text-fg-2 hover:text-fg",
-                )}
-              >
-                {item.label}
-              </Link>
-            ))}
-          </nav>
+          {agency ? null : (
+            <nav aria-label="Site" className="hidden items-center gap-[30px] min-[900px]:flex">
+              {NAV.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={current === item.key ? "page" : undefined}
+                  className={clsx(
+                    "text-[15.5px] font-medium transition-colors duration-100",
+                    current === item.key ? "text-fg" : "text-fg-2 hover:text-fg",
+                  )}
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </nav>
+          )}
           <div className="ml-auto flex items-center gap-1.5">
             <Link
               href="/sign-in"
@@ -65,13 +85,15 @@ export function PublicHeader({ brand, current }: { brand: HostBrand; current?: C
             >
               Sign in
             </Link>
-            <Link
-              href="/sign-up"
-              data-testid="home-start"
-              className="inline-flex h-10 items-center whitespace-nowrap rounded-full bg-cta px-3.5 text-[15.5px] font-semibold text-cta-ink transition-colors duration-100 hover:bg-cta-hover sm:px-[18px]"
-            >
-              Start free
-            </Link>
+            {agency ? null : (
+              <Link
+                href="/sign-up"
+                data-testid="home-start"
+                className="inline-flex h-10 items-center whitespace-nowrap rounded-full bg-cta px-3.5 text-[15.5px] font-semibold text-cta-ink transition-colors duration-100 hover:bg-cta-hover sm:px-[18px]"
+              >
+                Start free
+              </Link>
+            )}
           </div>
         </div>
       </header>
@@ -81,6 +103,29 @@ export function PublicHeader({ brand, current }: { brand: HostBrand; current?: C
 
 export function PublicFooter({ brand }: { brand: HostBrand }) {
   const name = brandName(brand);
+  if (brand.state === "verified") {
+    // The agency's client: its name, its portal and sign-in, and nothing of ours.
+    return (
+      <footer className="page-wrap">
+        <div className="flex flex-wrap items-center gap-x-8 gap-y-3 border-t border-rule pb-16 pt-10 sm:pb-[72px]">
+          <Link href="/portal" className="inline-flex items-center gap-2.5 text-[17px] font-bold tracking-[-0.01em] text-fg">
+            <HostMark brand={brand} size={20} />
+            <span>{name}</span>
+          </Link>
+          <nav aria-label="Client" className="flex flex-wrap items-center gap-x-6 gap-y-2">
+            {[
+              ["/portal", "Client reports"],
+              ["/sign-in", "Sign in"],
+            ].map(([href, label]) => (
+              <Link key={href} href={href} className="text-[14.5px] text-fg-2 transition-colors duration-100 hover:text-fg">
+                {label}
+              </Link>
+            ))}
+          </nav>
+        </div>
+      </footer>
+    );
+  }
   return (
     <footer className="page-wrap">
       {/* The same contained hairline every section above it uses. */}

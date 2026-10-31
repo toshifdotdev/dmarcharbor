@@ -137,11 +137,11 @@ comparison.
 - **Harbor:** the client portal and client approvals, named forensic evidence,
   scheduled digests, the API, PSA ticketing, managed SPF, hosted BIMI and
   MTA-STS, the Trust Center, compliance packs and monthly client reports, report
-  collection from your own mailbox, your logo and colours on everything clients
-  see, the monthly usage export per client, Ask (product questions answered in
-  the app from these pages), and 50 prospect reports a month.
-- **Admiralty:** client pages on your own domain, single sign-on, an unlimited
-  team, and 200 prospect reports a month.
+  collection from your own mailbox, your logo and colours in the portal, reports
+  and client emails, the monthly usage export per client, Ask (product questions
+  answered in the app from these pages), and 50 prospect reports a month.
+- **Admiralty:** everything clients open on your own domain, single sign-on, an
+  unlimited team, and 200 prospect reports a month.
 - **Fleet:** everything in Harbor, including your logo and colours, for more
   domains, with an unlimited team.
 
@@ -192,7 +192,8 @@ Nothing is deleted, and upgrading again brings everything back as it was.
   include them, and work again after an upgrade.
 - Single sign-on stops admitting new people at once; existing members get 30 days.
 - Your logo and colours stop showing below Harbor, and the stored logo is removed.
-  A custom domain kept from Admiralty stops being used; you can remove it.
+  A custom domain kept from Admiralty stops being used, and new client links use
+  our address; you can remove it.
   See "What happens to single sign-on if we leave Admiralty?" below.
 
 **When does a plan change take effect?**
@@ -364,9 +365,18 @@ opening the link never scans anyone's DNS. Fairway includes 10 a month, Harbor 5
 Admiralty and Fleet 200.
 
 **Can I use my own brand?**
-From Harbor, your logo and colours appear in the portal, on reports and on the
-emails clients receive. On Admiralty the portal and other client pages can also
-run on your own domain, so DMARC Harbor's address never appears.
+From Harbor, your agency's name, logo and colours appear in the client portal, on
+monthly reports, Trust Centers and prospect reports, and in the emails clients
+receive. Those emails come from your agency's name, sent by our mail service rather
+than from your own email domain. The pages open at our address.
+
+On Admiralty, add your own domain, such as `reports.youragency.example`, under
+Settings, White label, and verify it. From then on everything a client opens is on
+your address: the portal and its sign-in page, share links, Trust Centers, prospect
+reports, and the links in monthly report and password reset emails. Clients sign in
+there with email and password, because Google and Microsoft sign-in only complete
+on our address. The browser tab shows your initial, and our pricing, guides and
+legal pages are not served on your domain.
 
 ## Team and security
 

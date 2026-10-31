@@ -1,5 +1,6 @@
 import { API_BASE, apiFetch } from "./api-fetch";
 import { PublicError } from "./api-public";
+import { sessionCookieHeader } from "./session-cookie";
 import { retryAfterFrom } from "./retry-after";
 import { cookies } from "next/headers";
 import type {
@@ -34,8 +35,9 @@ async function authedFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const jar = await cookies();
   const header = new Headers(init?.headers);
   header.set("content-type", "application/json");
-  const session = jar.get("better-auth.session_token");
-  if (session) header.set("cookie", `better-auth.session_token=${session.value}`);
+  // Under either name: production's cookie carries the __Secure- prefix.
+  const session = sessionCookieHeader(jar);
+  if (session) header.set("cookie", session);
 
   const res = await apiFetch(`${API_BASE}${path}`, {
     ...init,
@@ -110,8 +112,9 @@ export async function issueCompliancePack(
 ): Promise<{ bytes: Blob; reference: string; sha256: string; filename: string }> {
   const jar = await cookies();
   const header = new Headers();
-  const session = jar.get("better-auth.session_token");
-  if (session) header.set("cookie", `better-auth.session_token=${session.value}`);
+  // Under either name: production's cookie carries the __Secure- prefix.
+  const session = sessionCookieHeader(jar);
+  if (session) header.set("cookie", session);
 
   const res = await apiFetch(
     `${API_BASE}/api/workspaces/${organizationId}/clients/${clientId}/compliance-packs`,

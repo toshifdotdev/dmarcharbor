@@ -1,8 +1,10 @@
 import { prisma } from '../database/prisma.js';
 import { sendAuthEmail } from '../email/email.service.js';
+import { clientEmailFrom, oneLine } from '../email/sender.js';
 import { canCollectAggregateReports, hasAggregateReporting, readDmarcRecord } from '../scanner/dmarc-tags.js';
 import { getDomainInsights } from './report-intelligence.service.js';
 import { assessPolicyReadiness } from './onboarding.service.js';
+import { resolveBranding } from './branding.service.js';
 import { domainRef } from './domain-ref.js';
 import { resolveEntitlements } from './entitlements/entitlement.service.js';
 import { resolveLimit } from '../utils/pagination.js';
@@ -125,11 +127,13 @@ export interface DigestContent {
   recipientCount: number;
 }
 
+/** `branded` is `resolveBranding(...).branded`: the wording stops naming us when it is true. */
 export async function buildDigestContent(
   organizationId: string,
   domainId: string,
   includeForensics: boolean,
   organizationName: string,
+  branded = false,
 ): Promise<DigestContent | null> {
   const domain = await prisma.domain.findFirst({
     where: { client: { organizationId }, ...domainRef(domainId) },
@@ -204,20 +208,50 @@ export async function buildDigestContent(
   if (!hasAggregateReporting(tags)) {
     lines.push('', 'Warning: this domain has no rua= address, so reports cannot arrive.');
   } else if (!canCollectAggregateReports(tags)) {
-    lines.push(
-      '',
-      'Note: this domain publishes reports to a web endpoint rather than a mailbox.',
-      'Reports are being sent, but DMARC Harbor does not read them from there yet,',
-      'so the figures in this summary may be incomplete.',
-    );
+    lines.push('', ...webEndpointNote(branded));
   }
 
-  const subject = `[DMARC Harbor] ${domain.name} DMARC summary`;
+  return { ...digestEnvelope({ domainName: domain.name, organizationName, branded, lines }), recipientCount: 0 };
+}
 
+/**
+ * The note for a domain whose reports go to a web endpoint. A white-labelled
+ * digest says "this service" rather than naming us, because the client reading
+ * it knows only the agency.
+ */
+export function webEndpointNote(branded: boolean): string[] {
+  return [
+    'Note: this domain publishes reports to a web endpoint rather than a mailbox.',
+    branded
+      ? 'Reports are being sent, but this service does not read them from there yet,'
+      : 'Reports are being sent, but DMARC Harbor does not read them from there yet,',
+    'so the figures in this summary may be incomplete.',
+  ];
+}
+
+/**
+ * The subject and the text around the figures.
+ *
+ * Digests go to the client's contacts. With the agency's white label on, the
+ * subject is tagged with the agency's name and the text says only that the
+ * agency prepared it; without it, the wording names us as it always has.
+ */
+export function digestEnvelope(input: {
+  domainName: string;
+  organizationName: string;
+  branded: boolean;
+  lines: string[];
+}): { subject: string; text: string } {
+  const agency = oneLine(input.organizationName);
+  if (input.branded) {
+    return {
+      subject: `[${agency}] ${input.domainName} DMARC summary`,
+      text: [`Prepared by ${agency}.`, '', ...input.lines].join('\n'),
+    };
+  }
   return {
-    subject,
-    text: [`Prepared by ${organizationName}.`, '', ...lines, '', 'Prepared by DMARC Harbor.'].join('\n'),
-    recipientCount: 0,
+    subject: `[DMARC Harbor] ${input.domainName} DMARC summary`,
+    text: [`Prepared by ${agency}.`, '', ...input.lines, '', 'Prepared by DMARC Harbor.'].join('\n'),
   };
 }
 
@@ -261,11 +295,15 @@ type DigestWithRelations = {
 };
 
 async function sendDigest(digest: DigestWithRelations, now: Date): Promise<DigestContent | null> {
+  // Read for the wording and the From line. A workspace whose branding cannot be
+  // read is sent the unbranded digest rather than none.
+  const brand = await resolveBranding(digest.organizationId).catch(() => null);
   const content = await buildDigestContent(
     digest.organizationId,
     digest.domainId,
     digest.includeForensics,
     digest.organization.name,
+    brand?.branded ?? false,
   );
 
   if (!content) {
@@ -273,11 +311,12 @@ async function sendDigest(digest: DigestWithRelations, now: Date): Promise<Diges
   }
 
   const recipients = digest.recipientEmails;
+  const from = clientEmailFrom(brand);
   let sent = 0;
 
   for (const to of recipients) {
     try {
-      await sendAuthEmail({ to, subject: content.subject, text: content.text });
+      await sendAuthEmail({ to, subject: content.subject, text: content.text, ...(from ? { from } : {}) });
       sent += 1;
     } catch {
       continue;

@@ -4,6 +4,7 @@
  */
 
 import { API_BASE, apiFetch } from "./api-fetch";
+import { sessionCookieHeader } from "./session-cookie";
 import { cookies } from "next/headers";
 
 
@@ -27,8 +28,9 @@ export async function acceptDpa(
 ): Promise<void> {
   const jar = await cookies();
   const header = new Headers({ "content-type": "application/json" });
-  const session = jar.get("better-auth.session_token");
-  if (session) header.set("cookie", `better-auth.session_token=${session.value}`);
+  // Under either name: production's cookie carries the __Secure- prefix.
+  const session = sessionCookieHeader(jar);
+  if (session) header.set("cookie", session);
 
   const res = await apiFetch(
     `${API_BASE}/api/workspaces/${organizationId}/dpa-acceptance`,
@@ -84,8 +86,9 @@ export async function acceptDpa(
   }): Promise<{ id: string } | null> {
   const jar = await cookies();
   const header = new Headers({ "content-type": "application/json" });
-  const session = jar.get("better-auth.session_token");
-  if (session) header.set("cookie", `better-auth.session_token=${session.value}`);
+  // Under either name: production's cookie carries the __Secure- prefix.
+  const session = sessionCookieHeader(jar);
+  if (session) header.set("cookie", session);
 
   const res = await apiFetch(`${API_BASE}/api/workspaces`, {
     method: "POST",
