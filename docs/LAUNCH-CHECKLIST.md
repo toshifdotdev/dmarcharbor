@@ -170,9 +170,9 @@ agency.
   only, for the local verify harness.
 - A verified domain's DNS is the agency's to point. The ownership record proves
   control of DNS, not that the host serves our app, so emailed reset and
-  verification links go to an agency domain only for an account whose only
-  access is that agency's client portal. The agency's own team, and a contact
-  another agency also serves, get links on our address.
+  verification links go to an agency domain only for that agency's client
+  contacts who hold no seat in any workspace. The agency's own team gets links
+  on our address.
 
 ### 6. Object storage for logos
 

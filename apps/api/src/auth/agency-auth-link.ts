@@ -18,18 +18,20 @@ import { agencyForOrigin, type AgencyHost } from './agency-origin.js';
  * there, so the path still works, and the cookie is set on the host the client
  * is using.
  *
- * Only for an account the agency already controls: an active portal contact of
- * one of its clients, with no portal access at any other agency and no seat in
- * any workspace. The callback was checked against the request's trusted
+ * Only for an active portal contact of one of the agency's clients who holds no
+ * seat in any workspace. The callback was checked against the request's trusted
  * origins, but the headers that check reads are the caller's to choose when the
  * caller is not a browser, and the agency, not we, decides where its domain
- * points. So the token in the link can reach the agency. For its own client's
- * portal account that gives it nothing it lacks (it grants and revokes that
- * access already). For a team member, who may hold a seat in another workspace,
- * or for a contact another agency also serves, it would hand over an account
- * the agency does not own. For everyone but its own clients the callback is
+ * points. So the token in the link can reach the agency.
+ *
+ * For its own client contact that gives the agency nothing new: the contact
+ * signs in on the agency's domain anyway, because every invitation and report
+ * link the agency sends points there, so the agency already hosts the form the
+ * password is typed into. That holds for a contact another agency also serves.
+ * It does not hold for anyone with a seat (staff sign in on our address, and a
+ * seat can reach other workspaces) or for a stranger. For them the callback is
  * moved to our app origin with the same path, so the link keeps working and the
- * token goes only to us. Staff links are on our address anyway.
+ * token goes only to us.
  */
 
 export interface AuthLink {
@@ -40,19 +42,17 @@ export interface AuthLink {
   from?: string;
 }
 
-/** True when this account's only access anywhere is this agency's client portal. */
-async function onlyThisAgencysClient(organizationId: string, user: { id: string; email: string }): Promise<boolean> {
+/** True for this agency's client contact with no seat in any workspace. */
+async function agencyClientWithoutSeat(organizationId: string, user: { id: string; email: string }): Promise<boolean> {
   const email = user.email.trim().toLowerCase();
-  const contactOf = { revokedAt: null, OR: [{ email }, { userId: user.id }] };
-  const [here, elsewhere, seat] = await Promise.all([
-    prisma.clientPortalAccess.findFirst({ where: { organizationId, ...contactOf }, select: { id: true } }),
+  const [contact, seat] = await Promise.all([
     prisma.clientPortalAccess.findFirst({
-      where: { organizationId: { not: organizationId }, ...contactOf },
+      where: { organizationId, revokedAt: null, OR: [{ email }, { userId: user.id }] },
       select: { id: true },
     }),
     prisma.member.findFirst({ where: { userId: user.id }, select: { id: true } }),
   ]);
-  return Boolean(here) && !elsewhere && !seat;
+  return Boolean(contact) && !seat;
 }
 
 /** Never throws: anything unexpected leaves the link exactly as Better Auth built it. */
@@ -70,7 +70,7 @@ export async function agencyAuthLink(url: string, user: { id: string; email: str
       return { url, agency: null };
     }
 
-    if (await onlyThisAgencysClient(found.agency.organizationId, user)) {
+    if (await agencyClientWithoutSeat(found.agency.organizationId, user)) {
       const from = agencyFromHeader(found.agency.workspaceName);
       return {
         url: `${found.origin}${link.pathname}${link.search}`,

@@ -66,11 +66,12 @@ is paying for.
   request must arrive through our web app, which says which host the browser asked
   for; the same `Origin` sent straight to the API is refused, as is any other
   website. Production accepts https only
-- **Password reset and verification links** go to an agency's domain only for an
-  account whose only access is that agency's client portal. Anyone else who starts
-  a reset there, the agency's own team included, gets a link to our own address,
-  so a token is never sent to a host the agency points for an account that can
-  reach anything the agency does not already control
+- **Password reset and verification links** go to an agency's domain only for that
+  agency's client contacts who hold no seat in any workspace. Those contacts sign in
+  on the agency's domain anyway, so the link there exposes nothing the agency's own
+  sign-in page does not. Anyone else who starts a reset there, the agency's own team
+  included, gets a link to our own address, so a token for a staff account is never
+  sent to a host the agency points
 
 ## Tenant isolation
 

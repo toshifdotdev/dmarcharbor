@@ -1,6 +1,7 @@
 import request from 'supertest';
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { app } from '../src/index.js';
+import { auth } from '../src/auth/auth.config.js';
 import { prisma } from '../src/database/prisma.js';
 import { env } from '../src/config/env.js';
 import { grantPlan } from './helpers/plan.js';
@@ -97,7 +98,24 @@ function firstLink(text: string): URL {
   return new URL(match![0]);
 }
 
-beforeAll(resetDatabase);
+/**
+ * Better Auth skips its origin and callback checks whenever it detects a test
+ * run (`skipOriginCheck` defaults to true under vitest), which would let every
+ * refusal below pass for the wrong reason or not at all. This suite is about
+ * exactly those checks, so it runs them as production does and puts the
+ * default back afterwards.
+ */
+let originCheckDefault: boolean | string[] = true;
+
+beforeAll(async () => {
+  await resetDatabase();
+  const context = await auth.$context;
+  originCheckDefault = context.skipOriginCheck;
+  context.skipOriginCheck = false;
+});
+afterAll(async () => {
+  (await auth.$context).skipOriginCheck = originCheckDefault;
+});
 beforeEach(() => resetAgencyHostCache());
 
 describe('signing in on an agency domain', () => {

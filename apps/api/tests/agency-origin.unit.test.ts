@@ -290,10 +290,23 @@ describe('emailed reset and verification links', () => {
     expect(link.agency).toBeNull();
   });
 
-  it('keeps the link on our app for a contact another agency also serves', async () => {
+  it('puts the link on the agency domain for a contact another agency also serves', async () => {
+    // The contact signs in on this agency's domain anyway, so the link there
+    // gives the agency nothing its own sign-in form does not.
     const organizationId = claim(agencyHost);
     world.contacts.set(organizationId, [contact.email]);
     world.contacts.set('org_other_agency', [contact.email]);
+
+    const link = await agencyAuthLink(resetUrl(`${agencyOrigin}/sign-in`), contact);
+
+    expect(new URL(link.url).origin).toBe(agencyOrigin);
+    expect(link.agency?.organizationId).toBe(organizationId);
+  });
+
+  it('keeps the link on our app for a client contact who also holds a seat', async () => {
+    const organizationId = claim(agencyHost);
+    world.contacts.set(organizationId, [contact.email]);
+    world.members.set('org_some_workspace', [contact.id]);
 
     const link = await agencyAuthLink(resetUrl(`${agencyOrigin}/sign-in`), contact);
 

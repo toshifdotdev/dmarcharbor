@@ -309,11 +309,11 @@ same host) no longer answers 403 `INVALID_ORIGIN`, and accepts a
 without the matching `x-forwarded-host`, an unverified domain and a domain the
 plan no longer includes are still refused. Production accepts https only.
 
-A password reset or email verification started there, for an account whose
-only access is that agency's client portal, is emailed in the agency's name
-with the link on the agency's domain. For anyone else, the agency's own team
-included, the link stays on our API host and its `callbackURL` is moved to
-`APP_URL`. The "someone tried to sign up" email no
+A password reset or email verification started there, for one of that
+agency's client contacts who holds no seat in any workspace, is emailed in the
+agency's name with the link on the agency's domain. For anyone else, the
+agency's own team included, the link stays on our API host and its
+`callbackURL` is moved to `APP_URL`. The "someone tried to sign up" email no
 longer names the product.
 
 ---
