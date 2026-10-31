@@ -39,7 +39,7 @@ const FEATURES: Array<[key: string, label: string]> = [
   ["digests", "Scheduled report digests"],
   ["portal.client", "Client portal and client approvals"],
   ["api.access", "API access"],
-  ["assistant.docs", "Product help answered from the docs"],
+  ["assistant.docs", "Ask: product questions answered from the docs"],
   ["trust.center", "Trust Center"],
   ["reports.compliancePack", "Compliance pack and monthly client reports"],
   ["reports.inbox", "Report collection from your own mailbox"],

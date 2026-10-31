@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import { Albert_Sans, Atkinson_Hyperlegible_Mono } from "next/font/google";
 import { BrandApplier } from "@/components/brand-applier";
+import { brandName } from "@/components/harbor/public-frame";
 import { StructuredData } from "@/components/structured-data-view";
+import { readHostBrand } from "@/lib/host-brand";
 import { requestOrigin } from "@/lib/metadata-origin";
-import { currentPathname, robotsFor, SITE_DESCRIPTION, SITE_NAME } from "@/lib/seo";
+import { currentPathname, robotsFor, SITE_DESCRIPTION } from "@/lib/seo";
 import { siteGraphJsonLd } from "@/lib/structured-data";
 import "./globals.css";
 
@@ -40,22 +42,27 @@ export async function generateMetadata(): Promise<Metadata> {
   // this the root metadata is inherited verbatim by every page, and a
   // canonical on the root named the homepage for all of them.
   const pathname = await currentPathname();
+  // The tab title names the host's brand: an agency's own name on its verified
+  // domain (its portal, its error pages), ours everywhere else, and never an
+  // unverified agency name. It was "DMARC Harbor" on every host, so a client's tab
+  // read "Portal · DMARC Harbor" on the agency's own address.
+  const name = brandName(await readHostBrand());
   return {
     metadataBase: new URL(origin),
     title: {
-      default: SITE_NAME,
-      template: `%s · ${SITE_NAME}`,
+      default: name,
+      template: `%s · ${name}`,
     },
     description: SITE_DESCRIPTION,
     // No `alternates.canonical` here: a canonical on a layout applies to every
     // route under it. Each public page declares its own in lib/seo.ts.
-    applicationName: SITE_NAME,
+    applicationName: name,
     robots: robotsFor(pathname),
     // A crawler must not be told to revisit on a timer it may not honour.
     // Cache headers come from the response, not from here.
     openGraph: {
-      siteName: SITE_NAME,
-      title: SITE_NAME,
+      siteName: name,
+      title: name,
       description: SITE_DESCRIPTION,
       type: "website",
       images: [
@@ -63,7 +70,7 @@ export async function generateMetadata(): Promise<Metadata> {
           url: "/opengraph-image",
           width: 1200,
           height: 630,
-          alt: "DMARC Harbor: every sender, mapped. DMARC monitoring for MSPs and agencies.",
+          alt: `${name}: every sender, mapped. DMARC monitoring for MSPs and agencies.`,
         },
       ],
     },

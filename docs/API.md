@@ -104,7 +104,7 @@ A key looks like `dmh_` followed by eight characters, an underscore and a 43-cha
 ## Requests and responses
 
 - Send request bodies as JSON with `Content-Type: application/json`. A body without that header is read as empty and fails validation.
-- A request body can be at most 10 KB. A larger body is refused with 413 before it reaches the endpoint. Split a large import into batches of about 100 rows.
+- A request body can be at most 10 KB. A larger body is refused with 413 `PAYLOAD_TOO_LARGE` before it reaches the endpoint, and the message states the limit. Split a large import into batches of about 100 rows.
 - Responses are JSON in UTF-8. Dates are ISO 8601 strings in UTC, for example `2026-11-28T09:14:03.000Z`.
 - Ids are opaque strings. Do not parse them.
 - Where a path takes `{domain}`, the domain's id or its slug both work. The slug is the readable identifier in the app's address bar, for example `pellowyn-dental-example-k3x9q2`.
@@ -143,13 +143,13 @@ Content-Type: application/json; charset=utf-8
 {"error":{"code":"RATE_LIMITED","message":"Too many API requests for this key. Wait a minute and try again."}}
 ```
 
-The per-address limit says "Too many API requests. Wait a minute and try again." and the whole-service limit says "Too many requests from this network. Wait a minute and try again." The scan limit is the exception: its 429 body is plain text ("Too many requests, please try again later."), not JSON. Decide on the status code and `Retry-After`, never on the body.
+Every limit answers with the same JSON body and the code `RATE_LIMITED`; only the message differs. The per-address limit says "Too many API requests. Wait a minute and try again.", the scan limit says "Too many scans from this network. Wait a minute and try again." and the whole-service limit says "Too many requests from this network. Wait a minute and try again." Decide when to retry from `Retry-After`; the message is for people and can change.
 
 Refused requests still count, so retrying in a tight loop keeps you refused until the window ends. Wait for `Retry-After`, then continue.
 
 ## Errors
 
-Every error has one shape, except the scan limit's 429, which is plain text:
+Every error has one shape:
 
 ```json
 {
@@ -172,11 +172,12 @@ Every error has one shape, except the scan limit's 429, which is plain text:
 | 402 | `FEATURE_NOT_IN_PLAN` | The plan does not include the API or the feature the route needs. Adds `feature`, `plan`, `planLabel`, `requiredIn` and `upgradeTo` |
 | 402 | `PLAN_LIMIT_REACHED` | A single create would go past the plan's clients or active domains, or a bulk request is over its size cap (adds `limit` and `requested`) |
 | 403 | `FORBIDDEN` | The key does not carry the scope the route needs |
-| 404 | `NOT_FOUND` | The resource is not in this workspace, or the endpoint does not exist |
+| 404 | `NOT_FOUND` | The resource is not in this workspace, or the endpoint does not exist. This includes a `clientId` in a request body |
 | 409 | `CONFLICT` | The request conflicts with what exists: a slug or domain already in use, a scan of an unverified domain, an alert already acknowledged, a move blocked by a provider switch (adds `blockers`) |
 | 409 | `IDEMPOTENCY_KEY_REUSED` | An `Idempotency-Key` was reused with a different request |
-| 413 | `INTERNAL` | The body is over 10 KB. The message is "request entity too large". The code is a known defect: treat 413 as "split the request" |
-| 429 | `RATE_LIMITED` | A rate limit is spent. The scan limit answers in plain text instead |
+| 413 | `PAYLOAD_TOO_LARGE` | The body is over 10 KB. The message states the limit, for example "The request body is larger than the 10 KB this endpoint accepts." Split the request |
+| 415 | `INVALID_REQUEST` | The body uses a character set or content encoding the service cannot read. Send UTF-8 JSON without compression |
+| 429 | `RATE_LIMITED` | A rate limit is spent. Wait for `Retry-After` |
 | 500 | `INTERNAL` | Something failed on the service's side. Retry later with the same `Idempotency-Key` |
 
 A 402 for a missing feature looks like this:
@@ -436,18 +437,49 @@ curl -sS -X POST https://app.dmarcharbor.example/api/v1/clients \
       "verificationHost": "_dmarc-harbor-verification.corriwick-cafe.example",
       "verificationValue": "dmarc-harbor-verification=6f1c2b8e-4d7a-4a39-9e52-0b3f7c1d8a64"
     }
-  ]
+  ],
+  "domainConflicts": []
 }
 ```
 
 Publish a TXT record at `verificationHost` with `verificationValue` as its text, then call [verify](#post-api-v1-domains-domainid-verify) or wait for the `domain.verified` webhook. The service never changes your DNS.
 
+A domain that another workspace already monitors does not stop the client being created. The client and its other domains are created, and that domain is listed in `domainConflicts` instead of `domains`, with its position in your `domains` list and the reason. The answer never says which workspace holds it. For example, when the second of two domains is held elsewhere:
+
+```json
+{
+  "index": 0,
+  "clientId": "cmh4p8d2s0002xk9q6w1e5r3t",
+  "name": "Haskerley Law",
+  "slug": "haskerley-law",
+  "domains": [
+    {
+      "domainId": "cmh4p8d2t0004xk9q3n7b2v8y",
+      "name": "haskerley-law.example",
+      "verificationHost": "_dmarc-harbor-verification.haskerley-law.example",
+      "verificationValue": "dmarc-harbor-verification=0b9e4c71-5a2d-4f86-8c13-7e6a2d9f4b05"
+    }
+  ],
+  "domainConflicts": [
+    {
+      "index": 1,
+      "name": "brisenhay-trading.example",
+      "reason": "That domain is already monitored by another workspace. Remove it there first, or ask them to release it."
+    }
+  ]
+}
+```
+
+- `domainConflicts` is always present, and empty when every domain was added. Each entry has `index` (the domain's position in your `domains` list, from 0), `name` and `reason`.
+- The client is created even when every one of its domains is in `domainConflicts`.
+- A domain listed twice is added once.
+
 Errors:
 
 - 400 `INVALID_REQUEST`: the body is not valid (no name, a name over 120 characters, more than 100 domains), in which case the message is always "A client name is required.", or a domain name is not usable ("One of those domain names is not usable.").
 - 402 `PLAN_LIMIT_REACHED`: the plan has no room for another client or for these domains. The message says which.
-- 409 `CONFLICT`: the slug is taken (`A client with the slug "corriwick-cafe" already exists.`) or a domain is already in this workspace (`Already monitoring corriwick-cafe.example.`).
-- 401, 402 `FEATURE_NOT_IN_PLAN`, 403, 409 `IDEMPOTENCY_KEY_REUSED`, 413, 429, 500. A domain that another workspace already monitors currently fails the whole request with 500; see [Known issues](#known-issues).
+- 409 `CONFLICT`: the slug is taken (`A client with the slug "corriwick-cafe" already exists.`) or a domain is already in this workspace (`Already monitoring corriwick-cafe.example.`). A domain already in this workspace fails the request, because it usually means the client is being created a second time.
+- 401, 402 `FEATURE_NOT_IN_PLAN`, 403, 409 `IDEMPOTENCY_KEY_REUSED`, 413 `PAYLOAD_TOO_LARGE`, 429, 500.
 
 ### POST /api/v1/clients/bulk
 
@@ -494,7 +526,8 @@ curl -sS -X POST https://app.dmarcharbor.example/api/v1/clients/bulk \
           "verificationHost": "_dmarc-harbor-verification.haskerley-law.example",
           "verificationValue": "dmarc-harbor-verification=0b9e4c71-5a2d-4f86-8c13-7e6a2d9f4b05"
         }
-      ]
+      ],
+      "domainConflicts": []
     }
   ],
   "failures": [
@@ -510,10 +543,11 @@ curl -sS -X POST https://app.dmarcharbor.example/api/v1/clients/bulk \
 - `index` is the row's position in your request, starting at 0, so you can match every outcome to its row.
 - `failures` are rows that were wrong: no name, a slug that is taken, a domain name that is not usable, a domain already in this workspace. Fix the row and send it again.
 - `planLimitRejections` are rows that were fine but did not fit the plan. Upgrade or free room, then send them again.
+- A domain that another workspace already monitors does not fail its row. The client is created with its other domains, and that domain is listed in the client's `domainConflicts`, exactly as for [a single create](#post-api-v1-clients). `index` there is the domain's position in that row's `domains` list.
 - The answer is 201 even when no row was created. Read the counts.
 - `limits` is the per-request cap of this endpoint and of `POST /domains/bulk`, not the plan's limits.
 
-Errors: 400 (no `clients` array, or a row of the wrong shape), 401, 402 `FEATURE_NOT_IN_PLAN`, 402 `PLAN_LIMIT_REACHED` with `limit` and `requested` (more than 200 rows), 403, 409 `IDEMPOTENCY_KEY_REUSED`, 413, 429, 500 (see [Known issues](#known-issues)).
+Errors: 400 (no `clients` array, or a row of the wrong shape), 401, 402 `FEATURE_NOT_IN_PLAN`, 402 `PLAN_LIMIT_REACHED` with `limit` and `requested` (more than 200 rows), 403, 409 `IDEMPOTENCY_KEY_REUSED`, 413 `PAYLOAD_TOO_LARGE`, 429, 500.
 
 ## Domains
 
@@ -608,9 +642,9 @@ Errors:
 
 - 400 `INVALID_REQUEST`: no `clientId`, or no usable domain name.
 - 402 `PLAN_LIMIT_REACHED`: the plan has no room for another active domain.
+- 404 `NOT_FOUND`: the `clientId` is not in this workspace ("That client is not in this workspace.").
 - 409 `CONFLICT`: the domain is already in this workspace, or another workspace monitors it ("That domain is already monitored by another workspace. Remove it there first, or ask them to release it.").
-- A `clientId` that is not in this workspace currently answers 402 `FEATURE_NOT_IN_PLAN` with the message "That client is not in this workspace." rather than 404; see [Known issues](#known-issues).
-- 401, 403, 409 `IDEMPOTENCY_KEY_REUSED`, 413, 429, 500.
+- 401, 403, 409 `IDEMPOTENCY_KEY_REUSED`, 413 `PAYLOAD_TOO_LARGE`, 429, 500.
 
 ### POST /api/v1/domains/bulk
 
@@ -659,7 +693,7 @@ curl -sS -X POST https://app.dmarcharbor.example/api/v1/domains/bulk \
 }
 ```
 
-Errors: 400, 401, 402 `PLAN_LIMIT_REACHED` with `limit` and `requested` (more than 500 domains), 402 `FEATURE_NOT_IN_PLAN` for a `clientId` outside the workspace (see [Known issues](#known-issues)), 403, 409 `IDEMPOTENCY_KEY_REUSED`, 413, 429, 500.
+Errors: 400, 401, 402 `PLAN_LIMIT_REACHED` with `limit` and `requested` (more than 500 domains), 403, 404 `NOT_FOUND` for a `clientId` that is not in this workspace ("That client is not in this workspace."), 409 `IDEMPOTENCY_KEY_REUSED`, 413 `PAYLOAD_TOO_LARGE`, 429, 500.
 
 ### POST /api/v1/domains/{domainId}/verify
 
@@ -796,7 +830,7 @@ curl -sS https://app.dmarcharbor.example/api/v1/domains/pellowyn-dental-example-
     "collectForensicReports": false,
     "lastScanAt": "2026-11-28T03:12:09.000Z",
     "spfRecord": "v=spf1 include:spf.protection.outlook.com include:hubspotemail.net -all",
-    "mxRecords": [],
+    "mxRecords": ["mx1.pellowyn-dental.example", "mx2.pellowyn-dental.example"],
     "dkimSelectors": ["selector1", "selector2", "hs1"],
     "client": { "id": "cmh2k4x7p0003wq8z5t1v9a6e", "name": "Pellowyn Dental", "slug": "pellowyn-dental" },
     "registration": {
@@ -811,7 +845,7 @@ curl -sS https://app.dmarcharbor.example/api/v1/domains/pellowyn-dental-example-
 ```
 
 - `dkimSelectors` are the selectors the latest scan found a key at.
-- `mxRecords` is meant to list the domain's mail servers. It is currently always an empty array; see [Known issues](#known-issues).
+- `mxRecords` is an array of strings: the host names of the mail servers the latest completed scan found, the one senders try first at the top (lowest MX preference first, equal preferences in name order). Names are lowercased and have no trailing dot. The array is empty, never `null`, when the domain publishes no MX record or a null MX (`0 .`, meaning it receives no mail), when that scan could not read the MX records, and before the first completed scan.
 - `registration` is the registry's answer, read over RDAP about once a day, or `null` before the first lookup. `status` is `ok`, `no_expiry` (the registry publishes no expiry date), `unsupported`, `not_found` or `error`. A failed lookup keeps the last good date.
 
 Errors: 401, 402, 404, 429.
@@ -899,14 +933,17 @@ curl -sS -X POST https://app.dmarcharbor.example/api/v1/domains/pellowyn-dental-
     "error": null,
     "startedAt": "2026-11-28T10:04:51.118Z",
     "completedAt": "2026-11-28T10:04:55.000Z",
-    "changeCount": 0
+    "changeCount": 1
   }
 }
 ```
 
-A scan that could not finish still answers 202, with `status` `FAILED` and the reason in `error`. `changeCount` is always 0 in this answer, even when the scan recorded changes; read the scan list or `GET /dns-changes` for them (see [Known issues](#known-issues)).
+A scan that could not finish still answers 202, with `status` `FAILED` and the reason in `error`.
 
-Errors: 401, 402, 403, 404, 409 `CONFLICT` ("Verify the domain before running an authenticated scan."), 409 `IDEMPOTENCY_KEY_REUSED`, 429 (the scan limit's 429 is plain text).
+- `changeCount` is the number of DNS changes this scan recorded, the same number the scan list shows for it. Read the changes themselves with `GET /dns-changes?domain=` and match `scanId`.
+- A failed scan records no changes, so its `changeCount` is 0.
+
+Errors: 401, 402, 403, 404, 409 `CONFLICT` ("Verify the domain before running an authenticated scan."), 409 `IDEMPOTENCY_KEY_REUSED`, 429 `RATE_LIMITED`.
 
 ## Reports, senders and readiness
 
@@ -1282,6 +1319,7 @@ curl -sS "https://app.dmarcharbor.example/api/v1/dns-changes?severity=WARNING,CR
       "summary": "The DMARC policy weakened from p=quarantine to p=none.",
       "detectedAt": "2026-11-28T03:12:09.000Z",
       "scanId": "cmhb3q7n2000ftd5w1x8k4m6z",
+      "domain": { "id": "cmh2k5a1q0009wq8z7m3b8k2d", "name": "pellowyn-dental.example", "slug": "pellowyn-dental-example-k3x9q2" },
       "acknowledgedAt": null,
       "acknowledgedBy": null
     }
@@ -1293,7 +1331,7 @@ curl -sS "https://app.dmarcharbor.example/api/v1/dns-changes?severity=WARNING,CR
 - `kind` is `DMARC_RECORD`, `DMARC_POLICY`, `DMARC_RUA`, `SPF_RECORD`, `SPF_LOOKUPS`, `SPF_ALL`, `DKIM_SELECTOR`, `MX`, `MTA_STS`, `TLS_RPT` or `BIMI`.
 - `code` names the change exactly, for example `dmarc_record_removed`, `dmarc_rua_ours_removed`, `spf_record_changed`, `dkim_selector_removed` or `mta_sts_mode_weakened`. Key automation on `code`, and show `summary` to people.
 - `acknowledgedBy` is the name of the person who acknowledged it in the app, and `null` when it is not acknowledged or was acknowledged through the API.
-- The rows do not carry the domain. Filter with `?domain=`, or match `scanId` to the domain's scan list.
+- `domain` is the domain the change belongs to, with its `id`, `name` and `slug`, in the same shape as an [alert](#get-api-v1-alerts) row.
 
 Errors: 400 (bad `severity`, `acknowledged`, `limit` or `cursor`), 401, 402, 404 (`domain`), 429.
 
@@ -1324,6 +1362,7 @@ curl -sS -X POST https://app.dmarcharbor.example/api/v1/dns-changes/cmhb3q8a4000
     "summary": "The DMARC policy weakened from p=quarantine to p=none.",
     "detectedAt": "2026-11-28T03:12:09.000Z",
     "scanId": "cmhb3q7n2000ftd5w1x8k4m6z",
+    "domain": { "id": "cmh2k5a1q0009wq8z7m3b8k2d", "name": "pellowyn-dental.example", "slug": "pellowyn-dental-example-k3x9q2" },
     "acknowledgedAt": "2026-11-28T09:02:15.441Z",
     "acknowledgedBy": null
   }
@@ -1738,7 +1777,7 @@ A failed delivery is tried again, five attempts in all:
 | 4 | 30 minutes after attempt 3 |
 | 5 | 2 hours after attempt 4, then it is marked gave up |
 
-A delivery that gave up is not lost for good. Once it is more than 24 hours old, it is queued for another full round of five attempts, as long as its endpoint is not suspended.
+A delivery that gave up is not lost for good. Once it is more than 24 hours old, it is queued for another full round of five attempts, as long as its endpoint is not suspended or paused.
 
 Suspension protects both sides from an endpoint that is down for days. Each endpoint counts failed attempts, and any success resets the count. At 20 failed attempts in a row the endpoint is suspended:
 
@@ -1747,7 +1786,14 @@ Suspension protects both sides from an endpoint that is down for days. Each endp
 - About 30 hours after the suspension began, if it has held deliveries, the service releases them as a trial. If they go through the endpoint is back; if they fail it is suspended again sooner.
 - Resume the endpoint in Settings, Webhooks to end a suspension at once. Its held deliveries then show Send again in the delivery log.
 
-Pausing an endpoint in Settings, Webhooks stops new events being queued for it. Deliveries already queued before the pause can still be sent. Pausing and removing work on every plan; after a downgrade below Fairway no new events are queued for any endpoint.
+Pausing an endpoint in Settings, Webhooks stops delivery to it:
+
+- Nothing is sent to it while it is paused. Deliveries already queued for it are held, with the attempts they had made, and show as waiting in the delivery log. A request already on its way when you pause still finishes.
+- New events are not queued for it while it is paused, and are not sent later. Catch up from the API after resuming, as after a suspension.
+- Resume the endpoint and its held deliveries are sent on the next pass, within about 30 seconds, carrying on from the attempt each had reached.
+- Send again is refused while it is paused, with 409 and the message "That endpoint is paused, so nothing is sent to it. Resume the endpoint, then send this again."
+
+Pausing and removing work on every plan; after a downgrade below Fairway no new events are queued for any endpoint.
 
 The delivery log, under What was sent in Settings, Webhooks, lists the last fifty deliveries with the event, the endpoint, the outcome, the number of tries, and what your system answered (the HTTP status and the error). Send again queues a delivery once more from its first attempt, signed with a new timestamp, so you can recover what failed while your receiver was down.
 
@@ -1771,10 +1817,10 @@ curl -sS -X POST https://app.dmarcharbor.example/api/v1/clients \
 
 2. Store `clientId` and each `domainId` on the ticket. Publish a TXT record at each `verificationHost` with `verificationValue` as its text, through your DNS automation or by sending the values to whoever runs the client's DNS.
 3. Do not poll. Pending domains are re-checked about once an hour, and the `domain.verified` webhook fires when each one passes. When it arrives, find the ticket by `domainId` and close it, or move it to the next step. If someone is waiting on the phone, call [verify](#post-api-v1-domains-domainid-verify) once.
-4. If the create answers 402 `PLAN_LIMIT_REACHED`, put the ticket on hold with the message: it says which limit is full. If it answers 409 `CONFLICT`, the client or domain already exists; look it up with `GET /clients`.
+4. If the create answers 402 `PLAN_LIMIT_REACHED`, put the ticket on hold with the message: it says which limit is full. If it answers 409 `CONFLICT`, the client or domain already exists; look it up with `GET /clients`. If `domainConflicts` is not empty, the client was created without those domains because another workspace monitors them; note them on the ticket and ask the client who else manages their DMARC.
 5. Once verified, publish the client's DMARC record from the domain's page in the app (by hand, through a Cloudflare connection, or as a hosted record). The API does not generate DMARC records.
 
-For a spreadsheet of many clients, send `POST /clients/bulk` in batches of about 100 rows, each with its own `Idempotency-Key`, and handle `failures` and `planLimitRejections` row by row.
+For a spreadsheet of many clients, send `POST /clients/bulk` in batches of about 100 rows, each with its own `Idempotency-Key`, and handle `failures`, `planLimitRejections` and each created client's `domainConflicts` row by row.
 
 ### Sync posture into your PSA every night
 
@@ -1892,14 +1938,7 @@ for row in data["clients"]:
 
 ## Known issues
 
-These are places where the API does not yet do what it should. They are listed so you can work around them, and this page changes when they are fixed.
-
-- **`mxRecords` is always empty.** `GET /domains/{domain}` returns `mxRecords: []` for every domain. Read MX hosts from DNS yourself until it is fixed.
-- **A new scan reports `changeCount: 0`.** The answer to `POST /domains/{domain}/scans` always has `changeCount: 0`. The scan list and `GET /dns-changes` have the real count and the changes.
-- **A client id outside the workspace answers 402.** `POST /domains` and `POST /domains/bulk` answer 402 `FEATURE_NOT_IN_PLAN` with the message "That client is not in this workspace." when `clientId` is wrong, instead of 404. Check the message, not only the code.
-- **A domain held by another workspace fails a client import.** In `POST /clients` and `POST /clients/bulk`, a domain that another workspace already monitors fails the whole request with 500, and nothing in it is created. Create such clients without that domain, then add it with `POST /domains`, which reports the conflict for that row only.
-- **An oversized body answers 413 with code `INTERNAL`.** Branch on the 413 status and split the request.
-- **The scan limit's 429 is plain text.** Branch on the status and `Retry-After`.
+There are no known issues at the moment. When the API does not do what this page says, the issue is listed here, with a way to work around it, until it is fixed.
 
 ## Not part of the contract
 

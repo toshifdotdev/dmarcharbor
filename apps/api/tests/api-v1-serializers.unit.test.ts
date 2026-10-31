@@ -114,6 +114,71 @@ describe('serializeDomainDetail', () => {
     expect(body.registration).toBeNull();
   });
 
+  it('lists the mail servers the scan stored, the one tried first at the top', () => {
+    /**
+     * The shape the scanner actually writes: `{ exchange, priority }` objects.
+     *
+     * The serializer kept only strings, so this column always came out as `[]`
+     * on the public API while the browser showed the servers. The documented
+     * type is a list of host names, so the order carries the priority.
+     */
+    const body = serializeDomainDetail({
+      id: 'dom_1',
+      name: 'pellowyn-dental.example',
+      slug: 'pellowyn-dental-example-k3x9q2',
+      status: 'VERIFIED',
+      dmarcPolicy: 'none',
+      dmarcRecord: null,
+      verifiedAt: null,
+      score: null,
+      collectForensicReports: false,
+      lastScanAt: null,
+      spfRecord: null,
+      mxRecords: [
+        { exchange: 'mx2.pellowyn-dental.example', priority: 20 },
+        { exchange: 'MX1.Pellowyn-Dental.example.', priority: 10 },
+        { exchange: 'mx3.pellowyn-dental.example', priority: 20 },
+        { exchange: 'mx1.pellowyn-dental.example', priority: 30 },
+        { exchange: 42, priority: 5 },
+        { priority: 1 },
+      ],
+      dkimSelectors: [],
+      client: { id: 'cl_1', name: 'Pellowyn Dental', slug: 'pellowyn-dental' },
+    });
+
+    // Lowest preference first, ties by name, lowercased, trailing dot removed,
+    // each host once, and entries without a usable host left out.
+    expect(body.mxRecords).toEqual([
+      'mx1.pellowyn-dental.example',
+      'mx2.pellowyn-dental.example',
+      'mx3.pellowyn-dental.example',
+    ]);
+  });
+
+  it('answers an empty list for a null MX, a missing column and a column that is not a list', () => {
+    const base = {
+      id: 'dom_1',
+      name: 'corriwick-cafe.example',
+      slug: 'corriwick-cafe-example-p7d2m4',
+      status: 'VERIFIED',
+      dmarcPolicy: null,
+      dmarcRecord: null,
+      verifiedAt: null,
+      score: null,
+      collectForensicReports: false,
+      lastScanAt: null,
+      spfRecord: null,
+      dkimSelectors: [],
+      client: { id: 'cl_1', name: 'Corriwick Café', slug: 'corriwick-cafe' },
+    };
+
+    // RFC 7505: "0 ." says the domain receives no mail, which names no server.
+    expect(serializeDomainDetail({ ...base, mxRecords: [{ exchange: '', priority: 0 }] }).mxRecords).toEqual([]);
+    expect(serializeDomainDetail({ ...base, mxRecords: [{ exchange: '.', priority: 0 }] }).mxRecords).toEqual([]);
+    expect(serializeDomainDetail({ ...base, mxRecords: null }).mxRecords).toEqual([]);
+    expect(serializeDomainDetail({ ...base, mxRecords: { exchange: 'mx.example' } }).mxRecords).toEqual([]);
+  });
+
   it('carries the registration expiry, without the lookup error or the warning state', () => {
     const body = serializeDomainDetail({
       id: 'dom_1',
@@ -341,6 +406,7 @@ describe('serializeDnsChange', () => {
       'acknowledgedBy',
       'code',
       'detectedAt',
+      'domain',
       'id',
       'kind',
       'scanId',
@@ -349,6 +415,47 @@ describe('serializeDnsChange', () => {
     ]);
     // `before` and `after` are the raw record values and stay internal.
     expect(JSON.stringify(body)).not.toContain('v=spf1');
+  });
+
+  it('names the domain the change belongs to, in the shape an alert row uses', () => {
+    const domain = { id: 'dom_1', name: 'haskerley-law.example', slug: 'haskerley-law-example-h2v8r1' };
+    const body = serializeDnsChange({
+      id: 'chg_1',
+      kind: 'DMARC_POLICY',
+      severity: 'CRITICAL',
+      code: 'dmarc_policy_weakened',
+      summary: 'The DMARC policy weakened from p=quarantine to p=none.',
+      before: null,
+      after: null,
+      detectedAt: new Date('2026-01-01T00:00:00Z'),
+      scanId: 'scan_1',
+      acknowledgedAt: null,
+      acknowledgedBy: null,
+      domain,
+    });
+
+    expect(body.domain).toEqual(domain);
+    // A copy, not the service's object, so nothing it carries later can leak.
+    expect(body.domain).not.toBe(domain);
+    expect(Object.keys(body.domain).sort()).toEqual(['id', 'name', 'slug']);
+
+    const alert = serializeAlert({
+      id: 'evt_1',
+      ruleId: 'rule_1',
+      metric: 'FAILURE_COUNT',
+      operator: 'GREATER_THAN',
+      observedValue: 1,
+      threshold: 0,
+      windowMinutes: 60,
+      summary: 'x',
+      reminderLevel: 0,
+      triggeredAt: new Date('2026-01-01T00:00:00Z'),
+      acknowledgedAt: null,
+      resolvedAt: null,
+      domain,
+      rule: null,
+    });
+    expect(Object.keys(body.domain).sort()).toEqual(Object.keys(alert.domain).sort());
   });
 });
 

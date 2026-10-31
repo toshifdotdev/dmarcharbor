@@ -1,7 +1,8 @@
 import request from 'supertest';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
+import { systemDnsReader } from '../src/scanner/dns.js';
 import { createApiKey, hashApiKey, verifyApiKey } from '../src/services/api-key.service.js';
 import { grantPlan } from './helpers/plan.js';
 import { setOverride } from '../src/services/entitlements/entitlement.service.js';
@@ -249,8 +250,115 @@ describe('bulk onboarding', () => {
       .set('Authorization', `Bearer ${second.key}`)
       .send({ clientId: client.id, domains: ['x.test'] });
 
-    expect(response.status).toBe(402);
+    // 404, as for anything else that is not this key's. It used to be 402
+    // FEATURE_NOT_IN_PLAN, which read as "upgrade" for a mistyped id.
+    expect(response.status, JSON.stringify(response.body)).toBe(404);
+    expect(response.body.error.code).toBe('NOT_FOUND');
+    expect(response.body.error.message).toBe('That client is not in this workspace.');
+
+    const single = await request(app)
+      .post('/api/v1/domains')
+      .set('Authorization', `Bearer ${second.key}`)
+      .send({ clientId: client.id, name: 'x.test' });
+    expect(single.status, JSON.stringify(single.body)).toBe(404);
+    expect(single.body.error.code).toBe('NOT_FOUND');
+
+    // A client id that exists nowhere answers exactly the same, so the answer
+    // cannot be used to find out what another workspace holds.
+    const nowhere = await request(app)
+      .post('/api/v1/domains')
+      .set('Authorization', `Bearer ${second.key}`)
+      .send({ clientId: 'cl-does-not-exist', name: 'x.test' });
+    expect(nowhere.status).toBe(404);
+    expect(nowhere.body).toEqual(single.body);
+
     expect(await prisma.domain.count({ where: { name: 'x.test' } })).toBe(0);
+  });
+
+  it('creates a client whose domain another workspace holds, and reports only that domain', async () => {
+    const holder = await setup();
+    const importer = await setup();
+    fixtureId += 1;
+    const takenName = `brisenhay-trading-${fixtureId}.example`;
+
+    const heldBy = await prisma.client.create({
+      data: {
+        organizationId: holder.organizationId,
+        name: 'Brisenhay Trading',
+        slug: `brisenhay-trading-${fixtureId}`,
+        domains: { create: [{ name: takenName, slug: `brisenhay-trading-${fixtureId}-x1` }] },
+      },
+      select: { id: true },
+    });
+
+    /**
+     * The defect: the name reached `client.create`, hit the global unique
+     * constraint on `Domain.name`, and the whole request answered 500 with
+     * nothing created. Now the client and its free domain are created and the
+     * taken one is listed on its own, as `POST /domains` already did.
+     */
+    const single = await request(app)
+      .post('/api/v1/clients')
+      .set('Authorization', `Bearer ${importer.key}`)
+      .send({ name: 'Haskerley Law', domains: [`haskerley-law-${fixtureId}.example`, takenName] });
+
+    expect(single.status, JSON.stringify(single.body)).toBe(201);
+    expect(single.body.domains.map((domain: { name: string }) => domain.name)).toEqual([`haskerley-law-${fixtureId}.example`]);
+    expect(single.body.domainConflicts).toEqual([
+      {
+        index: 1,
+        name: takenName,
+        reason: 'That domain is already monitored by another workspace. Remove it there first, or ask them to release it.',
+      },
+    ]);
+    // Which workspace holds it is never said.
+    expect(JSON.stringify(single.body)).not.toContain(holder.organizationId);
+    expect(JSON.stringify(single.body)).not.toContain(heldBy.id);
+    expect(JSON.stringify(single.body)).not.toContain('Brisenhay Trading');
+
+    // Nothing moved: the name still belongs to the workspace that held it.
+    const stillHeld = await prisma.domain.findUniqueOrThrow({ where: { name: takenName }, select: { clientId: true } });
+    expect(stillHeld.clientId).toBe(heldBy.id);
+
+    const bulk = await request(app)
+      .post('/api/v1/clients/bulk')
+      .set('Authorization', `Bearer ${importer.key}`)
+      .send({
+        clients: [
+          { name: 'Ollerbeck Vets', domains: [takenName, `ollerbeck-vets-${fixtureId}.example`] },
+          { name: 'Thrandle Build', domains: [`thrandle-build-${fixtureId}.example`] },
+        ],
+      });
+
+    expect(bulk.status, JSON.stringify(bulk.body)).toBe(201);
+    expect(bulk.body.created).toBe(2);
+    expect(bulk.body.failed).toBe(0);
+    expect(bulk.body.clients[0].domains.map((domain: { name: string }) => domain.name)).toEqual([
+      `ollerbeck-vets-${fixtureId}.example`,
+    ]);
+    expect(bulk.body.clients[0].domainConflicts).toHaveLength(1);
+    expect(bulk.body.clients[0].domainConflicts[0]).toMatchObject({ index: 0, name: takenName });
+    expect(bulk.body.clients[1].domainConflicts).toEqual([]);
+
+    expect(await prisma.client.count({ where: { organizationId: importer.organizationId } })).toBe(3);
+  });
+
+  it('refuses an oversized body with PAYLOAD_TOO_LARGE and says what the limit is', async () => {
+    const { key, organizationId } = await setup();
+    // Well over the 10 KB parser limit, so the parser refuses it before the
+    // route's own 200-row cap is reached.
+    const clients = Array.from({ length: 600 }, (_unused, index) => ({ name: `Oversized import client ${index}` }));
+
+    const response = await request(app)
+      .post('/api/v1/clients/bulk')
+      .set('Authorization', `Bearer ${key}`)
+      .send({ clients });
+
+    expect(response.status).toBe(413);
+    // It used to be INTERNAL, which told the caller the service had failed.
+    expect(response.body.error.code).toBe('PAYLOAD_TOO_LARGE');
+    expect(response.body.error.message).toContain('10 KB');
+    expect(await prisma.client.count({ where: { organizationId } })).toBe(0);
   });
 
   it('replays a retried request instead of creating duplicates', async () => {
@@ -580,6 +688,78 @@ describe('v1: one domain and its evidence', () => {
     expect(replay.body.scan.id).toBe(first.body.scan.id);
   });
 
+  it('answers a new scan with the changes it recorded, and the domain with the mail servers it found', async () => {
+    const fixture = await setupDomainWithEvidence();
+    let policy = 'reject';
+
+    // DNS is answered here rather than by the network, so the second scan has a
+    // known difference from the first: the policy weakens from reject to none.
+    const txt = vi.spyOn(systemDnsReader, 'resolveTxt').mockImplementation(async (name) => {
+      if (name === `_dmarc.${fixture.domainName}`) {
+        return { status: 'found', value: [[`v=DMARC1; p=${policy}`]] };
+      }
+      if (name === fixture.domainName) {
+        return { status: 'found', value: [['v=spf1 -all']] };
+      }
+      return { status: 'missing' };
+    });
+    const mx = vi.spyOn(systemDnsReader, 'resolveMx').mockResolvedValue({
+      status: 'found',
+      value: [
+        { exchange: `mx2.${fixture.domainName}`, priority: 20 },
+        { exchange: `mx1.${fixture.domainName}`, priority: 10 },
+      ],
+    });
+    const cname = vi.spyOn(systemDnsReader, 'resolveCname').mockResolvedValue({ status: 'missing' });
+
+    try {
+      const first = await request(app)
+        .post(`/api/v1/domains/${fixture.domainId}/scans`)
+        .set('Authorization', `Bearer ${fixture.key}`);
+      expect(first.status, JSON.stringify(first.body)).toBe(202);
+      expect(first.body.scan.status, JSON.stringify(first.body)).toBe('COMPLETED');
+      // The fixture's earlier scan has no result to compare with, so nothing changed.
+      expect(first.body.scan.changeCount).toBe(0);
+
+      // `mxRecords` used to be [] for every domain: the column holds the scan's
+      // `{ exchange, priority }` objects and only strings were kept.
+      const detail = await request(app)
+        .get(`/api/v1/domains/${fixture.domainId}`)
+        .set('Authorization', `Bearer ${fixture.key}`);
+      expect(detail.status).toBe(200);
+      expect(detail.body.domain.mxRecords).toEqual([`mx1.${fixture.domainName}`, `mx2.${fixture.domainName}`]);
+
+      policy = 'none';
+      const second = await request(app)
+        .post(`/api/v1/domains/${fixture.domainId}/scans`)
+        .set('Authorization', `Bearer ${fixture.key}`);
+      expect(second.status, JSON.stringify(second.body)).toBe(202);
+      expect(second.body.scan.status, JSON.stringify(second.body)).toBe('COMPLETED');
+
+      // The answer used to say 0 here whatever the scan recorded.
+      const recorded = await prisma.dnsChange.count({ where: { scanId: second.body.scan.id } });
+      expect(recorded).toBeGreaterThan(0);
+      expect(second.body.scan.changeCount).toBe(recorded);
+
+      // The same number the scan list and the DNS change list give.
+      const history = await request(app)
+        .get(`/api/v1/domains/${fixture.domainId}/scans?limit=1`)
+        .set('Authorization', `Bearer ${fixture.key}`);
+      expect(history.body.scans[0].id).toBe(second.body.scan.id);
+      expect(history.body.scans[0].changeCount).toBe(second.body.scan.changeCount);
+
+      const changes = await request(app)
+        .get(`/api/v1/dns-changes?domain=${fixture.domainId}`)
+        .set('Authorization', `Bearer ${fixture.key}`);
+      const fromThisScan = changes.body.changes.filter((change: { scanId: string }) => change.scanId === second.body.scan.id);
+      expect(fromThisScan).toHaveLength(second.body.scan.changeCount);
+    } finally {
+      txt.mockRestore();
+      mx.mockRestore();
+      cname.mockRestore();
+    }
+  });
+
   it('reports the report headers with counts and no source addresses', async () => {
     const fixture = await setupDomainWithEvidence();
 
@@ -776,6 +956,13 @@ describe('v1: alerts and DNS changes', () => {
     expect(critical.status).toBe(200);
     expect(critical.body.changes).toHaveLength(1);
     expect(critical.body.changes[0].severity).toBe('CRITICAL');
+    // Each row names its domain, as an alert row does, so a workspace-wide list
+    // says where each change happened without a second lookup.
+    expect(critical.body.changes[0].domain).toEqual({
+      id: fixture.domainId,
+      name: fixture.domainName,
+      slug: fixture.domainSlug,
+    });
 
     const unacknowledged = await request(app)
       .get('/api/v1/dns-changes?acknowledged=false&limit=1')
@@ -806,6 +993,7 @@ describe('v1: alerts and DNS changes', () => {
     expect(response.body.change.acknowledgedAt).toBeTruthy();
     // No person did this, so the field is null rather than a made-up member.
     expect(response.body.change.acknowledgedBy).toBeNull();
+    expect(response.body.change.domain.id).toBe(fixture.domainId);
 
     const audit = await prisma.auditLog.findFirst({
       where: { organizationId: fixture.organizationId, action: 'DNS_CHANGE_ACKNOWLEDGED' },

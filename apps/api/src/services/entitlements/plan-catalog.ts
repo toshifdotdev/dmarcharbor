@@ -81,7 +81,7 @@ export const entitlementLabels: Record<EntitlementKey, string> = {
   'prospects.reports': 'Prospect risk reports',
   'reports.usageExport': 'Monthly usage export per client',
   'dns.spfUsage': 'SPF check for unused includes',
-  'assistant.docs': 'Product help answered from the docs',
+  'assistant.docs': 'Ask: product questions answered from the docs',
 };
 
 /**

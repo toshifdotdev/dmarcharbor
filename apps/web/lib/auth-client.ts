@@ -10,6 +10,9 @@
  * because one build serves the product domain and every agency domain.
  */
 
+import { retryAfterFrom, retryAfterText } from "./retry-after";
+import { networkUiError } from "./ui-errors";
+
 const BASE = "";
 
 /**
@@ -47,9 +50,16 @@ export class AuthError extends Error {
   }
 }
 
-function messageFor(code: string | undefined, fallback: string | undefined, status: number): string {
+function messageFor(
+  code: string | undefined,
+  fallback: string | undefined,
+  status: number,
+  retryAfterSeconds: number | null = null,
+): string {
   if (code && MESSAGES[code]) return MESSAGES[code];
-  if (status === 429) return "Too many attempts. Wait a minute and try again.";
+  // A rate limit is a wait, never a refusal: say so, and how long when the
+  // limiter said (the API sends Retry-After, Better Auth X-Retry-After).
+  if (status === 429) return `Too many attempts. ${retryAfterText(retryAfterSeconds)}`;
   if (fallback) return fallback;
   return "That did not work. Try again.";
 }
@@ -59,12 +69,18 @@ function origin(): string {
 }
 
 async function post(path: string, body: unknown): Promise<Response> {
-  return fetch(`${BASE}/api/auth/${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify(body),
-  });
+  try {
+    return await fetch(`${BASE}/api/auth/${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(body),
+    });
+  } catch {
+    // No answer at all (offline, the API down, the proxy gone). The browser's
+    // own words for that ("Failed to fetch") reached the form before.
+    throw new AuthError(networkUiError().message, "NETWORK", 0);
+  }
 }
 
 async function fail(res: Response): Promise<never> {
@@ -78,7 +94,8 @@ async function fail(res: Response): Promise<never> {
   } catch {
     /* body unreadable: the status is all there is */
   }
-  throw new AuthError(messageFor(code, message, res.status), code, res.status);
+  const wait = res.status === 429 ? retryAfterFrom(res.headers) : null;
+  throw new AuthError(messageFor(code, message, res.status, wait), code, res.status);
 }
 
 /** `returnTo` is the same-site path to land on after an emailed link. */

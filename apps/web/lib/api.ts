@@ -32,6 +32,25 @@ import type {
 } from "./types";
 
 
+/**
+ * A response body as JSON, or null for an error body that is not JSON.
+ *
+ * A proxy in front of the API answers a 502 or a 504 with an HTML page.
+ * Parsing that first threw a SyntaxError, which lost the status: a gateway
+ * timeout read as a broken page instead of "the service did not answer". On
+ * an error the status decides and an unreadable body is simply no body; a
+ * success that is not JSON is still a fault and still throws.
+ */
+export function readBody<T>(text: string, ok: boolean): T | null {
+  if (!text) return null;
+  try {
+    return JSON.parse(text) as T;
+  } catch (cause) {
+    if (ok) throw cause;
+    return null;
+  }
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string | undefined;
@@ -71,7 +90,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   if (res.status === 204) return undefined as T;
 
   const text = await res.text();
-  const body = text ? (JSON.parse(text) as T & ApiErrorBody) : null;
+  const body = readBody<T & ApiErrorBody>(text, res.ok);
 
   /**
    * A workspace requirement refuses the read, not the account. The account

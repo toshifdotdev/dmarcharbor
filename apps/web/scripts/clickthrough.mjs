@@ -2456,7 +2456,21 @@ await evalJs(`(() => {
   el.dispatchEvent(new Event('input', { bubbles: true }));
   return 'filled';
 })()`);
-await evalJs(`(() => { const b = document.querySelector('[data-testid="erasure-submit"]'); if (b && !b.disabled) b.click(); return true; })()`);
+// The submit stays disabled until the preview has loaded, and on a busy
+// machine that read can outlast a single click (a run once clicked a disabled
+// button and never sent the request). So: click only while the button is
+// enabled and not already busy, and stop as soon as the request is pending.
+// A busy button swallows clicks, so this never sends two requests.
+for (let i = 0; i < 40; i++) {
+  const state = await evalJs(`(() => {
+    if (document.querySelector('[data-testid="erasure-pending"]')) return 'pending';
+    const b = document.querySelector('[data-testid="erasure-submit"]');
+    if (b && !b.disabled && b.getAttribute('aria-busy') !== 'true') { b.click(); return 'clicked'; }
+    return 'waiting';
+  })()`);
+  if (state === "pending") break;
+  await new Promise((res) => setTimeout(res, state === "clicked" ? 1500 : 700));
+}
 await waitForEval(
   `!!document.querySelector('[data-testid="erasure-pending"]')`,
   (v) => v === true,

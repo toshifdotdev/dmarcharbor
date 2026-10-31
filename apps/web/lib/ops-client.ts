@@ -60,6 +60,18 @@ import type {
   VerifyDomainResult,
 } from "./types";
 import { errorFromResponse, extractErrorCode, genericForStatus, networkUiError } from "./ui-errors";
+import { retryAfterFrom } from "./retry-after";
+
+/**
+ * How long a refusal asked the caller to wait. Only a 429 or a 503 carries a
+ * meaningful Retry-After; reading it anywhere else would tell someone to wait
+ * for a failure that waiting does not fix.
+ */
+function waitHint(res: Response): Pick<ApiErrorBody["error"], "retryAfterSeconds"> {
+  if (res.status !== 429 && res.status !== 503) return {};
+  const seconds = retryAfterFrom(res.headers);
+  return seconds ? { retryAfterSeconds: seconds } : {};
+}
 
 export type OpsResult<T> =
   | { ok: true; data: T }
@@ -95,7 +107,13 @@ async function call<T>(
     return {
       ok: false,
       status: res.status,
-      error: { code: "BAD_RESPONSE", message: genericForStatus(res.status) },
+      error: {
+        // A 429 with no body is still a rate limit: the code says so, so the
+        // refusal reads as "wait", not as a broken response.
+        code: res.status === 429 ? "429" : "BAD_RESPONSE",
+        message: genericForStatus(res.status),
+        ...waitHint(res),
+      },
     };
   }
 
@@ -117,6 +135,7 @@ async function call<T>(
         ...planKeys(raw),
         ...errorPreview(raw),
         ...conflictDetails(raw),
+        ...waitHint(res),
       },
     };
   }

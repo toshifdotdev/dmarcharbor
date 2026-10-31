@@ -138,7 +138,8 @@ comparison.
   scheduled digests, the API, PSA ticketing, managed SPF, hosted BIMI and
   MTA-STS, the Trust Center, compliance packs and monthly client reports, report
   collection from your own mailbox, your logo and colours on everything clients
-  see, the monthly usage export per client, and 50 prospect reports a month.
+  see, the monthly usage export per client, Ask (product questions answered in
+  the app from these pages), and 50 prospect reports a month.
 - **Admiralty:** client pages on your own domain, single sign-on, an unlimited
   team, and 200 prospect reports a month.
 - **Fleet:** everything in Harbor, including your logo and colours, for more
@@ -436,6 +437,13 @@ listed in the API changelog.
 
 **How do I get help?**
 Email `[SUPPORT EMAIL]`. See the Complaint Policy for targets and escalation.
+
+**Can I ask questions inside the app?**
+Yes, on Harbor, Admiralty and Fleet. Ask, in the bottom-right corner of the app,
+takes a question about the product and answers it from this FAQ, the setup guide,
+the API reference, the pricing page and the legal pages, with links to the pages it
+used. It cannot see your workspace's data and never changes anything. When those
+pages do not answer a question, it says it does not know and points you to support.
 
 **Is there a service level agreement?**
 Not unless one is agreed in writing.

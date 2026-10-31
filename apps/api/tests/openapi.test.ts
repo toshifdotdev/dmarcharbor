@@ -121,6 +121,7 @@ describe('OpenAPI contract', () => {
       'INTERNAL',
       'INVALID_REQUEST',
       'NOT_FOUND',
+      'PAYLOAD_TOO_LARGE',
       'PLAN_LIMIT_REACHED',
       'RATE_LIMITED',
       'UNAUTHORIZED',

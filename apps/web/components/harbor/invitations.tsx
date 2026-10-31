@@ -7,32 +7,94 @@
  * with no workspace lands; someone who already has one sees the same list above
  * the portfolio. Before this, no screen accepted an invitation, so one could
  * only ever be used through SSO. Read after paint from the
- * organization plugin; a failed read renders nothing rather than a false "no
- * invitations".
+ * organization plugin.
+ *
+ * The invitation email has no token of its own: it opens /welcome, so that is
+ * where a dead invitation has to be explained (`explainLapsed`). A pending
+ * invitation past its date says it expired, and one the workspace withdrew
+ * says so, each with the next step: ask for a new one. A failed read says it
+ * could not check, with a retry; it is never shown as "no invitations".
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { acceptInvitation, opsCall, rejectInvitation, type InvitationForMe } from "@/lib/ops-client";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 import { switchWorkspace } from "./workspace-menu";
 
-export function InvitationsForYou() {
+/** How far back a lapsed invitation is still worth explaining. */
+const LAPSED_WINDOW_MS = 30 * 86_400_000;
+
+export function InvitationsForYou({ explainLapsed = false }: { explainLapsed?: boolean }) {
   const [list, setList] = useState<InvitationForMe[] | null>(null);
+  const [lapsed, setLapsed] = useState<InvitationForMe[]>([]);
+  const [readFailed, setReadFailed] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const read = useCallback((isLive: () => boolean) => {
+    opsCall<InvitationForMe[]>("/api/auth/organization/list-user-invitations").then((res) => {
+      if (!isLive()) return;
+      if (!res.ok || !Array.isArray(res.data)) {
+        // A 401 is a session that ended; the page's own sign-in redirect
+        // handles that, and "could not check" would be the wrong cause.
+        setReadFailed(res.ok || res.status !== 401);
+        return;
+      }
+      setReadFailed(false);
+      const now = Date.now();
+      const until = (i: InvitationForMe) => (i.expiresAt ? new Date(i.expiresAt).getTime() : Number.POSITIVE_INFINITY);
+      setList(res.data.filter((i) => i.status === "pending" && until(i) > now));
+      setLapsed(
+        res.data.filter(
+          (i) =>
+            ((i.status === "pending" && until(i) <= now) || i.status === "canceled") &&
+            (!i.expiresAt || now - until(i) < LAPSED_WINDOW_MS),
+        ),
+      );
+    });
+  }, []);
+
   useEffect(() => {
     let live = true;
-    opsCall<InvitationForMe[]>("/api/auth/organization/list-user-invitations").then((res) => {
-      if (!live || !res.ok || !Array.isArray(res.data)) return;
-      const now = Date.now();
-      setList(res.data.filter((i) => i.status === "pending" && (!i.expiresAt || new Date(i.expiresAt).getTime() > now)));
-    });
+    read(() => live);
     return () => {
       live = false;
     };
-  }, []);
+  }, [read]);
+
+  if (readFailed) {
+    return (
+      <Notice
+        tone="warn"
+        title="Your invitations could not be checked just now"
+        testId="invitations-unread"
+        action={
+          <Button size="sm" onClick={() => read(() => true)}>
+            Check again
+          </Button>
+        }
+      >
+        If someone invited you to their workspace, nothing has been accepted or declined. Check again in a moment.
+      </Notice>
+    );
+  }
+
+  if (explainLapsed && (!list || list.length === 0) && lapsed.length > 0) {
+    return (
+      <Notice tone="info" title="An invitation sent to you has ended" testId="invitations-lapsed">
+        <ul className="flex flex-col gap-1">
+          {lapsed.map((inv) => (
+            <li key={inv.id}>
+              {inv.organizationName ? <strong className="font-semibold text-fg">{inv.organizationName}</strong> : "A workspace"}
+              {inv.status === "canceled" ? ": the invitation was withdrawn." : ": the invitation has expired."}
+            </li>
+          ))}
+        </ul>
+        <p className="mt-1">Ask whoever invited you to send a new one, or create your own workspace below.</p>
+      </Notice>
+    );
+  }
 
   if (!list || list.length === 0) return null;
 

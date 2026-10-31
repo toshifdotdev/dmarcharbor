@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import { DomainValidationError } from '../scanner/domain.js';
 import { createClientSchema, createDomainSchema, resourceIdSchema } from '../models/client.model.js';
 import { bulkDomainsSchema } from '../models/api.model.js';
-import { bulkImportDomains, bulkLimits } from '../services/bulk-onboarding.service.js';
+import { ClientNotInWorkspaceError, bulkImportDomains, bulkLimits } from '../services/bulk-onboarding.service.js';
 import { EntitlementError } from '../services/entitlements/entitlement.service.js';
 import {
   createClient,
@@ -93,6 +93,13 @@ export async function bulkCreateDomainsController(request: Request, response: Re
   } catch (error) {
     if (error instanceof DomainValidationError) {
       response.status(400).json({ error: { message: error.message } });
+      return;
+    }
+    // A client id from the path that is not in this workspace is a 404, as it is
+    // for a single add. It used to arrive as an entitlement error and leave here
+    // as a 402, which told the operator to upgrade for a mistyped address.
+    if (error instanceof ClientNotInWorkspaceError) {
+      response.status(error.status).json({ error: { code: error.code, message: error.message } });
       return;
     }
     // A request over the per-call cap throws a typed entitlement error, and that

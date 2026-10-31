@@ -63,7 +63,11 @@ export const maxAttempts = 5;
 export const failureThreshold = 20;
 export const suspensionWindowHours = 24;
 
-/** Exponential backoff, capped so a long outage still retries within a day. */
+/**
+ * The wait after each failed attempt. With five attempts only the first four
+ * are used (1, 5, 30 and 120 minutes); the fifth failure gives up, and the day
+ * old requeue in `repairWebhookEndpoints` is what covers a longer outage.
+ */
 export const retryDelaysMinutes = [1, 5, 30, 120, 720];
 
 /**
@@ -127,9 +131,13 @@ export async function repairWebhookEndpoints(now = new Date()): Promise<WebhookR
   };
 
   // 1. Probe endpoints whose suspension window has passed.
+  //
+  // Active ones only. Pausing writes `suspendedAt` too, so without this a paused
+  // endpoint looked like an expired suspension six hours later: it was "probed",
+  // audited as such, and its held deliveries released, which undid the pause.
   const probeBefore = new Date(now.getTime() - suspensionProbeHours * 60 * 60 * 1000);
   const due = await prisma.webhookEndpoint.findMany({
-    where: { suspendedAt: { lte: probeBefore } },
+    where: { active: true, suspendedAt: { lte: probeBefore } },
     select: { id: true, organizationId: true, failureCount: true },
     take: 100,
   });
@@ -148,7 +156,7 @@ export async function repairWebhookEndpoints(now = new Date()): Promise<WebhookR
     }
 
     const reopened = await prisma.webhookEndpoint.updateMany({
-      where: { id: endpoint.id, suspendedAt: { lte: probeBefore } },
+      where: { id: endpoint.id, active: true, suspendedAt: { lte: probeBefore } },
       data: { suspendedAt: null, failureCount: Math.floor(endpoint.failureCount / 2) },
     });
 
@@ -175,14 +183,16 @@ export async function repairWebhookEndpoints(now = new Date()): Promise<WebhookR
     });
   }
 
-  // 2. Requeue deliveries that died inside a customer outage.
+  // 2. Requeue deliveries that died inside a customer outage. Not for a paused
+  // endpoint: the requeue would wait for the resume and then send a day's old
+  // failures at once, which is not what pausing asked for.
   const deadBefore = new Date(now.getTime() - deadDeliveryRequeueHours * 60 * 60 * 1000);
   const requeued = await prisma.webhookDelivery.updateMany({
     where: {
       status: 'FAILED',
       deliveredAt: null,
       createdAt: { lte: deadBefore },
-      endpoint: { suspendedAt: null },
+      endpoint: { active: true, suspendedAt: null },
     },
     data: { status: 'PENDING', attempts: 0, nextAttemptAt: now, claimedAt: null, claimedBy: null },
   });
@@ -289,6 +299,8 @@ export async function updateEndpoint(
       ...(data.name !== undefined ? { name: data.name } : {}),
       ...(data.url !== undefined ? { url: data.url } : {}),
       ...(data.events !== undefined ? { events: data.events } : {}),
+      // Pausing leaves the queue as it is: the worker skips an inactive
+      // endpoint's deliveries, so resuming sends them without another step.
       ...(data.active !== undefined ? { active: data.active, suspendedAt: data.active ? null : new Date() } : {}),
     },
   });
@@ -467,8 +479,24 @@ async function claimDueDeliveries(now: Date): Promise<ClaimableDelivery[]> {
     data: { status: 'PENDING', claimedAt: null, claimedBy: null },
   });
 
+  /**
+   * A paused endpoint's deliveries are held where they are.
+   *
+   * Pausing stopped new events being queued, and nothing else: the worker
+   * claimed every PENDING row whatever its endpoint said, so events queued
+   * before the pause (and every retry of them) were still sent to a receiver
+   * the operator had just asked us to leave alone. They stay PENDING rather than
+   * being moved, so resuming needs no step of its own: the next pass sends them,
+   * with their attempts and their retry times as they were.
+   *
+   * The filter is in the query, not applied after it, so a paused endpoint with
+   * a long queue cannot fill the batch and starve every other endpoint. It is
+   * repeated on the claim, which closes the gap between reading the list and
+   * taking a row when somebody pauses in between. A request already on the wire
+   * when the pause lands still finishes.
+   */
   const candidates = await prisma.webhookDelivery.findMany({
-    where: { status: 'PENDING', nextAttemptAt: { lte: now } },
+    where: { status: 'PENDING', nextAttemptAt: { lte: now }, endpoint: { active: true } },
     select: { id: true },
     orderBy: { createdAt: 'asc' },
     take: deliveryBatchSize,
@@ -478,7 +506,7 @@ async function claimDueDeliveries(now: Date): Promise<ClaimableDelivery[]> {
 
   for (const candidate of candidates) {
     const result = await prisma.webhookDelivery.updateMany({
-      where: { id: candidate.id, status: 'PENDING' },
+      where: { id: candidate.id, status: 'PENDING', endpoint: { active: true } },
       data: { status: 'IN_FLIGHT', claimedAt: now, claimedBy: currentInstanceId() },
     });
 
@@ -659,10 +687,27 @@ export async function listDeliveries(organizationId: string, endpointId?: string
   return deliveries;
 }
 
-export async function replayDelivery(organizationId: string, deliveryId: string): Promise<boolean> {
-  const delivery = await prisma.webhookDelivery.findFirst({ where: { id: deliveryId, organizationId } });
+export type ReplayOutcome = 'queued' | 'not_found' | 'endpoint_paused';
+
+export async function replayDelivery(organizationId: string, deliveryId: string): Promise<ReplayOutcome> {
+  const delivery = await prisma.webhookDelivery.findFirst({
+    where: { id: deliveryId, organizationId },
+    select: { id: true, endpoint: { select: { active: true } } },
+  });
   if (!delivery) {
-    return false;
+    return 'not_found';
+  }
+
+  /**
+   * Send again is refused while the endpoint is paused.
+   *
+   * The worker holds a paused endpoint's deliveries, so queuing this one would
+   * answer "queued" for something that is not going to be sent. Saying so is
+   * the honest answer, and the operator's next step is plain: resume, then send
+   * it again.
+   */
+  if (!delivery.endpoint.active) {
+    return 'endpoint_paused';
   }
 
   await prisma.webhookDelivery.update({
@@ -670,5 +715,5 @@ export async function replayDelivery(organizationId: string, deliveryId: string)
     data: { status: 'PENDING', attempts: 0, nextAttemptAt: new Date(), lastError: null, responseCode: null },
   });
 
-  return true;
+  return 'queued';
 }

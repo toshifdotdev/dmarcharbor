@@ -92,6 +92,35 @@ describe('shared rate limit store', () => {
     expect(rows.map((row) => row.limiter).sort()).toEqual(['api', 'auth']);
   });
 
+  it('answers a spent scan budget with the same JSON body as every other limit', async () => {
+    const { default: express } = await import('express');
+    const { createScanRateLimiter } = await import('../src/middleware/rate-limit.middleware.js');
+
+    /**
+     * Through the real store, with a budget of one, so the second request is the
+     * refusal. The scan limiter had no `message`, so its 429 was the library's
+     * plain-text default while every other limit answered in JSON, and a client
+     * parsing the body as JSON failed on the scan route's 429 alone.
+     */
+    const limited = express();
+    limited.use(createScanRateLimiter(1));
+    limited.post('/scan', (_request, response) => {
+      response.status(202).json({ scanned: true });
+    });
+
+    expect((await request(limited).post('/scan')).status).toBe(202);
+
+    const refused = await request(limited).post('/scan');
+    expect(refused.status).toBe(429);
+    expect(refused.headers['content-type']).toMatch(/application\/json/);
+    expect(refused.headers['retry-after']).toBeDefined();
+    expect(refused.body).toEqual({
+      error: { code: 'RATE_LIMITED', message: 'Too many scans from this network. Wait a minute and try again.' },
+    });
+
+    await resetDatabase();
+  });
+
   it('reports an untouched key as zero rather than throwing', async () => {
     expect(await authStore.currentHits('198.51.100.99')).toBe(0);
   });

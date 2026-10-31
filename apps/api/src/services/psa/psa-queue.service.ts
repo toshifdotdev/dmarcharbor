@@ -28,6 +28,12 @@ import { clientFor } from './psa-connection.service.js';
  */
 
 export const psaMaxAttempts = 5;
+/**
+ * The wait after each failed attempt. With five attempts only the first four
+ * are ever used (1, 5, 30 and 120 minutes): the fifth failure gives up, so the
+ * 720 is never waited. The changelog once listed all five as waits; the code is
+ * the rule, and the changelog now says so.
+ */
 export const psaRetryDelaysMinutes = [1, 5, 30, 120, 720];
 /** A claim is abandoned after the request timeout plus a minute. */
 const claimLeaseMs = 15_000 + 60_000;

@@ -13,6 +13,7 @@
  */
 
 import { API_BASE, apiFetch } from "./api-fetch";
+import { readBody } from "./api";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type {
@@ -113,7 +114,8 @@ async function opsFetch<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (res.status === 204) return undefined as T;
   const text = await res.text();
-  const body = text ? (JSON.parse(text) as T & ApiErrorBody) : null;
+  // An HTML 502 from a proxy is no body, not a SyntaxError (lib/api.ts readBody).
+  const body = readBody<T & ApiErrorBody>(text, res.ok);
   /**
    * A workspace that requires two-step verification refuses every workspace
    * route until this account enrols. Sending the person to the account screen is

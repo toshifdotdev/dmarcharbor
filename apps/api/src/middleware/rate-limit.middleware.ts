@@ -89,6 +89,15 @@ export function clientKey(request: { ip?: string; socket?: { remoteAddress?: str
   return `v6:${groups.slice(0, 4).map((group) => group.padStart(4, '0')).join(':')}::/64`;
 }
 
+/**
+ * The scan budget, shared by every on-demand lookup from one address.
+ *
+ * It had no `message`, so a refusal was the library's default body: plain text,
+ * "Too many requests, please try again later." Every other limiter, and every
+ * other error on this API, answers `{ error: { code, message } }`, so a caller
+ * parsing JSON failed on the one 429 that `POST /api/v1/domains/{domain}/scans`
+ * is most likely to meet. The headers were always right; the body now is too.
+ */
 export function createScanRateLimiter(
   limit = env.SCAN_RATE_LIMIT_PER_MINUTE,
 ): RateLimitRequestHandler {
@@ -98,9 +107,16 @@ export function createScanRateLimiter(
     limit,
     store: rateLimitStoreFor('scan'),
     keyGenerator: clientKey,
+    message: {
+      error: {
+        code: 'RATE_LIMITED',
+        message: 'Too many scans from this network. Wait a minute and try again.',
+      },
+    },
   });
 }
 
+/** Report ingest, which also answered its 429 in plain text until it had a message. */
 export function createReportIngestRateLimiter(
   limit = env.REPORT_INGEST_RATE_LIMIT_PER_MINUTE,
 ): RateLimitRequestHandler {
@@ -110,6 +126,12 @@ export function createReportIngestRateLimiter(
     limit,
     store: rateLimitStoreFor('report-ingest'),
     keyGenerator: clientKey,
+    message: {
+      error: {
+        code: 'RATE_LIMITED',
+        message: 'Too many reports from this address. Wait a minute and try again.',
+      },
+    },
   });
 }
 

@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  byteLimitLabel,
   messageForThrown,
   statusForThrown,
 } from '../src/middleware/global-error.middleware.js';
+import { codeForStatus, errorBody } from '../src/utils/api-error.js';
 
 /**
  * Coverage for the thrown-error mapping, which was found broken rather than
@@ -109,5 +111,62 @@ describe('messageForThrown', () => {
     const message = messageForThrown({ message: 'y'.repeat(500) });
 
     expect(message.length).toBeLessThanOrEqual(300);
+  });
+
+  it('says what the limit is when the body is too large', () => {
+    // The shape raw-body throws: the limit it enforced, in bytes, on the error.
+    const tooLarge = (limit: unknown) =>
+      Object.assign(new Error('request entity too large'), {
+        expose: true,
+        statusCode: 413,
+        status: 413,
+        type: 'entity.too.large',
+        limit,
+        length: 20_000,
+      });
+
+    const message = messageForThrown(tooLarge(10_240));
+    expect(message).toContain('10 KB');
+    expect(message).not.toContain('request entity too large');
+    expect(message.length).toBeLessThanOrEqual(300);
+
+    expect(messageForThrown(tooLarge(256 * 1024))).toContain('256 KB');
+    // No usable limit on the error: still a sentence, never "undefined KB".
+    const unknown = messageForThrown(tooLarge(undefined));
+    expect(unknown).toContain('larger than this endpoint accepts');
+    expect(unknown).not.toContain('undefined');
+  });
+});
+
+describe('byteLimitLabel', () => {
+  it('writes a limit the way a person reads it', () => {
+    expect(byteLimitLabel(10_240)).toBe('10 KB');
+    expect(byteLimitLabel(5 * 1024 * 1024)).toBe('5 MB');
+    expect(byteLimitLabel(1500)).toBe('1500 bytes');
+    expect(byteLimitLabel(0)).toBeNull();
+    expect(byteLimitLabel(-1)).toBeNull();
+    expect(byteLimitLabel(1.5)).toBeNull();
+    expect(byteLimitLabel('10kb')).toBeNull();
+  });
+});
+
+describe('codeForStatus', () => {
+  it('names an oversized body PAYLOAD_TOO_LARGE rather than INTERNAL', () => {
+    /**
+     * A 413 used to fall through the table to INTERNAL, so the envelope said
+     * "the service failed" about a request the caller had made too big. The
+     * code is what integrations branch on, so it has to name the caller's fix.
+     */
+    expect(codeForStatus(413)).toBe('PAYLOAD_TOO_LARGE');
+    expect(errorBody(413, 'x').error.code).toBe('PAYLOAD_TOO_LARGE');
+    // An unreadable charset or encoding is the caller's request too.
+    expect(codeForStatus(415)).toBe('INVALID_REQUEST');
+  });
+
+  it('keeps the other codes, and INTERNAL for anything unnamed', () => {
+    expect(codeForStatus(400)).toBe('INVALID_REQUEST');
+    expect(codeForStatus(404)).toBe('NOT_FOUND');
+    expect(codeForStatus(429)).toBe('RATE_LIMITED');
+    expect(codeForStatus(500)).toBe('INTERNAL');
   });
 });

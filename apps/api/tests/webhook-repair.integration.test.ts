@@ -190,6 +190,34 @@ describe('suspended endpoints recover on a probe', () => {
     const event = await prisma.auditLog.findFirst({ where: { organizationId, action: 'WEBHOOK_ENDPOINT_PROBED' } });
     expect(event).not.toBeNull();
   });
+
+  it('leaves a paused endpoint paused, with its held deliveries held', async () => {
+    const { organizationId } = await setup();
+    const endpoint = await registerEndpoint(organizationId);
+
+    await emitEvent(organizationId, 'domain.verified', { domainId: 'held-by-pause' });
+    await prisma.webhookDelivery.updateMany({ where: { endpointId: endpoint.id }, data: { status: 'SUSPENDED' } });
+    // Pausing writes `suspendedAt` as well as `active: false`, so six hours on a
+    // paused endpoint looked like an expired suspension and was "probed".
+    await prisma.webhookEndpoint.update({
+      where: { id: endpoint.id },
+      data: { active: false, suspendedAt: new Date(Date.now() - (suspensionProbeHours + 1) * 60 * 60 * 1000), failureCount: 21 },
+    });
+
+    const outcome = await repairWebhookEndpoints();
+
+    expect(outcome.endpointsProbed).toBe(0);
+    const row = await prisma.webhookEndpoint.findUniqueOrThrow({ where: { id: endpoint.id } });
+    expect(row.active).toBe(false);
+    expect(row.suspendedAt).not.toBeNull();
+    const delivery = await prisma.webhookDelivery.findFirstOrThrow({ where: { endpointId: endpoint.id } });
+    expect(delivery.status).toBe('SUSPENDED');
+    expect(await prisma.auditLog.count({ where: { organizationId, action: 'WEBHOOK_ENDPOINT_PROBED' } })).toBe(0);
+
+    received = [];
+    await deliverDueWebhooks();
+    expect(received).toHaveLength(0);
+  });
 });
 
 describe('dead deliveries are requeued rather than lost', () => {
@@ -252,6 +280,31 @@ describe('dead deliveries are requeued rather than lost', () => {
     // The failure count is the real backstop. A dead endpoint has to reach the
     // suspension threshold and stop, rather than being retried for ever.
     expect(outcome.deliveriesRequeued).toBe(0);
+  });
+
+  it('does not requeue for an endpoint that is paused', async () => {
+    const { organizationId } = await setup();
+    const endpoint = await registerEndpoint(organizationId);
+
+    await emitEvent(organizationId, 'domain.verified', { domainId: 'd1' });
+    await prisma.webhookDelivery.updateMany({
+      where: { endpointId: endpoint.id },
+      data: { status: 'FAILED', attempts: 5, createdAt: new Date(Date.now() - (deadDeliveryRequeueHours + 1) * 60 * 60 * 1000) },
+    });
+    // Paused, with no suspension marker: the state the old probe left a paused
+    // endpoint in once it had cleared `suspendedAt`. `active` alone has to be
+    // enough to keep the requeue away.
+    await prisma.webhookEndpoint.update({
+      where: { id: endpoint.id },
+      data: { active: false, suspendedAt: null },
+    });
+
+    const outcome = await repairWebhookEndpoints();
+
+    // Requeuing would wait for the resume and then send a day's old failures at once.
+    expect(outcome.deliveriesRequeued).toBe(0);
+    const delivery = await prisma.webhookDelivery.findFirstOrThrow({ where: { endpointId: endpoint.id } });
+    expect(delivery.status).toBe('FAILED');
   });
 
   it('does not requeue a delivery that actually succeeded', async () => {

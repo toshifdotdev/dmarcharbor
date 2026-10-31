@@ -78,7 +78,12 @@ export const apiErrors = {
     'The resource is not in this key workspace. A resource in another workspace answers the same way, so the response cannot be used to discover what exists elsewhere.',
   ),
   409: errorResponse('The request conflicts with the current state of the resource.'),
-  429: errorResponse('Rate limit exceeded, either for this key or for this client address.'),
+  413: errorResponse(
+    'PAYLOAD_TOO_LARGE: the request body is over the 10 KB limit. The message states the limit. Split the request.',
+  ),
+  429: errorResponse(
+    'RATE_LIMITED: a rate limit is spent, for this key, this client address, or the scan budget. Every limit answers with this JSON body and a Retry-After header.',
+  ),
 };
 
 /**

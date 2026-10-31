@@ -9,6 +9,7 @@
  */
 
 import { API_BASE, apiFetch } from "./api-fetch";
+import { retryAfterFrom } from "./retry-after";
 import type { TrustCenterPayload, CompliancePackRecord, PublicProspectReport } from "./types";
 
 
@@ -19,10 +20,23 @@ async function publicFetch<T>(path: string): Promise<T> {
     headers: { accept: "application/json" },
   });
   const text = await res.text();
-  const body = text ? JSON.parse(text) : null;
+  let body: unknown = null;
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch (error) {
+    // A failure answered in HTML (a proxy's 502 page, a gateway's 429) still
+    // has a status, and the status is what the page decides on. Only a
+    // success that cannot be read is a broken response.
+    if (res.ok) throw error;
+  }
   if (!res.ok) {
     const err = body as { error?: { code?: string; message?: string } } | null;
-    throw new PublicError(res.status, err?.error?.code, err?.error?.message);
+    throw new PublicError(
+      res.status,
+      err?.error?.code,
+      err?.error?.message,
+      res.status === 429 ? retryAfterFrom(res.headers) : null,
+    );
   }
   return body as T;
 }
@@ -30,12 +44,20 @@ async function publicFetch<T>(path: string): Promise<T> {
 export class PublicError extends Error {
   readonly status: number;
   readonly code: string | undefined;
+  /** Seconds a 429 asked to wait, from Retry-After; null when it did not say. */
+  readonly retryAfterSeconds: number | null;
 
-  constructor(status: number, code: string | undefined, message: string | undefined) {
+  constructor(
+    status: number,
+    code: string | undefined,
+    message: string | undefined,
+    retryAfterSeconds: number | null = null,
+  ) {
     super(message ?? `Public request failed (${status})`);
     this.name = "PublicError";
     this.status = status;
     this.code = code;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 

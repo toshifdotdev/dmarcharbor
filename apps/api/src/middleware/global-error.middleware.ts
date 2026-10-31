@@ -76,9 +76,38 @@ export function statusForThrown(error: unknown): number {
  * "invalid request" sends them looking for a bug in our code.
  */
 export function messageForThrown(error: unknown): string {
-  const candidate = error as { message?: unknown } | null;
+  const candidate = error as { message?: unknown; type?: unknown; limit?: unknown } | null;
+
+  /**
+   * An oversized body says what the limit is.
+   *
+   * The library's own sentence, "request entity too large", names neither the
+   * limit nor the fix. `raw-body` puts the limit it enforced on the error in
+   * bytes, and the limit differs by route (10 KB on most, more on the two bulk
+   * imports), so the answer is built from the error rather than hard-coded.
+   */
+  if (candidate?.type === 'entity.too.large') {
+    const limit = byteLimitLabel(candidate.limit);
+    return limit
+      ? `The request body is larger than the ${limit} this endpoint accepts. Send less in each request, for example by splitting an import into batches.`
+      : 'The request body is larger than this endpoint accepts. Send less in each request, for example by splitting an import into batches.';
+  }
+
   const message = typeof candidate?.message === 'string' ? candidate.message.trim() : '';
   return message.length > 0 && message.length <= 300 ? message : 'The request could not be parsed.';
+}
+
+/**
+ * A byte count as a person writes it: 10240 is "10 KB", 5242880 is "5 MB".
+ * Null for anything that is not a positive whole number of bytes, so a missing
+ * limit leaves the sentence without one rather than printing "NaN KB".
+ */
+export function byteLimitLabel(bytes: unknown): string | null {
+  if (typeof bytes !== 'number' || !Number.isInteger(bytes) || bytes <= 0) return null;
+  const mb = 1024 * 1024;
+  if (bytes >= mb && bytes % mb === 0) return `${bytes / mb} MB`;
+  if (bytes >= 1024 && bytes % 1024 === 0) return `${bytes / 1024} KB`;
+  return `${bytes} bytes`;
 }
 
 export function globalErrorHandler(

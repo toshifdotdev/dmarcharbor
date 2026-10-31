@@ -15,9 +15,48 @@ export interface BulkFailure {
 }
 
 export interface BulkClientResult {
-  created: { index: number; clientId: string; name: string; slug: string; domains: { domainId: string; name: string; verificationHost: string; verificationValue: string }[] }[];
+  created: {
+    index: number;
+    clientId: string;
+    name: string;
+    slug: string;
+    domains: { domainId: string; name: string; verificationHost: string; verificationValue: string }[];
+    /**
+     * Domains on this row that were not added because another workspace already
+     * monitors them. `index` is the domain's position in the row's own `domains`
+     * list. Always present, empty when there were none, so a caller can read it
+     * without checking for it first.
+     */
+    domainConflicts: BulkFailure[];
+  }[];
   failed: BulkFailure[];
   planBlocked: { index: number; name: string; reason: string }[];
+}
+
+/**
+ * The words for a domain another workspace holds, shared by both imports so the
+ * client import and the domain import say the same thing about the same name.
+ * It never says which workspace: that would tell one tenant who another serves.
+ */
+export const domainHeldElsewhereReason =
+  'That domain is already monitored by another workspace. Remove it there first, or ask them to release it.';
+
+/**
+ * Raised when a domain import names a client that is not in the workspace.
+ *
+ * It used to be an `EntitlementError('FEATURE_NOT_IN_PLAN')`, so a mistyped
+ * client id answered 402 and read as "upgrade your plan". It is a 404, and it
+ * answers exactly as a client that does not exist anywhere, so the id cannot be
+ * used to find out what another workspace holds.
+ */
+export class ClientNotInWorkspaceError extends Error {
+  readonly status = 404;
+  readonly code = 'NOT_FOUND';
+
+  constructor() {
+    super('That client is not in this workspace.');
+    this.name = 'ClientNotInWorkspaceError';
+  }
 }
 
 function slugify(value: string): string {
@@ -88,6 +127,34 @@ export async function bulkImportClients(input: {
       ).map((domain) => domain.name),
     );
 
+    /**
+     * Every name in the import that any workspace already holds, in one query.
+     *
+     * `Domain.name` is unique across the whole table, so a row naming a domain
+     * another workspace monitors used to reach `client.create`, hit the unique
+     * constraint, and roll back the whole transaction: a 500, and not one client
+     * of the import created. The domain import already checked this per row;
+     * this is the same check, made before anything is written. A name this
+     * workspace holds is in `usedDomains` too and is judged there first.
+     */
+    const requestedNames = [
+      ...new Set(
+        input.clients.flatMap((entry) =>
+          (entry.domains ?? []).map(normaliseDomain).filter((name): name is string => name !== null),
+        ),
+      ),
+    ];
+    const claimedAnywhere = new Set(
+      requestedNames.length > 0
+        ? (
+            await tx.domain.findMany({
+              where: { name: { in: requestedNames } },
+              select: { name: true },
+            })
+          ).map((domain) => domain.name)
+        : [],
+    );
+
     for (const [index, entry] of input.clients.entries()) {
       const name = (entry.name ?? '').trim();
       if (!name) {
@@ -122,12 +189,34 @@ export async function bulkImportClients(input: {
         continue;
       }
 
-      const wanted = rawDomains as string[];
-      const duplicates = wanted.filter((value) => usedDomains.has(value));
+      // Once each: a name listed twice on one row is one domain, and creating it
+      // twice would hit the unique constraint and fail the whole import.
+      const listed = [...new Set(rawDomains as string[])];
+      const duplicates = listed.filter((value) => usedDomains.has(value));
       if (duplicates.length > 0) {
         result.failed.push({ index, name, reason: `Already monitoring ${duplicates.join(', ')}.` });
         continue;
       }
+
+      /**
+       * A domain another workspace holds is reported for that domain only.
+       *
+       * The row itself is fine: the client is new, and its other domains are
+       * free. Failing the row would make the caller strip the name and send it
+       * again, and failing the request (what the unique constraint did) lost
+       * every other row as well. A name already in this workspace still fails
+       * the row above, because that usually means the client is being imported
+       * a second time.
+       */
+      const domainConflicts: BulkFailure[] = [];
+      for (const domain of listed.filter((value) => claimedAnywhere.has(value))) {
+        domainConflicts.push({
+          index: rawDomains.indexOf(domain),
+          name: domain,
+          reason: domainHeldElsewhereReason,
+        });
+      }
+      const wanted = listed.filter((value) => !claimedAnywhere.has(value));
 
       if (wanted.length > domainSlots) {
         result.planBlocked.push({
@@ -172,6 +261,7 @@ export async function bulkImportClients(input: {
           verificationHost: `_dmarc-harbor-verification.${domain.name}`,
           verificationValue: `dmarc-harbor-verification=${domain.verificationToken}`,
         })),
+        domainConflicts,
       });
     }
   });
@@ -188,6 +278,7 @@ export async function bulkImportClients(input: {
       failed: result.failed.length,
       planBlocked: result.planBlocked.length,
       domains: result.created.reduce((total, entry) => total + entry.domains.length, 0),
+      domainConflicts: result.created.reduce((total, entry) => total + entry.domainConflicts.length, 0),
     },
   });
 
@@ -232,7 +323,7 @@ export async function bulkImportDomains(input: {
   });
 
   if (!client) {
-    throw new EntitlementError('FEATURE_NOT_IN_PLAN', 'That client is not in this workspace.', {});
+    throw new ClientNotInWorkspaceError();
   }
 
   // Counted and inserted under the workspace lock; see bulkImportClients.
@@ -296,11 +387,7 @@ export async function bulkImportDomains(input: {
 
       const owner = claimed.get(name);
       if (owner !== undefined && owner !== client.id) {
-        result.failed.push({
-          index,
-          name,
-          reason: 'That domain is already monitored by another workspace. Remove it there first, or ask them to release it.',
-        });
+        result.failed.push({ index, name, reason: domainHeldElsewhereReason });
         continue;
       }
 

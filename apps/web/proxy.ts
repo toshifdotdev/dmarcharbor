@@ -225,23 +225,60 @@ export async function proxy(request: NextRequest) {
   // See lib/seo.ts.
   requestHeaders.set("x-harbor-path", request.nextUrl.pathname);
 
+  // The brand headers are this proxy's to set, never the client's: a request
+  // that arrived carrying them on our own host would otherwise render any
+  // agency name it liked, error pages included (lib/host-brand.ts trusts them).
+  requestHeaders.delete("x-harbor-host-state");
+  requestHeaders.delete("x-harbor-brand");
+
   const rawHost = request.headers.get("host") ?? "";
   const host = rawHost.split(":")[0];
 
-  let response: NextResponse;
-  if (!host || DEFAULT_HOSTS.has(host)) {
-    response = NextResponse.next({ request: { headers: requestHeaders } });
-  } else {
+  if (host && !DEFAULT_HOSTS.has(host)) {
     const entry = await resolveHost(host);
     requestHeaders.set("x-harbor-host-state", entry.state);
     if (entry.brand) {
       requestHeaders.set("x-harbor-brand", JSON.stringify(entry.brand));
     }
-    response = NextResponse.next({ request: { headers: requestHeaders } });
   }
+
+  const exportPage = exportDownloadPage(request);
+  // The address the person opened, for the export page to read. A rewritten
+  // route handler does not reliably see the rewrite's own query string, so the
+  // original path and its token travel in a header this proxy alone sets.
+  requestHeaders.delete("x-harbor-export-path");
+  if (exportPage) requestHeaders.set("x-harbor-export-path", `${request.nextUrl.pathname}${request.nextUrl.search}`);
+  const response = exportPage
+    ? NextResponse.rewrite(exportPage, { request: { headers: requestHeaders } })
+    : NextResponse.next({ request: { headers: requestHeaders } });
 
   response.headers.set("Content-Security-Policy", csp);
   return response;
+}
+
+/**
+ * A data export's emailed link, opened in a browser, goes to the page that
+ * can say "expired" in words (app/exports/download/route.ts) instead of the
+ * /api rewrite, which would show the API's JSON. Only a GET whose Accept asks
+ * for HTML, which is what a click on a link sends: an API client asking for
+ * the file as JSON or CSV still reaches the API directly. The ids are checked
+ * here and again in the route.
+ */
+const EXPORT_DOWNLOAD = /^\/api\/workspaces\/([A-Za-z0-9_-]{1,64})\/exports\/([A-Za-z0-9_-]{1,64})\/download$/;
+
+function exportDownloadPage(request: NextRequest): URL | null {
+  if (request.method !== "GET") return null;
+  const match = EXPORT_DOWNLOAD.exec(request.nextUrl.pathname);
+  if (!match) return null;
+  if (!(request.headers.get("accept") ?? "").includes("text/html")) return null;
+  const target = request.nextUrl.clone();
+  target.pathname = "/exports/download";
+  target.search = "";
+  target.searchParams.set("org", match[1]);
+  target.searchParams.set("id", match[2]);
+  const token = request.nextUrl.searchParams.get("token");
+  if (token) target.searchParams.set("token", token);
+  return target;
 }
 
 // Everything except static assets is a candidate for branded chrome — the

@@ -1,4 +1,6 @@
 import { API_BASE, apiFetch } from "./api-fetch";
+import { PublicError } from "./api-public";
+import { retryAfterFrom } from "./retry-after";
 import { cookies } from "next/headers";
 import type {
   ApiErrorBody,
@@ -153,6 +155,9 @@ export async function getPublicShareReport(
   // proxy. Both mean the link no longer serves a report. Anything else throws,
   // so the page can say "not just now" instead of "never again".
   if (res.status === 404 || res.status === 410) return null;
+  // A rate limit is a wait, and the page says how long when the limiter did:
+  // the public error type carries Retry-After, which OpsError does not.
+  if (res.status === 429) throw new PublicError(429, "RATE_LIMITED", undefined, retryAfterFrom(res.headers));
   const text = await res.text();
   if (!res.ok) {
     let body: ApiErrorBody | null;

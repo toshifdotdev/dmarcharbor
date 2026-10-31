@@ -70,12 +70,29 @@ async function createWorkspaceAction(_prev: WorkspaceFormState, formData: FormDa
   redirect("/");
 }
 
-export default async function WelcomePage() {
+/**
+ * Better Auth sends a verification link that failed back to its callback
+ * (this page) as ?error=CODE, and that click carries no session. Without this
+ * the code was dropped on the way to sign-in and the person saw a bare form.
+ */
+const VERIFY_ERRORS: Record<string, string> = {
+  TOKEN_EXPIRED: "verify_expired",
+  INVALID_TOKEN: "verify_invalid",
+  USER_NOT_FOUND: "verify_invalid",
+  INVALID_USER: "verify_invalid",
+};
+
+export default async function WelcomePage({ searchParams }: { searchParams: Promise<{ error?: string | string[] }> }) {
+  const { error: rawError } = await searchParams;
+  const verifyError = VERIFY_ERRORS[(Array.isArray(rawError) ? rawError.at(-1) : rawError) ?? ""] ?? null;
   let workspaces: WorkspaceSummary[];
   try {
     workspaces = await listWorkspaces();
   } catch (error) {
-    if (error instanceof ApiError && (error.status === 401 || error.status === 403)) await signInRedirect();
+    if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+      if (verifyError) redirect(`/sign-in?error=${verifyError}`);
+      await signInRedirect();
+    }
     throw error;
   }
   const hasOne = workspaces.length > 0;
@@ -99,7 +116,7 @@ export default async function WelcomePage() {
       <AuthFrame width="route">
         <SetupLayout current="workspace">
           <div className="flex flex-col gap-8">
-            <InvitationsForYou />
+            <InvitationsForYou explainLapsed />
             <div>
               <p className="flex items-center gap-2 text-meta font-semibold text-ok">
                 <span aria-hidden className="block size-2 bg-ok" />
@@ -112,6 +129,17 @@ export default async function WelcomePage() {
               </p>
             </div>
             {form}
+            {/* A client's contact who signs in here (a portal grant, no
+                membership) has no workspace and lands on this page from any
+                agency screen. They need the portal, not a workspace. */}
+            <p className="text-ui text-fg-3">
+              Here to read a report that the company managing your email security shares with you? You do not need a
+              workspace:{" "}
+              <Link href="/portal" className="link font-semibold">
+                open your client reports
+              </Link>
+              .
+            </p>
           </div>
         </SetupLayout>
       </AuthFrame>
@@ -130,7 +158,7 @@ export default async function WelcomePage() {
     >
       <div className="grid gap-12 md:grid-cols-[minmax(0,1fr)_280px] md:gap-16">
         <div className="flex min-w-0 flex-col gap-8">
-          <InvitationsForYou />
+          <InvitationsForYou explainLapsed />
           <div>
             <h1 className={HEADING}>Add another workspace</h1>
             <p className="mt-3 text-lead text-fg-2">

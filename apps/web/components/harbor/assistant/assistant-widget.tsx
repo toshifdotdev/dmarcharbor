@@ -58,6 +58,7 @@ import { Input } from "@/components/ui/field";
 import { Close, External } from "@/components/ui/icons";
 import { Notice } from "@/components/ui/notice";
 import { TideMark } from "@/components/ui/tide";
+import { retryAfterText } from "@/lib/retry-after";
 import { ActionRefusal, isPlanRefusal, type ActionError } from "../plan-refusal";
 
 /** The address support answers at, until the API has said its own. */
@@ -270,7 +271,16 @@ function Conversation({ organizationId, intro, open }: { organizationId: string;
         setExchanges((list) => list.filter((e) => e.id !== id));
         setDraft(question);
         if (isPlanRefusal(r.error)) setPlanError(r.error);
-        else setProblem({ tone: r.status === 429 || r.status === 400 ? "warn" : "fail", text: r.error.message ?? "The question could not be sent." });
+        else if (r.status === 429) {
+          // A wait, not a failure. The API's sentence names the limit (per
+          // minute, or the workspace's day); the figure is added when the wait
+          // is longer than a minute, so the daily limit says how long.
+          const wait = r.error.retryAfterSeconds ?? null;
+          const text = [r.error.message ?? "That is a lot of questions at once.", wait && wait > 90 ? retryAfterText(wait) : null]
+            .filter(Boolean)
+            .join(" ");
+          setProblem({ tone: "warn", text });
+        } else setProblem({ tone: r.status === 400 ? "warn" : "fail", text: r.error.message ?? "The question could not be sent." });
       }
       requestAnimationFrame(() => input.current?.focus());
     },

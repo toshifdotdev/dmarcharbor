@@ -2621,6 +2621,12 @@ export interface ApiErrorBody {
     to?: string;
     /** A 409 DNS_CHANGED carries the new preview so the dialog can ask again. */
     preview?: DnsPublishPreview;
+    /**
+     * Set by the browser call layer (lib/ops-client.ts), never by the API body:
+     * the seconds a 429 or 503 asked the caller to wait, read from its
+     * Retry-After header, so the refusal can say how long.
+     */
+    retryAfterSeconds?: number;
     /** A 409 from hosted DMARC: the blockers, or the current view on a version conflict. */
     blockers?: string[];
     view?: HostedDmarcView | ManagedSpfView;

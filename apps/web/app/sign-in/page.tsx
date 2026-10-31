@@ -18,6 +18,13 @@ const URL_ERRORS: Record<string, string> = {
   INVALID_TOKEN: "That reset link is not valid any more: it was used already or it is over an hour old. Ask for a new one.",
   unable_to_create_session:
     "This account uses two-step verification. Sign in with your email, password and authenticator code.",
+  // From /welcome, where Better Auth returns a verification link that failed.
+  // Signing in with an unverified address sends a fresh link, so that is the
+  // next step either way.
+  verify_expired:
+    "That verification link has expired. Sign in with your email and password, and if the address still needs verifying we will send a fresh link.",
+  verify_invalid:
+    "That verification link did not work: it may have been used already or copied incompletely. Sign in, and if the address still needs verifying we will send a fresh link.",
 };
 
 export default async function SignInPage({

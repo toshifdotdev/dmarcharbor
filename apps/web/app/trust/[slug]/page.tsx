@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getTrustCenter, PublicError } from "@/lib/api-public";
 import { readHostBrand } from "@/lib/host-brand";
+import { retryAfterText } from "@/lib/retry-after";
 import { ArtefactFrame } from "@/components/harbor/artefact-frame";
 import { DocumentUnavailable } from "@/components/harbor/artefact-states";
 import { brandName } from "@/components/harbor/public-frame";
@@ -32,23 +33,34 @@ export default async function TrustCenterPage({ params }: { params: Promise<{ sl
 
   let payload: Awaited<ReturnType<typeof getTrustCenter>> | null = null;
   let gone = false;
+  let limited: PublicError | null = null;
   try {
     payload = await getTrustCenter(slug);
   } catch (error) {
     gone = error instanceof PublicError && (error.status === 404 || error.status === 410);
+    if (error instanceof PublicError && error.status === 429) limited = error;
   }
 
   if (!payload) {
     return (
       <ArtefactFrame kind="Trust Center">
         <DocumentUnavailable
+          testId={gone ? "trust-unavailable" : "trust-failed"}
           closed={gone}
-          title={gone ? "No Trust Center at this address." : "The Trust Center is temporarily unavailable."}
+          title={
+            gone
+              ? "No Trust Center at this address."
+              : limited
+                ? "Too many requests for this Trust Center just now."
+                : "The Trust Center is temporarily unavailable."
+          }
         >
           <p>
             {gone
               ? "The link may have been withdrawn by the organization that published it. Ask them for a current link."
-              : "This is a failure to reach it, not a missing page. Please try again in a moment; if it persists, contact the organization that sent you here."}
+              : limited
+                ? `This is a pause, not a missing page. ${retryAfterText(limited.retryAfterSeconds, "reload the page")}`
+                : "This is a failure to reach it, not a missing page. Please try again in a moment; if it persists, contact the organization that sent you here."}
           </p>
         </DocumentUnavailable>
       </ArtefactFrame>

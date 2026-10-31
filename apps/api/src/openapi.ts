@@ -77,9 +77,14 @@ export const openApiDocument = {
       post: {
         tags: ['API'],
         summary: 'Create a client',
-        description: 'Returns the domain verification records, ready to publish in the client own DNS.',
+        description: [
+          'Returns the domain verification records, ready to publish in the client own DNS.',
+          'A domain another workspace already monitors does not stop the client being created: it is left out and listed in domainConflicts, with its position in the request and the reason, and the other domains are added. The answer never says which workspace holds it.',
+        ].join(' '),
         security: [{ apiKeyAuth: [] }],
-        responses: { 201: { description: 'Created, with verification details.' } },
+        responses: {
+          201: { description: 'Created, with verification details and domainConflicts (empty when every domain was added).' },
+        },
       },
     },
     '/v1/clients/bulk': {
@@ -90,6 +95,7 @@ export const openApiDocument = {
           'The bulk counterpart to repeated single creates. Agencies usually have a client list before they have a domain list, so this accepts both together or clients alone.',
           'Every row is independent. A bad row is reported in failures and skipped rather than failing the batch, because a spreadsheet imported from a client CRM should not lose 180 valid rows to one typo.',
           'Rows beyond the plan limit are reported in planLimitRejections with the reason, and the rest still import.',
+          'A domain another workspace already monitors is reported on its own row, in that client entry domainConflicts; the client and its other domains are still created.',
           'Send an Idempotency-Key header. A retried request replays the original response instead of creating duplicates, which matters because automation retries on timeout.',
         ].join(' '),
         security: [{ apiKeyAuth: [] }],
@@ -114,9 +120,15 @@ export const openApiDocument = {
       post: {
         tags: ['API'],
         summary: 'Add one domain to a client',
-        description: 'Returns the TXT record to publish so the domain can be verified without a second call.',
+        description: [
+          'Returns the TXT record to publish so the domain can be verified without a second call.',
+          'A clientId that is not in this workspace answers 404 NOT_FOUND.',
+        ].join(' '),
         security: [{ apiKeyAuth: [] }],
-        responses: { 201: { description: 'Added, with the verification record to publish.' } },
+        responses: {
+          201: { description: 'Added, with the verification record to publish.' },
+          404: errorResponse('NOT_FOUND: the clientId is not in this workspace.'),
+        },
       },
     },
     '/v1/domains/bulk': {
@@ -126,9 +138,13 @@ export const openApiDocument = {
         description: [
           'Deliberately separate from the client import, because agencies receive the domain list at a different time from the client list.',
           'Same guarantees as the client import: per row outcomes, plan limits reported rather than silently truncating, and Idempotency-Key support.',
+          'A clientId that is not in this workspace answers 404 NOT_FOUND.',
         ].join(' '),
         security: [{ apiKeyAuth: [] }],
-        responses: { 201: { description: 'Per item results.' } },
+        responses: {
+          201: { description: 'Per item results.' },
+          404: errorResponse('NOT_FOUND: the clientId is not in this workspace.'),
+        },
       },
     },
     '/v1/domains/{domainId}/verify': {
@@ -173,6 +189,7 @@ export const openApiDocument = {
         summary: 'One domain, with its last scan and DNS records',
         description: [
           'The same fields the domains list returns, plus the four a caller needs to reason about health without a second request: when it was last scanned, its SPF record, its MX hosts and its DKIM selectors.',
+          'mxRecords is the mail server host names the latest completed scan found, lowest MX preference first, and an empty array when there are none.',
           'The path segment accepts the domain id or its slug.',
         ].join(' '),
         security: [{ apiKeyAuth: [] }],
@@ -213,7 +230,7 @@ export const openApiDocument = {
         tags: ['API'],
         summary: 'Run a scan now',
         description: [
-          'Runs the same scan the browser button runs and answers 202 with the scan id and status.',
+          'Runs the same scan the browser button runs and answers 202 with the scan id and status. changeCount is the number of DNS changes this scan recorded, the same number the scan list shows.',
           'A domain that is not verified answers 409: the scan reads DNS and would report a domain the caller has not proved they own.',
           'Rate limited per client address as well as per key, so one workspace cannot use this as a DNS amplifier.',
           'Send Idempotency-Key so a retry after a timeout returns the same scan instead of running a second one.',
@@ -418,7 +435,7 @@ export const openApiDocument = {
         tags: ['API'],
         summary: 'DNS changes detected in this workspace',
         description: [
-          'Newest first, paged with nextCursor. Workspace-wide, with ?domain= to narrow it.',
+          'Newest first, paged with nextCursor. Workspace-wide, with ?domain= to narrow it. Each row names its domain (id, name and slug), as an alert row does.',
           '?severity= accepts INFO, WARNING, CRITICAL, or a comma separated list. ?acknowledged=true or false filters on whether a person has seen it.',
         ].join(' '),
         security: [{ apiKeyAuth: [] }],
@@ -605,6 +622,7 @@ export const openApiDocument = {
         summary: 'Update an endpoint',
         description: [
           'Change the url, subscribed events, or pause and resume delivery.',
+          'Pausing (active:false) stops new events being queued and holds the deliveries already queued, so nothing is sent while it is paused; resuming sends them on the next pass, with their attempts as they were.',
           'Setting only active:false is always allowed, so a downgraded workspace can stop delivery. Any other change needs the Fairway webhook entitlement and answers 402 without it.',
         ].join(' '),
         parameters: [orgParam, idParam('webhookId', 'Endpoint identifier.')],
@@ -652,12 +670,16 @@ export const openApiDocument = {
       post: {
         tags: ['Webhooks'],
         summary: 'Replay a delivery',
-        description: 'Requeues a failed delivery with the same payload and a fresh signature. Useful after the receiver has been fixed. Included from Fairway.',
+        description: [
+          'Requeues a failed delivery with the same payload and a fresh signature. Useful after the receiver has been fixed. Included from Fairway.',
+          'Refused with 409 CONFLICT while the delivery endpoint is paused, because nothing is sent to a paused endpoint. Resume it, then send again.',
+        ].join(' '),
         parameters: [orgParam, idParam('deliveryId', 'Delivery identifier.')],
         responses: {
           202: { description: 'Requeued.' },
           402: { description: 'Webhooks are not included in this workspace plan.' },
           ...standardErrors,
+          409: errorResponse('CONFLICT: the endpoint is paused. Resume it first.'),
         },
       },
     },
@@ -2514,6 +2536,7 @@ export const openApiDocument = {
           'Exists because the public endpoint authenticates with a bearer API key, which a browser signed in with a cookie cannot present. Onboarding an agency that sent eighty domains otherwise meant calling the API by hand.',
           'Duplicates are reported per row rather than failing the request: a name already in the workspace is something the operator can remove from the list, and a 400 for the whole batch would throw away every row that was fine.',
           'A request over the per-call cap is refused with 402 and the limit in the error details, rather than being silently truncated.',
+          'A client id that is not in this workspace answers 404 NOT_FOUND.',
         ].join(' '),
         parameters: [orgParam, idParam('clientId', 'Client identifier.')],
         requestBody: {
@@ -4294,6 +4317,7 @@ export const openApiDocument = {
                   'FORBIDDEN',
                   'NOT_FOUND',
                   'CONFLICT',
+                  'PAYLOAD_TOO_LARGE',
                   'RATE_LIMITED',
                   'INTERNAL',
                   // Documented because they are part of the v1 contract, not
@@ -4380,7 +4404,12 @@ export const openApiDocument = {
           collectForensicReports: { type: 'boolean' },
           lastScanAt: { type: ['string', 'null'], format: 'date-time' },
           spfRecord: { type: ['string', 'null'] },
-          mxRecords: { type: 'array', items: { type: 'string' } },
+          mxRecords: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Mail server host names from the latest completed scan, lowest MX preference (tried first) first, lowercased and without a trailing dot. Empty when the scan found no MX record, a null MX, or could not read them, and before the first completed scan.',
+          },
           dkimSelectors: { type: 'array', items: { type: 'string' } },
           client: {
             type: 'object',
@@ -4470,7 +4499,7 @@ export const openApiDocument = {
       },
       ApiV1DnsChange: {
         type: 'object',
-        required: ['id', 'kind', 'severity', 'detectedAt'],
+        required: ['id', 'kind', 'severity', 'detectedAt', 'domain'],
         properties: {
           id: { type: 'string' },
           kind: { type: 'string' },
@@ -4479,6 +4508,12 @@ export const openApiDocument = {
           summary: { type: 'string' },
           detectedAt: { type: 'string', format: 'date-time' },
           scanId: { type: 'string' },
+          domain: {
+            type: 'object',
+            description: 'The domain the change belongs to, in the same shape as an alert row. Added 2026-12-03.',
+            required: ['id', 'name', 'slug'],
+            properties: { id: { type: 'string' }, name: { type: 'string' }, slug: { type: 'string' } },
+          },
           acknowledgedAt: { type: ['string', 'null'], format: 'date-time' },
           acknowledgedBy: {
             type: ['string', 'null'],

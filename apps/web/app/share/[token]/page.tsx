@@ -1,4 +1,6 @@
 import { getPublicShareReport } from "@/lib/api-phase7";
+import { PublicError } from "@/lib/api-public";
+import { retryAfterText } from "@/lib/retry-after";
 import { ArtefactFrame } from "@/components/harbor/artefact-frame";
 import { DocumentUnavailable } from "@/components/harbor/artefact-states";
 import { ShareDocument } from "@/components/harbor/share-document";
@@ -18,18 +20,23 @@ import { ShareDocument } from "@/components/harbor/share-document";
  */
 export default async function SharePage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  const { report, failed } = await getPublicShareReport(token).then(
-    (found) => ({ report: found, failed: false }),
-    () => ({ report: null, failed: true }),
+  const { report, failure } = await getPublicShareReport(token).then(
+    (found) => ({ report: found, failure: null }),
+    (error: unknown) => ({ report: null, failure: error }),
   );
 
-  if (failed) {
+  if (failure) {
+    const limited = failure instanceof PublicError && failure.status === 429;
     return (
       <ArtefactFrame kind="Shared report">
-        <DocumentUnavailable testId="share-failed" title="This report could not be loaded just now.">
+        <DocumentUnavailable
+          testId="share-failed"
+          title={limited ? "Too many requests for this report just now." : "This report could not be loaded just now."}
+        >
           <p>
-            Nothing is wrong with the link. The service did not answer in time; reload the page in a minute or two. If
-            it keeps happening, tell whoever sent you the link.
+            {limited
+              ? `Nothing is wrong with the link. ${retryAfterText(failure.retryAfterSeconds, "reload the page")} If it keeps happening, tell whoever sent you the link.`
+              : "Nothing is wrong with the link. The service did not answer; reload the page in a minute or two. If it keeps happening, tell whoever sent you the link."}
           </p>
         </DocumentUnavailable>
       </ArtefactFrame>

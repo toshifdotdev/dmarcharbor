@@ -471,6 +471,78 @@ describe('webhook endpoints', () => {
     expect(resumed.body.active).toBe(true);
   });
 
+  it('holds what was queued for a paused endpoint, and sends it once the endpoint is resumed', async () => {
+    const { agent, organizationId } = await setup();
+    const endpoint = await registerEndpoint(agent, organizationId, ['domain.verified']);
+
+    received = [];
+    nextStatus = 200;
+    expect(await emitEvent(organizationId, 'domain.verified', { domainId: 'queued-before-pause' })).toBe(1);
+
+    const paused = await agent.patch(`/api/workspaces/${organizationId}/webhooks/${endpoint.id}`).send({ active: false });
+    expect(paused.status).toBe(200);
+
+    /**
+     * The defect: pausing stopped new events being queued and nothing else. The
+     * worker claimed every pending row whatever its endpoint said, so this one
+     * was still sent to a receiver the operator had just paused.
+     */
+    await deliverDueWebhooks();
+    expect(received.some((entry) => entry.body.includes('queued-before-pause'))).toBe(false);
+
+    const held = await prisma.webhookDelivery.findFirstOrThrow({ where: { endpointId: endpoint.id } });
+    // Held where it was, not deleted, not marked failed, and no attempt spent.
+    expect(held.status).toBe('PENDING');
+    expect(held.attempts).toBe(0);
+
+    // New events are still not queued while it is paused.
+    expect(await emitEvent(organizationId, 'domain.verified', { domainId: 'during-pause' })).toBe(0);
+
+    // Send again would answer "queued" for something that will not go, so it
+    // says why instead.
+    const replay = await agent.post(`/api/workspaces/${organizationId}/webhook-deliveries/${held.id}/replay`);
+    expect(replay.status).toBe(409);
+    expect(replay.body.error.code).toBe('CONFLICT');
+    expect(replay.body.error.message).toContain('paused');
+
+    const resumed = await agent.patch(`/api/workspaces/${organizationId}/webhooks/${endpoint.id}`).send({ active: true });
+    expect(resumed.status).toBe(200);
+
+    await deliverDueWebhooks();
+    expect(received.filter((entry) => entry.body.includes('queued-before-pause'))).toHaveLength(1);
+    const sent = await prisma.webhookDelivery.findUniqueOrThrow({ where: { id: held.id } });
+    expect(sent.status).toBe('DELIVERED');
+  });
+
+  it('does not let a paused endpoint with a long queue hold up another endpoint', async () => {
+    const paused = await setup();
+    const live = await setup();
+    const pausedEndpoint = await registerEndpoint(paused.agent, paused.organizationId, ['domain.verified']);
+    await registerEndpoint(live.agent, live.organizationId, ['domain.verified']);
+
+    // More than one delivery batch for the paused endpoint, all older than the
+    // live endpoint's one.
+    for (let index = 0; index < 55; index += 1) {
+      await emitEvent(paused.organizationId, 'domain.verified', { domainId: `paused-backlog-${index}` });
+    }
+    expect(
+      (await paused.agent.patch(`/api/workspaces/${paused.organizationId}/webhooks/${pausedEndpoint.id}`).send({ active: false })).status,
+    ).toBe(200);
+    await emitEvent(live.organizationId, 'domain.verified', { domainId: 'live-after-backlog' });
+
+    received = [];
+    nextStatus = 200;
+    await deliverDueWebhooks();
+
+    // The held rows are skipped in the query, not after it, so they never fill
+    // the batch the live endpoint's delivery is in.
+    expect(received.some((entry) => entry.body.includes('live-after-backlog'))).toBe(true);
+    expect(received.some((entry) => entry.body.includes('paused-backlog-'))).toBe(false);
+
+    // Leave nothing queued for the tests after this one.
+    await prisma.webhookDelivery.deleteMany({ where: { endpointId: pausedEndpoint.id } });
+  });
+
   it('deletes an endpoint and its history', async () => {
     const { agent, organizationId } = await setup();
     const created = await agent.post(`/api/workspaces/${organizationId}/webhooks`).send({

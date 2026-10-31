@@ -254,6 +254,85 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-12-03 — Fixes to /api/v1 responses
+
+Every item that was listed under Known issues in [API.md](API.md#known-issues)
+is fixed, and that section now says there are none. Two more fixes, to the DNS
+change rows and to paused webhooks, were found while doing it.
+
+### Changes an integration might notice
+
+These change a status code, an error code or a body that an integration may
+branch on. Check any code that handled the old answer.
+
+- **A `clientId` outside the workspace answers 404, not 402.** `POST
+  /api/v1/domains` and `POST /api/v1/domains/bulk` answered 402
+  `FEATURE_NOT_IN_PLAN` with "That client is not in this workspace." They now
+  answer 404 `NOT_FOUND` with the same message, exactly as a client id that
+  does not exist anywhere. The browser route that adds domains to a client in
+  bulk made the same mistake and is fixed too.
+- **An oversized body answers 413 `PAYLOAD_TOO_LARGE`, not `INTERNAL`.** The
+  message now states the limit ("The request body is larger than the 10 KB
+  this endpoint accepts. ..."). `PAYLOAD_TOO_LARGE` is added to the error codes
+  in the reference and in the OpenAPI document. A 415 (a character set or
+  content encoding the service cannot read) answers `INVALID_REQUEST` where it
+  answered `INTERNAL`.
+- **The scan limit's 429 is JSON.** `POST /api/v1/domains/{domain}/scans`
+  answered a spent scan budget with plain text ("Too many requests, please try
+  again later."). It now answers `{ "error": { "code": "RATE_LIMITED",
+  "message": "Too many scans from this network. Wait a minute and try again."
+  } }`, like every other limit. The headers, including `Retry-After`, are
+  unchanged. The report ingest limit had the same plain-text body and is fixed
+  too.
+- **A client import no longer fails whole because of one taken domain.** In
+  `POST /api/v1/clients` and `POST /api/v1/clients/bulk`, a domain another
+  workspace already monitors made the request fail with 500 and nothing in it
+  was created. Now the client is created with its other domains and the taken
+  domain is listed in a new `domainConflicts` array on that client's entry:
+  `{ "index", "name", "reason" }`, where `index` is the domain's position in the
+  row's `domains` list. The answer never says which workspace holds it. A
+  single create therefore answers 201 where it answered 500, and a bulk row that
+  would have taken the whole request down is now created. A domain listed twice
+  in one row is added once, where it also used to answer 500.
+- **Pausing a webhook endpoint holds the deliveries already queued.** Pausing
+  stopped new events being queued and nothing else, so events queued before the
+  pause, and their retries, were still sent. Now nothing is sent to a paused
+  endpoint. Its queued deliveries are held, keeping the attempts they had made,
+  and are sent on the next pass after it is resumed. Send again on a paused
+  endpoint's delivery is refused with 409 `CONFLICT` and says to resume first.
+  A paused endpoint is no longer probed as if it were suspended, and its failed
+  deliveries are not requeued until it is resumed.
+
+### Additive changes
+
+New values in fields that were already there, and new fields. Nothing is
+removed or renamed.
+
+- **`mxRecords` is filled.** `GET /api/v1/domains/{domain}` answered
+  `mxRecords: []` for every domain. It now lists the mail server host names the
+  latest completed scan found, as strings, lowest MX preference first,
+  lowercased and without a trailing dot. It is `[]` when there are none, for a
+  null MX, and before the first completed scan.
+- **A new scan's `changeCount` is real.** The answer to `POST
+  /api/v1/domains/{domain}/scans` always had `changeCount: 0`. It is now the
+  number of DNS changes that scan recorded, the same number the scan list shows.
+- **DNS change rows name their domain.** Rows from `GET /api/v1/dns-changes`
+  and the answer to `POST /api/v1/dns-changes/{changeId}/acknowledge` carry
+  `domain: { id, name, slug }`, the same shape as an alert row. The `dns.changed`
+  webhook already carried `domainId` and `domainName`, and is unchanged.
+- **`domainConflicts` on created clients.** Always present on each entry of
+  `clients` in a bulk answer and on a single create's answer, empty when every
+  domain was added.
+
+### Corrected
+
+- The PSA ticket worker's retry schedule was described as backing off over 1,
+  5, 30, 120 and 720 minutes. It makes five attempts and waits 1, 5, 30 and 120
+  minutes between them; the 720 is never reached. The 2026-11-11 PSA ticketing
+  entry below is corrected.
+
+---
+
 ## 2026-12-02 — Moving domains, renames, bulk actions, the assistant and evidence pack 2.0
 
 **`/api/v1` addition.** `POST /api/v1/domains/{domainId}/move` moves a domain,
@@ -804,10 +883,16 @@ Browser routes, all under `/api/workspaces/{id}/psa`:
 
 Every ticket title ends with `[DH-<ref>]`. Before a retry of a create, the
 worker searches the PSA for an open ticket carrying that marker, so a lost
-response cannot produce a duplicate. Retries back off over 1, 5, 30, 120 and
-720 minutes, give up after five attempts, and a 401 or 403 pauses the connection
-at once because retrying cannot fix bad credentials. Twenty consecutive failures
-also pause it, with an audit row and an in-app notification to owners and admins.
+response cannot produce a duplicate. A job is tried five times in all, waiting
+1, 5, 30 and 120 minutes between attempts, then given up. When the PSA answers
+429, its `Retry-After` sets the wait instead (a minute without one, at most an
+hour). A 401 or 403 pauses the connection at once because retrying cannot fix
+bad credentials. Twenty consecutive failures also pause it, with an audit row
+and an in-app notification to owners and admins.
+
+(Corrected 2026-12-03: this paragraph said retries back off over 1, 5, 30, 120
+and 720 minutes. With five attempts the 720 minute wait is never reached; the
+worker has always waited only the first four.)
 
 `integrations.psa` starts at Harbor. On a downgrade no new tickets are opened,
 but notes and closes for tickets that already exist keep flowing, so the

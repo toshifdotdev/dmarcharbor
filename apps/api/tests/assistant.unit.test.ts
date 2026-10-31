@@ -160,7 +160,7 @@ describe('corpus', () => {
     expect(harbor?.url).toBe('/pricing#plan-HARBOR');
     expect(harbor?.text).toContain('$149 a month');
     expect(harbor?.text).toContain(`up to ${planCatalog.HARBOR.maxClients} clients`);
-    expect(harbor?.text).toContain('Product help answered from the docs');
+    expect(harbor?.text).toContain('Ask: product questions answered from the docs');
     const fleet = planCatalogChunks().find((chunk) => chunk.id === 'pricing#plan-FLEET');
     expect(fleet?.text).toContain('$2.00');
     expect(fleet?.text).toContain('an unlimited team');

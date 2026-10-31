@@ -397,4 +397,26 @@ describe('bulk domain import from the console', () => {
 
     expect(response.status).toBe(403);
   });
+
+  it('answers 404 for a client that is not in this workspace, not a plan refusal', async () => {
+    // The import used to throw a plan error for an unknown client, so the screen
+    // told the operator to upgrade when the address named the wrong client.
+    const mine = await workspaceWithClient();
+    const theirs = await workspaceWithClient();
+    const name = uniqueName('foreign-client');
+
+    const foreign = await mine.agent
+      .post(`/api/workspaces/${mine.organizationId}/clients/${theirs.clientId}/domains/bulk`)
+      .send({ domains: [name] });
+    const missing = await mine.agent
+      .post(`/api/workspaces/${mine.organizationId}/clients/no-such-client/domains/bulk`)
+      .send({ domains: [name] });
+
+    expect(foreign.status).toBe(404);
+    expect(foreign.body.error.code).toBe('NOT_FOUND');
+    // The same answer as a client that does not exist anywhere.
+    expect(missing.status).toBe(404);
+    expect(foreign.body).toEqual(missing.body);
+    expect(await prisma.domain.count({ where: { name } })).toBe(0);
+  });
 });

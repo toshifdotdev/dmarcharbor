@@ -6,3 +6,9 @@ dist/
 !.env.example
 coverage/
 .DS_Store
+
+# Local working material, never part of the product: design screenshots and
+# briefs, another tool's scratch folder, and server logs redirected to a file.
+.shots/
+.workbuddy-ai/
+*.log

@@ -42,6 +42,63 @@ function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
 }
 
+/**
+ * The mail server host names, the one a sender tries first at the top.
+ *
+ * `Domain.mxRecords` is the latest completed scan's `result.mx.records`, copied
+ * in the same transaction that completes the scan, so it holds
+ * `{ exchange, priority }` objects. It was read with `stringList`, which keeps
+ * only strings, so every domain answered `mxRecords: []` however many mail
+ * servers it had. The documented type is a list of strings, and a typed client
+ * generated from it would break on objects, so the hosts are returned as
+ * strings and the order carries the priority.
+ *
+ * Plain strings are still accepted, because rows written before the scanner
+ * stored objects (and test fixtures) hold them. A null MX (`0 .`, RFC 7505)
+ * names no server and is left out, so a domain that receives no mail has an
+ * empty list, the same as one that publishes no MX record.
+ */
+export function mailServerHosts(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const entries: { host: string; priority: number; position: number }[] = [];
+  value.forEach((entry, position) => {
+    let raw: unknown;
+    let priority = Number.POSITIVE_INFINITY;
+
+    if (typeof entry === 'string') {
+      raw = entry;
+    } else if (entry && typeof entry === 'object') {
+      raw = (entry as { exchange?: unknown }).exchange;
+      const declared = (entry as { priority?: unknown }).priority;
+      if (typeof declared === 'number' && Number.isFinite(declared)) {
+        priority = declared;
+      }
+    }
+
+    if (typeof raw !== 'string') {
+      return;
+    }
+
+    const host = raw.trim().toLowerCase().replace(/\.$/, '');
+    if (host) {
+      entries.push({ host, priority, position });
+    }
+  });
+
+  // Ties are broken by name so two servers of equal preference come back in the
+  // same order on every call; the resolver returns them in whatever order it likes.
+  entries.sort((left, right) => {
+    if (left.priority !== right.priority) return left.priority - right.priority;
+    if (Number.isFinite(left.priority)) return left.host.localeCompare(right.host);
+    return left.position - right.position;
+  });
+
+  return [...new Set(entries.map((entry) => entry.host))];
+}
+
 // ─── GET /me ─────────────────────────────────────────────────────────────────
 
 export interface MeInput {
@@ -129,7 +186,7 @@ export function serializeDomainDetail(row: DomainDetailInput) {
     collectForensicReports: row.collectForensicReports,
     lastScanAt: iso(row.lastScanAt),
     spfRecord: row.spfRecord,
-    mxRecords: stringList(row.mxRecords),
+    mxRecords: mailServerHosts(row.mxRecords),
     dkimSelectors: stringList(row.dkimSelectors),
     client: { id: row.client.id, name: row.client.name, slug: row.client.slug },
     /**
@@ -329,6 +386,15 @@ export function serializeDnsChange(row: DnsChangeRow) {
     summary: row.summary,
     detectedAt: row.detectedAt.toISOString(),
     scanId: row.scanId,
+    /**
+     * The domain the change belongs to, in the same shape an alert row names it.
+     *
+     * The list is workspace-wide, and a row that says "SPF record changed"
+     * without saying where sent every caller back to match `scanId` against each
+     * domain's scan history. The service already selected the domain; it was
+     * simply never written here. Additive (2026-12-03).
+     */
+    domain: { id: row.domain.id, name: row.domain.name, slug: row.domain.slug },
     acknowledgedAt: iso(row.acknowledgedAt),
     acknowledgedBy: row.acknowledgedBy?.name ?? null,
   };

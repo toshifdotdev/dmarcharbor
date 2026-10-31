@@ -173,8 +173,18 @@ export async function replayWebhookDeliveryController(request: Request, response
   }
 
   const replayed = await replayDelivery(response.locals.organizationId, id.data);
-  if (!replayed) {
+  if (replayed === 'not_found') {
     response.status(404).json({ error: { code: 'NOT_FOUND', message: 'Delivery not found in this workspace.' } });
+    return;
+  }
+
+  if (replayed === 'endpoint_paused') {
+    response.status(409).json({
+      error: {
+        code: 'CONFLICT',
+        message: 'That endpoint is paused, so nothing is sent to it. Resume the endpoint, then send this again.',
+      },
+    });
     return;
   }
 

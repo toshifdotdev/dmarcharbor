@@ -1,4 +1,6 @@
 import { API_BASE, apiFetch, SLOW_API_TIMEOUT_MS } from "@/lib/api-fetch";
+import { linkErrorPage } from "@/lib/link-error-page";
+import { retryAfterFrom, retryAfterText } from "@/lib/retry-after";
 
 export const dynamic = "force-dynamic";
 
@@ -8,45 +10,31 @@ export const dynamic = "force-dynamic";
  * It streams the API's public download through the web origin so the recipient
  * never sees raw JSON. A bad or expired link is a plain page with one sentence,
  * not an API error body: the person clicking is an agency client, not an
- * integration developer.
+ * integration developer (lib/link-error-page.ts draws it, with the host's name).
+ *
+ * The API answers one 404 for an unknown, expired or malformed token, by
+ * design, so this page does not guess which; it says what to do in every case.
+ * A failure to reach the service and a rate limit are temporary and say so,
+ * with a way to try the same link again.
  */
-function errorPage(status: number, heading: string, detail: string): Response {
-  const html = `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${heading}</title>
-</head>
-<body style="margin:0;background:#f8fafc;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;color:#0f172a;">
-<main style="max-width:34rem;margin:12vh auto;padding:0 1.5rem;line-height:1.6;">
-<p style="font-size:0.75rem;letter-spacing:0.12em;text-transform:uppercase;color:#64748b;margin:0 0 0.5rem;">DMARC Harbor report</p>
-<h1 style="font-size:1.5rem;line-height:1.25;margin:0 0 0.75rem;">${heading}</h1>
-<p style="margin:0 0 1rem;color:#334155;">${detail}</p>
-<p style="margin:0;"><a href="/" style="color:#0f766e;">Return to the site</a></p>
-</main>
-</body>
-</html>`;
-  return new Response(html, {
-    status,
-    headers: {
-      "content-type": "text/html; charset=utf-8",
-      "cache-control": "no-store",
-      "referrer-policy": "no-referrer",
-      "x-content-type-options": "nosniff",
-    },
+const KIND = "Monthly report";
+
+function gone(): Promise<Response> {
+  return linkErrorPage({
+    status: 404,
+    kind: KIND,
+    closed: true,
+    heading: "This report link is not available",
+    detail: "It may have expired, or it may not have been copied completely. Ask the sender for a new link.",
   });
 }
 
 export async function GET(request: Request): Promise<Response> {
-  const token = new URL(request.url).searchParams.get("token") ?? "";
-  if (!token) {
-    return errorPage(
-      404,
-      "This report link is not available",
-      "It may have expired, or it may not have been copied completely. Ask the sender for a new link.",
-    );
-  }
+  const url = new URL(request.url);
+  const token = url.searchParams.get("token") ?? "";
+  if (!token) return gone();
+  // The same address again: the token is already in it.
+  const again = { href: `${url.pathname}${url.search}`, label: "Try the link again" };
 
   let upstream: Response;
   try {
@@ -60,33 +48,36 @@ export async function GET(request: Request): Promise<Response> {
       },
     );
   } catch {
-    return errorPage(
-      502,
-      "This report cannot be downloaded just now",
-      "The service did not answer. Try again in a few minutes, or ask the sender for a new link.",
-    );
+    return linkErrorPage({
+      status: 502,
+      kind: KIND,
+      heading: "This report cannot be downloaded just now",
+      detail: "Nothing is wrong with the link: the service did not answer. Try again in a few minutes.",
+      actions: [again],
+    });
   }
 
-  if (upstream.status === 404 || upstream.status === 410) {
-    return errorPage(
-      404,
-      "This report link is not available",
-      "It may have expired, or it may not have been copied completely. Ask the sender for a new link.",
-    );
-  }
+  if (upstream.status === 404 || upstream.status === 410) return gone();
   if (upstream.status === 429) {
-    return errorPage(
-      429,
-      "Too many download attempts",
-      "Wait a minute and try the link again.",
-    );
+    const wait = retryAfterFrom(upstream.headers);
+    return linkErrorPage({
+      status: 429,
+      kind: KIND,
+      heading: "Too many download attempts",
+      detail: `Nothing is wrong with the link. ${retryAfterText(wait, "try the link again")}`,
+      actions: [again],
+      headers: wait ? { "retry-after": String(wait) } : undefined,
+    });
   }
   if (!upstream.ok || !upstream.body) {
-    return errorPage(
-      502,
-      "This report cannot be downloaded just now",
-      "The service answered with an error. Try again in a few minutes, or ask the sender for a new link.",
-    );
+    return linkErrorPage({
+      status: 502,
+      kind: KIND,
+      heading: "This report cannot be downloaded just now",
+      detail:
+        "Nothing is wrong with the link: the service answered with an error. Try again in a few minutes, or ask the sender for a new link if it keeps happening.",
+      actions: [again],
+    });
   }
 
   const headers = new Headers();

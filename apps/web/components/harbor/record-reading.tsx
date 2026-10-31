@@ -30,6 +30,7 @@
 
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { retryAfterFrom, retryAfterText } from "@/lib/retry-after";
 import s from "./record-reading.module.css";
 
 type Lookup = "found" | "missing" | "error";
@@ -233,6 +234,8 @@ export function RecordReading() {
   const [result, setResult] = useState<Reading | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
+  // Seconds the limiter asked to wait, when it said (Retry-After).
+  const [wait, setWait] = useState<number | null>(null);
   const input = useRef<HTMLInputElement | null>(null);
 
   async function run(e: FormEvent) {
@@ -256,6 +259,7 @@ export function RecordReading() {
         body: JSON.stringify({ domain: wanted }),
       });
       if (res.status === 429) {
+        setWait(retryAfterFrom(res.headers));
         setPaused(true);
         return;
       }
@@ -322,7 +326,7 @@ export function RecordReading() {
       <div className={s.message} data-testid="domain-check-message" aria-live="polite">
         {paused ? (
           <p role="status" className={s.note} data-tone="warn">
-            Too many lookups just now. Try again in a minute: the lookup is shared, which is why it stays free.
+            Too many lookups just now. {retryAfterText(wait)} The lookup is shared, which is why it stays free.
           </p>
         ) : error ? (
           <p role="alert" className={s.note} data-tone="fail">

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { verifyCompliancePack, PublicError } from "@/lib/api-public";
 import { getCapabilities } from "@/lib/api-ops";
+import { retryAfterText } from "@/lib/retry-after";
 import { requestOrigin } from "@/lib/metadata-origin";
 import { publicMetadata } from "@/lib/seo";
 import type { CompliancePackRecord } from "@/lib/types";
@@ -79,6 +80,8 @@ export default async function VerifyPage({ searchParams }: { searchParams: Promi
 
   let packs: CompliancePackRecord[] | null = null;
   let outcome: "none" | "found" | "missing" | "failed" = "none";
+  // A rate-limited lookup is a failed lookup that says to wait, and how long.
+  let limited: PublicError | null = null;
   if (trimmed) {
     try {
       const res = await verifyCompliancePack(trimmed);
@@ -86,6 +89,7 @@ export default async function VerifyPage({ searchParams }: { searchParams: Promi
       outcome = res.found && res.packs.length > 0 ? "found" : "missing";
     } catch (error) {
       outcome = error instanceof PublicError && error.status === 404 ? "missing" : "failed";
+      if (error instanceof PublicError && error.status === 429) limited = error;
     }
   }
 
@@ -134,7 +138,17 @@ export default async function VerifyPage({ searchParams }: { searchParams: Promi
                 The lookup did not run
               </p>
               <p className="mt-3 max-w-[64ch] text-[15px] leading-[1.55] text-fg-2">
-                The record could not be reached just now. This is not a &ldquo;no match&rdquo;: try again in a moment.
+                {limited ? (
+                  <>
+                    Too many lookups have come from this network just now. This is not a &ldquo;no match&rdquo;:{" "}
+                    {retryAfterText(limited.retryAfterSeconds, "check the reference again")}
+                  </>
+                ) : (
+                  <>
+                    The record could not be reached just now. This is not a &ldquo;no match&rdquo;: try again in a
+                    moment.
+                  </>
+                )}
               </p>
             </section>
           ) : null}

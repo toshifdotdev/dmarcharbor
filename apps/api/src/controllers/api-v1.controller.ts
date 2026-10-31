@@ -21,7 +21,13 @@ import {
   saveIdempotentResult,
   type IssuedApiKey,
 } from '../services/api-key.service.js';
-import { bulkImportClients, bulkImportDomains, bulkLimits, normaliseDomain } from '../services/bulk-onboarding.service.js';
+import {
+  ClientNotInWorkspaceError,
+  bulkImportClients,
+  bulkImportDomains,
+  bulkLimits,
+  normaliseDomain,
+} from '../services/bulk-onboarding.service.js';
 import { idempotencyKeyFrom } from '../middleware/api-auth.middleware.js';
 import { zodMessage } from '../utils/zod-messages.js';
 import { parsePagination } from '../utils/pagination.js';
@@ -68,6 +74,13 @@ function pageOf<T extends { id: string }>(rows: T[], limit: number): { items: T[
 function sendError(response: Response, error: unknown): void {
   if (error instanceof EntitlementError) {
     response.status(error.status).json({ error: { code: error.code, message: error.message, ...error.details } });
+    return;
+  }
+  // A `clientId` outside the workspace is the same 404 as any other resource
+  // that is not the key's, rather than the 402 it used to borrow from the plan
+  // errors.
+  if (error instanceof ClientNotInWorkspaceError) {
+    response.status(error.status).json({ error: { code: error.code, message: error.message } });
     return;
   }
   response.status(500).json({ error: { code: 'INTERNAL', message: 'The request could not be completed.' } });
@@ -690,6 +703,14 @@ export async function apiCreateDomainScanController(request: Request, response: 
             error: outcome.scan.error,
             startedAt: outcome.scan.startedAt,
             completedAt: outcome.scan.completedAt,
+            /**
+             * The changes this scan recorded, counted by the service in the same
+             * transaction that wrote them. Left out, the serializer's default
+             * of 0 answered every new scan, so a caller reading this response
+             * was told nothing changed when the scan list said otherwise. A
+             * failed scan records no changes, so 0 is the truth there.
+             */
+            changeCount: outcome.status === 'completed' ? outcome.changes : 0,
           }),
         },
       };
