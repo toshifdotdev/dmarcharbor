@@ -447,5 +447,10 @@ it is still the largest gap in the product.
 - [ ] One real logo uploaded and served from the asset origin
 - [ ] One real Trust Center page
 - [ ] One real compliance pack issued and verified by its digest
+- [ ] One real agency custom domain served over https (its TLS certificate
+      issued), with a client signing in on it
+- [ ] One real agency sending address added in Resend, its records verified,
+      and a client email arriving from it with the agency's Reply-To. So far
+      this has only run against a fake provider
 - [x] Every job that contacts a customer claims its row, proven by concurrent tests
 - [ ] Sub-processors named, residency question answered
