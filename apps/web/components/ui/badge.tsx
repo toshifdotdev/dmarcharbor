@@ -2,8 +2,8 @@
  * badge.tsx — state words, and the posture marks.
  *
  * A badge is a word with a state colour, and every state has a SHAPE as well,
- * so nothing on screen is colour-only (the Monolith vocabulary, kept because it
- * is right):
+ * so nothing on screen is colour-only (the Routes state vocabulary,
+ * .kiro/steering/design-system.md):
  *
  *   aligned       filled square
  *   blocking      filled diamond
@@ -60,7 +60,7 @@ export function Badge({
         boxed && tone === "ok" && "border-ok/30 bg-ok-wash",
         boxed && tone === "warn" && "border-warn/30 bg-warn-wash",
         boxed && tone === "fail" && "border-fail/30 bg-fail-wash",
-        boxed && tone === "crit" && "border-crit bg-crit text-white",
+        boxed && tone === "crit" && "border-crit bg-crit text-paper",
         boxed && tone === "void" && "border-void/30 bg-void-wash",
         boxed && tone === "neutral" && "border-rule-2 bg-paper-3",
         boxed && tone === "accent" && "border-act bg-paper",

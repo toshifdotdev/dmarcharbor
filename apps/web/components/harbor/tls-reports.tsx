@@ -15,7 +15,7 @@ import { getTlsReportDetail } from "@/lib/ops-client";
 import { tlsResultExplanation } from "@/lib/tls-results";
 import { DnsRecord } from "@/components/ui/copy";
 import { Notice } from "@/components/ui/notice";
-import { UpgradeNotice } from "@/components/ui/states";
+import { InlineWaiting, UpgradeNotice } from "@/components/ui/states";
 import { Table, TBody, Td, Th, THead, Tr } from "@/components/ui/table";
 
 function number(value: number): string {
@@ -276,7 +276,7 @@ export function TlsReports({
                           <td colSpan={5} className="border-b border-rule bg-paper-2 p-3">
                             <div data-testid={`tls-report-detail-${report.id}`}>
                               {detail === "loading" ? (
-                                <p className="text-ui text-fg-3">Loading report detail…</p>
+                                <InlineWaiting>Loading report detail…</InlineWaiting>
                               ) : detail === "error" || !detail ? (
                                 <p className="text-ui text-fail">The report detail could not be loaded.</p>
                               ) : (

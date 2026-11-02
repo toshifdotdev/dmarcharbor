@@ -341,8 +341,7 @@ export function MembersBoard({
                       {editable ? (
                         <Button
                           size="sm"
-                          variant="ghost"
-                          className="text-fail hover:text-fail"
+                          variant="danger-quiet"
                           onClick={() => {
                             setError(null);
                             setRemoving(m);
@@ -448,29 +447,31 @@ export function MembersBoard({
                     {inv.expiresLabel ? `Lapses ${inv.expiresLabel}` : "No end date recorded"}
                   </span>
                   {canManage ? (
-                    <span className="col-start-3 row-start-1 flex items-baseline gap-3 text-meta sm:col-start-auto sm:row-start-auto">
+                    <span className="col-start-3 row-start-1 flex items-center gap-1 self-center sm:col-start-auto sm:row-start-auto">
                       {isAssignable(inv.role) ? (
-                        <button
-                          type="button"
-                          className="link disabled:opacity-60"
-                          disabled={resending !== null}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={resending !== null && resending !== inv.id}
+                          busy={resending === inv.id}
+                          busyLabel="Sending"
                           data-testid={`resend-invitation-${inv.id}`}
                           aria-label={`Send the invitation to ${inv.email} again`}
                           onClick={() => void resend(inv)}
                         >
-                          {resending === inv.id ? "Sending" : "Resend"}
-                        </button>
+                          Resend
+                        </Button>
                       ) : null}
-                      <button
-                        type="button"
-                        className="link"
+                      <Button
+                        size="sm"
+                        variant="ghost"
                         onClick={() => {
                           setError(null);
                           setCancelling(inv);
                         }}
                       >
                         Withdraw
-                      </button>
+                      </Button>
                     </span>
                   ) : (
                     <span />

@@ -116,7 +116,7 @@ export function ShareDocument({ report, today }: { report: PublicShareReport; to
         </p>
         <div className="min-w-0">
           {/* Long domains break after a dot, never mid-label. */}
-          <h1 className="text-[38px] font-[760] leading-[1] tracking-[-0.035em] text-fg [overflow-wrap:anywhere] sm:text-[52px] min-[1100px]:text-[64px] print:text-[26pt]">
+          <h1 className="text-[38px] font-[760] leading-[0.96] tracking-[-0.035em] text-fg [overflow-wrap:anywhere] sm:text-[52px] min-[1100px]:text-[64px] print:text-[26pt]">
             {sharedFor.domain.split(".").map((part, i, all) => (
               <span key={i}>
                 {part}

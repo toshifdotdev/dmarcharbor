@@ -24,9 +24,11 @@ import {
 import { groupSecret, totpSecretFromUri } from "@/lib/mfa";
 import type { MySecurity } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/choice";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { Field, Input } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
+import { InlineWaiting } from "@/components/ui/states";
 import { Panel, StateMark, StepLine, type StepState } from "@/components/harbor/settings/parts";
 
 type Phase =
@@ -324,8 +326,7 @@ export function AccountSecurityBoard({
                 </Button>
                 <Button
                   data-testid="mfa-disable"
-                  variant="ghost"
-                  className="text-fail hover:text-fail"
+                  variant="danger-quiet"
                   onClick={() => { setShowDisable(true); setDisablePassword(""); setDisableError(null); }}
                 >
                   Turn off
@@ -367,10 +368,10 @@ export function AccountSecurityBoard({
                   alt={`QR code that adds ${serviceName} to an authenticator app`}
                   width={220}
                   height={220}
-                  className="rounded-ctl border border-rule bg-white p-2"
+                  className="rounded-ctl border border-rule bg-paper p-2"
                 />
               ) : (
-                <p className="text-meta text-fg-3">Preparing the QR code…</p>
+                <InlineWaiting className="text-meta text-fg-3">Preparing the QR code…</InlineWaiting>
               )}
               <div>
                 <p className="legend">Setup key</p>
@@ -468,16 +469,12 @@ export function AccountSecurityBoard({
             <Button size="sm" onClick={copyCodes}>Copy</Button>
             <Button size="sm" onClick={downloadCodes}>Download .txt</Button>
           </div>
-          <label className="flex items-start gap-2 text-ui text-fg-2">
-            <input
-              type="checkbox"
-              data-testid="mfa-saved-check"
-              checked={saved}
-              onChange={(event) => setSaved(event.target.checked)}
-              className="mt-1"
-            />
-            I have saved these codes somewhere safe
-          </label>
+          <Checkbox
+            data-testid="mfa-saved-check"
+            checked={saved}
+            onChange={(event) => setSaved(event.target.checked)}
+            label="I have saved these codes somewhere safe"
+          />
           <div>
             <Button
               data-testid="mfa-done"

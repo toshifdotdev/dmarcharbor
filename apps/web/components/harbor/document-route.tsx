@@ -377,7 +377,7 @@ export function StateWord({
 }) {
   return (
     <span
-      className={`inline-flex items-center font-semibold ${WORD_TONE[tone]} ${size === "lg" ? "gap-2.5 text-[17px] leading-[22px]" : "gap-2 text-ui"} ${className ?? ""}`}
+      className={`inline-flex items-center font-semibold ${WORD_TONE[tone]} ${size === "lg" ? "gap-2.5 text-h3" : "gap-2 text-ui"} ${className ?? ""}`}
     >
       <StateMark shape={shape} tone={tone} size={size === "lg" ? 12 : 10} />
       <span>{children}</span>

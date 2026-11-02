@@ -200,7 +200,7 @@ export default async function PortalPage({
               "Client reports"
             )}
           </p>
-          <h1 className="mt-4 text-[40px] font-[760] leading-[0.98] tracking-[-0.035em] text-fg sm:text-[56px] min-[1100px]:text-[64px]">
+          <h1 className="mt-4 text-[40px] font-[760] leading-[0.96] tracking-[-0.035em] text-fg sm:text-[56px] min-[1100px]:text-[64px]">
             Your domains
           </h1>
           <p className="mt-6 max-w-[38rem] text-[17px] leading-[1.5] text-fg-2 sm:text-[19px]" data-testid="portal-summary">

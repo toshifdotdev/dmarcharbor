@@ -78,3 +78,7 @@ Each new route has zod validation, the workspace scope, the role check the neigh
 | Export alert events and the audit trail as CSV | Not asked for by any screen yet; the workspace export covers the data. |
 | Un-acknowledge an alert, restore a revoked link or grant | Revoking is meant to be final; a new link or grant is the way back, and an alert that fires again opens a new event. |
 | `/api/v1` routes for renaming clients, deleting domains, digests and alert rules | Additive and easy later; moving a domain was the one a PSA sync needs now. |
+
+## Previewing email
+
+Every email the product sends (templates, account mail, alerts and digests, in our brand and in a sample agency's white label) can be rendered from sample data with no database or network: in `apps/api`, `npx tsx scripts/render-emails.ts [outDir]` writes `<name>.html`, `<name>.txt` and an `index.html` linking them (default folder: `emails` in the system temp folder).

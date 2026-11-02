@@ -193,7 +193,7 @@ function YearLine({
               <span className={clsx("mt-1.5 text-meta", on ? "font-semibold text-fg" : "text-fg-3", here && "underline decoration-2 underline-offset-4")}>
                 {short}
               </span>
-              <span className="tnum h-4 text-[11px] leading-4 text-fg-3">{showYear ? year : ""}</span>
+              <span className="tnum h-4 whitespace-nowrap text-meta text-fg-3">{showYear ? year : ""}</span>
               <span className="sr-only">
                 {periodLabel(m.value)}: {on ? "issued" : "not issued"}
                 {here ? ", the month chosen to issue" : ""}

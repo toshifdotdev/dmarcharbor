@@ -226,7 +226,7 @@ export function Inbox() {
                         </span>
                         <span aria-hidden className="mt-[5px] grid size-3 place-items-center">
                           {isUnread ? (
-                            <span className={clsx("block size-2", sev === "CRITICAL" ? "rotate-45 bg-fail" : "rounded-full bg-act")} />
+                            <span className={clsx("block size-2", sev === "CRITICAL" ? "rotate-45 bg-fail" : "rounded-full bg-fg")} />
                           ) : (
                             <span className="block size-2 rounded-full border-[1.5px] border-fg-4" />
                           )}

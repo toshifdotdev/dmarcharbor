@@ -34,7 +34,7 @@
 
 .origin,
 .station {
-  fill: #ffffff;
+  fill: var(--color-paper);
   stroke: var(--color-fg);
   stroke-width: 3;
 }

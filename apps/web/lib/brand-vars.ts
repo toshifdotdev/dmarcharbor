@@ -1,6 +1,7 @@
 /**
- * brand-vars.ts — a tenant's two colours as the Chart system's custom
- * properties, and the contrast arithmetic behind them.
+ * brand-vars.ts — a tenant's two colours as the custom properties the Routes
+ * stylesheet reads (globals.css: --color-accent, --color-accent-ink,
+ * --hb-primary, --hb-primary-ink), and the contrast arithmetic behind them.
  *
  * Pure, so the server (BrandApplier, the portal frame) and the browser (the
  * white-label preview) compute exactly the same thing: the preview a person
@@ -8,10 +9,14 @@
  *
  * The API's field names are kept: `primaryColor` is the brand colour (links,
  * focus, primary buttons); `accentColor` is the text set ON that colour. When
- * no text colour is set, black or white is chosen for contrast.
+ * no text colour is set, ink or white is chosen for contrast.
  */
 
 export const HEX = /^#[0-9a-f]{6}$/i;
+
+/** The Routes ink (--color-fg) and ground (--color-paper), as hexes for the arithmetic. */
+const INK = "#15171b";
+const WHITE = "#ffffff";
 
 function luminance(hex: string): number {
   const channel = (offset: number) => {
@@ -27,12 +32,12 @@ export function contrastRatio(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-/** Black or white, whichever reads better on the given #rrggbb. */
+/** Ink or white, whichever reads better on the given #rrggbb. */
 export function contrastInk(hex: string): string {
   // Measured against the real ink. The earlier shortcut divided by a constant
   // that is not the ink's luminance, which picked dark text on mid blues
   // (3.1:1 on #2266dd, where white reads at 5.0:1).
-  return contrastRatio(hex, "#ffffff") >= contrastRatio(hex, "#13212c") ? "#ffffff" : "#13212c";
+  return contrastRatio(hex, WHITE) >= contrastRatio(hex, INK) ? WHITE : INK;
 }
 
 export function chartBrandVars(primaryColor: string | null, accentColor: string | null): Record<string, string> {

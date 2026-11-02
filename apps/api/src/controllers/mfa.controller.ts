@@ -2,7 +2,9 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../database/prisma.js';
 import { recordAuditEvent } from '../services/audit.service.js';
+import { env } from '../config/env.js';
 import { queueAuthEmail } from '../email/email.service.js';
+import { securityNoticeEmail } from '../email/templates.js';
 import {
   countMembersWithoutMfa,
   mySecurity,
@@ -40,11 +42,20 @@ const workspaceMfaSchema = z.object({
   requireMfa: z.boolean(),
 });
 
-const securityEmailFooter =
-  'If this was not you, reset your password and contact your workspace owner.';
-
-function resetEmail(by: string): string {
-  return `Your two-step verification was reset ${by}. Sign in with your password and set it up again.\n\n${securityEmailFooter}`;
+/**
+ * The notice to the person whose two-step verification was reset. The template
+ * adds the fixed "If this was not you" line to the text, as this file used to,
+ * and a way to Account security to the HTML.
+ */
+function resetEmail(to: string, by: string): void {
+  queueAuthEmail({
+    to,
+    ...securityNoticeEmail({
+      subject: 'Your two-step verification was reset',
+      notice: `Your two-step verification was reset ${by}. Sign in with your password and set it up again.`,
+      appUrl: env.APP_URL,
+    }),
+  });
 }
 
 /** GET /api/me/security - account level, never workspace scoped. */
@@ -124,11 +135,7 @@ export async function resetMemberMfa(request: Request, response: Response): Prom
     console.error('Failed to record an owner two-step reset', error);
   }
 
-  queueAuthEmail({
-    to: target.user.email,
-    subject: 'Your two-step verification was reset',
-    text: resetEmail(`by an owner of ${organization?.name ?? 'your workspace'}`),
-  });
+  resetEmail(target.user.email, `by an owner of ${organization?.name ?? 'your workspace'}`);
 
   response.json({ status: true });
 }
@@ -170,11 +177,7 @@ export async function resetUserMfaAsStaff(request: Request, response: Response):
     console.error('Failed to record a staff two-step reset', error);
   }
 
-  queueAuthEmail({
-    to: user.email,
-    subject: 'Your two-step verification was reset',
-    text: resetEmail('by DMARC Harbor support'),
-  });
+  resetEmail(user.email, 'by DMARC Harbor support');
 
   response.json({ status: true });
 }

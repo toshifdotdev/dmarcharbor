@@ -42,7 +42,7 @@ import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/field";
 import { KeyValue, Notice } from "@/components/ui/notice";
 import { Nil, Table, TBody, Td, TEmptyRow, Th, THead, Tr } from "@/components/ui/table";
-import { UpgradeNotice } from "@/components/ui/states";
+import { InlineWaiting, UpgradeNotice } from "@/components/ui/states";
 import { useToast } from "@/components/ui/toast";
 import { ConnectionLine, type LineState } from "./lines";
 import { DangerZone, Panel } from "./parts";
@@ -551,9 +551,9 @@ function SampleRow({
             {opened ? "Close" : "Open"}
           </button>
           {onDelete ? (
-            <button type="button" className="ml-3 text-meta font-semibold text-fail hover:underline" onClick={onDelete}>
+            <Button variant="danger-quiet" size="sm" className="ml-1.5" onClick={onDelete}>
               Delete
-            </button>
+            </Button>
           ) : null}
         </Td>
       </Tr>
@@ -563,7 +563,7 @@ function SampleRow({
             {opened.error ? (
               <p className="text-ui text-fail">{opened.error}</p>
             ) : !r ? (
-              <p className="text-ui text-fg-3">Reading the sample…</p>
+              <InlineWaiting>Reading the sample…</InlineWaiting>
             ) : (
               <div className="grid gap-x-8 gap-y-4 md:grid-cols-2">
                 <KeyValue

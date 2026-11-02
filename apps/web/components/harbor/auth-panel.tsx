@@ -221,7 +221,7 @@ export function AuthPanel({
   return withRoute(
     <div className="flex flex-col gap-7" data-auth-audience={portal ? "portal" : "operator"}>
       <div>
-        <h1 className="text-balance text-[34px] font-[760] leading-[1.02] tracking-[-0.035em] text-fg sm:text-[40px]">
+        <h1 className="text-balance text-[34px] font-[760] leading-[0.96] tracking-[-0.035em] text-fg sm:text-[40px]">
           {heading[mode]}
         </h1>
         <p className="mt-3 text-lead text-fg-2">{lede[mode]}</p>
@@ -465,7 +465,7 @@ function CheckInbox({
   return (
     <div className="flex flex-col gap-7" role="status">
       <div>
-        <h1 className="text-balance text-[34px] font-[760] leading-[1.02] tracking-[-0.035em] text-fg sm:text-[40px]">
+        <h1 className="text-balance text-[34px] font-[760] leading-[0.96] tracking-[-0.035em] text-fg sm:text-[40px]">
           Check your inbox
         </h1>
         <p className="mt-3 text-lead text-fg-2">
@@ -505,20 +505,22 @@ function CheckInbox({
 
 /**
  * The link on its way, drawn as a short line: sent at one end, the inbox at
- * the other, the message riding between. It only ever renders after the
- * sign-up call returns, so it is never part of the server HTML; under reduced
- * motion the message rests halfway.
+ * the other, the message riding between. The colours are the waiting mark's
+ * (ui/tide.tsx), drawn wider to carry the two labels; like it, the message is
+ * drawn halfway and rides either side of there, so under reduced motion it
+ * rests halfway.
  */
 function SentRoute({ email }: { email: string }) {
   return (
     <figure aria-hidden className="m-0">
       <svg viewBox="0 0 400 30" className="block h-auto w-full" fill="none">
-        <path d="M14 15 H384" stroke="var(--color-accent)" strokeWidth="5" strokeLinecap="round" />
+        <path d="M14 15 H384" stroke="var(--color-act)" strokeWidth="5" strokeLinecap="round" />
+        {/* From x 30 to x 366. */}
         <g className="hb-ride" style={{ "--ride": "336px" } as React.CSSProperties}>
-          <circle cx="30" cy="15" r="5" fill="#fff" stroke="var(--color-accent)" strokeWidth="2.5" />
+          <circle cx="198" cy="15" r="5" fill="var(--color-paper)" stroke="var(--color-act)" strokeWidth="2.5" />
         </g>
-        <circle cx="14" cy="15" r="7.5" fill="#fff" stroke="var(--color-fg)" strokeWidth="3" />
-        <rect x="378" y="2.5" width="18" height="25" rx="9" fill="#fff" stroke="var(--color-fg)" strokeWidth="3" />
+        <circle cx="14" cy="15" r="7.5" fill="var(--color-paper)" stroke="var(--color-fg)" strokeWidth="3" />
+        <rect x="378" y="2.5" width="18" height="25" rx="9" fill="var(--color-paper)" stroke="var(--color-fg)" strokeWidth="3" />
       </svg>
       <figcaption className="mt-2 flex justify-between gap-6 text-ui">
         <span>

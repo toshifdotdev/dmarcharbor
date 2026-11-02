@@ -1,14 +1,19 @@
 import { prisma } from '../database/prisma.js';
 import { sendAuthEmail } from '../email/email.service.js';
-import { clientEmailHeaders, oneLine } from '../email/sender.js';
+import { clientEmailHeaders } from '../email/sender.js';
 import { clientContact, contactSentence } from '../email/templates.js';
-import { canCollectAggregateReports, hasAggregateReporting, readDmarcRecord } from '../scanner/dmarc-tags.js';
+import { readDmarcRecord } from '../scanner/dmarc-tags.js';
+import { digestEmail, digestEnvelope, digestLines } from './report-digest-text.js';
 import { getDomainInsights } from './report-intelligence.service.js';
 import { assessPolicyReadiness } from './onboarding.service.js';
 import { resolveBranding } from './branding.service.js';
 import { domainRef } from './domain-ref.js';
 import { resolveEntitlements } from './entitlements/entitlement.service.js';
 import { resolveLimit } from '../utils/pagination.js';
+
+// The wording lives in report-digest-text.ts; these two are re-exported so
+// their existing importers keep working.
+export { digestEnvelope, webEndpointNote } from './report-digest-text.js';
 
 const maximumRecipients = 20;
 
@@ -158,102 +163,16 @@ export async function buildDigestContent(
   }
 
   const readiness = await assessPolicyReadiness(organizationId, domainId, insights);
-  const tags = readDmarcRecord(domain.dmarcRecord);
-  const lastReportAt = insights.aggregate.lastReportAt ?? insights.forensic.lastReportAt;
-
-  const lines = [
-    `Domain: ${domain.name}`,
-    `Client: ${domain.client.name}`,
-    `Policy: ${domain.dmarcPolicy ?? 'not published'}`,
-    `Health score: ${domain.score ?? 'not scored yet'}`,
-    '',
-    `Messages observed: ${insights.aggregate.messageCount}`,
-    `Failed DMARC: ${insights.aggregate.failedMessages}`,
-    `DMARC pass rate: ${insights.aggregate.dmarcPassRate ?? 'unknown'}%`,
-    `SPF pass rate: ${insights.aggregate.spfPassRate ?? 'unknown'}%`,
-    `DKIM pass rate: ${insights.aggregate.dkimPassRate ?? 'unknown'}%`,
-    `Aggregate reports received: ${insights.aggregate.reportCount}`,
-    `Last report: ${lastReportAt ?? 'none yet'}`,
-    '',
-    `Recommendation: ${readiness.ready ? `safe to consider p=${readiness.level}` : 'stay on p=none'}`,
-  ];
-
-  if (!readiness.ready && readiness.blockers.length) {
-    lines.push('Outstanding:', ...readiness.blockers.map((blocker) => `  - ${blocker}`));
-  }
-
-  if (insights.sources.length) {
-    lines.push('', 'Top sources:');
-    for (const source of insights.sources.slice(0, 5)) {
-      lines.push(
-        `  ${source.sourceIp}  ${source.failedMessages} failed DMARC / ${source.totalMessages} total  (${source.risk} risk)`,
-      );
-    }
-  }
-
-  if (includeForensics) {
-    lines.push(
-      '',
-      'Forensic failures:',
-      `  Reports: ${insights.forensic.count}`,
-      `  Rejected or quarantined: ${insights.forensic.rejectedMessages}`,
-      `  Distinct recipients affected: ${insights.forensic.affectedRecipients}`,
-    );
-  }
-
-  // Two different situations that the previous single check called the same
-  // thing. A rua=mailto: address is the normal case and needs no comment; a
-  // rua=https: address means reports are published somewhere we cannot read, and
-  // telling the customer "no rua= address" when one is plainly present is worse
-  // than saying nothing.
-  if (!hasAggregateReporting(tags)) {
-    lines.push('', 'Warning: this domain has no rua= address, so reports cannot arrive.');
-  } else if (!canCollectAggregateReports(tags)) {
-    lines.push('', ...webEndpointNote(branded));
-  }
+  const lines = digestLines({
+    domain,
+    insights,
+    readiness,
+    tags: readDmarcRecord(domain.dmarcRecord),
+    includeForensics,
+    branded,
+  });
 
   return { ...digestEnvelope({ domainName: domain.name, organizationName, branded, lines }), recipientCount: 0 };
-}
-
-/**
- * The note for a domain whose reports go to a web endpoint. A white-labelled
- * digest says "this service" rather than naming us, because the client reading
- * it knows only the agency.
- */
-export function webEndpointNote(branded: boolean): string[] {
-  return [
-    'Note: this domain publishes reports to a web endpoint rather than a mailbox.',
-    branded
-      ? 'Reports are being sent, but this service does not read them from there yet,'
-      : 'Reports are being sent, but DMARC Harbor does not read them from there yet,',
-    'so the figures in this summary may be incomplete.',
-  ];
-}
-
-/**
- * The subject and the text around the figures.
- *
- * Digests go to the client's contacts. With the agency's white label on, the
- * subject is tagged with the agency's name and the text says only that the
- * agency prepared it; without it, the wording names us as it always has.
- */
-export function digestEnvelope(input: {
-  domainName: string;
-  organizationName: string;
-  branded: boolean;
-  lines: string[];
-}): { subject: string; text: string } {
-  const agency = oneLine(input.organizationName);
-  if (input.branded) {
-    return {
-      subject: `[${agency}] ${input.domainName} DMARC summary`,
-      text: [`Prepared by ${agency}.`, '', ...input.lines].join('\n'),
-    };
-  }
-  return {
-    subject: `[DMARC Harbor] ${input.domainName} DMARC summary`,
-    text: [`Prepared by ${agency}.`, '', ...input.lines, '', 'Prepared by DMARC Harbor.'].join('\n'),
-  };
 }
 
 /**
@@ -313,16 +232,19 @@ async function sendDigest(digest: DigestWithRelations, now: Date): Promise<Diges
 
   const recipients = digest.recipientEmails;
   // From the agency's name, Reply-To its published support address, and the
-  // same "Questions?" line the HTML client mail carries, when its white label
-  // is on. The digest is plain text, so the line is appended to the text.
+  // same "Questions?" line the other client mail carries, when its white label
+  // is on. The digest is written as text, so the line is appended to the text;
+  // the HTML shows the same line with its links, and the agency's logo and
+  // button colour, from the same branding.
   const headers = clientEmailHeaders(brand);
   const contactLine = contactSentence(clientContact(brand));
   const text = contactLine ? `${content.text}\n\n${contactLine}` : content.text;
+  const { html } = digestEmail({ subject: content.subject, text, branding: brand });
   let sent = 0;
 
   for (const to of recipients) {
     try {
-      await sendAuthEmail({ to, subject: content.subject, text, ...headers });
+      await sendAuthEmail({ to, subject: content.subject, text, html, ...headers });
       sent += 1;
     } catch {
       continue;

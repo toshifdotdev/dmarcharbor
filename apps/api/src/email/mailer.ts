@@ -195,6 +195,7 @@ async function sendPolicyProposalDecidedEmailImpl(input: { proposalId: string })
     title: notice.title,
     body: notice.body,
     url: appUrl(`/domains/${found.view.domain.slug}`),
+    decision: found.view.state,
   });
   for (const email of new Set(recipients)) {
     queueEmail(rendered, email, `policy-proposal-decided:${found.view.id}:${email}`);

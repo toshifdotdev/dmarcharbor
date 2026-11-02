@@ -259,7 +259,7 @@ export function TrustDocument({ payload: input, platformName = null }: { payload
           {platformName && !payload.provider.branded ? <span className="block">using {platformName}</span> : null}
         </p>
         <div className="min-w-0">
-          <h1 className="max-w-[22ch] text-[38px] font-[760] leading-[0.98] tracking-[-0.035em] text-fg [text-wrap:balance] sm:text-[52px] min-[1100px]:text-[60px] print:text-[24pt]">
+          <h1 className="max-w-[22ch] text-[38px] font-[760] leading-[0.96] tracking-[-0.035em] text-fg [text-wrap:balance] sm:text-[52px] min-[1100px]:text-[60px] print:text-[24pt]">
             Email authentication for {client}, and what we hold about it.
           </h1>
           <p className="mt-7 max-w-[38rem] text-[17px] leading-[1.5] text-fg-2 sm:text-[19px] print:text-[11pt]">

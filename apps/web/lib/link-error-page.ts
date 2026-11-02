@@ -12,7 +12,10 @@
  *
  * The name follows the host rule (lib/host-brand.ts): the agency's only on its
  * verified domain, ours everywhere else, never an unverified agency name.
- * Every interpolated value is HTML-escaped: the agency name is tenant data.
+ * Colours follow BrandApplier: on that verified domain the primary pill and
+ * the text links take the agency's primary colour, as buttons and links do on
+ * the React pages. Every interpolated value is HTML-escaped: the agency name
+ * is tenant data.
  */
 
 import { contrastInk, HEX } from "./brand-vars";
@@ -31,6 +34,16 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
+/**
+ * Albert Sans, self-hosted (public/fonts, SIL OFL): this page is built outside
+ * the root layout, so the layout's next/font face never reaches it. The bold
+ * file covers 600 to 800 so the 650 button, 700 name and 760 headline use it
+ * rather than a synthesised bold. A missing file only means the system face.
+ */
+const ALBERT_SANS_FACES =
+  '@font-face{font-family:"Albert Sans";src:url("/fonts/AlbertSans-Regular.woff2") format("woff2");font-weight:400;font-style:normal;font-display:swap}' +
+  '@font-face{font-family:"Albert Sans";src:url("/fonts/AlbertSans-Bold.woff2") format("woff2");font-weight:600 800;font-style:normal;font-display:swap}';
 
 const CLOSED_LINE = `<svg width="168" height="30" viewBox="0 0 168 30" aria-hidden="true" style="display:block;margin:0 0 32px">
 <path d="M12 15H146" stroke="#c9cdd4" stroke-width="5" stroke-linecap="round" stroke-dasharray="0.1 10" fill="none"/>
@@ -71,7 +84,10 @@ export async function linkErrorPage({
     .map((action, i) =>
       i === 0
         ? `<a href="${escapeHtml(action.href)}" style="display:inline-flex;align-items:center;height:44px;padding:0 22px;border-radius:999px;background:${primary};color:${onPrimary};font-size:15px;font-weight:650;text-decoration:none">${escapeHtml(action.label)}</a>`
-        : `<a href="${escapeHtml(action.href)}" style="color:#15171b;font-size:16px;font-weight:600;text-decoration:underline;text-underline-offset:3px">${escapeHtml(action.label)}</a>`,
+        : // The link rule of the React pages (the `link` utility): the accent,
+          // which is the tenant's primary on its verified domain and ink
+          // otherwise, underlined on a hairline.
+          `<a href="${escapeHtml(action.href)}" style="color:${primary};font-size:16px;font-weight:600;text-decoration:underline;text-decoration-thickness:1px;text-decoration-color:#c9cdd4;text-underline-offset:3px">${escapeHtml(action.label)}</a>`,
     )
     .join("");
 
@@ -82,6 +98,7 @@ export async function linkErrorPage({
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>${escapeHtml(heading)} · ${escapeHtml(name)}</title>
+<style>${ALBERT_SANS_FACES}</style>
 </head>
 <body style="margin:0;background:#ffffff;color:#15171b;font-family:'Albert Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;">
 <header style="max-width:1320px;margin:0 auto;padding:0 24px;box-sizing:border-box;">
@@ -91,7 +108,7 @@ export async function linkErrorPage({
 <main style="max-width:1320px;margin:0 auto;padding:12vh 24px 96px;box-sizing:border-box;">
 <div style="max-width:40rem">
 ${closed ? CLOSED_LINE : ""}
-<h1 style="margin:0;font-size:clamp(32px,6vw,46px);font-weight:760;line-height:1.02;letter-spacing:-0.035em;text-wrap:balance">${escapeHtml(heading)}</h1>
+<h1 style="margin:0;font-size:clamp(32px,6vw,46px);font-weight:760;line-height:0.96;letter-spacing:-0.035em;text-wrap:balance">${escapeHtml(heading)}</h1>
 <p style="margin:20px 0 0;max-width:34rem;font-size:18px;line-height:1.5;color:#41454d">${escapeHtml(detail)}</p>
 ${links ? `<p style="margin:32px 0 0;display:flex;flex-wrap:wrap;align-items:center;gap:16px 24px">${links}</p>` : ""}
 </div>

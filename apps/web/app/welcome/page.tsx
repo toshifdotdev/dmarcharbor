@@ -218,4 +218,4 @@ export default async function WelcomePage({ searchParams }: { searchParams: Prom
   );
 }
 
-const HEADING = "text-balance text-[34px] font-[760] leading-[1.02] tracking-[-0.035em] text-fg sm:text-[40px]";
+const HEADING = "text-balance text-[34px] font-[760] leading-[0.96] tracking-[-0.035em] text-fg sm:text-[40px]";

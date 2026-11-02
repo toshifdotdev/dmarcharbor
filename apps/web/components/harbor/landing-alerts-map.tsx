@@ -73,7 +73,13 @@ const OUT: (Route & { y1: number })[] = [
   { id: "autotask", name: "Autotask", kind: "a ticket", tone: "plain", y1: 400, points: depart(247.5, 400, 360) },
 ];
 
-const STROKE: Record<Tone, string> = { plain: "#15171b", forged: "#d9342b", quiet: "#a3a8b0" };
+// Ink, the forged line's red, and rule-2 for "reports stopped arriving": a
+// dotted grey line with a hollow grey origin is the map's not-measured line.
+const STROKE: Record<Tone, string> = {
+  plain: "var(--color-fg)",
+  forged: "var(--color-route-red)",
+  quiet: "var(--color-rule-2)",
+};
 
 const withPaths = <T extends Route>(routes: T[]) => routes.map((r) => ({ ...r, d: rounded(r.points, 14), len: length(r.points) }));
 const IN_PATHS = withPaths(IN);

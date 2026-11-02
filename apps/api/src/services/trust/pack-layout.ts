@@ -21,9 +21,10 @@
  *     This cursor decides every page break, which keeps the page count a
  *     function of the facts alone.
  *
- * This file is separate from pdf-layout.ts on purpose. The monthly report
- * still uses that one, and its bytes and its tests rest on Helvetica; moving
- * it to this layout is its own change.
+ * The monthly report (pdf-layout.ts) is set from this file too: it takes this
+ * palette, these faces, and PackWriter's text, rule and mark primitives, and
+ * keeps only its own page-break rule. A colour or a size changed here changes
+ * both documents.
  */
 
 import type { CheckState } from './client-evidence.js';
@@ -118,9 +119,10 @@ interface SectionMark {
   destination: string;
 }
 
-const CELL_X = 5;
-const CELL_Y = 5;
-const MARK_INDENT = 12;
+export const CELL_X = 5;
+export const CELL_Y = 5;
+/** Room for a state mark before its word. */
+export const MARK_INDENT = 12;
 /** Room for a two-digit section number beside its title. */
 export const NUMBER_INDENT = 34;
 

@@ -31,6 +31,7 @@ import { SETTINGS_SECTIONS } from "@/lib/settings-map";
 import type { ClientRow, WorkspaceSummary } from "@/lib/types";
 import { Search } from "@/components/ui/icons";
 import { Kbd } from "@/components/ui/notice";
+import { InlineWaiting } from "@/components/ui/states";
 import { switchWorkspace } from "./workspace-menu";
 
 type Kind = "domain" | "client" | "workspace" | "screen";
@@ -285,7 +286,9 @@ export function Jump({
                 autoComplete="off"
                 className="h-12 min-w-0 flex-1 bg-transparent text-body text-fg outline-none placeholder:text-fg-4"
               />
-              {loadState === "loading" ? <span className="text-meta text-fg-3">Reading clients…</span> : null}
+              {loadState === "loading" ? (
+                <InlineWaiting className="shrink-0 text-meta text-fg-3">Reading clients…</InlineWaiting>
+              ) : null}
             </div>
 
             <ul id={listId} role="listbox" aria-label="Results" className="min-h-0 flex-1 overflow-y-auto p-1.5">
@@ -306,7 +309,7 @@ export function Jump({
                       onMouseMove={() => setCursor(i)}
                       onClick={r.go}
                       className={clsx(
-                        "flex cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2",
+                        "flex cursor-pointer items-center gap-3 rounded-ctl px-2.5 py-2",
                         on ? "bg-paper-3 shadow-[inset_3px_0_0_var(--color-act)]" : "",
                       )}
                     >
@@ -333,7 +336,7 @@ export function Jump({
               ) : null}
             </ul>
 
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-rule bg-paper-3/60 px-4 py-2.5 text-meta text-fg-3">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-rule bg-paper px-4 py-2.5 text-meta text-fg-3">
               {loadState === "failed" ? (
                 <span role="status" className="font-semibold text-fail">
                   Clients could not be read, so domains are not listed. Screens still are.

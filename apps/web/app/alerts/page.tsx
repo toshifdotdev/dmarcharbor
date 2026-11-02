@@ -126,8 +126,9 @@ export default async function AlertsPage() {
             events && rules ? (
               <>
                 <span className="inline-flex items-center gap-1.5">
-                  <StateMark shape="diamond" tone={open > 0 ? "fail" : "void"} />
-                  <span className={open > 0 ? "tnum font-semibold text-fail" : "tnum font-semibold text-fg-2"}>{open}</span> open event
+                  {/* An open event waits for a person: a warning, not a failure. */}
+                  <StateMark shape="ring" tone={open > 0 ? "warn" : "void"} />
+                  <span className={open > 0 ? "tnum font-semibold text-warn" : "tnum font-semibold text-fg-2"}>{open}</span> open event
                   {open === 1 ? "" : "s"}
                 </span>
                 <span>

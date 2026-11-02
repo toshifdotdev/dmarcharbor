@@ -190,7 +190,7 @@ export function FirstDomain({
                   <span className="font-semibold text-ok">Added</span> to {added.clientName}
                 </span>
               </p>
-              <h2 id={`${ids}-done`} className="data mt-1.5 break-all text-[26px] font-semibold leading-[32px] tracking-[-0.03em] text-fg">
+              <h2 id={`${ids}-done`} className="data mt-1.5 break-all text-h2 font-semibold tracking-[-0.03em] text-fg">
                 {added.name}
               </h2>
               <p className="mt-2 max-w-[64ch] text-body text-fg-2">
@@ -243,7 +243,7 @@ export function FirstDomain({
       <div className="grid gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,380px)]">
         <form onSubmit={submit} className="flex max-w-[540px] flex-col gap-5">
           <div>
-            <h2 id={`${ids}-head`} className="display text-[26px] leading-[30px] text-fg [text-wrap:balance]">
+            <h2 id={`${ids}-head`} className="display text-h2 text-fg [text-wrap:balance]">
               {clients.length === 0 ? "Add your first client and domain" : "Add a domain to start measuring"}
             </h2>
             <p className="mt-2.5 text-body text-fg-2">

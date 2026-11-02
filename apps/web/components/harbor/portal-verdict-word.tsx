@@ -30,8 +30,12 @@ const TONE: Record<Verdict["tone"], MarkTone> = {
 };
 
 export function VerdictWord({ verdict, size = "md" }: { verdict: Verdict; size?: "md" | "lg" }) {
+  // Reports that stopped are the stale state, drawn as the posture badge draws
+  // it: the half-filled square in the void grey, whatever the verdict's tone
+  // (which still ranks it near the top of the list).
+  const tone = verdict.kind === "silent" ? "void" : TONE[verdict.tone];
   return (
-    <StateWord shape={SHAPE[verdict.kind]} tone={TONE[verdict.tone]} size={size}>
+    <StateWord shape={SHAPE[verdict.kind]} tone={tone} size={size}>
       {verdict.title}
     </StateWord>
   );

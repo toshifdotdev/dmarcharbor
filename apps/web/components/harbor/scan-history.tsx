@@ -3,8 +3,7 @@
 /**
  * scan-history.tsx — DNS scans for one domain, and the control that runs one.
  *
- * The Chart rebuild of components/scan-panel.tsx, with the same behaviour and
- * the same reasons (read that file's header for the long form):
+ * What it does, and why:
  *
  * - A scan is the ONLY thing that records a DMARC policy against a domain
  *   (`domain.dmarcPolicy` is written by the scan service and nothing else), so

@@ -315,7 +315,7 @@ export function WebhooksBoard({
                               Resume
                             </Button>
                           )}
-                          <Button size="sm" variant="ghost" className="text-fail hover:text-fail" onClick={() => setRemoving(ep)}>
+                          <Button size="sm" variant="danger-quiet" onClick={() => setRemoving(ep)}>
                             Remove
                           </Button>
                         </>

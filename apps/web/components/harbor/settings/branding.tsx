@@ -61,7 +61,7 @@ import { sendingCheckNotice, sendingDomainOf, sendingDomainPhase, sendingRecordP
 import type { SendingDomainRecord, SendingDomainState } from "@/lib/types";
 import { PierMark } from "@/components/mark";
 import { ActionRefusal, type ActionError } from "@/components/harbor/plan-refusal";
-import { Button } from "@/components/ui/button";
+import { Button, fileInputClass } from "@/components/ui/button";
 import { DnsRecord } from "@/components/ui/copy";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { Field, Input } from "@/components/ui/field";
@@ -70,7 +70,8 @@ import { UpgradeNotice } from "@/components/ui/states";
 import { useToast } from "@/components/ui/toast";
 import { Panel, StateMark, StateWord, StepLine } from "./parts";
 
-/** The ground every client page sits on: white, as the Routes pages are. */
+/** The ground every client page sits on (--color-paper), as a hex because the
+ *  contrast arithmetic needs one. */
 const PAPER = "#ffffff";
 
 function Ratio({ label, value }: { label: string; value: number | null }) {
@@ -528,7 +529,7 @@ export function BrandingBoard({
                 <PreviewRow name="corriwick.example" verdict="Protected" meaning="Every message reported passed the checks." tone="ok" />
               </ol>
               <div className="flex flex-wrap items-center gap-3">
-                <span className="inline-flex h-9 items-center justify-center rounded-full bg-[var(--hb-primary,var(--color-fg))] px-4 text-ui font-semibold text-[var(--hb-primary-ink,#fff)]">
+                <span className="inline-flex h-9 items-center justify-center rounded-full bg-[var(--hb-primary,var(--color-fg))] px-4 text-ui font-semibold text-[var(--hb-primary-ink,var(--color-paper))]">
                   Forward to your IT team
                 </span>
                 <span className="link text-ui font-semibold">Download the monthly report</span>
@@ -559,7 +560,7 @@ export function BrandingBoard({
               hint="Links, focus rings and primary buttons."
               value={primary}
               onChange={setPrimary}
-              fallback="#1f56b5"
+              fallback="#15171b"
             />
             <ColourField
               label="Text on the brand colour"
@@ -624,7 +625,7 @@ export function BrandingBoard({
                     accept="image/svg+xml,image/png,image/jpeg,image/webp"
                     onChange={(e) => upload(e.target.files?.[0])}
                     disabled={logoBusy}
-                    className="text-meta text-fg-2 file:mr-3 file:h-8 file:cursor-pointer file:rounded-ctl file:border file:border-rule-2 file:bg-paper-2 file:px-3 file:text-ui file:font-semibold file:text-fg hover:file:border-fg-3"
+                    className={fileInputClass}
                   />
                 </label>
                 {logoUrl ? (
@@ -817,7 +818,7 @@ export function BrandingBoard({
                   </Button>
                 </>
               ) : null}
-              <Button variant="ghost" className="text-fail hover:text-fail" onClick={() => setRemoveOpen(true)}>
+              <Button variant="danger-quiet" onClick={() => setRemoveOpen(true)}>
                 Remove custom domain
               </Button>
             </div>
@@ -947,7 +948,7 @@ export function BrandingBoard({
                   Check records
                 </Button>
               ) : null}
-              <Button variant="ghost" className="text-fail hover:text-fail" onClick={() => setSendingRemoveOpen(true)} data-testid="wl-sending-remove">
+              <Button variant="danger-quiet" onClick={() => setSendingRemoveOpen(true)} data-testid="wl-sending-remove">
                 Remove sending address
               </Button>
             </div>

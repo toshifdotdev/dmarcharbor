@@ -126,9 +126,10 @@ function WatchItem({
         {reading.state === "failed" ? (
           <span className="block size-2 border border-void" />
         ) : live && mark === "alert" ? (
-          <span className="block size-2 rotate-45 bg-fail" />
+          // An open alert waits for a person: the warning ring, not red.
+          <span className="block size-2.5 rounded-full border-2 border-warn-mark" />
         ) : live ? (
-          <span className="block size-2 rounded-full bg-act" />
+          <span className="block size-2 rounded-full bg-fg" />
         ) : mark === "alert" ? (
           // At rest each reading keeps its own shape, so "0" beside a diamond
           // and "0" beside a ring cannot be confused on a phone.

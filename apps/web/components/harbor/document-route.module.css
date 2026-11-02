@@ -184,7 +184,7 @@
   margin: -8px 0 0 -8px;
   border: 3px solid var(--color-fg);
   border-radius: 50%;
-  background: #ffffff;
+  background: var(--color-paper);
 }
 
 .row[data-failing] .origin {
@@ -200,7 +200,7 @@
   margin: -13px 0 0 -8px;
   border: 3px solid var(--color-fg);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--color-paper);
 }
 
 /* Absent: hollow and grey, the transit map's closed station. */
@@ -221,7 +221,7 @@
   margin: -15px 0 0 -10px;
   border: 3px solid var(--color-fg);
   border-radius: 10px;
-  background: #ffffff;
+  background: var(--color-paper);
 }
 
 /* Turned away: a short red bar. */
@@ -240,7 +240,7 @@
   margin: -11px 0 0 -7px;
   border: 3px solid var(--color-fg);
   border-radius: 7px;
-  background: #ffffff;
+  background: var(--color-paper);
 }
 
 /* The scale above the rows: each station's name over its column. */
@@ -336,7 +336,7 @@
   margin: -7px 0 0 -7px;
   border: 3px solid var(--color-rule-2);
   border-radius: 50%;
-  background: #ffffff;
+  background: var(--color-paper);
 }
 
 .pStop[data-reached] {
@@ -491,7 +491,7 @@
   margin-top: 3px;
   border: 3px solid var(--color-fg);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--color-paper);
 }
 
 @media print {

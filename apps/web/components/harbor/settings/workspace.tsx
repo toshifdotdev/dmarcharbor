@@ -29,6 +29,7 @@ import { DnsRecord } from "@/components/ui/copy";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
+import { InlineWaiting } from "@/components/ui/states";
 import { useToast } from "@/components/ui/toast";
 import { DangerZone } from "./parts";
 
@@ -158,7 +159,7 @@ export function WorkspaceDeletion({
         }
       >
         <div className="flex flex-col gap-3 text-ui text-fg-2">
-          {loading ? <p>Counting what would be deleted…</p> : null}
+          {loading ? <InlineWaiting className="text-ui text-fg-2">Counting what would be deleted…</InlineWaiting> : null}
           {previewError ? (
             <Notice tone="fail" title="What would be deleted could not be read">
               {previewError} Deleting without seeing it is not offered.

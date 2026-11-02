@@ -20,6 +20,7 @@ import {
   updateHostedDmarc,
 } from "@/lib/ops-client";
 import { Button } from "@/components/ui/button";
+import { Checkbox, Radio } from "@/components/ui/choice";
 import { CopyValue } from "@/components/ui/copy";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { Select } from "@/components/ui/field";
@@ -277,7 +278,7 @@ export function HostedDmarc({
                   Check now
                 </Button>
                 {canEdit ? (
-                  <Button data-testid="hosted-release" variant="ghost" className="text-fail hover:text-fail" onClick={() => setConfirmRelease(true)}>
+                  <Button data-testid="hosted-release" variant="danger-quiet" onClick={() => setConfirmRelease(true)}>
                     Stop hosting
                   </Button>
                 ) : null}
@@ -293,7 +294,7 @@ export function HostedDmarc({
                   Check now
                 </Button>
                 {canEdit ? (
-                  <Button data-testid="hosted-release" variant="ghost" className="text-fail hover:text-fail" onClick={() => setConfirmRelease(true)}>
+                  <Button data-testid="hosted-release" variant="danger-quiet" onClick={() => setConfirmRelease(true)}>
                     Stop hosting
                   </Button>
                 ) : null}
@@ -304,23 +305,23 @@ export function HostedDmarc({
                   <p className="legend">Policy</p>
                   <div role="radiogroup" aria-label="DMARC policy" className="flex flex-wrap gap-4 text-ui">
                     {POLICIES.map((value) => (
-                      <label key={value} className="flex items-center gap-1.5">
-                        <input
-                          type="radio"
-                          name="hosted-policy"
-                          value={value}
-                          checked={policy === value}
-                          onChange={() => setPolicy(value)}
-                          data-testid={`hosted-policy-${value}`}
-                        />
-                        {value}
-                      </label>
+                      <Radio
+                        key={value}
+                        label={value}
+                        name="hosted-policy"
+                        value={value}
+                        checked={policy === value}
+                        onChange={() => setPolicy(value)}
+                        data-testid={`hosted-policy-${value}`}
+                      />
                     ))}
                   </div>
-                  <label className="flex items-center gap-2 text-ui text-fg-2">
-                    <input type="checkbox" checked={testing} onChange={(event) => setTesting(event.target.checked)} data-testid="hosted-testing" />
-                    testing (t=y)
-                  </label>
+                  <Checkbox
+                    label="testing (t=y)"
+                    checked={testing}
+                    onChange={(event) => setTesting(event.target.checked)}
+                    data-testid="hosted-testing"
+                  />
                   <label className="flex flex-wrap items-center gap-2 text-ui text-fg-2">
                     np= (non-existent subdomains)
                     <Select data-testid="hosted-np" value={np} onChange={(event) => setNp(event.target.value as Policy | "")}>
@@ -363,7 +364,7 @@ export function HostedDmarc({
 
               {paused && canEdit ? (
                 <div>
-                  <Button data-testid="hosted-release" variant="ghost" className="text-fail hover:text-fail" onClick={() => setConfirmRelease(true)}>
+                  <Button data-testid="hosted-release" variant="danger-quiet" onClick={() => setConfirmRelease(true)}>
                     Stop hosting
                   </Button>
                 </div>

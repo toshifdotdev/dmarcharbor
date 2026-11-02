@@ -392,6 +392,7 @@ async function deliverWarnings(
             domainSlug: warning.domainSlug,
             sentence,
             registrar: warning.registrar,
+            expired: warning.daysLeft < 0,
           })),
         }),
         member.user.email,

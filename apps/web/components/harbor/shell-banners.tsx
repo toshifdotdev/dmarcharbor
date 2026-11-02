@@ -1,12 +1,12 @@
 "use client";
 
 /**
- * shell-banners.tsx — the two conditions the Chart shell states above every
+ * shell-banners.tsx — the two conditions the app shell states above every
  * screen: an out-of-date Data Processing Agreement, and a custom domain whose
  * record is not verified yet.
  *
- * Same behaviour as the Monolith banners (dpa-reconsent-banner.tsx and the
- * shell's unverified notice), same server action, same test ids. The API now
+ * The DPA banner accepts through the acceptRevisedDpa server action, and both
+ * banners carry the test ids the clickthrough suite reads. The API
  * refuses workspace requests under a superseded agreement, so the banner both
  * explains the refusal and resolves it from where it is shown.
  */

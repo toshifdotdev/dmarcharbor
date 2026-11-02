@@ -188,9 +188,9 @@ export function BillingStanding({
         <div className="flex min-w-0 flex-col gap-4">
           <div>
             <p className="text-meta font-semibold text-fg-3">Your plan</p>
-            <h2 id="standing-head" className="display mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[34px] leading-[1.02] text-fg">
+            <h2 id="standing-head" className="display mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-h1 text-fg">
               {currentLabel}
-              <span className="tnum text-[22px] font-semibold tracking-[-0.01em] text-fg-2">
+              <span className="tnum text-h2 font-semibold tracking-[-0.01em] text-fg-2">
                 {s.priceLabel}
                 {free ? null : <span className="text-body font-medium text-fg-3"> {interval}</span>}
               </span>

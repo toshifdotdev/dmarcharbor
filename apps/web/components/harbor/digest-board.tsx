@@ -304,12 +304,12 @@ export function DigestBoard({
                 "The API built the digest but reported that it was not sent."
               )}
             </p>
-            <div className="rounded-ctl border border-rule bg-paper-3">
-              <p className="border-b border-rule px-3 py-2 text-ui">
+            <div className="border-y border-rule">
+              <p className="border-b border-rule py-2 text-ui">
                 <span className="legend mr-2">Subject</span>
                 <span className="font-semibold text-fg">{sent.result.subject}</span>
               </p>
-              <pre className="max-h-[320px] overflow-auto whitespace-pre-wrap px-3 py-2 font-[family-name:var(--font-ui)] text-meta text-fg-2">
+              <pre className="max-h-[320px] overflow-auto whitespace-pre-wrap py-2 font-[family-name:var(--font-ui)] text-meta text-fg-2">
                 {sent.result.preview}
               </pre>
             </div>

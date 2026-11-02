@@ -120,7 +120,7 @@ export function StateWord({
   className?: string;
   title?: string;
 }) {
-  const text = { fail: "text-fail", warn: "text-warn", ok: "text-ok", ink: "text-fg", void: "text-fg-3" }[tone];
+  const text = { fail: "text-fail", warn: "text-warn", ok: "text-ok", ink: "text-fg", void: "text-void" }[tone];
   return (
     <span title={title} className={clsx("inline-flex items-center gap-1.5 whitespace-nowrap text-ui font-semibold", text, className)}>
       <StateMark shape={shape} tone={tone} />

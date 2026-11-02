@@ -16,25 +16,29 @@
  *   because half-branded looks like a bug in ours and the agency must not
  *   think their branding is live when it is not.
  *
- * TWO SELECTORS, ONE CONTRACT. The tenant's colours land on `:root`, exactly as
- * before, for every Monolith screen. They also land on `[data-harbor]`, the root
- * of every screen rebuilt on the Chart system, because that element sets its own
- * default accent and an inherited :root value would otherwise lose to it. This
- * <style> is in <body>, after the stylesheet, so at equal specificity it wins.
+ * TWO SELECTORS, ONE CONTRACT. The tenant's colours land on `:root` as they
+ * were set, for anything rendered outside a `[data-harbor]` root. They also
+ * land on `[data-harbor]`, the root every screen renders in, because that
+ * element sets its own default accent (globals.css) and an inherited :root
+ * value would otherwise lose to it. This <style> is in <body>, after the
+ * stylesheet, so at equal specificity it wins.
  *
- * On the Chart side a tenant who set a primary colour but no ink colour gets an
- * ink chosen for contrast against their primary, rather than our default white
- * on whatever they picked. The Monolith side is unchanged.
+ * On `[data-harbor]` a tenant who set a primary colour but no text colour gets
+ * one chosen for contrast against their primary (ink or white, lib/brand-vars),
+ * rather than our default white on whatever they picked, and the primary also
+ * fills the primary button (--hb-primary). The `:root` rule carries only what
+ * the tenant set.
  */
 
 import { contrastInk, HEX } from "@/lib/brand-vars";
 import { readHostBrand } from "@/lib/host-brand";
 
 /**
- * The Chart-side custom properties for a tenant's two colours, for a surface
- * that receives its brand from the API rather than from the request host (the
- * client portal). Lives in lib/brand-vars.ts so the white-label preview in the
- * browser computes the same values; re-exported here for existing importers.
+ * The `[data-harbor]` custom properties for a tenant's two colours, for a
+ * surface that receives its brand from the API rather than from the request
+ * host (the client portal). Lives in lib/brand-vars.ts so the white-label
+ * preview in the browser computes the same values; re-exported here for
+ * existing importers.
  */
 export { chartBrandVars } from "@/lib/brand-vars";
 
@@ -50,7 +54,7 @@ export async function BrandApplier() {
   if (primary) root.push(`--color-accent:${primary}`);
   if (ink) root.push(`--color-accent-ink:${ink}`);
 
-  // On the Chart side the tenant's primary colour lands on the accent (links,
+  // On [data-harbor] the tenant's primary colour lands on the accent (links,
   // focus, active states) AND on the primary-action fill, which defaults to
   // ink for our own brand.
   const chart: string[] = [];

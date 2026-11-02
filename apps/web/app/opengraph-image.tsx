@@ -94,7 +94,9 @@ function RouteMap() {
         {LINES.map((l) => (
           <path key={l.name} d={rounded(l.points, 14)} stroke={l.color} strokeWidth={7} strokeLinecap="round" strokeLinejoin="round" />
         ))}
-        <path d={rounded(FORGED, 14)} stroke={RED} strokeWidth={7} strokeDasharray="10 7" strokeLinejoin="round" />
+        {/* Round caps add half the stroke at each end of a dash, so 3 on and
+            14 off reads as the 10 and 7 the dashed line is drawn at. */}
+        <path d={rounded(FORGED, 14)} stroke={RED} strokeWidth={7} strokeDasharray="3 14" strokeLinecap="round" strokeLinejoin="round" />
         {LINES.map((l) => (
           <circle key={`o-${l.name}`} cx={X0} cy={l.y0} r={6.5} fill="#ffffff" stroke={INK} strokeWidth={3} />
         ))}
@@ -195,7 +197,8 @@ export default async function OpengraphImage() {
           </div>
 
           <div style={{ display: "flex", flexDirection: "column" }}>
-            <div style={{ color: INK, fontSize: 76, fontWeight: 700, lineHeight: 0.98, letterSpacing: -2.6 }}>
+            {/* 700, the heaviest face in app/_og: there is no 760 or 800 file to load. */}
+            <div style={{ color: INK, fontSize: 76, fontWeight: 700, lineHeight: 0.96, letterSpacing: -2.6 }}>
               Every sender, mapped.
             </div>
             <div style={{ marginTop: 26, color: INK_2, fontSize: 25, fontWeight: 500, lineHeight: 1.42, maxWidth: 520 }}>

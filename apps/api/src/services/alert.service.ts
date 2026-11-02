@@ -8,6 +8,14 @@ import type {
 import { prisma } from '../database/prisma.js';
 import { env } from '../config/env.js';
 import { sendAuthEmail } from '../email/email.service.js';
+import {
+  alertEmail,
+  alertEmailBody,
+  escalationNote,
+  escalationSubject,
+  rollupEmailBody,
+  rollupEmailSubject,
+} from './alert-email.js';
 import { createAlertNotifications } from './notification.service.js';
 import { passesDmarc } from './alignment.service.js';
 import { buildSenderBreakdown, possibleSpoofingSources } from './sender-breakdown.service.js';
@@ -893,7 +901,10 @@ async function deliverToUser(
   }
 
   try {
-    await sendAuthEmail({ to: user.email, subject, text: body });
+    // The text is the body as written; the HTML sets it in our layout with a
+    // way to the alerts page, where it can be acknowledged.
+    const rendered = alertEmail({ subject, body, kind, appUrl: env.APP_URL });
+    await sendAuthEmail({ to: user.email, subject, text: body, html: rendered.html });
     await prisma.alertDelivery.update({
       where: { id: delivery.id },
       data: { status: 'SENT', attempts: 1, sentAt: new Date() },
@@ -919,25 +930,6 @@ export interface RuleEvaluationResult {
   reminderLevel?: number;
 }
 
-function escalationSubject(rule: { domain: { name: string }; name: string }, reminderLevel: number): string {
-  if (reminderLevel <= 1) {
-    return `[DMARC Harbor] ${rule.domain.name}: ${rule.name}`;
-  }
-  if (reminderLevel === 2) {
-    return `[DMARC Harbor] Unacknowledged: ${rule.domain.name} ${rule.name}`;
-  }
-  return `[DMARC Harbor] URGENT unacknowledged: ${rule.domain.name} ${rule.name}`;
-}
-
-function escalationNote(reminderLevel: number): string {
-  if (reminderLevel <= 1) {
-    return '';
-  }
-  if (reminderLevel === 2) {
-    return 'Nobody has acknowledged this alert yet. If someone is already handling it, acknowledge it to stop further reminders.';
-  }
-  return 'This alert has been unacknowledged across multiple reminders. Escalate to whoever owns this domain.';
-}
 
 /** Reads each workspace's features once per pass, however many rules it has. */
 function planFeatureReader(): (organizationId: string) => Promise<Record<string, boolean>> {
@@ -1208,26 +1200,6 @@ async function notifyRecipients(
   const risk = riskByMetric[rule.metric];
   const recipientUserIds = rule.recipients.map((recipient) => recipient.userId);
 
-  const spoofingLines =
-    rule.metric === 'NEW_UNAUTHENTICATED_SOURCE' && snapshot
-      ? [
-          '',
-          'Sending sources to check:',
-          ...snapshot.newUnauthenticatedSources
-            .slice(0, 10)
-            .map(
-              (source) =>
-                `  ${source.serviceName ?? source.senderDomain ?? source.senderKey}: ${source.failedMessages} of ${source.totalMessages} messages failed both SPF and DKIM` +
-                `${source.sourceIps.length ? `, from ${source.sourceIps.join(', ')}` : ''}, first seen ${source.firstSeenAt.slice(0, 10)}.`,
-            ),
-          snapshot.newUnauthenticatedSources.length > 10
-            ? `  ...and ${snapshot.newUnauthenticatedSources.length - 10} more`
-            : '',
-          '',
-          'If the domain owner confirms this is not their service, move to p=reject to stop it.',
-        ]
-      : [];
-
   await createAlertNotifications({
     alertEventId: eventId,
     organizationId: rule.organizationId,
@@ -1246,22 +1218,20 @@ async function notifyRecipients(
     rule.domain.name,
     rule.domain.slug,
     escalationSubject(rule, reminderLevel),
-    [
-      `Workspace: ${rule.organization.name}`,
-      `Domain: ${rule.domain.name}`,
-      `Alert: ${rule.name} (${rule.metric})`,
+    alertEmailBody({
+      organizationName: rule.organization.name,
+      domainName: rule.domain.name,
+      ruleName: rule.name,
+      metric: rule.metric,
       summary,
-      '',
-      `Threshold: ${rule.operator} ${rule.threshold}`,
-      `Window: ${rule.windowMinutes} minutes`,
-      ...spoofingLines,
-      reminderLevel > 1 ? `Reminder ${reminderLevel} of ${rule.maxReminderLevel}` : 'This is the first notification.',
-      escalationNote(reminderLevel),
-      '',
-      'Review and acknowledge this alert in DMARC Harbor.',
-    ]
-      .filter(Boolean)
-      .join('\n'),
+      operator: rule.operator,
+      threshold: rule.threshold,
+      windowMinutes: rule.windowMinutes,
+      reminderLevel,
+      maxReminderLevel: rule.maxReminderLevel,
+      spoofingSources:
+        rule.metric === 'NEW_UNAUTHENTICATED_SOURCE' && snapshot ? snapshot.newUnauthenticatedSources : null,
+    }),
     risk,
     reminderLevel,
     now,
@@ -1386,28 +1356,16 @@ export async function runAlertRollups(now = new Date()): Promise<RollupResult[]>
       },
     });
 
-    const lines = outstanding
-      .slice(0, 20)
-      .map(
-        (event) =>
-          `  ${event.domain.name.padEnd(30)} ${event.rule.name.padEnd(28)} ${event.summary}`,
-      );
+    const body = rollupEmailBody({
+      organizationName: outstanding[0].organization.name,
+      outstanding: outstanding.map((event) => ({
+        domainName: event.domain.name,
+        ruleName: event.rule.name,
+        summary: event.summary,
+      })),
+    });
 
-    const body = [
-      `Workspace: ${outstanding[0].organization.name}`,
-      '',
-      `${outstanding.length} alert${outstanding.length === 1 ? '' : 's'} remain unacknowledged after their reminder sequence finished.`,
-      '',
-      ...lines,
-      outstanding.length > 20 ? `  ...and ${outstanding.length - 20} more` : '',
-      '',
-      'These alerts have already been sent to the people who own each rule.',
-      'Review them in DMARC Harbor and acknowledge, adjust, or disable the rule.',
-    ]
-      .filter((line) => line !== '')
-      .join('\n');
-
-    const subject = `[DMARC Harbor] ${outstanding.length} unacknowledged alert${outstanding.length === 1 ? '' : 's'}`;
+    const subject = rollupEmailSubject(outstanding.length);
 
     for (const event of outstanding) {
       /**

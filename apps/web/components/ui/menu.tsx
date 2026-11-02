@@ -39,7 +39,7 @@ export function MenuContent({ className, children, ...rest }: ComponentProps<typ
 }
 
 const itemClass =
-  "relative flex cursor-pointer select-none items-center gap-2 rounded-lg px-2.5 py-2 outline-none " +
+  "relative flex cursor-pointer select-none items-center gap-2 rounded-ctl px-2.5 py-2 outline-none " +
   "data-[highlighted]:bg-paper-3 data-[disabled]:cursor-not-allowed data-[disabled]:text-fg-3";
 
 export function MenuItem({

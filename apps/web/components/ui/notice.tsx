@@ -27,7 +27,7 @@ function Mark({ tone }: { tone: NoticeTone }) {
       {tone === "ok" ? <span className="block size-2 bg-ok" /> : null}
       {tone === "fail" ? <span className="block size-2 rotate-45 bg-fail" /> : null}
       {tone === "warn" ? <span className="block size-2.5 rounded-full border-2 border-warn-mark" /> : null}
-      {tone === "info" ? <span className="block size-2 rounded-full bg-act" /> : null}
+      {tone === "info" ? <span className="block size-2 rounded-full bg-fg" /> : null}
     </span>
   );
 }
@@ -105,7 +105,9 @@ export function Kbd({ children, className }: { children: ReactNode; className?: 
   return (
     <kbd
       className={clsx(
-        "inline-grid h-[18px] min-w-[18px] place-items-center rounded-[5px] border border-rule-2 bg-paper px-1 font-ui text-[10.5px] font-semibold text-fg-3 shadow-[0_1px_0_var(--color-rule-2)]",
+        // A hairline key with a heavier bottom edge: the key's depth, drawn
+        // as a line, not a shadow.
+        "inline-grid h-[18px] min-w-[18px] place-items-center rounded-[5px] border border-b-2 border-rule-2 bg-paper px-1 font-ui text-[10.5px] font-semibold text-fg-3",
         className,
       )}
     >

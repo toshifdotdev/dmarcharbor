@@ -28,6 +28,7 @@ import { Textarea } from "@/components/ui/choice";
 import { Field, Input, Segmented, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { Readout, ReadoutStrip } from "@/components/ui/readout";
+import { InlineWaiting } from "@/components/ui/states";
 import { Table, TBody, Td, TEmptyRow, Th, THead, Tr } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
 import { LineStateWord, StopLine } from "./lines";
@@ -262,7 +263,7 @@ export function ErasureBoard({
             </Field>
           ) : null}
         </div>
-        {previewing ? <p className="text-ui text-fg-3">Counting for the scope chosen…</p> : null}
+        {previewing ? <InlineWaiting>Counting for the scope chosen…</InlineWaiting> : null}
         {previewError ? (
           <Notice tone="fail" title="What it would erase could not be read">
             {previewError} An erasure is not offered without it.

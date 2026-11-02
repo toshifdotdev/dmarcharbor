@@ -9,8 +9,15 @@ import { memberAllowance, memberLimitMessage, resolveEntitlements } from '../ser
 import { accessControl, organizationRoles } from './permissions.js';
 import { queueAuthEmail, queueEmail } from '../email/email.service.js';
 import { oneLine } from '../email/sender.js';
-import { contactSentence, workspaceInvitationEmail } from '../email/templates.js';
-import { agencyAuthLink } from './agency-auth-link.js';
+import {
+  emailVerificationEmail,
+  existingAccountSignUpEmail,
+  passwordResetEmail,
+  securityNoticeEmail,
+  workspaceInvitationEmail,
+  type AuthEmailAgency,
+} from '../email/templates.js';
+import { agencyAuthLink, type AuthLink } from './agency-auth-link.js';
 import { trustedOriginsFor } from './agency-origin.js';
 
 /**
@@ -87,20 +94,27 @@ export async function mfaSessionGuard(
 }
 
 /**
- * Ends a reset or verification email sent in an agency's name with the support
- * address the agency publishes, so a client who is stuck knows who to ask. Only
- * when the link was rebuilt for the agency and it has published one.
+ * The agency a reset or verification link was rebuilt for, as the templates
+ * take it: its name on one line, its look, and the support address that ends
+ * the message (`passwordResetEmail` adds the "Questions?" line from it). Null
+ * when the link stayed on our host, which keeps the message ours.
  */
-function withAgencyContact(text: string, agency: string | null, supportEmail: string | undefined): string {
-  const line = agency && supportEmail ? contactSentence({ agencyName: agency, email: supportEmail }) : null;
-  return line ? `${text}\n\n${line}` : text;
+function authEmailAgency(link: AuthLink): AuthEmailAgency | null {
+  if (!link.agency) return null;
+  return {
+    name: oneLine(link.agency.workspaceName),
+    brand: link.brand ?? null,
+    supportEmail: link.supportEmail ?? null,
+  };
 }
 
-const securityEmailFooter =
-  'If this was not you, reset your password and contact your workspace owner.';
-
-function securityEmail(firstLine: string): string {
-  return `${firstLine}\n\n${securityEmailFooter}`;
+/**
+ * The two-step notices. The text is the notice with the fixed "If this was not
+ * you" line under it, built by the template; the HTML adds a way to Account
+ * security on our app.
+ */
+function securityEmail(to: string, subject: string, notice: string): void {
+  queueAuthEmail({ to, ...securityNoticeEmail({ subject, notice, appUrl: env.APP_URL }) });
 }
 
 interface MfaHookSession {
@@ -170,11 +184,11 @@ async function handleTwoFactorAfter(ctx: MfaHookContext): Promise<void> {
     });
 
     await recordMfaAudit({ actorUserId: after.user.id, action: 'MFA_ENABLED' });
-    queueAuthEmail({
-      to: after.user.email,
-      subject: 'Two-step verification was turned on',
-      text: securityEmail('Two-step verification was turned on for your DMARC Harbor account.'),
-    });
+    securityEmail(
+      after.user.email,
+      'Two-step verification was turned on',
+      'Two-step verification was turned on for your DMARC Harbor account.',
+    );
     return;
   }
 
@@ -183,11 +197,11 @@ async function handleTwoFactorAfter(ctx: MfaHookContext): Promise<void> {
     if (!user) return;
 
     await recordMfaAudit({ actorUserId: user.id, action: 'MFA_DISABLED' });
-    queueAuthEmail({
-      to: user.email,
-      subject: 'Two-step verification was turned off',
-      text: securityEmail('Two-step verification was turned off for your DMARC Harbor account.'),
-    });
+    securityEmail(
+      user.email,
+      'Two-step verification was turned off',
+      'Two-step verification was turned off for your DMARC Harbor account.',
+    );
     return;
   }
 
@@ -213,11 +227,7 @@ async function handleTwoFactorAfter(ctx: MfaHookContext): Promise<void> {
     });
     const count = remaining === null ? '' : ` ${remaining} left.`;
     const advice = remaining !== null && remaining <= 2 ? ' Generate new ones in Account security.' : '';
-    queueAuthEmail({
-      to: user.email,
-      subject: 'A backup code was used to sign in',
-      text: securityEmail(`A backup code was used to sign in.${count}${advice}`),
-    });
+    securityEmail(user.email, 'A backup code was used to sign in', `A backup code was used to sign in.${count}${advice}`);
     return;
   }
 
@@ -226,11 +236,7 @@ async function handleTwoFactorAfter(ctx: MfaHookContext): Promise<void> {
     if (!user) return;
 
     await recordMfaAudit({ actorUserId: user.id, action: 'MFA_BACKUP_CODES_REGENERATED' });
-    queueAuthEmail({
-      to: user.email,
-      subject: 'New backup codes were generated',
-      text: securityEmail('New backup codes were generated; the old ones no longer work.'),
-    });
+    securityEmail(user.email, 'New backup codes were generated', 'New backup codes were generated; the old ones no longer work.');
   }
 }
 
@@ -293,15 +299,9 @@ export const auth = betterAuth({
      */
     sendResetPassword: async ({ user, url }) => {
       const link = await agencyAuthLink(url, user);
-      const agency = link.agency ? oneLine(link.agency.workspaceName) : null;
       queueAuthEmail({
         to: user.email,
-        subject: agency ? `Reset your password for ${agency}` : 'Reset your DMARC Harbor password',
-        text: withAgencyContact(
-          `Reset your password using this link: ${link.url}\n\nIf you did not request this, you can ignore this email.`,
-          agency,
-          link.supportEmail,
-        ),
+        ...passwordResetEmail({ url: link.url, agency: authEmailAgency(link) }),
         ...(link.from ? { from: link.from } : {}),
         ...(link.replyTo ? { replyTo: link.replyTo } : {}),
       });
@@ -322,15 +322,12 @@ export const auth = betterAuth({
      * which is true either way. The enumeration protection is the point; pretending
      * success is what had to go.
      *
-     * The text names no product, because a client on an agency's own domain can
-     * trigger it and should not learn whose service runs underneath.
+     * The message names no product, in the text or the HTML, because a client
+     * on an agency's own domain can trigger it and should not learn whose
+     * service runs underneath.
      */
     onExistingUserSignUp: async ({ user }) => {
-      queueAuthEmail({
-        to: user.email,
-        subject: 'Someone tried to sign up with your email',
-        text: 'Someone tried to create an account using this email address. If this was you, sign in instead. If not, you can ignore this email.',
-      });
+      queueAuthEmail({ to: user.email, ...existingAccountSignUpEmail() });
     },
   },
   emailVerification: {
@@ -341,17 +338,9 @@ export const auth = betterAuth({
     /** Same rule as the password reset: the agency's name and domain when it started there. */
     sendVerificationEmail: async ({ user, url }) => {
       const link = await agencyAuthLink(url, user);
-      const agency = link.agency ? oneLine(link.agency.workspaceName) : null;
       queueAuthEmail({
         to: user.email,
-        subject: agency ? `Verify your email for ${agency}` : 'Verify your DMARC Harbor email',
-        text: agency
-          ? withAgencyContact(
-              `Verify your email address for ${agency} using this link: ${link.url}\n\nThe link expires in 24 hours.`,
-              agency,
-              link.supportEmail,
-            )
-          : `Verify your email address using this link: ${link.url}\n\nThe link expires in 24 hours.`,
+        ...emailVerificationEmail({ url: link.url, agency: authEmailAgency(link) }),
         ...(link.from ? { from: link.from } : {}),
         ...(link.replyTo ? { replyTo: link.replyTo } : {}),
       });

@@ -1,12 +1,15 @@
 /**
  * button.tsx — buttons and button-shaped links, in the Routes language: pills.
  *
- * Four variants and no more:
- *   primary    the one action a screen is for. Ink, or the tenant's brand
- *              colour on their verified domain (globals.css, ACCENT).
- *   secondary  every other action. White with a hairline.
- *   ghost      tertiary, in-table, toolbar.
- *   danger     destructive, and only behind a confirmation.
+ * Five variants and no more:
+ *   primary       the one action a screen is for. Ink, or the tenant's brand
+ *                 colour on their verified domain (globals.css, ACCENT).
+ *   secondary     every other action. White with a hairline.
+ *   ghost         tertiary, in-table, toolbar.
+ *   danger        destructive, and only behind a confirmation.
+ *   danger-quiet  a destructive action that opens that confirmation: red
+ *                 text with the ghost's hover pill in the red wash. For
+ *                 Remove and Delete in a row, a list or a toolbar.
  *
  * Busy keeps its width. Label and the busy indicator share one grid cell, so
  * the control never reflows under a double click: the bug ActionButton was
@@ -17,7 +20,7 @@ import Link from "next/link";
 import { clsx } from "clsx";
 import type { ButtonHTMLAttributes, ComponentProps, ReactNode } from "react";
 
-export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
+export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "danger-quiet";
 export type ButtonSize = "sm" | "md" | "lg";
 
 const base =
@@ -38,8 +41,11 @@ const variants: Record<ButtonVariant, string> = {
   ghost:
     "text-fg-2 hover:bg-paper-3 hover:text-fg active:bg-rule disabled:text-fg-3 disabled:hover:bg-transparent",
   danger:
-    "border border-fail bg-fail text-white hover:border-crit hover:bg-crit hover:text-white " +
+    "border border-fail bg-fail text-paper hover:border-crit hover:bg-crit hover:text-paper " +
     "disabled:border-rule disabled:bg-paper-3 disabled:text-fg-3",
+  "danger-quiet":
+    "text-fail hover:bg-fail-wash hover:text-fail active:bg-fail-wash active:text-crit " +
+    "disabled:text-fg-3 disabled:hover:bg-transparent aria-disabled:text-fg-3",
 };
 
 const sizes: Record<ButtonSize, string> = {
@@ -53,6 +59,21 @@ const sizes: Record<ButtonSize, string> = {
 export function buttonClass(variant: ButtonVariant = "secondary", size: ButtonSize = "md", extra?: string) {
   return clsx(base, variants[variant], sizes[size], extra);
 }
+
+/**
+ * A native file input whose button is drawn as the small secondary button: a
+ * white pill on a hairline. The chosen file's name stays beside it in meta
+ * text. For a file input that is visible; one hidden behind a Button needs
+ * nothing from here.
+ */
+export const fileInputClass =
+  "block max-w-full text-meta text-fg-2 " +
+  "file:mr-3 file:h-[30px] file:cursor-pointer file:rounded-full file:border file:border-rule-2 file:bg-paper " +
+  "file:px-2.5 file:font-ui file:text-meta file:font-semibold file:text-fg " +
+  "file:transition-[background-color,border-color,color] file:duration-100 " +
+  "hover:file:border-fg-3 active:file:bg-paper-3 " +
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-act " +
+  "disabled:cursor-not-allowed disabled:file:cursor-not-allowed disabled:file:border-rule disabled:file:bg-paper-3 disabled:file:text-fg-3";
 
 function Inner({ busy, busyLabel, children }: { busy?: boolean; busyLabel?: string; children: ReactNode }) {
   return (

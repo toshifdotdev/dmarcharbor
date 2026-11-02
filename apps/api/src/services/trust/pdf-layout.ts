@@ -1,261 +1,337 @@
 /**
- * The layout vocabulary shared by the signed compliance pack and the monthly
- * evidence report.
+ * pdf-layout.ts — the monthly evidence report's page, in the Routes language.
  *
- * It lives here rather than in either document because the two have to look
- * like they came from the same organisation. Copying these helpers would let a
- * spacing fix land in one document and not the other, and a reader comparing
- * two PDFs from the same agency would see the difference before they read a
- * word of either.
+ * The report and the compliance pack come from the same agency and have to
+ * look like it: the same white page, the same two faces, the same palette and
+ * the same timetable tables. So nothing visual is defined here. The palette is
+ * the pack's `C`, the faces are the pack's (pdf-fonts.ts), and every word is
+ * measured and set by the pack's own primitives (PackWriter's measure, textAt,
+ * rule and mark). A size or a colour cannot drift between the two documents,
+ * because there is only one of each.
  *
- * The pack's bytes are load bearing: its SHA-256 is published and an auditor
- * may already hold a copy. Everything here is the same code that produced that
- * document, moved, not rewritten. The monthly report passes an accent colour;
- * leaving it out gives the pack exactly the values it always had.
+ * What is the report's own is how it breaks pages. A section that would split
+ * moves whole to the next page, as it always has; only a section taller than a
+ * page runs on, row by row, with its column labels drawn again at the top of
+ * each new page. Moving a section whole needs its height before it is drawn, so
+ * each section is described once, as data, and both measured and drawn from that
+ * one description. Two descriptions drift apart, and then the document changes
+ * with no code change.
+ *
+ * Mechanics carried over from the Helvetica layout, each from a shipped bug:
+ *
+ *   - Everything is measured in the face and size it is drawn in. pdfkit
+ *     measures with whatever font is active, and measuring with the previous
+ *     element's font is how paragraphs overlapped in the first issued pack.
+ *     PackWriter.measure sets the face before it measures, every time.
+ *   - Table rows are measured cell by cell, never estimated from a string's
+ *     length: only the renderer knows where a cell wraps.
+ *   - The renderer sets pdfkit's own bottom margin to zero, so pdfkit never
+ *     adds a page by itself. This cursor decides every break, and the page
+ *     count is a function of the facts alone.
  */
 
-export const INK = '#0f172a';
-export const MUTED = '#64748b';
-export const RULE = '#e2e8f0';
-export const ACCENT = '#0f766e';
+import type { CheckState } from './client-evidence.js';
+import {
+  C,
+  CELL_X,
+  CELL_Y,
+  MARK_INDENT,
+  MEASURE,
+  NUMBER_INDENT,
+  PAGE,
+  PackWriter,
+  STATE_COLOUR,
+  WIDTH,
+  type Column,
+  type Face,
+  type TextStyle,
+} from './pack-layout.js';
+import type { PdfFaces } from './pdf-fonts.js';
 
-export const PAGE_MARGIN = 56;
-export const PAGE_WIDTH = 595.28;
-export const CONTENT_WIDTH = PAGE_WIDTH - PAGE_MARGIN * 2;
+export type { Column };
 
-/** A cursor over one PDF page, with the page break rule in one place. */
-export class Page {
-  y = 0;
+export const PAGE_MARGIN = PAGE.x;
+export const CONTENT_WIDTH = WIDTH;
+/** The report has no running head, so a page starts at the margin. */
+const TOP = PAGE_MARGIN;
+/** The lowest point anything may reach, unchanged from the Helvetica layout. */
+const BOTTOM = PAGE.height - PAGE_MARGIN - 24;
 
-  constructor(private doc: PDFKit.PDFDocument) {
-    this.y = PAGE_MARGIN;
+const BODY: TextStyle = { face: 'sans', size: 9.5, color: C.ink2, lineGap: 2.4, width: MEASURE };
+const NOTE: TextStyle = { face: 'sans', size: 8, color: C.ink3, lineGap: 1.6, width: MEASURE };
+const HEADING: TextStyle = { face: 'bold', size: 15, tracking: -0.25, width: WIDTH - NUMBER_INDENT };
+const HEADING_NUMBER: TextStyle = { face: 'bold', size: 15, color: C.ink3, tnum: true };
+
+/** Space above a section heading, unless the heading opens a page. */
+const SECTION_GAP = 26;
+const LABEL_WIDTH = 130;
+
+/** A cursor over the report's pages, with the page-break rule in one place. */
+export class ReportPage {
+  y: number = TOP;
+  /** The pack's text primitives. Its own cursor and sections are not used here. */
+  readonly pen: PackWriter;
+
+  constructor(
+    readonly doc: PDFKit.PDFDocument,
+    faces: PdfFaces,
+  ) {
+    this.pen = new PackWriter(doc, faces);
   }
 
+  newPage(): void {
+    this.doc.addPage();
+    this.y = TOP;
+  }
+
+  /**
+   * Breaks the page unless `height` fits below the cursor. A page with nothing
+   * on it yet never breaks: what does not fit there fits nowhere, and breaking
+   * would only leave a blank page behind.
+   */
   ensure(height: number): void {
-    if (this.y + height > this.doc.page.height - PAGE_MARGIN - 24) {
-      this.doc.addPage();
-      this.y = PAGE_MARGIN;
+    if (this.y > TOP && this.y + height > BOTTOM) {
+      this.newPage();
     }
   }
-
-  move(height: number): void {
-    this.ensure(height);
-    this.y += height;
-  }
 }
 
-/**
- * Measures a string at a specific font and size.
- *
- * PDFKit's `heightOfString` measures using whatever font is currently active, so
- * calling it before setting the font measures the previous element's font instead
- * of this one's. After a 12pt heading that over-reserves and leaves a gap; after an
- * 8.5pt table cell it under-reserves and the next element is drawn on top of this
- * one. Both happened in the shipped document. The font is therefore set before the
- * measurement, every time, and the caller's intent is passed in rather than
- * inherited.
- */
-export function measure(
-  doc: PDFKit.PDFDocument,
-  text: string,
-  width: number,
-  options: { font: string; size: number; bold?: boolean },
-): number {
-  doc.font(options.bold === true ? `${options.font}-Bold` : options.font);
-  doc.fontSize(options.size);
-  return doc.heightOfString(text, { width });
-}
-
-/**
- * A numbered section, described once and both measured and rendered from the same
- * description.
- *
- * Describing the shape twice is how a section ends up half on one page and half on
- * the next: the measurement pass and the render pass drift apart, and the document
- * changes with no code change. One description, one set of numbers.
- */
-export interface SectionBlock {
-  kind: 'body' | 'labelled' | 'table' | 'note';
-  text?: string;
-  label?: string;
-  value?: string;
-  columns?: { label: string; width: number }[];
-  rows?: string[][];
+/** One table cell. A state cell is drawn as its mark and the word in the state's colour. */
+export interface Cell {
+  text: string;
+  /** Defaults to the sans face, or the medium face for a state word. Domains and IPs pass `mono`. */
+  face?: Face;
+  /** Defaults to 8.5. */
   size?: number;
+  color?: string;
+  state?: CheckState;
 }
+
+/** One label and value pair. */
+export interface FactRow {
+  label: string;
+  value: string;
+  /** A literal value a reader copies exactly: the reference, an address. */
+  mono?: boolean;
+  /** A figure, set in tabular numerals. */
+  figure?: boolean;
+}
+
+export type SectionBlock =
+  | { kind: 'body'; text: string }
+  | { kind: 'note'; text: string }
+  | { kind: 'facts'; rows: FactRow[] }
+  | { kind: 'table'; columns: Column[]; rows: Cell[][] };
 
 export interface Section {
+  /** Set apart in ink-3 before the title, as the pack sets its section numbers. */
+  number: string;
   title: string;
   blocks: SectionBlock[];
-  /** Monthly reports pass the agency colour; the pack keeps the default. */
-  accent?: string;
+}
+
+// Facts: label and value pairs divided by hairlines.
+
+const FACT_LABEL: TextStyle = { face: 'medium', size: 8.6, color: C.meta, lineGap: 1.4, width: LABEL_WIDTH - 12 };
+
+function factValue(row: FactRow): TextStyle {
+  return {
+    face: row.mono ? 'mono' : 'sans',
+    size: row.mono ? 8.2 : 9,
+    color: C.ink,
+    lineGap: 1.8,
+    width: WIDTH - LABEL_WIDTH,
+    tnum: row.figure === true,
+  };
+}
+
+function factHeights(page: ReportPage, rows: FactRow[]): number[] {
+  return rows.map((row) => Math.max(page.pen.measure(row.label, FACT_LABEL), page.pen.measure(row.value, factValue(row))));
+}
+
+/** Opening rule and its space, each row with five points under it, its rule, six more; two after. */
+function factsHeight(heights: number[]): number {
+  return 6 + heights.reduce((total, height) => total + height + 11, 0) + 2;
 }
 
 /**
- * Height a section will occupy, using the same measurement and the same spacing
- * constants the render path uses. An accent is a colour only and changes no
- * measurement.
+ * Label and value pairs, one per row, each followed by a hairline. A pair never
+ * splits across pages, and the opening rule travels with the first pair.
  */
-export function sectionHeight(doc: PDFKit.PDFDocument, section: Section): number {
-  const headingSize = 12;
-  const headingText = measure(doc, section.title, CONTENT_WIDTH, {
-    font: 'Helvetica',
-    size: headingSize,
-    bold: true,
+export function facts(page: ReportPage, rows: FactRow[]): void {
+  const heights = factHeights(page, rows);
+  page.ensure(6 + (heights[0] ?? 0) + 11);
+  page.pen.rule(page.y, C.rule, 0.5);
+  page.y += 6;
+  rows.forEach((row, index) => {
+    const height = heights[index]!;
+    page.ensure(height + 11);
+    page.pen.textAt(row.label, PAGE.x, page.y, FACT_LABEL);
+    page.pen.textAt(row.value, PAGE.x + LABEL_WIDTH, page.y, factValue(row));
+    page.y += height + 5;
+    page.pen.rule(page.y, C.rule, 0.5);
+    page.y += 6;
   });
+  page.y += 2;
+}
 
-  let total = headingText + 4 + 1 + 14;
+// Tables, set like a timetable.
 
-  for (const block of section.blocks) {
-    if (block.kind === 'body' || block.kind === 'note') {
-      const size = block.size ?? (block.kind === 'note' ? 8.5 : 9.5);
-      total += measure(doc, block.text ?? '', CONTENT_WIDTH, { font: 'Helvetica', size }) + 8;
-      continue;
-    }
+const FALLBACK_COLUMN: Column = { label: '', width: 80 };
 
-    if (block.kind === 'labelled') {
-      const value = measure(doc, block.value ?? '', CONTENT_WIDTH - 130, { font: 'Helvetica', size: 9.5 });
-      const label = measure(doc, block.label ?? '', CONTENT_WIDTH - 130, { font: 'Helvetica', size: 9, bold: true });
-      total += Math.max(value, label) + 8;
-      continue;
-    }
+function headerLabel(column: Column): TextStyle {
+  return { face: 'medium', size: 7.6, color: C.meta, width: column.width - CELL_X * 2, align: column.align ?? 'left' };
+}
 
-    for (const row of block.rows ?? []) {
-      const cellHeights = row.map((cell, column) =>
-        measure(doc, cell, (block.columns?.[column]?.width ?? 100) - 8, { font: 'Helvetica', size: 8.5 }),
-      );
-      // Same arithmetic as the render path: measured cells, five points of padding
-      // above and below, six between rows.
-      total += Math.max(11, ...cellHeights) + 5 * 2 + 6;
-    }
+function cellStyle(cell: Cell, column: Column): TextStyle {
+  const align = column.align ?? 'left';
+  return {
+    face: cell.face ?? (cell.state ? 'medium' : 'sans'),
+    size: cell.size ?? 8.5,
+    color: cell.color ?? (cell.state ? STATE_COLOUR[cell.state] : C.ink),
+    lineGap: 1.4,
+    width: column.width - CELL_X * 2 - (cell.state ? MARK_INDENT : 0),
+    align,
+    // Figures line up in their column.
+    tnum: align === 'right',
+  };
+}
+
+interface TableLayout {
+  /** The column labels, the rule under them and the space before the first row. */
+  header: number;
+  rows: number[];
+  /** The rules run under the columns, not across the page. */
+  width: number;
+}
+
+function tableLayout(page: ReportPage, columns: Column[], rows: Cell[][]): TableLayout {
+  const labels = Math.max(0, ...columns.map((column) => page.pen.measure(column.label, headerLabel(column))));
+  return {
+    header: labels + 4 + CELL_Y,
+    rows: rows.map((row) =>
+      Math.max(10, ...row.map((cell, index) => page.pen.measure(cell.text || ' ', cellStyle(cell, columns[index] ?? FALLBACK_COLUMN)))),
+    ),
+    width: columns.reduce((total, column) => total + column.width, 0),
+  };
+}
+
+/** Every row is its tallest cell with five points above and below; four after the table. */
+function tableHeight(layout: TableLayout): number {
+  return layout.header + layout.rows.reduce((total, height) => total + height + CELL_Y * 2, 0) + 4;
+}
+
+function tableHeader(page: ReportPage, columns: Column[], layout: TableLayout): void {
+  let x = PAGE.x;
+  for (const column of columns) {
+    page.pen.textAt(column.label, x + CELL_X, page.y, headerLabel(column));
+    x += column.width;
   }
+  page.y += layout.header - CELL_Y;
+  page.pen.rule(page.y, C.rule2, 0.8, PAGE.x, layout.width);
+  page.y += CELL_Y;
+}
 
-  return total;
+/**
+ * Sentence-case column labels over a firmer rule, hairlines between rows, no
+ * fills and no vertical rules. A row never splits: one that does not fit moves
+ * whole to the next page, and the column labels are drawn again above it.
+ */
+export function table(page: ReportPage, columns: Column[], rows: Cell[][]): void {
+  const layout = tableLayout(page, columns, rows);
+  // The labels never stand alone at the foot of a page.
+  page.ensure(layout.header + (layout.rows[0] ?? 0) + CELL_Y * 2);
+  tableHeader(page, columns, layout);
+
+  rows.forEach((row, index) => {
+    const height = layout.rows[index]!;
+    if (page.y + height + CELL_Y > BOTTOM) {
+      page.newPage();
+      tableHeader(page, columns, layout);
+    }
+    let x = PAGE.x;
+    row.forEach((cell, column) => {
+      const spec = columns[column] ?? FALLBACK_COLUMN;
+      const indent = cell.state ? MARK_INDENT : 0;
+      if (cell.state) page.pen.mark(cell.state, x + CELL_X + 3.4, page.y + 5.6);
+      page.pen.textAt(cell.text, x + CELL_X + indent, page.y, cellStyle(cell, spec));
+      x += spec.width;
+    });
+    page.y += height + CELL_Y;
+    page.pen.rule(page.y, C.rule, 0.5, PAGE.x, layout.width);
+    page.y += CELL_Y;
+  });
+  page.y += 4;
+}
+
+// Running text.
+
+function paragraph(page: ReportPage, text: string, style: TextStyle): void {
+  const height = page.pen.measure(text, style);
+  page.ensure(height);
+  page.pen.textAt(text, PAGE.x, page.y, style);
+  page.y += height + 6;
+}
+
+// Sections.
+
+function headingHeight(page: ReportPage, title: string): number {
+  return page.pen.measure(title, HEADING) + 6 + 12;
+}
+
+function heading(page: ReportPage, number: string, title: string): void {
+  const height = page.pen.measure(title, HEADING);
+  page.ensure(height + 18);
+  const top = page.y;
+  page.pen.line(number, PAGE.x, top + 1.5, HEADING_NUMBER);
+  page.pen.textAt(title, PAGE.x + NUMBER_INDENT, top, HEADING);
+  page.y = top + height + 6;
+  page.pen.rule(page.y, C.ink, 0.9);
+  page.y += 12;
+}
+
+function blockHeight(page: ReportPage, block: SectionBlock): number {
+  switch (block.kind) {
+    case 'body':
+      return page.pen.measure(block.text, BODY) + 6;
+    case 'note':
+      return page.pen.measure(block.text, NOTE) + 6;
+    case 'facts':
+      return factsHeight(factHeights(page, block.rows));
+    case 'table':
+      return tableHeight(tableLayout(page, block.columns, block.rows));
+  }
+}
+
+/**
+ * Height a section will occupy, from the same measurements and the same spacing
+ * the drawing uses. The space above the heading is not included: it is dropped
+ * when the section opens a page.
+ */
+export function sectionHeight(page: ReportPage, spec: Section): number {
+  return headingHeight(page, spec.title) + spec.blocks.reduce((total, block) => total + blockHeight(page, block), 0);
 }
 
 /** Draws a section, having first moved it whole to the next page if it would split. */
-export function section(doc: PDFKit.PDFDocument, page: Page, spec: Section): void {
-  page.ensure(sectionHeight(doc, spec));
-  heading(doc, page, spec.title, spec.accent ?? ACCENT);
+export function section(page: ReportPage, spec: Section): void {
+  if (page.y > TOP) page.y += SECTION_GAP;
+  page.ensure(sectionHeight(page, spec));
+  heading(page, spec.number, spec.title);
 
   for (const block of spec.blocks) {
-    if (block.kind === 'body') {
-      body(doc, page, block.text ?? '');
-      continue;
+    switch (block.kind) {
+      case 'body':
+        paragraph(page, block.text, BODY);
+        break;
+      case 'note':
+        paragraph(page, block.text, NOTE);
+        break;
+      case 'facts':
+        facts(page, block.rows);
+        break;
+      case 'table':
+        table(page, block.columns, block.rows);
+        break;
     }
-    if (block.kind === 'note') {
-      body(doc, page, block.text ?? '', block.size ?? 8.5);
-      continue;
-    }
-    if (block.kind === 'labelled') {
-      labelled(doc, page, block.label ?? '', block.value ?? '');
-      continue;
-    }
-    table(doc, page, block.columns ?? [], block.rows ?? []);
-  }
-}
-
-/**
- * Reserves height that is known up front, rather than measured from a string.
- *
- * Used where there is no text to measure, so there is nothing that can disagree
- * with what is drawn.
- */
-export function ensure(page: Page, points: number): void {
-  page.ensure(points);
-}
-
-export function heading(doc: PDFKit.PDFDocument, page: Page, text: string, accent = ACCENT): void {
-  const height = measure(doc, text, CONTENT_WIDTH, { font: 'Helvetica', size: 12, bold: true });
-  ensure(page, height + 20 + 2);
-
-  const top = page.y;
-  doc.font('Helvetica-Bold').fontSize(12).fillColor(accent).text(text, PAGE_MARGIN, top, { width: CONTENT_WIDTH });
-  page.y = top + height + 4;
-
-  doc.moveTo(PAGE_MARGIN, page.y).lineTo(PAGE_WIDTH - PAGE_MARGIN, page.y).lineWidth(0.75).strokeColor(RULE).stroke();
-  page.move(14);
-}
-
-export function body(doc: PDFKit.PDFDocument, page: Page, text: string, size = 9.5): void {
-  // Measured at the size it will actually be drawn at. Measuring before setting the
-  // font is what produced overlapping paragraphs in the first issued pack.
-  const height = measure(doc, text, CONTENT_WIDTH, { font: 'Helvetica', size });
-  ensure(page, height + 8);
-
-  const top = page.y;
-  doc.font('Helvetica').fontSize(size).fillColor(INK).text(text, PAGE_MARGIN, top, { width: CONTENT_WIDTH });
-  page.y = top + height;
-  page.move(8);
-}
-
-export function labelled(doc: PDFKit.PDFDocument, page: Page, label: string, value: string): void {
-  const valueHeight = measure(doc, value, CONTENT_WIDTH - 130, { font: 'Helvetica', size: 9.5 });
-  // The label is a single short word on its own line, but it is measured rather
-  // than assumed so a longer label cannot overlap the value.
-  const labelHeight = measure(doc, label, CONTENT_WIDTH - 130, { font: 'Helvetica', size: 9, bold: true });
-  const height = Math.max(valueHeight, labelHeight);
-  ensure(page, height + 10);
-
-  const top = page.y;
-  doc.font('Helvetica-Bold').fontSize(9).fillColor(MUTED).text(label, PAGE_MARGIN, top, { width: 126 });
-  doc.font('Helvetica').fontSize(9.5).fillColor(INK).text(value, PAGE_MARGIN + 130, top, {
-    width: CONTENT_WIDTH - 130,
-  });
-  page.y = top + height;
-  page.move(8);
-}
-
-export function table(
-  doc: PDFKit.PDFDocument,
-  page: Page,
-  columns: { label: string; width: number }[],
-  rows: string[][],
-): void {
-  if (rows.length === 0) {
-    body(doc, page, 'None recorded.');
-    return;
-  }
-
-  const cellFont = { font: 'Helvetica', size: 8.5 } as const;
-  const paddingY = 5;
-  const gap = 6;
-
-  for (const [index, row] of rows.entries()) {
-    // Measured per cell at the size it will actually be drawn at.
-    //
-    // The first issued pack estimated the row height from the cell's character
-    // count, which reserved roughly 80 to 95 points for a single line of 8.5pt
-    // text and produced pages that were mostly empty grey bands. A string's
-    // length says nothing about how tall it renders, because wrapping decides
-    // that, and only the renderer knows where it wrapped.
-    const heights = row.map((cell, column) =>
-      measure(doc, cell, (columns[column]?.width ?? 100) - 8, cellFont),
-    );
-    const height = Math.max(11, ...heights);
-    ensure(page, height + paddingY * 2);
-
-    const top = page.y;
-
-    if (index % 2 === 0) {
-      doc.rect(PAGE_MARGIN, top, CONTENT_WIDTH, height + paddingY * 2).fillColor('#f8fafc').fill();
-    }
-
-    let x = PAGE_MARGIN;
-    row.forEach((cell, column) => {
-      const width = columns[column]?.width ?? 100;
-      doc.font(cellFont.font).fontSize(cellFont.size).fillColor(INK).text(cell, x + 4, top + paddingY, {
-        width: width - 8,
-        // lineBreak rather than ellipsis: ellipsis alone does not clip a block that
-        // has wrapped, so a long cell overflowed its column and ran into the next.
-        lineBreak: true,
-        height,
-        ellipsis: true,
-      });
-      x += width;
-    });
-
-    page.y = top + height + paddingY * 2;
-    page.move(gap);
   }
 }

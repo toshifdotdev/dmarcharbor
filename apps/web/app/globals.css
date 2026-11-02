@@ -271,6 +271,14 @@ label:has(input[type="radio"]),
     padding: 0;
     list-style: none;
   }
+
+  /* A safety net: a native checkbox, radio or progress bar that is not drawn
+     by components/ui still renders in ink, never the browser's blue. */
+  input[type="checkbox"],
+  input[type="radio"],
+  progress {
+    accent-color: var(--color-fg);
+  }
 }
 
 /* ── Utilities ────────────────────────────────────────────────────────── */
@@ -369,150 +377,30 @@ label:has(input[type="radio"]),
 }
 
 /* Waiting: a message riding a short line from one station to the next
-   (components/ui/tide.tsx). Under reduced motion it rests mid-line. */
+   (components/ui/tide.tsx). The message is drawn mid-line and the ride is
+   centred on it (--ride is the whole distance), so the still picture and the
+   reduced-motion picture are the same: the message halfway along. */
 .hb-ride {
   animation: hb-ride 1.5s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
 @keyframes hb-ride {
   from {
-    transform: translateX(0);
+    transform: translateX(calc(var(--ride, 96px) / -2));
   }
   to {
-    transform: translateX(var(--ride, 96px));
+    transform: translateX(calc(var(--ride, 96px) / 2));
   }
 }
 @media (prefers-reduced-motion: reduce) {
   .hb-ride {
     animation: none;
-    transform: translateX(calc(var(--ride, 96px) / 2));
-  }
-}
-
-/* Loading inside a control: a hairline with a short ink segment moving
-   along it. */
-.hb-scan {
-  position: relative;
-  overflow: hidden;
-  height: 1px;
-  background: var(--color-rule-2);
-}
-.hb-scan::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 40px;
-  left: -40px;
-  background: var(--color-act);
-  animation: hb-scan 1.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
-}
-@keyframes hb-scan {
-  to {
-    left: 100%;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .hb-scan::after {
-    animation: none;
-    left: 0;
-  }
-}
-
-/* The setup rail: the filled line grows from the previous stop to this one,
-   once, on arrival. */
-.hb-rail-fill {
-  animation: hb-rail-grow 900ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
-}
-@keyframes hb-rail-grow {
-  from {
-    width: var(--from);
-  }
-  to {
-    width: var(--to);
-  }
-}
-
-/* A row arriving in a list it was just added to. */
-@keyframes hb-arrive {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-    background-color: var(--color-paper-3);
-  }
-  60% {
-    opacity: 1;
-    transform: none;
-  }
-  to {
-    background-color: transparent;
-  }
-}
-.hb-arrive {
-  animation: hb-arrive 900ms ease-out both;
-}
-
-/* A set of things that appear together; --i is the item's index. */
-.hb-stagger > * {
-  animation: hb-rise 260ms ease-out both;
-  animation-delay: calc(var(--i, 0) * 70ms);
-}
-
-/* A figure that changed value rises into place, so a switch reads as a change. */
-.hb-figure {
-  display: inline-block;
-  animation: hb-rise 220ms ease-out both;
-}
-
-/* A check mark that draws itself when a state becomes true. */
-.hb-draw-check path {
-  stroke-dasharray: 20;
-  stroke-dashoffset: 20;
-  animation: hb-check 420ms 120ms ease-out forwards;
-}
-@keyframes hb-check {
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-
-/* A line that draws itself once. */
-.hb-draw {
-  stroke-dasharray: var(--len, 2000);
-  stroke-dashoffset: var(--len, 2000);
-  animation: hb-draw 1.8s cubic-bezier(0.3, 0.6, 0.2, 1) forwards;
-}
-@keyframes hb-draw {
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .hb-draw {
-    animation: none;
-    stroke-dashoffset: 0;
-  }
-}
-
-/* A rule that draws in once, left to right. */
-.hb-rule-draw {
-  transform-origin: left center;
-  animation: hb-rule-draw 700ms cubic-bezier(0.2, 0.7, 0.2, 1) 420ms both;
-}
-@keyframes hb-rule-draw {
-  from {
-    transform: scaleX(0);
-  }
-  to {
-    transform: scaleX(1);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .hb-rule-draw {
-    animation: none;
     transform: none;
   }
 }
 
+/* Keyframes the shared parts name directly: hb-rise for menus, toasts,
+   dialogs and the assistant window, hb-fade for the busy dots and backdrops,
+   hb-slide-in for the phone navigation sheet. */
 @keyframes hb-rise {
   from {
     opacity: 0;

@@ -16,7 +16,7 @@
  *   upgrade     the plan does not carry it. The words come from the API's 402.
  *
  * The test ids (state-loading, state-empty, state-error, state-retry) are read
- * by the clickthrough suite and are kept from the Monolith components.
+ * by the clickthrough suite; keep them.
  */
 
 import Link from "next/link";
@@ -57,6 +57,34 @@ export function LoadingState({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Waiting on one line, beside the thing it is for: a small riding mark and the
+ * words, for a count, a preview or a read that fills part of a screen. The
+ * words are visible, so the mark needs no label of its own. Size and colour of
+ * the words come from `className` (text-ui text-fg-3 by default).
+ */
+export function InlineWaiting({
+  children,
+  className,
+  testId,
+}: {
+  children: ReactNode;
+  className?: string;
+  testId?: string;
+}) {
+  return (
+    <span
+      role="status"
+      aria-live="polite"
+      data-testid={testId}
+      className={clsx("flex items-center gap-2.5", className ?? "text-ui text-fg-3")}
+    >
+      <TideMark size={20} className="shrink-0" />
+      <span className="min-w-0">{children}</span>
+    </span>
   );
 }
 

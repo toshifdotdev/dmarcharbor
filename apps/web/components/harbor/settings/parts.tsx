@@ -167,7 +167,7 @@ const WORD: Record<MarkTone, string> = {
   warn: "text-warn",
   fail: "text-fail",
   ink: "text-fg",
-  void: "text-fg-3",
+  void: "text-void",
 };
 
 /** The shape that travels with a state word, sized to 12.5 to 14.5px text. */

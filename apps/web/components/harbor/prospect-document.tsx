@@ -23,6 +23,7 @@
 
 import type { ReactNode } from "react";
 import type { ProspectFinding, PublicProspectReport } from "@/lib/types";
+import { buttonClass } from "@/components/ui/button";
 import { FAILED_LINE, MailRoute, StateWord, type MarkShape, type MarkTone, type PolicyOutcome } from "./document-route";
 import s from "./document-route.module.css";
 
@@ -93,7 +94,7 @@ export function ProspectDocument({ report }: { report: PublicProspectReport }) {
             <span className="data text-[14px] text-fg-2 [overflow-wrap:anywhere]">{domain}</span>
           </p>
           <h1
-            className="mt-6 max-w-[22ch] text-[36px] font-[760] leading-[1] tracking-[-0.035em] text-fg [overflow-wrap:anywhere] [text-wrap:balance] sm:text-[48px] min-[1100px]:text-[60px] print:text-[24pt]"
+            className="mt-6 max-w-[22ch] text-[36px] font-[760] leading-[0.96] tracking-[-0.035em] text-fg [overflow-wrap:anywhere] [text-wrap:balance] sm:text-[48px] min-[1100px]:text-[60px] print:text-[24pt]"
             data-testid="prospect-headline"
           >
             {assessment.headline}
@@ -184,7 +185,7 @@ export function ProspectDocument({ report }: { report: PublicProspectReport }) {
           {report.contactEmail ? (
             <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3">
               <a
-                className="inline-flex h-12 items-center rounded-full bg-cta px-6 text-[16px] font-semibold text-cta-ink transition-colors duration-150 hover:bg-cta-hover print:hidden"
+                className={buttonClass("primary", "lg", "print:hidden")}
                 href={`mailto:${report.contactEmail}?subject=${encodeURIComponent(`Email security for ${domain}`)}`}
               >
                 Reply to {agency}

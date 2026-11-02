@@ -242,7 +242,7 @@ function Brand({ brand }: { brand: HostBrand }) {
       ) : (
         <PierMark size={22} />
       )}
-      <span className="hidden text-[15.5px] font-bold tracking-[-0.01em] text-fg xl:block">{name}</span>
+      <span className="hidden text-lead font-bold tracking-[-0.01em] text-fg xl:block">{name}</span>
     </Link>
   );
 }

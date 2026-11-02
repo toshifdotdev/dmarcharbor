@@ -4,31 +4,36 @@
  * in the lines.
  *
  * The root rules are written as `.root[data-harbor]` on purpose. globals.css
- * styles every `[data-harbor]` element (paper ground, Archivo, blue focus) and
- * the order of that sheet and this module is not fixed in development. The
- * extra attribute makes these win by specificity instead of by luck, while the
- * tenant brand rules BrandApplier writes on `[data-harbor]` are left alone.
+ * styles every `[data-harbor]` element (white ground, Albert Sans, the accent
+ * focus ring) and the order of that sheet and this module is not fixed in
+ * development. The extra attribute makes these win by specificity instead of
+ * by luck, while the tenant brand rules BrandApplier writes on `[data-harbor]`
+ * are left alone.
+ *
+ * The short names below are this page's own, and each one points at the
+ * globals.css token of the same meaning, so the two can never drift apart.
  */
 
 .root[data-harbor] {
-  --ink: #15171b;
-  --ink-2: #41454d;
-  --ink-3: #6c717a;
-  --rule: #e7e9ed;
+  --ink: var(--color-fg);
+  --ink-2: var(--color-fg-2);
+  --ink-3: var(--color-fg-4);
+  --rule: var(--color-rule);
   /* Closed stations, unbuilt segments, field borders. */
-  --rule-2: #c9cdd4;
-  --red: #d9342b;
-  --ok: #0f7a3b;
-  --warn: #9a5b00;
+  --rule-2: var(--color-rule-2);
+  --red: var(--color-fail);
+  --ok: var(--color-ok);
+  --warn: var(--color-warn);
 
-  --blue: #1f5fd6;
-  --orange: #f07c1b;
-  --green: #13a050;
-  --yellow: #f2b705;
-  --purple: #8a3fd1;
+  --blue: var(--color-route-blue);
+  --orange: var(--color-route-orange);
+  --green: var(--color-route-green);
+  --yellow: var(--color-route-yellow);
+  --purple: var(--color-route-purple);
 
   /* The sample agency's brand colour, on its own line in the portal figure.
-     Not one of the sender colours, so it cannot be read as a sender. */
+     Not one of the sender colours, so it cannot be read as a sender, and not a
+     token: it appears nowhere else. */
   --agency: #0f766e;
 
   /* Primary actions: ink, or the tenant's colour on a verified domain. The
@@ -67,7 +72,7 @@
   );
 
   overflow-x: clip;
-  background: #ffffff;
+  background: var(--color-paper);
   color: var(--ink);
   font-family: var(--rt-sans), system-ui, sans-serif;
   font-size: 16px;
@@ -77,7 +82,7 @@
 
 :global(html):has(.root[data-harbor]),
 :global(body):has(.root[data-harbor]) {
-  background: #ffffff;
+  background: var(--color-paper);
 }
 
 /* Inputs show focus on their field instead (record-reading.module.css). */
@@ -197,7 +202,7 @@
 
 .mOrigin,
 .mStation {
-  fill: #ffffff;
+  fill: var(--color-paper);
   stroke: var(--ink);
   stroke-width: 3;
 }
@@ -214,7 +219,7 @@
 }
 
 .mMsg {
-  fill: #ffffff;
+  fill: var(--color-paper);
   stroke-width: 2.5;
 }
 
@@ -451,7 +456,7 @@
   margin: -7px 0 0 -7px;
   border: 3px solid var(--rule-2);
   border-radius: 50%;
-  background: #ffffff;
+  background: var(--color-paper);
 }
 
 .stripStop[data-reached] {
@@ -530,7 +535,7 @@
   height: 26px;
   border: 3px solid var(--ink);
   border-radius: 13px;
-  background: #ffffff;
+  background: var(--color-paper);
 }
 
 /* The terminus is the larger capsule. */

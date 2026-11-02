@@ -389,8 +389,7 @@ export function ManagedSpf({
                 {canEdit ? (
                   <Button
                     data-testid="spf-release"
-                    variant="ghost"
-                    className="text-fail hover:text-fail"
+                    variant="danger-quiet"
                     onClick={() => setConfirmRelease(true)}
                   >
                     Stop managing
@@ -426,8 +425,7 @@ export function ManagedSpf({
                 {canEdit ? (
                   <Button
                     data-testid="spf-release"
-                    variant="ghost"
-                    className="text-fail hover:text-fail"
+                    variant="danger-quiet"
                     onClick={() => setConfirmRelease(true)}
                   >
                     Stop managing
@@ -463,8 +461,7 @@ export function ManagedSpf({
                   {managed.status === "ACTIVE" && canEdit ? (
                     <Button
                       data-testid="spf-release"
-                      variant="ghost"
-                      className="text-fail hover:text-fail"
+                      variant="danger-quiet"
                       onClick={() => setConfirmRelease(true)}
                     >
                       Stop managing
@@ -599,7 +596,7 @@ export function ManagedSpf({
                   </div>
 
                   {preview ? (
-                    <div className="border border-rule bg-paper-2 p-3 text-ui text-fg-2">
+                    <div className="border-t border-rule pt-3 text-ui text-fg-2">
                       <p className="font-semibold text-fg">
                         Uses {preview.lookupCount} of 10 lookups. {preview.parts.length} part
                         {preview.parts.length === 1 ? "" : "s"}.

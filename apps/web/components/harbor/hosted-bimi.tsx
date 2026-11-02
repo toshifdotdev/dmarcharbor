@@ -32,7 +32,8 @@ import {
   uploadHostedBimiCertificate,
   uploadHostedBimiLogo,
 } from "@/lib/ops-client";
-import { Button } from "@/components/ui/button";
+import { Button, fileInputClass } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/choice";
 import { DnsRecord } from "@/components/ui/copy";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { Notice } from "@/components/ui/notice";
@@ -375,8 +376,7 @@ export function HostedBimi({
                 {canEdit ? (
                   <Button
                     data-testid="hosted-bimi-release-now"
-                    variant="ghost"
-                    className="text-fail hover:text-fail"
+                    variant="danger-quiet"
                     busy={busy === "release"}
                     busyLabel="Removing"
                     onClick={() => {
@@ -413,8 +413,7 @@ export function HostedBimi({
                 {canEdit ? (
                   <Button
                     data-testid="hosted-bimi-release"
-                    variant="ghost"
-                    className="text-fail hover:text-fail"
+                    variant="danger-quiet"
                     onClick={() => {
                       setRemoveNow(false);
                       setConfirmRelease(true);
@@ -475,7 +474,7 @@ export function HostedBimi({
                     void uploadLogo(event.target.files?.[0]);
                     event.target.value = "";
                   }}
-                  className="text-meta text-fg-2 file:mr-3 file:border file:border-rule-2 file:bg-paper-2 file:px-2 file:py-1 file:text-meta file:font-semibold file:text-fg"
+                  className={fileInputClass}
                 />
                 <span className="text-meta text-fg-3">
                   The file is stored exactly as uploaded. Do not edit it afterwards: your certificate authority
@@ -533,8 +532,7 @@ export function HostedBimi({
                   <div>
                     <Button
                       data-testid="hosted-bimi-certificate-remove"
-                      variant="ghost"
-                      className="text-fail hover:text-fail"
+                      variant="danger-quiet"
                       busy={busy === "certificate-remove"}
                       busyLabel="Removing"
                       onClick={removeCertificate}
@@ -565,7 +563,7 @@ export function HostedBimi({
                     void uploadCertificate(event.target.files?.[0]);
                     event.target.value = "";
                   }}
-                  className="text-meta text-fg-2 file:mr-3 file:border file:border-rule-2 file:bg-paper-2 file:px-2 file:py-1 file:text-meta file:font-semibold file:text-fg"
+                  className={fileInputClass}
                 />
                 <span className="text-meta text-fg-3">
                   The .pem file your certificate authority sent. Never the private key.
@@ -681,15 +679,12 @@ export function HostedBimi({
                 We keep serving the logo until a check sees the CNAME gone, so the logo does not vanish mid-fetch.
               </p>
             )}
-            <label className="flex items-baseline gap-2 text-ui text-fg-2">
-              <input
-                type="checkbox"
-                data-testid="hosted-bimi-remove-now"
-                checked={removeNow}
-                onChange={(event) => setRemoveNow(event.target.checked)}
-              />
-              Remove the record now instead of waiting for the CNAME check.
-            </label>
+            <Checkbox
+              data-testid="hosted-bimi-remove-now"
+              checked={removeNow}
+              onChange={(event) => setRemoveNow(event.target.checked)}
+              label="Remove the record now instead of waiting for the CNAME check."
+            />
           </div>
         }
         confirmLabel="Stop hosting"

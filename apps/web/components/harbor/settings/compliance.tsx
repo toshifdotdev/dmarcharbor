@@ -309,7 +309,7 @@ export function ComplianceBoard({
                 Open it <External size={12} />
               </ButtonLink>
               {canManage ? (
-                <Button size="sm" variant="ghost" className="text-fail hover:text-fail" onClick={() => setWithdrawOpen(true)}>
+                <Button size="sm" variant="danger-quiet" onClick={() => setWithdrawOpen(true)}>
                   Withdraw the page
                 </Button>
               ) : null}

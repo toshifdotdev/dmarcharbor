@@ -650,7 +650,8 @@ function MetaItem({ k, children }: { k: string; children: React.ReactNode }) {
 /**
  * When the registration lapses, as the registry reported it.
  *
- * Red from seven days (and once expired), amber inside thirty, plain beyond.
+ * Red once it has lapsed (a failure); the warning ring and amber inside thirty
+ * days, because it has not failed yet however close it is; plain beyond.
  * The registry's own words are used for the cases with no date, because "no
  * date" and "not looked up yet" are different claims.
  */
@@ -682,7 +683,9 @@ function RegistrationExpiry({ registration }: { registration: DomainRegistration
     year: "numeric",
     timeZone: "UTC",
   });
-  const tone = days <= 7 ? "font-semibold text-fail" : days <= 30 ? "font-semibold text-warn" : "text-fg-2";
+  const expired = days < 0;
+  const soon = !expired && days <= 30;
+  const tone = expired ? "font-semibold text-fail" : soon ? "font-semibold text-warn" : "text-fg-2";
   const label =
     days < 0
       ? `expired ${date}`
@@ -693,10 +696,11 @@ function RegistrationExpiry({ registration }: { registration: DomainRegistration
           : `expires ${date}`;
   return (
     <span
-      className={`tnum ${tone}`}
+      className={`tnum inline-flex items-center gap-1.5 ${tone}`}
       data-testid="domain-registration"
       title={registration.registrar ? `Registrar: ${registration.registrar}` : undefined}
     >
+      {expired ? <PostureMark posture="block" /> : soon ? <PostureMark posture="unverified" /> : null}
       {label}
     </span>
   );

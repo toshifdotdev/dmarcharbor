@@ -3,7 +3,7 @@ import { env } from '../config/env.js';
 import { enqueueEmail } from '../services/email-queue.service.js';
 import { EMAIL_SEND_TIMEOUT_MS, withGenericTimeout } from '../billing/provider-timeout.js';
 import { addressOf, sharedFromHeader } from './sender.js';
-import type { RenderedEmail } from './templates.js';
+import { plainTextEmail, type BrandLook, type ContactLine, type RenderedEmail } from './templates.js';
 
 /**
  * Outbound email transport.
@@ -166,8 +166,45 @@ export function queueEmail(
   });
 }
 
+/**
+ * A message written as text by its caller (account mail, alerts, digests).
+ *
+ * `html` is the themed part a template built. Without one, the text is set in
+ * the same layout by `plainTextEmail`, with `kind`, `brand`, `whiteLabel` and
+ * `contact` for its masthead and contact line. Nothing leaves as bare markup:
+ * the HTML part used to be the text split into paragraphs nested inside one
+ * more paragraph, which is not valid HTML, in a generic sans-serif with none of
+ * the product's look.
+ */
+export interface TextEmailMessage {
+  to: string;
+  subject: string;
+  text: string;
+  html?: string;
+  kind?: string | null;
+  brand?: BrandLook | null;
+  whiteLabel?: boolean;
+  contact?: ContactLine | null;
+  from?: string;
+  replyTo?: string;
+}
+
+function htmlFor(message: TextEmailMessage): string {
+  return (
+    message.html ??
+    plainTextEmail({
+      subject: message.subject,
+      text: message.text,
+      kind: message.kind ?? null,
+      brand: message.brand ?? null,
+      whiteLabel: message.whiteLabel ?? false,
+      contact: message.contact ?? null,
+    }).html
+  );
+}
+
 /** Kept so the auth flow's existing import keeps working. */
-export function queueAuthEmail(message: { to: string; subject: string; text: string; from?: string; replyTo?: string }): void {
+export function queueAuthEmail(message: TextEmailMessage): void {
   /**
    * Auth email goes through the same durable queue as everything else.
    *
@@ -180,41 +217,20 @@ export function queueAuthEmail(message: { to: string; subject: string; text: str
     kind: 'auth',
     to: message.to,
     subject: message.subject,
-    html: `<p style="font-family:sans-serif;font-size:15px;line-height:1.6;">${message.text
-      .split('\n\n')
-      .map((line) => `<p style="margin:0 0 12px;">${escapeAuthText(line)}</p>`)
-      .join('')}</p>`,
+    html: htmlFor(message),
     text: message.text,
     ...(message.from ? { from: message.from } : {}),
     ...(message.replyTo ? { replyTo: message.replyTo } : {}),
   });
 }
 
-export async function sendAuthEmail(message: {
-  to: string;
-  subject: string;
-  text: string;
-  from?: string;
-  replyTo?: string;
-}): Promise<void> {
+export async function sendAuthEmail(message: TextEmailMessage): Promise<void> {
   await sendEmail({
     to: message.to,
     subject: message.subject,
-    html: `<p style="font-family:sans-serif;font-size:15px;line-height:1.6;">${message.text
-      .split('\n\n')
-      .map((line) => `<p style="margin:0 0 12px;">${escapeAuthText(line)}</p>`)
-      .join('')}</p>`,
+    html: htmlFor(message),
     text: message.text,
     ...(message.from ? { from: message.from } : {}),
     ...(message.replyTo ? { replyTo: message.replyTo } : {}),
   });
-}
-
-function escapeAuthText(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }

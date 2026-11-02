@@ -274,7 +274,7 @@ export async function proxy(request: NextRequest) {
   }
 
   // On an agency's verified domain the tab and app icons are the agency's,
-  // never our Pier (app/brand-icon/route.tsx).
+  // never our Pier (app/brand-icon/[spec]/route.tsx).
   const agencyIcon = requestHeaders.get("x-harbor-host-state") === "verified" ? agencyIconTarget(request) : null;
   if (agencyIcon) {
     const iconResponse = NextResponse.rewrite(agencyIcon, { request: { headers: requestHeaders } });

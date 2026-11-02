@@ -211,7 +211,7 @@ export function AssistantWidget({ organizationId, brand }: { organizationId: str
         className={clsx(
           "fixed bottom-4 right-4 z-40 inline-flex h-11 items-center gap-2 rounded-full pl-3.5 pr-4 text-ui font-semibold",
           "sm:bottom-6 sm:right-6",
-          "bg-fg text-paper transition-colors duration-150 hover:bg-fg-2",
+          "bg-cta text-cta-ink transition-colors duration-150 hover:bg-cta-hover active:bg-cta-press",
           "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-act",
         )}
       >
@@ -407,7 +407,7 @@ function QuestionButton({ question, onAsk, disabled }: { question: string; onAsk
       type="button"
       disabled={disabled}
       onClick={() => onAsk(question)}
-      className="-mx-2 w-[calc(100%+16px)] rounded-lg px-2 py-1 text-left text-ui text-fg-2 transition-colors duration-150 hover:bg-paper-3 hover:text-fg disabled:cursor-not-allowed disabled:text-fg-4"
+      className="-mx-2 w-[calc(100%+16px)] rounded-ctl px-2 py-1 text-left text-ui text-fg-2 transition-colors duration-150 hover:bg-paper-3 hover:text-fg disabled:cursor-not-allowed disabled:text-fg-4"
     >
       {question}
     </button>
@@ -550,7 +550,7 @@ function SupportLine({
 /**
  * The launcher's mark: a question mark drawn as a line on the map. The hook
  * is a line that bends at 45° and drops to a stop, and the dot is a station,
- * hollow so the pill's ink shows through it.
+ * hollow so the pill's fill shows through it.
  */
 function AskMark() {
   return (

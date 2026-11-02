@@ -224,13 +224,14 @@ function EventRow({ event: e, organizationId }: { event: EventView; organization
       className={clsx(
         "grid gap-x-6 gap-y-2.5 border-b border-rule py-3.5 pl-3 pr-1 last:border-b-0",
         "md:grid-cols-[136px_minmax(0,1fr)_auto] xl:grid-cols-[136px_minmax(0,1fr)_minmax(180px,220px)_auto]",
-        open && "shadow-[inset_2px_0_0_var(--color-fail)]",
+        open && "shadow-[inset_2px_0_0_var(--color-warn-mark)]",
       )}
     >
-      {/* State, and the moment that state began. */}
+      {/* State, and the moment that state began. Open is waiting for a
+          person: a warning, not a failure, so it is never drawn in red. */}
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 md:col-start-1 md:row-span-2 md:row-start-1 md:flex-col md:items-start xl:row-span-1">
         {open ? (
-          <StateWord shape="diamond" tone="fail">
+          <StateWord shape="ring" tone="warn">
             Open
           </StateWord>
         ) : e.state === "acknowledged" ? (

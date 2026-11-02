@@ -296,7 +296,7 @@ function UsagePanel({ plan, usage }: { plan: PlanDefinition; usage: Usage }) {
                   {u ? (
                     <>
                       {l.usage === "domains" && !u.exact ? <span className="text-ui font-medium text-fg-3">up to</span> : null}
-                      <span className={clsx("text-[28px] font-semibold leading-none tracking-[-0.02em]", tone)}>{u.used}</span>
+                      <span className={clsx("text-h1 font-semibold leading-none tracking-[-0.02em]", tone)}>{u.used}</span>
                       <span className="text-ui font-medium text-fg-3">of {limitLabel(limit).toLowerCase()}</span>
                     </>
                   ) : (
@@ -418,7 +418,7 @@ function PlanRow(props: RowProps) {
       >
         <div className="min-w-0">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-            <h3 id={`bill-${plan.tier}`} className="text-[20px] font-bold leading-[26px] tracking-[-0.02em] text-fg">
+            <h3 id={`bill-${plan.tier}`} className="text-h2 font-bold tracking-[-0.02em] text-fg">
               {plan.label}
             </h3>
             {isCurrent ? (
@@ -457,7 +457,7 @@ function PlanRow(props: RowProps) {
           {perDomain ? (
             <>
               <p className="flex flex-wrap items-baseline gap-x-1.5">
-                <span className="text-[24px] font-semibold leading-none tracking-[-0.02em] text-fg">{formatMinor(fleetUnitMinor(plan, currency), currency)}</span>
+                <span className="text-h2 font-semibold leading-none tracking-[-0.02em] text-fg">{formatMinor(fleetUnitMinor(plan, currency), currency)}</span>
                 <span className="text-meta text-fg-3">per active domain a month, falling with volume</span>
               </p>
               <p className="mt-1.5 text-meta text-fg-2">
@@ -476,7 +476,7 @@ function PlanRow(props: RowProps) {
             </>
           ) : (
             <p className="flex flex-wrap items-baseline gap-x-1.5">
-              <span className="text-[24px] font-semibold leading-none tracking-[-0.02em] text-fg">{priceOf(plan, currency, interval, props.fleetQuote)}</span>
+              <span className="text-h2 font-semibold leading-none tracking-[-0.02em] text-fg">{priceOf(plan, currency, interval, props.fleetQuote)}</span>
               {free ? null : <span className="text-meta text-fg-3">{interval === "annual" ? "a year" : "a month"}</span>}
             </p>
           )}

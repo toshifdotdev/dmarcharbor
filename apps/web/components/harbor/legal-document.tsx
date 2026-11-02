@@ -101,7 +101,7 @@ export async function DocumentFrame({
             {developer ? "developer documentation" : kicker === "Support" ? "support" : "legal documents"}
           </p>
           <div className="min-w-0">
-            <h1 className="max-w-[20ch] text-[40px] font-[760] leading-[0.98] tracking-[-0.035em] text-fg [text-wrap:balance] sm:text-[52px] min-[68.75rem]:text-[64px] print:text-[24pt]">
+            <h1 className="max-w-[20ch] text-[40px] font-[760] leading-[0.96] tracking-[-0.035em] text-fg [text-wrap:balance] sm:text-[52px] min-[68.75rem]:text-[64px] print:text-[24pt]">
               {title}
             </h1>
             <div className="mt-7 flex flex-wrap items-center gap-x-6 gap-y-3">

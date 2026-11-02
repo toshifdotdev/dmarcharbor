@@ -145,7 +145,7 @@ export default async function PortalDomainPage({
           <p className="text-[15px] leading-[1.4] text-fg-4">
             <span className="font-bold text-fg">{detail.domain.client.name}</span> domain report
           </p>
-          <h1 className="mt-4 text-[38px] font-[760] leading-[1] tracking-[-0.035em] text-fg [overflow-wrap:anywhere] sm:text-[52px] min-[1100px]:text-[60px] print:text-[24pt]">
+          <h1 className="mt-4 text-[38px] font-[760] leading-[0.96] tracking-[-0.035em] text-fg [overflow-wrap:anywhere] sm:text-[52px] min-[1100px]:text-[60px] print:text-[24pt]">
             {detail.domain.name}
           </h1>
           <div data-verdict={verdict.kind} className="mt-8 flex max-w-[44rem] flex-col gap-3">

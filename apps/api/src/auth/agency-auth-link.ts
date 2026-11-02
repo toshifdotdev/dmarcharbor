@@ -1,5 +1,6 @@
 import { prisma } from '../database/prisma.js';
 import { agencyFromHeader, clientEmailHeaders } from '../email/sender.js';
+import type { BrandLook } from '../email/templates.js';
 import { resolveBranding } from '../services/branding.service.js';
 import { appOrigin } from '../services/client-origin.js';
 import { agencyForOrigin, type AgencyHost } from './agency-origin.js';
@@ -45,6 +46,11 @@ export interface AuthLink {
   replyTo?: string;
   /** The same address, for the "Questions?" line at the end of the message. */
   supportEmail?: string;
+  /**
+   * The agency's look for the message's HTML, when the link was rebuilt for
+   * one: its logo and colours under white label, its name alone otherwise.
+   */
+  brand?: BrandLook;
 }
 
 /** True for this agency's client contact with no seat in any workspace. */
@@ -84,11 +90,20 @@ export async function agencyAuthLink(url: string, user: { id: string; email: str
       const headers: { from?: string; replyTo?: string } = branding?.branded
         ? clientEmailHeaders(branding)
         : { from: agencyFromHeader(found.agency.workspaceName) };
+      // resolveBranding already withholds the logo and colours below white
+      // label, and serves only a logo stored on our own origin.
+      const brand: BrandLook = {
+        workspaceName: found.agency.workspaceName,
+        logoUrl: branding?.branded ? branding.logoUrl : null,
+        primaryColor: branding?.branded ? branding.primaryColor : null,
+        accentColor: branding?.branded ? branding.accentColor : null,
+      };
       return {
         url: `${found.origin}${link.pathname}${link.search}`,
         agency: found.agency,
         ...(headers.from ? { from: headers.from } : {}),
         ...(headers.replyTo ? { replyTo: headers.replyTo, supportEmail: headers.replyTo } : {}),
+        brand,
       };
     }
 

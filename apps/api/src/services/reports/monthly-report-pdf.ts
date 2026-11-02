@@ -1,15 +1,16 @@
 import PDFDocument from 'pdfkit';
+import type { CheckState } from '../trust/client-evidence.js';
+import { C } from '../trust/pack-layout.js';
 import {
-  ACCENT,
   CONTENT_WIDTH,
-  INK,
-  MUTED,
   PAGE_MARGIN,
-  Page,
-  labelled,
+  ReportPage,
+  facts as factList,
   section,
+  type Cell,
   type SectionBlock,
 } from '../trust/pdf-layout.js';
+import { applyPackFonts, type PdfFontFiles } from '../trust/pdf-fonts.js';
 import { percentageText, type MonthlyPeriod } from './monthly-period.js';
 
 export interface MonthlyDomainFacts {
@@ -65,18 +66,16 @@ export interface MonthlyFacts {
 export interface MonthlyReportBranding {
   branded: boolean;
   workspaceName: string;
-  /** Already validated by resolveBranding; checked again before it reaches PDFKit. */
+  /**
+   * Not drawn. The report is set in ink like the compliance pack, which carries
+   * no agency colour either: on paper the agency is its name and its logo. The
+   * colour belongs to buttons on the agency's own domain. Kept so the branding
+   * resolved for a report stays one shape.
+   */
   primaryColor: string | null;
   logo: Buffer | null;
   /** Absolute origin, either the agency custom domain or APP_URL. */
   verifyBase: string;
-}
-
-function accentFor(branding: MonthlyReportBranding): string {
-  if (!branding.branded || !branding.primaryColor) {
-    return ACCENT;
-  }
-  return /^#[0-9a-f]{6}$/i.test(branding.primaryColor) ? branding.primaryColor.toLowerCase() : ACCENT;
 }
 
 function n(value: number): string {
@@ -99,10 +98,47 @@ function preparedBy(facts: MonthlyFacts, branding: MonthlyReportBranding): strin
 
 const policyOrder = ['none', 'quarantine', 'reject', 'testing', 'no record', 'not known'];
 
-function policyRows(facts: MonthlyFacts): string[][] {
+/**
+ * The state a published policy reads as, the same reading the pack gives it:
+ * enforcing is aligned, monitoring or testing needs attention, no record is
+ * failing, and a policy that could not be read is not measured.
+ */
+function policyState(policy: string): CheckState {
+  switch (policy) {
+    case 'reject':
+    case 'quarantine':
+      return 'pass';
+    case 'none':
+    case 'testing':
+      return 'warn';
+    case 'no record':
+      return 'fail';
+    default:
+      return 'unchecked';
+  }
+}
+
+function policyRows(facts: MonthlyFacts): Cell[][] {
   return policyOrder
     .filter((key) => key !== 'not known' || (facts.policyDistribution['not known'] ?? 0) > 0)
-    .map((key) => [key, String(facts.policyDistribution[key] ?? 0)]);
+    .map((key) => {
+      const count = facts.policyDistribution[key] ?? 0;
+      // A policy no domain holds is a row of the scale, not a state any domain is
+      // in, so it carries no mark and no colour: red is for a domain that fails.
+      return count > 0
+        ? [{ text: key, state: policyState(key) }, { text: String(count) }]
+        : [{ text: key, color: C.ink3 }, { text: String(count), color: C.ink3 }];
+    });
+}
+
+/** Domains and addresses are values a reader copies exactly. */
+function literal(text: string): Cell {
+  return { text, face: 'mono', size: 7.8 };
+}
+
+/** A rate with no messages under it is "no reports", set quietly; never 0%. */
+function rate(passed: number, total: number): Cell {
+  return { text: percentageText(passed, total), color: total > 0 ? C.ink : C.ink3 };
 }
 
 /**
@@ -112,18 +148,22 @@ function policyRows(facts: MonthlyFacts): string[][] {
  * clock read and every unsorted query result is settled before this function is
  * called; there is no `new Date()` and no map iteration whose order depends on
  * insertion here.
+ *
+ * `fonts` exists for tests: passing no files exercises the fallback to the
+ * standard faces that a missing asset would cause in production.
  */
 export async function renderMonthlyReportPdf(
   facts: MonthlyFacts,
   branding: MonthlyReportBranding,
-): Promise<{ buffer: Buffer; pageCount: number }> {
-  const accent = accentFor(branding);
+  fonts?: PdfFontFiles,
+): Promise<{ buffer: Buffer; pageCount: number; embeddedFonts: { sans: boolean; mono: boolean } }> {
   const title = `Email authentication report - ${facts.clientName}`;
   const author = branding.branded ? branding.workspaceName : 'DMARC Harbor';
 
   const doc = new PDFDocument({
     size: 'A4',
-    margin: PAGE_MARGIN,
+    // pdfkit's own bottom margin is zero: the layout decides every page break.
+    margins: { top: PAGE_MARGIN, bottom: 0, left: PAGE_MARGIN, right: PAGE_MARGIN },
     bufferPages: true,
     compress: false,
     info: {
@@ -137,38 +177,45 @@ export async function renderMonthlyReportPdf(
     },
   });
 
-  const page = new Page(doc);
   const chunks: Buffer[] = [];
   doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+
+  const faces = applyPackFonts(doc, fonts);
+  const page = new ReportPage(doc, faces);
+  const pen = page.pen;
 
   // Cover.
   if (branding.logo) {
     try {
       doc.image(branding.logo, PAGE_MARGIN, page.y, { fit: [120, 40] });
-      page.move(52);
+      page.y += 52;
     } catch {
       // The image was already validated. If PDFKit rejects it anyway, a report
       // without a logo is still a complete report.
     }
   }
 
-  doc.rect(PAGE_MARGIN, page.y, 56, 4).fillColor(accent).fill();
-  page.move(18);
+  page.y +=
+    pen.textAt('Email authentication report', PAGE_MARGIN, page.y, {
+      face: 'bold',
+      size: 26,
+      tracking: -0.6,
+      width: CONTENT_WIDTH,
+    }) + 6;
+  page.y +=
+    pen.textAt(preparedBy(facts, branding), PAGE_MARGIN, page.y, {
+      face: 'sans',
+      size: 10.5,
+      color: C.ink2,
+      width: CONTENT_WIDTH,
+    }) + 20;
 
-  doc.font('Helvetica-Bold').fontSize(22).fillColor(INK).text('Email authentication report', PAGE_MARGIN, page.y, {
-    width: CONTENT_WIDTH,
-  });
-  page.move(30);
-
-  doc.font('Helvetica').fontSize(10).fillColor(MUTED).text(preparedBy(facts, branding), PAGE_MARGIN, page.y, {
-    width: CONTENT_WIDTH,
-  });
-  page.move(18);
-
-  labelled(doc, page, 'Client', facts.clientName);
-  labelled(doc, page, 'Period', facts.period.label);
-  labelled(doc, page, 'Issued', issuedLabel(facts.issuedAt));
-  labelled(doc, page, 'Reference', facts.reference);
+  factList(page, [
+    { label: 'Client', value: facts.clientName },
+    { label: 'Period', value: facts.period.label },
+    { label: 'Issued', value: issuedLabel(facts.issuedAt), figure: true },
+    { label: 'Reference', value: facts.reference, mono: true },
+  ]);
 
   const noReports = facts.totalReports === 0;
   const summaryBlocks: SectionBlock[] = [];
@@ -197,10 +244,10 @@ export async function renderMonthlyReportPdf(
   summaryBlocks.push({
     kind: 'table',
     columns: [
-      { label: 'Policy at period end', width: 260 },
-      { label: 'Domains', width: 100 },
+      { label: 'Policy', width: 150 },
+      { label: 'Domains', width: 60, align: 'right' },
     ],
-    rows: [['Policy', 'Domains'], ...policyRows(facts)],
+    rows: policyRows(facts),
   });
 
   summaryBlocks.push({
@@ -215,69 +262,69 @@ export async function renderMonthlyReportPdf(
     text: `${facts.domainsWithoutReports} domain${facts.domainsWithoutReports === 1 ? '' : 's'} had no aggregate reports in the month.`,
   });
 
-  section(doc, page, { title: '1. Summary', blocks: summaryBlocks, accent });
-
-  const domainRows: string[][] = [
-    ['Domain', 'Policy', 'Messages', 'DMARC', 'SPF', 'DKIM', 'Reports', 'Orgs'],
-    ...facts.domains.map((domain) => [
-      domain.name,
-      domain.policy,
-      n(domain.messages),
-      percentageText(domain.dmarcPass, domain.messages),
-      percentageText(domain.spfPass, domain.messages),
-      percentageText(domain.dkimPass, domain.messages),
-      n(domain.reports),
-      n(domain.organisations),
-    ]),
-  ];
+  section(page, { number: '1', title: 'Summary', blocks: summaryBlocks });
 
   const domainBlocks: SectionBlock[] = [
     {
       kind: 'table',
+      // Measured in the embedded faces: a rate column holds "no reports" on one
+      // line, the policy column "quarantine" beside its mark, and the domain
+      // column a 27-character name before it wraps.
       columns: [
-        { label: 'Domain', width: 140 },
-        { label: 'Policy', width: 62 },
-        { label: 'Messages', width: 45 },
-        { label: 'DMARC', width: 55 },
-        { label: 'SPF', width: 45 },
-        { label: 'DKIM', width: 45 },
-        { label: 'Reports', width: 46 },
-        { label: 'Orgs', width: 45 },
+        { label: 'Domain', width: CONTENT_WIDTH - 339 },
+        { label: 'Policy', width: 66 },
+        { label: 'Messages', width: 50, align: 'right' },
+        { label: 'DMARC', width: 51, align: 'right' },
+        { label: 'SPF', width: 51, align: 'right' },
+        { label: 'DKIM', width: 51, align: 'right' },
+        { label: 'Reports', width: 38, align: 'right' },
+        { label: 'Orgs', width: 32, align: 'right' },
       ],
-      rows: domainRows,
+      rows: facts.domains.map((domain) => [
+        literal(domain.name),
+        { text: domain.policy, state: policyState(domain.policy) },
+        { text: n(domain.messages) },
+        rate(domain.dmarcPass, domain.messages),
+        rate(domain.spfPass, domain.messages),
+        rate(domain.dkimPass, domain.messages),
+        { text: n(domain.reports) },
+        { text: n(domain.organisations) },
+      ]),
     },
   ];
   if (facts.domainCount > facts.domains.length) {
     domainBlocks.push({
-      kind: 'body',
+      kind: 'note',
       text: `and ${facts.domainCount - facts.domains.length} more domains are included in the totals`,
     });
   }
-  section(doc, page, { title: '2. Domains', blocks: domainBlocks, accent });
+  section(page, { number: '2', title: 'Domains', blocks: domainBlocks });
 
-  const changeRows = facts.changes.map((change) => [dateLabel(change.detectedAt), change.domainName, change.summary]);
-  const changeBlocks: SectionBlock[] = [
-    {
-      kind: changeRows.length === 0 ? 'body' : 'table',
-      ...(changeRows.length === 0
-        ? { text: 'No warning or critical DNS changes were recorded.' }
-        : {
+  const changeBlocks: SectionBlock[] =
+    facts.changes.length === 0
+      ? [{ kind: 'body', text: 'No warning or critical DNS changes were recorded.' }]
+      : [
+          {
+            kind: 'table',
             columns: [
               { label: 'Date', width: 70 },
               { label: 'Domain', width: 140 },
-              { label: 'Change', width: 273 },
+              { label: 'Change', width: CONTENT_WIDTH - 210 },
             ],
-            rows: [['Date', 'Domain', 'Change'], ...changeRows],
-          }),
-    },
-  ];
+            rows: facts.changes.map((change) => [
+              { text: dateLabel(change.detectedAt) },
+              literal(change.domainName),
+              { text: change.summary },
+            ]),
+          },
+        ];
   if (facts.changeCount > facts.changes.length) {
     changeBlocks.push({
-      kind: 'body',
+      kind: 'note',
       text: `and ${facts.changeCount - facts.changes.length} more changes are not listed`,
     });
   }
-  section(doc, page, { title: '3. Changes to DNS during the month', blocks: changeBlocks, accent });
+  section(page, { number: '3', title: 'Changes to DNS during the month', blocks: changeBlocks });
 
   const sourceBlocks: SectionBlock[] =
     facts.sources.length === 0
@@ -286,43 +333,47 @@ export async function renderMonthlyReportPdf(
           {
             kind: 'table',
             columns: [
-              { label: 'Source IP', width: 100 },
-              { label: 'Service', width: 105 },
-              { label: 'Sender domain', width: 120 },
-              { label: 'Failed messages', width: 78 },
-              { label: 'Total messages', width: 80 },
+              { label: 'Source IP', width: 96 },
+              { label: 'Service', width: 100 },
+              { label: 'Sender domain', width: 135 },
+              { label: 'Failed messages', width: 76, align: 'right' },
+              { label: 'Total messages', width: CONTENT_WIDTH - 407, align: 'right' },
             ],
-            rows: [
-              ['Source IP', 'Service', 'Sender domain', 'Failed messages', 'Total messages'],
-              ...facts.sources.map((source) => [
-                source.sourceIp,
-                source.service ?? 'not identified',
-                source.senderDomain ?? 'not known',
-                n(source.failedMessages),
-                n(source.totalMessages),
-              ]),
-            ],
+            rows: facts.sources.map((source) => [
+              literal(source.sourceIp),
+              source.service ? { text: source.service } : { text: 'not identified', color: C.ink3 },
+              source.senderDomain ? literal(source.senderDomain) : { text: 'not known', color: C.ink3 },
+              // Failed mail is the one thing the report sets in red, as the pack
+              // sets its failing sources.
+              { text: n(source.failedMessages), color: source.failedMessages > 0 ? C.red : C.ink },
+              { text: n(source.totalMessages) },
+            ]),
           },
           {
             kind: 'note',
             text: 'A failing source can be a legitimate service that has not been set up for this domain yet.',
           },
         ];
-  section(doc, page, { title: '4. Sources failing authentication', blocks: sourceBlocks, accent });
+  section(page, { number: '4', title: 'Sources failing authentication', blocks: sourceBlocks });
 
-  section(doc, page, {
-    title: '5. Alerts and forensic reports',
-    accent,
+  section(page, {
+    number: '5',
+    title: 'Alerts and forensic reports',
     blocks: [
-      { kind: 'labelled', label: 'Alerts opened', value: n(facts.alertsOpened) },
-      { kind: 'labelled', label: 'Alerts resolved', value: n(facts.alertsResolved) },
-      { kind: 'labelled', label: 'Forensic reports received', value: n(facts.forensicCount) },
+      {
+        kind: 'facts',
+        rows: [
+          { label: 'Alerts opened', value: n(facts.alertsOpened), figure: true },
+          { label: 'Alerts resolved', value: n(facts.alertsResolved), figure: true },
+          { label: 'Forensic reports received', value: n(facts.forensicCount), figure: true },
+        ],
+      },
     ],
   });
 
-  section(doc, page, {
-    title: '6. How these figures are measured',
-    accent,
+  section(page, {
+    number: '6',
+    title: 'How these figures are measured',
     blocks: [
       {
         kind: 'body',
@@ -340,17 +391,26 @@ export async function renderMonthlyReportPdf(
     ],
   });
 
-  section(doc, page, {
-    title: '7. How to verify this document',
-    accent,
+  section(page, {
+    number: '7',
+    title: 'How to verify this document',
     blocks: [
       {
         kind: 'body',
         text:
           'The digest is deliberately not printed here. A file cannot contain its own digest, because writing it in changes the file and therefore changes the digest. The digest is published at the address below, so there is exactly one value and it cannot disagree with itself.',
       },
-      { kind: 'labelled', label: 'Reference', value: facts.reference },
-      { kind: 'labelled', label: 'Verify at', value: `${branding.verifyBase}/verify?reference=${encodeURIComponent(facts.reference)}` },
+      {
+        kind: 'facts',
+        rows: [
+          { label: 'Reference', value: facts.reference, mono: true },
+          {
+            label: 'Verify at',
+            value: `${branding.verifyBase}/verify?reference=${encodeURIComponent(facts.reference)}`,
+            mono: true,
+          },
+        ],
+      },
       {
         kind: 'body',
         text: 'To verify: compute the SHA-256 digest of this file and compare it with the value published for this reference. A match means the file is byte for byte the one that was issued.',
@@ -367,5 +427,5 @@ export async function renderMonthlyReportPdf(
   });
   doc.end();
 
-  return { buffer: await finished, pageCount };
+  return { buffer: await finished, pageCount, embeddedFonts: faces.embedded };
 }

@@ -279,7 +279,7 @@ export function PortalBoard({
                         <span className="col-start-2 row-start-1 flex justify-end md:col-start-auto md:row-start-auto">
                           {canManage ? (
                             g.active ? (
-                              <Button size="sm" variant="ghost" className="text-fail hover:text-fail" onClick={() => setRevoking(g)}>
+                              <Button size="sm" variant="danger-quiet" onClick={() => setRevoking(g)}>
                                 Revoke
                               </Button>
                             ) : (

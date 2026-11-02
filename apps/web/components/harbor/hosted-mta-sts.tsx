@@ -493,8 +493,7 @@ export function HostedMtaSts({
                 {canEdit ? (
                   <Button
                     data-testid="hosted-mta-sts-release"
-                    variant="ghost"
-                    className="text-fail hover:text-fail"
+                    variant="danger-quiet"
                     onClick={() => setConfirmRelease(true)}
                   >
                     Stop hosting
@@ -654,7 +653,7 @@ export function HostedMtaSts({
               </div>
 
               {mode === "enforce" && hosted.mode !== "enforce" ? (
-                <div className="flex flex-col gap-2 border border-rule bg-paper-2 p-3" data-testid="hosted-mta-sts-readiness">
+                <div className="flex flex-col gap-2 border-t border-rule pt-3" data-testid="hosted-mta-sts-readiness">
                   <p className="text-ui font-semibold text-fg">
                     {hosted.readiness.ready
                       ? "Ready to enforce: every check passes."

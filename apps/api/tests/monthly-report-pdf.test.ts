@@ -6,6 +6,9 @@ import {
   type MonthlyFacts,
   type MonthlyReportBranding,
 } from '../src/services/reports/monthly-report-pdf.js';
+import { C } from '../src/services/trust/pack-layout.js';
+import { packFontFiles } from '../src/services/trust/pdf-fonts.js';
+import { extractPdfText, normalisePdfText as normalise } from './helpers/pdf-text.js';
 
 function facts(overrides: Partial<MonthlyFacts> = {}): MonthlyFacts {
   return {
@@ -68,26 +71,26 @@ const branded: MonthlyReportBranding = {
   verifyBase: 'https://portal.bright.example',
 };
 
-function extractPdfText(buffer: Buffer): string {
-  const raw = buffer.toString('latin1');
-  const pattern = /<([0-9a-fA-F]+)>/g;
-  const parts: string[] = [];
-  let match = pattern.exec(raw);
-  while (match !== null) {
-    const hex = match[1]!;
-    if (hex.length % 2 === 0) {
-      parts.push(Buffer.from(hex, 'hex').toString('latin1'));
-    }
-    match = pattern.exec(raw);
-  }
-  return parts.join(' ');
+/**
+ * A colour as pdfkit writes it into an uncompressed content stream: each
+ * channel divided by 255 and printed in full, before `scn` or `SCN`.
+ */
+function pdfColour(hex: string): string {
+  const value = parseInt(hex.slice(1), 16);
+  return [value >> 16, (value >> 8) & 0xff, value & 0xff].map((part) => part / 255).join(' ');
 }
 
-function normalise(value: string): string {
-  return value.replace(/\s+/g, '').toLowerCase();
-}
+/** The Helvetica layout's palette and its zebra fill, none of which Routes uses. */
+const retiredColours = {
+  ink: '#0f172a',
+  muted: '#64748b',
+  rule: '#e2e8f0',
+  tealAccent: '#0f766e',
+  zebra: '#f8fafc',
+};
 
-describe('monthly report PDF', () => {
+// A render embeds and subsets five faces; on a busy runner that is seconds.
+describe('monthly report PDF', { timeout: 60_000 }, () => {
   it('is deterministic for the same facts, reference and issue time', async () => {
     const first = await renderMonthlyReportPdf(facts(), unbranded);
     const second = await renderMonthlyReportPdf(facts(), unbranded);
@@ -166,5 +169,68 @@ describe('monthly report PDF', () => {
     expect(text).toContain('sender.example');
     expect(text).not.toContain('alice@example.com');
     expect(text).toContain('83.3%');
+  });
+
+  it('is set in Albert Sans and Atkinson Hyperlegible Mono, as the compliance pack is', async () => {
+    const files = packFontFiles();
+    expect(files.sans, 'apps/api/assets/fonts/AlbertSans-Regular.ttf should be found').toBeTruthy();
+    expect(files.mono, 'apps/api/assets/fonts/AtkinsonHyperlegibleMono-Regular.ttf should be found').toBeTruthy();
+
+    const rendered = await renderMonthlyReportPdf(facts(), unbranded);
+    const raw = rendered.buffer.toString('latin1');
+    expect(rendered.embeddedFonts).toEqual({ sans: true, mono: true });
+    expect(raw).toMatch(/\/BaseFont \/[A-Z]{6}\+AlbertSans-Regular/);
+    expect(raw).toMatch(/\/BaseFont \/[A-Z]{6}\+AlbertSans-Bold/);
+    // The reference and the domains are set in the data face.
+    expect(raw).toMatch(/\/BaseFont \/[A-Z]{6}\+AtkinsonHyperlegibleMono-Regular/);
+    expect(raw).not.toContain('/BaseFont /Helvetica');
+  });
+
+  it('falls back to the standard faces rather than failing when the fonts are missing', async () => {
+    const rendered = await renderMonthlyReportPdf(facts(), unbranded, {});
+    expect(rendered.embeddedFonts).toEqual({ sans: false, mono: false });
+    const text = normalise(extractPdfText(rendered.buffer));
+    expect(text).toContain(facts().reference.toLowerCase());
+    expect(text).toContain(normalise('How to verify this document'));
+  });
+
+  it('uses the Routes palette and none of the old one, branded or not', async () => {
+    for (const branding of [unbranded, branded]) {
+      const raw = (await renderMonthlyReportPdf(facts(), branding)).buffer.toString('latin1');
+
+      // The check can see colours: the ink the text is set in is there.
+      expect(raw).toContain(`${pdfColour(C.ink)} scn`);
+      for (const [name, hex] of Object.entries(retiredColours)) {
+        expect(raw, `${name} ${hex} should be gone`).not.toContain(pdfColour(hex));
+      }
+      // The agency's colour is not drawn either: like the pack, the report is
+      // set in ink, and the agency appears as its name and its logo.
+      expect(raw).not.toContain(pdfColour(branded.primaryColor!));
+    }
+  });
+
+  it('draws the column labels again on every page a long table runs onto', async () => {
+    const domains = Array.from({ length: 120 }, (_, index) => ({
+      name: `domain-${String(index).padStart(3, '0')}.test`,
+      policy: index % 3 === 0 ? 'reject' : 'none',
+      messages: index * 10,
+      dmarcPass: index * 9,
+      spfPass: index * 8,
+      dkimPass: index * 7,
+      reports: index,
+      organisations: index % 4,
+    }));
+    const rendered = await renderMonthlyReportPdf(
+      facts({ domains, domainCount: domains.length, totalReports: 1, messages: 100, dmarcPass: 90, spfPass: 80, dkimPass: 70 }),
+      unbranded,
+    );
+    const text = normalise(extractPdfText(rendered.buffer));
+
+    expect(text).toContain('domain-000.test');
+    expect(text).toContain('domain-119.test');
+    // "Orgs" is only ever the domain table's last column label.
+    const labelled = text.split('orgs').length - 1;
+    expect(labelled).toBeGreaterThanOrEqual(2);
+    expect(labelled).toBeLessThan(rendered.pageCount);
   });
 });

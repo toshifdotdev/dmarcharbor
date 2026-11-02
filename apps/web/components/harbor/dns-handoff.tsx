@@ -79,7 +79,7 @@ export function RecordState({ word, tone }: { word: string; tone: RecordTone }) 
         {tone === "ok" ? <rect x="0.5" y="0.5" width="9" height="9" fill="var(--color-ok)" /> : null}
         {tone === "warn" ? <circle cx="5" cy="5" r="3.9" fill="none" stroke="var(--color-warn-mark)" strokeWidth="2" /> : null}
         {tone === "fail" ? <path d="M5 0 10 5 5 10 0 5Z" fill="var(--color-fail)" /> : null}
-        {tone === "todo" ? <circle cx="5" cy="5" r="3.6" fill="#fff" stroke="var(--color-fg-4)" strokeWidth="2" /> : null}
+        {tone === "todo" ? <circle cx="5" cy="5" r="3.6" fill="var(--color-paper)" stroke="var(--color-fg-4)" strokeWidth="2" /> : null}
       </svg>
       {word}
     </span>

@@ -120,7 +120,7 @@ export function Th({
           type="button"
           onClick={sort.onToggle}
           className={clsx(
-            "-mx-1 inline-flex items-center gap-1 rounded-md px-1 hover:text-fg",
+            "-mx-1 inline-flex items-center gap-1 rounded-ctl px-1 hover:text-fg",
             a === "right" && "flex-row-reverse",
             sort.dir && "text-fg",
           )}

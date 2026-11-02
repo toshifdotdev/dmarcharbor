@@ -176,10 +176,10 @@ function ClosedStation({ name, className }: { name: string; className?: string }
       <path d="M24 80 H300" fill="none" stroke="var(--color-fg)" strokeWidth="7" strokeLinecap="round" />
       {/* Where it should have gone: not built, so dotted grey. */}
       <path d="M318 80 H470" fill="none" stroke="var(--color-rule-2)" strokeWidth="7" strokeLinecap="round" strokeDasharray="0.1 16" />
-      <circle cx="24" cy="80" r="9" fill="#ffffff" stroke="var(--color-fg)" strokeWidth="3" />
-      <rect x="182" y="64" width="24" height="32" rx="12" fill="#ffffff" stroke="var(--color-fg)" strokeWidth="3" />
+      <circle cx="24" cy="80" r="9" fill="var(--color-paper)" stroke="var(--color-fg)" strokeWidth="3" />
+      <rect x="182" y="64" width="24" height="32" rx="12" fill="var(--color-paper)" stroke="var(--color-fg)" strokeWidth="3" />
       {/* The closed station: hollow and grey. */}
-      <rect x="470" y="60" width="32" height="40" rx="16" fill="#ffffff" stroke="var(--color-rule-2)" strokeWidth="3" />
+      <rect x="470" y="60" width="32" height="40" rx="16" fill="var(--color-paper)" stroke="var(--color-rule-2)" strokeWidth="3" />
       <text x="24" y="44" fill="var(--color-fg)" fontSize="15" fontWeight="700" fontFamily="var(--font-ui)">
         The link you followed
       </text>

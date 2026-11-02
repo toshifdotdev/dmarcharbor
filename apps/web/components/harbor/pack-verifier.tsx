@@ -23,7 +23,7 @@ import { clsx } from "clsx";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/field";
 import { PostureMark } from "@/components/ui/badge";
-import { TideMark } from "@/components/ui/tide";
+import { InlineWaiting } from "@/components/ui/states";
 import s from "./verify.module.css";
 
 /** A digest in groups of eight. The groups are spaced by margin, so the text
@@ -165,10 +165,7 @@ export function FileCheck({ published }: { published: Published[] }) {
 
       <div aria-live="polite">
         {outcome.kind === "hashing" ? (
-          <div className="flex items-center gap-4">
-            <TideMark size={22} />
-            <p className="text-[14px] text-fg-4">Computing SHA-256 of {outcome.name}</p>
-          </div>
+          <InlineWaiting className="text-[14px] text-fg-4">Computing SHA-256 of {outcome.name}</InlineWaiting>
         ) : null}
         {outcome.kind === "error" ? (
           <p role="alert" className="text-[15px] font-semibold text-fail">

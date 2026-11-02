@@ -104,7 +104,7 @@ export default async function VerifyPage({ searchParams }: { searchParams: Promi
       <div className="grid gap-x-16 gap-y-14 lg:grid-cols-[minmax(0,1fr)_300px]">
         <div className="flex min-w-0 flex-col gap-10">
           <header className="max-w-[40rem]">
-            <h1 className="text-[36px] font-[760] leading-[0.98] tracking-[-0.035em] text-fg [text-wrap:balance] sm:text-[48px]">
+            <h1 className="text-[36px] font-[760] leading-[0.96] tracking-[-0.035em] text-fg [text-wrap:balance] sm:text-[48px]">
               Is this the document that was issued?
             </h1>
             <p className="mt-5 text-[17px] leading-[1.5] text-fg-2 sm:text-[19px]">

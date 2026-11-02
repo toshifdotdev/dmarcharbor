@@ -66,7 +66,7 @@ export async function PortalFrame({
         <div className="flex min-h-16 flex-wrap items-center gap-x-6 gap-y-2 py-3 sm:min-h-[72px]">
           <Link
             href={home}
-            className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 rounded-md text-[16px] leading-[1.3] sm:text-[17px]"
+            className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 rounded-ctl text-[16px] leading-[1.3] sm:text-[17px]"
           >
             {logo ? (
               <img src={logo} alt="" height={28} className="h-7 w-auto max-w-[160px] object-contain" />
@@ -130,7 +130,7 @@ export function PortalNotice({
   return (
     <PortalFrame brand={brand} email={email}>
       <div className="flex min-h-[46vh] max-w-[40rem] flex-col justify-center py-6">
-        <h1 className="text-[34px] font-[760] leading-[1] tracking-[-0.035em] text-fg [text-wrap:balance] sm:text-[46px]">{title}</h1>
+        <h1 className="text-[34px] font-[760] leading-[0.96] tracking-[-0.035em] text-fg [text-wrap:balance] sm:text-[46px]">{title}</h1>
         <div className="mt-5 text-[17px] leading-[1.55] text-fg-2">{children}</div>
       </div>
     </PortalFrame>

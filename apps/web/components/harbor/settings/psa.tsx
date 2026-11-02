@@ -57,7 +57,7 @@ import {
 } from "@/lib/ops-client";
 import { Badge, type Tone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/choice";
+import { RadioInput, Switch } from "@/components/ui/choice";
 import { Field, Input, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { ConfirmDialog } from "@/components/ui/dialog";
@@ -477,12 +477,11 @@ export function PsaBoard({
                         key={entry.id}
                         className={clsx(
                           "relative flex items-start gap-3 border-b border-rule py-3 pl-3 pr-2 text-ui transition-colors duration-100",
-                          availability?.available ? "cursor-pointer hover:bg-paper-3/60" : "cursor-not-allowed",
+                          availability?.available ? "cursor-pointer hover:bg-paper-3" : "cursor-not-allowed",
                           on && availability?.available && "before:absolute before:inset-y-2 before:left-0 before:w-[3px] before:rounded-full before:bg-fg",
                         )}
                       >
-                        <input
-                          type="radio"
+                        <RadioInput
                           name="psa-provider"
                           value={entry.id}
                           data-testid={`psa-provider-${entry.id.toLowerCase()}`}
@@ -492,7 +491,7 @@ export function PsaBoard({
                             setProvider(entry.id);
                             setCredentials({});
                           }}
-                          className="mt-[3px] size-4 shrink-0 accent-[var(--color-fg)]"
+                          className="mt-[1px]"
                         />
                         <span className="flex min-w-0 flex-col gap-0.5">
                           <span className={clsx("font-bold", availability?.available ? "text-fg" : "text-fg-3")}>{entry.label}</span>
@@ -892,7 +891,7 @@ export function PsaBoard({
                 <Button data-testid="psa-replace" onClick={() => setReplacing((value) => !value)}>
                   {replacing ? "Cancel" : "Replace credentials"}
                 </Button>
-                <Button variant="ghost" className="text-fail hover:text-fail" data-testid="psa-disconnect" onClick={() => setConfirmDisconnect(true)}>
+                <Button variant="danger-quiet" data-testid="psa-disconnect" onClick={() => setConfirmDisconnect(true)}>
                   Disconnect
                 </Button>
               </div>
@@ -990,7 +989,7 @@ function MappingRow({
                 {open ? "Cancel" : row.mapping ? "Change" : "Map"}
               </Button>
               {row.mapping ? (
-                <Button size="sm" variant="ghost" className="text-fail hover:text-fail" data-testid={`psa-unmap-${row.clientId}`} onClick={onUnmap}>
+                <Button size="sm" variant="danger-quiet" data-testid={`psa-unmap-${row.clientId}`} onClick={onUnmap}>
                   Remove
                 </Button>
               ) : null}

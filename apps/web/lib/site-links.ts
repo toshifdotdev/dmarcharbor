@@ -1,9 +1,8 @@
 /**
  * site-links.ts — the legal surface, one list for every footer.
  *
- * Shared by the Monolith footer (components/marketing.tsx re-exports it) and the
- * Chart shell and public footer, so the two systems cannot drift apart while the
- * rebuild is in progress. Every entry is a route that exists.
+ * Shared by the app shell's footer, the public footer and the sign-in frame,
+ * so no footer can drift from the others. Every entry is a route that exists.
  */
 
 export const LEGAL_FOOTER_LINKS: Array<[string, string]> = [

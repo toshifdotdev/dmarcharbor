@@ -26,7 +26,7 @@ import { readHostBrand } from "@/lib/host-brand";
  *
  * Per host. On an agency's verified domain the installed app is named after
  * the agency, and proxy.ts serves the agency's icon at the same /icons/
- * addresses (app/brand-icon/route.tsx), so nothing a client installs names
+ * addresses (app/brand-icon/[spec]/route.tsx), so nothing a client installs names
  * the vendor. Reading the host makes this manifest render per request.
  */
 

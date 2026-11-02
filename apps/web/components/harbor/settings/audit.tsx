@@ -224,7 +224,7 @@ export function AuditTrail({
                           </div>
                         </div>
                         {expanded ? (
-                          <dl className="mb-3 ml-[86px] grid grid-cols-[minmax(0,160px)_minmax(0,1fr)] gap-x-4 gap-y-1 rounded-ctl bg-paper-3 px-3 py-2.5 text-meta sm:ml-[94px]">
+                          <dl className="mb-3 ml-[86px] grid grid-cols-[minmax(0,160px)_minmax(0,1fr)] gap-x-4 gap-y-1 border-t border-rule pt-2.5 text-meta sm:ml-[94px]">
                             {e.detailRows.map((r) => (
                               <div key={r.key} className="contents">
                                 <dt className="text-fg-3">{r.key}</dt>

@@ -224,7 +224,7 @@ function Connection({
         )}
         <span className="flex-1" />
         {canManage ? (
-          <Button size="sm" variant="ghost" className="text-fail hover:text-fail" onClick={onRemove}>
+          <Button size="sm" variant="danger-quiet" onClick={onRemove}>
             Remove connection
           </Button>
         ) : null}

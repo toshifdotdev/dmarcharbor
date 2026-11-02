@@ -1,10 +1,12 @@
 "use client";
 
 /**
- * choice.tsx — checkbox, switch, and the textarea.
+ * choice.tsx — checkbox, radio, switch, and the textarea.
  *
- * The checkbox is the native input, drawn over: form participation, label
- * clicks and screen-reader semantics come from the platform. The switch is a
+ * The checkbox and the radio are the native inputs, drawn over: form
+ * participation, label clicks, arrow keys within a radio group and
+ * screen-reader semantics come from the platform. `RadioInput` is the drawn
+ * radio alone, for a row that lays out its own label. The switch is a
  * button with role="switch", for settings that take effect the moment they are
  * flipped; anything that waits for a Save button is a checkbox, never a switch,
  * because a switch that has not done anything yet is a lie about state.
@@ -35,6 +37,48 @@ export function Checkbox({
           <path d="M3.5 8.5 6.5 11.5 12.5 4.5" fill="none" stroke="currentColor" strokeWidth="2" />
         </svg>
       </span>
+      <span className="min-w-0">
+        <span className="block text-ui font-medium text-fg group-has-[:disabled]:text-fg-3">{label}</span>
+        {hint ? <span className="mt-0.5 block text-meta text-fg-3">{hint}</span> : null}
+      </span>
+    </label>
+  );
+}
+
+/**
+ * The drawn radio on its own: a ring that fills with a dot in the accent when
+ * chosen. Every prop reaches the native input (name, value, checked, test id).
+ */
+export function RadioInput({ className, ...rest }: Omit<InputHTMLAttributes<HTMLInputElement>, "type">) {
+  return (
+    <span className={clsx("relative grid size-4 shrink-0 place-items-center", className)}>
+      <input
+        type="radio"
+        className={clsx(
+          "peer size-4 appearance-none rounded-full border border-rule-2 bg-paper",
+          "checked:border-act hover:border-fg-3 disabled:bg-paper-3 disabled:hover:border-rule-2 disabled:checked:border-fg-3",
+          "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-act",
+        )}
+        {...rest}
+      />
+      <span
+        aria-hidden
+        className="pointer-events-none absolute size-2 rounded-full bg-act opacity-0 peer-checked:opacity-100 peer-disabled:bg-fg-3"
+      />
+    </span>
+  );
+}
+
+/** A radio with its label, set like the checkbox. */
+export function Radio({
+  label,
+  hint,
+  className,
+  ...rest
+}: Omit<InputHTMLAttributes<HTMLInputElement>, "type"> & { label: ReactNode; hint?: ReactNode }) {
+  return (
+    <label className={clsx("group inline-flex cursor-pointer items-start gap-2 has-[:disabled]:cursor-not-allowed", className)}>
+      <RadioInput className="mt-[1px]" {...rest} />
       <span className="min-w-0">
         <span className="block text-ui font-medium text-fg group-has-[:disabled]:text-fg-3">{label}</span>
         {hint ? <span className="mt-0.5 block text-meta text-fg-3">{hint}</span> : null}
@@ -81,7 +125,7 @@ export function Switch({
         aria-hidden
         className={clsx(
           "block size-3.5 rounded-full transition-transform duration-100",
-          checked ? "translate-x-[18px] bg-white" : "translate-x-[2px] bg-paper ring-1 ring-rule-2",
+          checked ? "translate-x-[18px] bg-paper" : "translate-x-[2px] bg-paper ring-1 ring-rule-2",
         )}
       />
     </button>

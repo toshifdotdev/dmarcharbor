@@ -160,7 +160,7 @@ export function DnsConnectionsBoard({
                     </LineStateWord>
                     <span className="flex-1" />
                     {canManage ? (
-                      <Button size="sm" variant="ghost" className="text-fail hover:text-fail" onClick={() => setRemoving(connection)}>
+                      <Button size="sm" variant="danger-quiet" onClick={() => setRemoving(connection)}>
                         Remove
                       </Button>
                     ) : null}

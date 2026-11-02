@@ -83,7 +83,7 @@
   padding: 3px;
   border: 1px solid var(--color-rule-2);
   border-radius: 999px;
-  background: #ffffff;
+  background: var(--color-paper);
 }
 
 .track:disabled {
@@ -225,7 +225,7 @@
   height: 22px;
   border: 3px solid var(--color-fg);
   border-radius: 50%;
-  background: #ffffff;
+  background: var(--color-paper);
 }
 
 /* The plan a signed-in workspace is on: the larger stop, as the home page's
@@ -528,7 +528,7 @@
   height: 18px;
   border: 3px solid var(--color-fg);
   border-radius: 50%;
-  background: #ffffff;
+  background: var(--color-paper);
 }
 
 .bandRange {
@@ -676,7 +676,7 @@
   left: 0;
   padding: 11px 16px 11px 0;
   border-bottom: 1px solid var(--color-rule);
-  background: #ffffff;
+  background: var(--color-paper);
   color: var(--color-fg-2);
   font-weight: 500;
   line-height: 1.35;
@@ -687,7 +687,7 @@
   left: 0;
   padding: 34px 0 10px;
   border-bottom: 1px solid var(--color-rule);
-  background: #ffffff;
+  background: var(--color-paper);
   color: var(--color-fg);
   font-size: 16px;
   font-weight: 700;
@@ -754,7 +754,7 @@
   margin: -8px 0 0 -8px;
   border: 3px solid var(--color-rule-2);
   border-radius: 50%;
-  background: #ffffff;
+  background: var(--color-paper);
 }
 
 .stop[data-on] {
@@ -807,7 +807,7 @@
   height: 16px;
   border: 3px solid var(--color-fg);
   border-radius: 50%;
-  background: #ffffff;
+  background: var(--color-paper);
 }
 
 .legendLine[data-off] span {

@@ -26,7 +26,7 @@ export function DocumentUnavailable({
   return (
     <section data-testid={testId} className="flex min-h-[48vh] max-w-[40rem] flex-col justify-center py-8">
       {closed ? <ClosedLine /> : null}
-      <h1 className="text-[34px] font-[760] leading-[1] tracking-[-0.035em] text-fg [text-wrap:balance] sm:text-[46px]">
+      <h1 className="text-[34px] font-[760] leading-[0.96] tracking-[-0.035em] text-fg [text-wrap:balance] sm:text-[46px]">
         {title}
       </h1>
       <div className="mt-5 max-w-[34rem] text-[17px] leading-[1.5] text-fg-2 sm:text-[19px]">{children}</div>
@@ -40,8 +40,8 @@ function ClosedLine() {
     <svg width="168" height="30" viewBox="0 0 168 30" aria-hidden className="mb-8 block">
       <path d="M12 15H146" stroke="var(--color-rule-2)" strokeWidth="5" strokeLinecap="round" strokeDasharray="0.1 10" />
       <path d="M12 15H92" stroke="var(--color-fg)" strokeWidth="5" strokeLinecap="round" />
-      <circle cx="12" cy="15" r="7" fill="#ffffff" stroke="var(--color-fg)" strokeWidth="3" />
-      <rect x="146" y="3" width="16" height="24" rx="8" fill="#ffffff" stroke="var(--color-rule-2)" strokeWidth="3" />
+      <circle cx="12" cy="15" r="7" fill="var(--color-paper)" stroke="var(--color-fg)" strokeWidth="3" />
+      <rect x="146" y="3" width="16" height="24" rx="8" fill="var(--color-paper)" stroke="var(--color-rule-2)" strokeWidth="3" />
     </svg>
   );
 }

@@ -10,29 +10,13 @@ import { parseMonthlyPeriod } from '../src/services/reports/monthly-period.js';
 import { purgeExpiredData } from '../src/services/retention.service.js';
 import { buildExportPayload } from '../src/services/export/export.service.js';
 import { grantPlan } from './helpers/plan.js';
+// The report embeds Albert Sans, whose text is glyph ids that only the font's
+// ToUnicode map turns back into characters; the helper reads it font by font.
+import { extractPdfText, normalisePdfText as n } from './helpers/pdf-text.js';
 
 let fixtureId = 0;
 const password = 'correct-horse-battery-staple';
 const period = '2026-09';
-
-function n(value: string): string {
-  return value.replace(/\s+/g, '').toLowerCase();
-}
-
-function extractPdfText(buffer: Buffer): string {
-  const raw = buffer.toString('latin1');
-  const pattern = /<([0-9a-fA-F]+)>/g;
-  const parts: string[] = [];
-  let match = pattern.exec(raw);
-  while (match !== null) {
-    const hex = match[1]!;
-    if (hex.length % 2 === 0) {
-      parts.push(Buffer.from(hex, 'hex').toString('latin1'));
-    }
-    match = pattern.exec(raw);
-  }
-  return parts.join(' ');
-}
 
 function pdfHash(buffer: Buffer): string {
   return createHash('sha256').update(buffer).digest('hex');

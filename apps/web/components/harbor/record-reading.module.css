@@ -17,7 +17,7 @@
 }
 
 .mono {
-  font-family: var(--font-hyper-mono), ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-family: var(--font-data);
   font-variant-numeric: slashed-zero;
 }
 
@@ -38,7 +38,7 @@
   padding: 0 10px 0 22px;
   border: 1.5px solid var(--rule-2);
   border-radius: 999px;
-  background: #ffffff;
+  background: var(--color-paper);
   cursor: text;
   transition: border-color 120ms ease;
 }
@@ -55,7 +55,7 @@
 
 .prefix,
 .input {
-  font-family: var(--font-hyper-mono), ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-family: var(--font-data);
   font-size: 17px;
 }
 
@@ -74,7 +74,7 @@
   outline: none;
 }
 
-/* Beats the Chart system's [data-harbor] :focus-visible ring: the field shows focus. */
+/* Beats the [data-harbor] :focus-visible outline in globals.css: the field shows focus. */
 .field .input:focus-visible {
   outline: none;
 }
@@ -91,8 +91,8 @@
   padding: 0 28px;
   border: 0;
   border-radius: 999px;
-  background: var(--cta, #15171b);
-  color: var(--cta-ink, #ffffff);
+  background: var(--cta, var(--color-fg));
+  color: var(--cta-ink, var(--color-paper));
   font-family: inherit;
   font-size: 16.5px;
   font-weight: 650;
@@ -100,7 +100,7 @@
 }
 
 .submit:hover:not(:disabled) {
-  background: var(--cta-hover, #2d3036);
+  background: var(--cta-hover, var(--color-fg-2));
 }
 
 .submit:disabled {
@@ -200,7 +200,7 @@
   overflow: hidden;
   overflow-wrap: anywhere;
   color: var(--ink);
-  font-family: var(--font-hyper-mono), ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-family: var(--font-data);
   font-weight: 600;
   letter-spacing: -0.02em;
   -webkit-box-orient: vertical;
@@ -256,7 +256,7 @@
   height: 14px;
   border: 3px solid var(--rule-2);
   border-radius: 50%;
-  background: #ffffff;
+  background: var(--color-paper);
 }
 
 .tag[data-has] .tagStop {
@@ -281,7 +281,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--ink-3);
-  font-family: var(--font-hyper-mono), ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-family: var(--font-data);
   font-size: 13px;
   font-weight: 600;
   text-overflow: ellipsis;
@@ -336,7 +336,7 @@
 }
 
 .stripVal[data-mono] {
-  font-family: var(--font-hyper-mono), ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-family: var(--font-data);
   font-size: 13.5px;
 }
 

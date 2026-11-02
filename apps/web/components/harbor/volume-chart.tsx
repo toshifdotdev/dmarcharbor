@@ -16,7 +16,7 @@
  *   nothing about whether mail was sent). Past five days it adds "stale", the same threshold and the same day count the posture uses.
  *
  * Drawn at the container's real pixel width (ResizeObserver), so hairlines are
- * one pixel and labels are 11px at every size. The readout row above the plot
+ * one pixel and labels are 12.5px (the meta size) at every size. The readout row above the plot
  * doubles as the legend and as the hover readout. A table of the same daily
  * figures sits beneath for keyboard and screen-reader use.
  *
@@ -186,7 +186,7 @@ export function VolumeChart({
                 y2={Math.round(y(v)) + 0.5}
                 stroke={v === 0 ? "var(--color-fg)" : "var(--color-rule)"}
               />
-              <text x={width - M.right + 8} y={y(v) + 4} fill="var(--color-fg-3)" style={{ fontSize: 11 }} className="tnum">
+              <text x={width - M.right + 8} y={y(v) + 4} fill="var(--color-fg-3)" style={{ fontSize: 12.5 }} className="tnum">
                 {compact(v)}
               </text>
             </g>
@@ -209,9 +209,9 @@ export function VolumeChart({
           })}
 
           {!peakPoint ? (
-            <text x={M.left + innerW / 2} y={M.top + innerH / 2} textAnchor="middle" fill="var(--color-void)" stroke="var(--color-paper-2)" strokeWidth={6} paintOrder="stroke" style={{ fontSize: 12, fontWeight: 600 }}>
+            <text x={M.left + innerW / 2} y={M.top + innerH / 2} textAnchor="middle" fill="var(--color-void)" stroke="var(--color-paper-2)" strokeWidth={6} paintOrder="stroke" style={{ fontSize: 12.5, fontWeight: 600 }}>
               {/* On a phone the sentence is wider than the chart: two lines. */}
-              {innerW < 420 ? (
+              {innerW < 480 ? (
                 <>
                   <tspan x={M.left + innerW / 2} dy={-8}>
                     No report received in the last {days} days:
@@ -236,7 +236,7 @@ export function VolumeChart({
               stroke="var(--color-paper)"
               strokeWidth={4}
               paintOrder="stroke"
-              style={{ fontSize: 11, fontWeight: 600 }}
+              style={{ fontSize: 12.5, fontWeight: 600 }}
               className="tnum"
             >
               {fmt(peakPoint.messagesObserved)}
@@ -248,7 +248,7 @@ export function VolumeChart({
             const s = spikeSet.get(p.date);
             if (!s || p === peakPoint) return null;
             return (
-              <text key={`s-${p.date}`} x={x(i) + barW / 2} y={y(p.messagesObserved) - 6} textAnchor="middle" fill="var(--color-fg)" style={{ fontSize: 11, fontWeight: 600 }}>
+              <text key={`s-${p.date}`} x={x(i) + barW / 2} y={y(p.messagesObserved) - 6} textAnchor="middle" fill="var(--color-fg)" style={{ fontSize: 12.5, fontWeight: 600 }}>
                 ×{s.multiple}
               </text>
             );
@@ -272,17 +272,17 @@ export function VolumeChart({
               />
               <line x1={width - M.right} x2={width - M.right} y1={10} y2={18} stroke="var(--color-fg-3)" />
               <text
-                x={Math.min(x(lastIdx) + barW / 2 + 6, width - M.right - 170)}
+                x={Math.min(x(lastIdx) + barW / 2 + 6, width - M.right - 192)}
                 y={10}
                 fill={gapDays > STALE_AFTER_DAYS ? "var(--color-void)" : "var(--color-fg-2)"}
-                style={{ fontSize: 11, fontWeight: 600 }}
+                style={{ fontSize: 12.5, fontWeight: 600 }}
               >
                 {`no report · ${gapDays} day${gapDays === 1 ? "" : "s"}${gapDays > STALE_AFTER_DAYS ? " · stale" : ""}`}
               </text>
             </g>
           ) : null}
           {lastKey && lastIdx < 0 ? (
-            <text x={M.left} y={14} fill="var(--color-void)" style={{ fontSize: 11, fontWeight: 600 }}>
+            <text x={M.left} y={14} fill="var(--color-void)" style={{ fontSize: 12.5, fontWeight: 600 }}>
               last report {dayLabel(lastKey)}, before this window
             </text>
           ) : null}
@@ -292,7 +292,7 @@ export function VolumeChart({
             (days - 1 - i) % labelEvery === 0 ? (
               <g key={`x-${p.date}`}>
                 <line x1={x(i) + barW / 2} x2={x(i) + barW / 2} y1={y(0)} y2={y(0) + 4} stroke="var(--color-fg)" />
-                <text x={x(i) + barW / 2} y={H - 8} textAnchor={i === days - 1 ? "end" : "middle"} fill="var(--color-fg-3)" style={{ fontSize: 11 }} className="tnum">
+                <text x={x(i) + barW / 2} y={H - 8} textAnchor={i === days - 1 ? "end" : "middle"} fill="var(--color-fg-3)" style={{ fontSize: 12.5 }} className="tnum">
                   {i === days - 1 ? "today" : dayLabel(p.date)}
                 </text>
               </g>

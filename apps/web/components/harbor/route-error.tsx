@@ -71,13 +71,13 @@ export function RouteError({
         <div className="max-w-[38rem]">
           <svg viewBox="0 0 132 30" width="132" height="30" aria-hidden className="block overflow-visible">
             <path d="M12 15 H104" fill="none" stroke="var(--color-fg)" strokeWidth="5" strokeLinecap="round" />
-            <circle cx="12" cy="15" r="7" fill="#ffffff" stroke="var(--color-fg)" strokeWidth="3" />
+            <circle cx="12" cy="15" r="7" fill="var(--color-paper)" stroke="var(--color-fg)" strokeWidth="3" />
             <rect x="112" y="3" width="5" height="24" rx="1.5" fill="var(--color-fail)" />
           </svg>
           <p role="alert" className="mt-6 text-[15px] font-bold text-fail">
             Something failed on our side
           </p>
-          <h1 className="mt-3 text-[34px] font-[760] leading-[1] tracking-[-0.035em] text-fg [text-wrap:balance] sm:text-[46px]">
+          <h1 className="mt-3 text-[34px] font-[760] leading-[0.96] tracking-[-0.035em] text-fg [text-wrap:balance] sm:text-[46px]">
             {title}
           </h1>
           <div className="mt-5 text-[17px] leading-[1.5] text-fg-2">{children}</div>
