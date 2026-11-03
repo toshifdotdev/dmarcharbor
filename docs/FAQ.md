@@ -64,7 +64,8 @@ record that sends reports to both while you move over.
 **What if I use Cloudflare?**
 Add a Cloudflare connection with an API token that can edit DNS. You can then
 preview and publish the verification record and the DMARC record from the domain's
-page, and put a previous value back. Starts on Fairway.
+page, and put a previous value back. A workspace can hold up to 5 Cloudflare
+connections. Starts on Fairway.
 
 **My domain publishes reports to a web address instead of a mailbox. Do you collect those?**
 Not yet. A `rua=https://` address means reports go to a web endpoint we do not read,
@@ -72,8 +73,9 @@ so there is no report data for that domain until it also lists our mailbox addre
 Add our address beside it rather than replacing it.
 
 **Can I add many domains at once?**
-Yes. Paste or import a list on a client's page, or use the API's bulk endpoints.
-Each row is checked on its own, so one bad line does not stop the rest.
+Yes. Paste or import a list of up to 500 domains on a client's page, or use the
+API's bulk endpoints, which take up to 200 clients or 500 domains a request. Each
+row is checked on its own, so one bad line does not stop the rest.
 
 **I filed a domain under the wrong client. Can I move it?**
 Yes. On the Clients page, choose Move on the domain's row, or open the domain's
@@ -128,7 +130,8 @@ comparison.
 - **Every plan, free included:** aggregate reports, the audit trail, data export and
   erasure, DNS monitoring and change history, Gmail, Yahoo and Microsoft sender
   requirement checks, registration expiry dates, sender review, subdomains seen
-  sending that you do not monitor, the switch kit and two-step verification.
+  sending that you do not monitor, policy readiness for each step to `p=reject`,
+  the switch kit and two-step verification.
 - **Fairway:** alerts by email, Slack and Teams (including DNS change and expiry
   warnings), spoofing alerts, sender owners, webhooks, publishing through
   Cloudflare, hosted DMARC, the SPF check for unused includes, forensic reports
@@ -137,13 +140,30 @@ comparison.
 - **Harbor:** the client portal and client approvals, named forensic evidence,
   scheduled digests, the API, PSA ticketing, managed SPF, hosted BIMI and
   MTA-STS, the Trust Center, compliance packs and monthly client reports, report
-  collection from your own mailbox, your logo and colours in the portal, reports
-  and client emails, the monthly usage export per client, Ask (product questions
-  answered in the app from these pages), and 50 prospect reports a month.
-- **Admiralty:** everything clients open on your own domain, single sign-on, an
-  unlimited team, and 200 prospect reports a month.
+  collection from your own mailbox, your logo, colours and support contact in the
+  portal, reports and client emails, the monthly usage export per client, Ask
+  (product questions answered in the app from these pages), and 50 prospect
+  reports a month.
+- **Admiralty:** everything clients open on your own domain, client emails from
+  your own address, single sign-on, an unlimited team, and 200 prospect reports a
+  month.
 - **Fleet:** everything in Harbor, including your logo and colours, for more
-  domains, with an unlimited team.
+  domains, with an unlimited team and 200 prospect reports a month. Your own
+  domain and single sign-on stay on Admiralty.
+
+**What are the limits on each plan?**
+
+| Limit | Mooring | Fairway | Harbor | Admiralty | Fleet |
+|---|---|---|---|---|---|
+| Clients | 1 | 5 | 20 | 75 | 1,000 |
+| Active domains | 2 | 20 | 80 | 300 | 5,000 |
+| Team members per workspace | 2 | 5 | 25 | No limit | No limit |
+| Workspaces per account | 1 | 2 | 3 | 5 | 5 |
+| Prospect reports a month | None | 10 | 50 | 200 | 200 |
+
+The next answers say how each limit is counted. Other limits are the same on every
+plan: what counts as an active domain, how long data is kept, rate limits, the size
+of a bulk import, Cloudflare connections and digest recipients.
 
 **How many people can join a workspace?**
 Mooring 2, Fairway 5, Harbor 25, and Admiralty and Fleet have no limit. These are
@@ -158,7 +178,7 @@ Per active domain a month, in bands:
 | Up to 200 | $2.00 (₹169) | $150 (₹12,675), covering up to 75 |
 | 201 to 500 | $1.25 (₹106) | $400 (₹33,920), covering up to 320 |
 | 501 to 2,000 | $1.00 (₹85) | $625 (₹53,125), covering up to 625 |
-| 2,001 to 5,000 | $0.75 (₹64) | $2,000 (₹1,70,688), covering up to 2,667 |
+| 2,001 to 5,000 | $0.75 (₹64) | $2,000.25 (₹1,70,688), covering up to 2,667 |
 
 Adding a domain never lowers the bill. The count is measured before each month
 starts, with no proration. From 200 to 300 domains Admiralty costs about the same
@@ -166,19 +186,28 @@ and adds your own domain and single sign-on.
 
 **How are the limits counted?**
 Clients and active domains are counted across every workspace your account owns,
-so a client book cannot be split across workspaces to fit a smaller plan. Team
-members are counted per workspace, and open invitations count as seats. A domain
-is active while it has sent a report within the plan's window, and for its first 14
-days; a parked domain that has stopped reporting stops counting.
+so a client book cannot be split across workspaces to fit a smaller plan.
+Workspaces are counted per account. Team members are counted per workspace, and
+open invitations count as seats.
+
+A domain counts as active for its first 14 days, and whenever it has sent a report
+in the last 30 days. That is the same on every plan. A parked domain that has
+stopped reporting stops counting 30 days after its last report, and starts again
+the day a report arrives. On Fleet, this count is also what you are billed for.
 
 **What happens when I reach a limit?**
 Adding more is refused, and the message says which limit you reached and which plan
-raises it. Nothing is deleted and nothing stops working.
+raises it, or to contact us where no plan does. Nothing is deleted and nothing stops
+working.
 
 **Can I downgrade below what I am using?**
-No. If you have more clients, domains or members than the smaller plan allows, we
-tell you exactly how many over you are on each limit, and you can remove the excess
-or stay where you are.
+No. If you have more clients, active domains, team members or workspaces than the
+smaller plan allows, we tell you exactly how many over you are on each limit, and
+you can remove the excess or stay where you are.
+
+Cancelling is always allowed. When the paid period ends the workspace moves to
+Mooring with everything kept, and adding more is refused until you are within
+Mooring's limits.
 
 **What happens to features when I downgrade?**
 Nothing is deleted, and upgrading again brings everything back as it was.
@@ -188,6 +217,8 @@ Nothing is deleted, and upgrading again brings everything back as it was.
   records to move back to your own DNS.
 - Alert rules, digests and a report mailbox are kept but stop running. A kept
   mailbox can still be disconnected, which deletes its stored password.
+- Slack and Teams channels and digests can still be paused or removed, but not
+  changed or switched back on.
 - Share links and Trust Center pages answer as withdrawn while the plan does not
   include them, and work again after an upgrade.
 - Single sign-on stops admitting new people at once; existing members get 30 days.
@@ -317,7 +348,9 @@ record's lookups and warns when it goes over 10.
 **Do you support BIMI and MTA-STS?**
 Yes. Hosted BIMI serves your logo and certificate; hosted MTA-STS serves the policy
 file and record for you. TLS reports (TLS-RPT) show delivery problems to your mail
-servers. Hosted BIMI and MTA-STS start on Harbor; TLS reports on Fairway.
+servers. Hosted BIMI and MTA-STS start on Harbor. Viewing TLS reports starts on
+Fairway; they are collected on every plan, so reports received before an upgrade
+appear afterwards.
 
 ## Clients, sharing and branding
 
@@ -333,8 +366,8 @@ sign-in. It expires after the number of days you choose, up to a year, and you c
 revoke it at any time. Starts on Fairway.
 
 **What are digests and monthly reports?**
-A digest is a scheduled email, weekly or monthly, summarising a domain for the
-addresses you choose. A monthly report is a PDF per client for each complete month,
+A digest is a scheduled email, weekly or monthly, summarising a domain for up to
+20 addresses you choose. A monthly report is a PDF per client for each complete month,
 downloadable by you and by the client in the portal. Both start on Harbor.
 
 **What is a compliance pack?**
@@ -362,7 +395,8 @@ when the page opens. You can forward it to an auditor. Starts on Harbor.
 A plain-language email security check of a company you want to win, shared as a
 link under your workspace's name. It is a snapshot taken when you create it, so
 opening the link never scans anyone's DNS. Fairway includes 10 a month, Harbor 50,
-Admiralty and Fleet 200.
+Admiralty and Fleet 200. Every report created in a calendar month (UTC) counts,
+including one you have since removed, because each one was a scan.
 
 **Can I use my own brand?**
 From Harbor, your agency's name, logo and colours appear in the client portal, on
@@ -420,10 +454,11 @@ domain when you have a lawful basis; they are encrypted and deleted after 7 days
 every plan.
 
 **How long do you keep my data?**
-The same on every plan: aggregate reports for 400 days, forensic reports for 30
-days, and named recipient details for 7 days. The audit trail is kept until a
-deletion request removes it. Your Trust Center and compliance packs state these
-figures, so the answer is never a guess.
+The same on every plan: aggregate and TLS reports for 400 days, forensic reports
+for 30 days, and named recipient details for 7 days. A data export can be
+downloaded for 7 days. The audit trail is kept until a deletion request removes
+it. Your Trust Center and compliance packs state these figures, so the answer is
+never a guess.
 
 **How do I export or delete my data?**
 From the workspace settings, on every plan. An export covers everything we hold for
@@ -466,6 +501,10 @@ takes a question about the product and answers it from this FAQ, the setup guide
 the API reference, the pricing page and the legal pages, with links to the pages it
 used. It cannot see your workspace's data and never changes anything. When those
 pages do not answer a question, it says it does not know and points you to support.
+Each person can ask 10 questions a minute, and a workspace 200 a day. A question it
+could not answer is kept for 180 days so these pages can be improved, with email
+addresses, domains and IP addresses removed and nothing that links it to you or
+your workspace.
 
 **Is there a service level agreement?**
 Not unless one is agreed in writing.

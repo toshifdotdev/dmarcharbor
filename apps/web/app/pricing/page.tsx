@@ -41,10 +41,11 @@ const CURRENCIES = ["INR", "USD"] as const;
  * history (domain-scan.routes), the mailbox-provider checks
  * (mailbox-compliance.routes), the registration expiry date
  * (domain-registration.routes), sender review (onboarding.routes,
- * senders/review), subdomain discovery (onboarding.routes, subdomains), the
- * switch kit (switch.routes) and two-step verification
- * (mfa.routes). Warnings about DNS changes and expiry are alerts, and are not
- * claimed here.
+ * senders/review), subdomain discovery (onboarding.routes, subdomains), policy
+ * readiness (onboarding.routes, policy-readiness), the switch kit
+ * (switch.routes) and two-step verification (mfa.routes). Warnings about DNS
+ * changes and expiry are alerts, and are not claimed here. docs/FAQ.md lists
+ * the same set under "What starts on which plan?".
  */
 const UNGATED_CAPABILITIES = [
   "DNS monitoring and change history",
@@ -52,6 +53,7 @@ const UNGATED_CAPABILITIES = [
   "Domain registration expiry dates",
   "Sender review: mark each source as yours or not",
   "Subdomains seen sending that you do not monitor",
+  "Policy readiness for each step to p=reject",
   "Switch kit for moving from another DMARC service",
   "Two-step verification",
 ];

@@ -171,6 +171,13 @@ export interface PlanDefinition {
    * How long a domain keeps counting toward `maxActiveDomains` after its last
    * report (countCountedDomainsIn). A quota rule, not a retention period.
    *
+   * The same on every plan: `activeDomainWindow`, 30 days. It used to grow with
+   * the plan (30, 365, 1,095, 3,650 days, then 30 again on Fleet), which made the
+   * limit stricter the more an agency paid: a domain parked for a year still
+   * took a Harbor slot but not a free one. Thirty days is what Fleet already
+   * bills by and what "active" means everywhere else (a domain that reports
+   * sends one a day), so every plan now counts the same domains.
+   *
    * This was `dataRetentionDays`, beside an `auditRetentionDays` that nothing
    * read, and both looked like promises about how long data is kept. They were
    * not: retention is the same on every plan and is set per deployment
@@ -470,6 +477,13 @@ const fleetBands: PerDomainBand[] = [
   { upTo: 5000, minimumQuantity: 2667, unitMinor: { USD: 75, INR: 6400 } },
 ];
 
+/**
+ * Days a domain keeps counting as active after its last report, on every plan
+ * (see `PlanDefinition.activeDomainWindowDays`). A new domain also counts for its
+ * first 14 days (`domainGraceDays` in services/inventory/inventory.service.ts).
+ */
+export const activeDomainWindow = 30;
+
 export const planCatalog: Record<PlanTier, PlanDefinition> = {
   MOORING: {
     tier: 'MOORING',
@@ -485,7 +499,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     // Two, so an owner can bring in the one technician who will look at it.
     maxMembers: 2,
     maxWorkspaces: 1,
-    activeDomainWindowDays: 30,
+    activeDomainWindowDays: activeDomainWindow,
     maxProspectReportsPerMonth: 0,
     features: allFeatures({ ...noAlerts, ...noForensic, ...noSharing, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noIntegrations, ...noDnsAutomation, ...noDnsHosted, ...noManagedSpf, ...noHostedBimi, ...noHostedMtaSts, ...noPsa, ...noProspects, ...noTlsRpt, ...noUsageExport, ...noSpfUsage, ...noAssistant, ...off }),
   },
@@ -505,7 +519,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     maxActiveDomains: 20,
     maxMembers: 5,
     maxWorkspaces: 2,
-    activeDomainWindowDays: 365,
+    activeDomainWindowDays: activeDomainWindow,
     maxProspectReportsPerMonth: 10,
     features: allFeatures({ ...noNamedForensic, ...noPortal, ...noApi, ...noSso, ...noBrand, ...noTrustCenter, ...noInbox, ...noDigests, ...noManagedSpf, ...noHostedBimi, ...noHostedMtaSts, ...noPsa, ...noUsageExport, ...noAssistant }),
   },
@@ -522,7 +536,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     maxActiveDomains: 80,
     maxMembers: 25,
     maxWorkspaces: 3,
-    activeDomainWindowDays: 1095,
+    activeDomainWindowDays: activeDomainWindow,
     maxProspectReportsPerMonth: 50,
     features: harborFeatures,
   },
@@ -541,7 +555,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     // arriving through the agency's own identity provider.
     maxMembers: UNLIMITED,
     maxWorkspaces: 5,
-    activeDomainWindowDays: 3650,
+    activeDomainWindowDays: activeDomainWindow,
     maxProspectReportsPerMonth: 200,
     features: allFeatures(),
   },
@@ -566,7 +580,7 @@ export const planCatalog: Record<PlanTier, PlanDefinition> = {
     // Billed per domain, so seats are not a second meter.
     maxMembers: UNLIMITED,
     maxWorkspaces: 5,
-    activeDomainWindowDays: 30,
+    activeDomainWindowDays: activeDomainWindow,
     maxProspectReportsPerMonth: 200,
     features: harborFeatures,
   },

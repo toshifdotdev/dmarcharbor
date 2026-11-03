@@ -49,15 +49,20 @@ finds; what you do about it is yours.
 ## 4. Subscriptions, plans and limits
 
 The Service is sold on subscription. Plan names, prices, and the limits attached
-to each plan (number of clients, active domains, and members) are published at
-`[PRICING URL]`.
+to each plan (number of clients, active domains, team members, workspaces and
+prospect reports) are published at `[PRICING URL]`.
 
-Plans are charged monthly or annually. Limits are per workspace.
+Plans are charged monthly or annually, except Fleet, which is charged monthly per
+active domain. Clients, active domains and workspaces are counted across every
+workspace your account owns; team members are counted per workspace.
 
-**Changing plan.** An upgrade takes effect immediately and the difference is
-charged at that time. A downgrade takes effect at the end of the period you have
-already paid for, and you keep your current plan until that date. We do not issue
-mid-cycle charges unless you ask for an upgrade.
+**Changing plan.** When a change takes effect depends on how you pay. Paid in
+rupees through Razorpay, an upgrade or a downgrade takes effect at the end of the
+period you have already paid for, with no mid-period charge. Paid in US dollars
+through Paddle, a change applies at once and Paddle charges or credits the
+difference for the rest of the period. The billing page says which applies before
+you confirm. A downgrade is refused while you use more than the smaller plan
+allows.
 
 **Cancelling.** You may cancel at any time. Cancellation takes effect at the end of
 the paid period and you retain access until that date.

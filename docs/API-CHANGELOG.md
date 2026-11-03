@@ -254,6 +254,79 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-12-06 — Slack, Teams and digest gates, workspaces in the downgrade check, and quota refusals that name the upgrade
+
+Plan limits now hold on the browser routes that skipped them, and every quota
+refusal carries the counts and the plan to move to. On `/api/v1` the two single
+creates gain fields on their 402, which is additive.
+
+### Changes an integration or a screen might notice
+
+- **Slack and Teams need `alerts.email` (Fairway and up).**
+  `PUT /api/workspaces/{id}/slack-destination`, `PUT …/teams-destination`,
+  `POST …/teams-destination/test`, and a `PATCH` on either destination that
+  sends anything other than `{ "enabled": false }` alone answer
+  `402 FEATURE_NOT_IN_PLAN` on Mooring. Reading, pausing with
+  `{ "enabled": false }` and `DELETE` work on every plan, so a channel kept
+  after a downgrade can be stopped and removed. Before this a free workspace
+  could save a channel that never received an alert, and send a real Teams test.
+  A refused test does not count toward the five a minute.
+- **Editing a digest needs `digests` (Harbor and up).**
+  `PATCH /api/workspaces/{id}/report-digests/{digestId}` answers
+  `402 FEATURE_NOT_IN_PLAN` below Harbor unless the body is
+  `{ "enabled": false }` alone, which pauses a kept digest on any plan.
+  `DELETE` works on every plan; sending was already gated. The 2026-11-28 entry
+  said editing still worked after a downgrade; it no longer does.
+- **Downgrades count workspaces.** `PATCH /api/workspaces/{id}/billing/plan` is
+  also refused with `409 PLAN_CHANGE_OVER_QUOTA` while the account owns more
+  workspaces than the target plan allows. A row in `error.overage` can have
+  `quota: "workspace"`, and the message names each unit ("in use now: 3
+  workspaces").
+- **An invitation over the team size answers 402.**
+  `POST /api/auth/organization/invite-member` answers `402` with
+  `code: "PLAN_LIMIT_REACHED"` (it was `403` with only a message). The body is
+  flat, not under `error`, and adds `quota` (`member`), `label`, `used` (members
+  plus open invitations), `members`, `pending`, `limit`, `plan`, `planLabel`,
+  `upgradeTo` and `upgradeToLabel`. Accepting an invitation into a full
+  workspace is still `403`.
+- **Removed prospect reports still count.** The monthly allowance counts every
+  report created this calendar month (UTC), including revoked and removed ones,
+  so deleting a report no longer frees a scan.
+- **One active-domain window on every plan.** `activeDomainWindowDays` in
+  `GET /api/plans` and in a workspace's entitlements is `30` on every plan (it
+  was 30, 365, 1,095, 3,650 and 30). A domain counts toward the active-domain
+  limit for its first 14 days and while it has sent a report in the last 30.
+  This only ever frees places: a domain parked for more than a month no longer
+  takes one on Fairway, Harbor or Admiralty.
+
+### Additive changes
+
+- **`POST /api/v1/clients` and `POST /api/v1/domains`** at the plan limit answer
+  `402 PLAN_LIMIT_REACHED` with `quota`, `label`, `used`, `requested`, `limit`,
+  `plan`, `planLabel`, `upgradeTo` and `upgradeToLabel`, the same as the app's
+  routes, where they had only `code` and `message`. They now also send the
+  `entitlement.exceeded` webhook. A create refused for any other reason is
+  `409 CONFLICT`, as before.
+- **`planLimitRejections` rows** from `POST /api/v1/clients/bulk`,
+  `POST /api/v1/domains/bulk` and the app's domain import gain `quota`
+  (`client` or `activeDomain`), and each `reason` ends with the plan that raises
+  that limit ("Upgrade to Admiralty for 300 active domains, or remove one.") or
+  "Contact us to add more."
+- **`POST /api/workspaces`** at the allowance still answers
+  `402 WORKSPACE_LIMIT_REACHED` and adds `quota` (`workspace`), `plan`,
+  `planLabel`, `upgradeTo` and `upgradeToLabel` beside `used` and `limit`. The
+  message names the plans ("Fairway includes 2 workspaces and you already have
+  2. Remove one, or upgrade to Harbor for 3 workspaces.").
+- **`402 PROSPECT_LIMIT_REACHED`** adds `plan`, `planLabel`, `upgradeTo` and
+  `upgradeToLabel` beside `used`, `limit` and `resetsAt`, and the message says
+  that a removed report still counts and names the upgrade.
+
+In every one of these, `upgradeTo` is the next plan that raises the limit that
+was hit. It is `null` where none does (Admiralty and Fleet for clients and
+domains), and the message then says to contact us.
+
+---
+
 ## 2026-12-05 — Support contact, the agency's own sending domain, and the portal on the agency's domain
 
 Three white-label additions on the browser routes under `/api`; `/api/v1` is

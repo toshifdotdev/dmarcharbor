@@ -27,16 +27,18 @@ Prices live in `apps/api/src/services/entitlements/plan-catalog.ts` and are
 held in **minor units** — cents for USD, paise for INR. Nothing in the billing
 code handles a decimal amount, because a rounding error is a real charge.
 
-| Plan | USD | INR |
-|---|---|---|
-| Mooring | $0 | ₹0 |
-| Fairway | $39 | ₹3,299 |
-| Harbor | $149 | ₹12,499 |
-| Admiralty | $399 | ₹33,999 |
+| Plan | USD a month | INR a month | USD a year | INR a year |
+|---|---|---|---|---|
+| Mooring | $0 | ₹0 | $0 | ₹0 |
+| Fairway | $39 | ₹3,299 | $390 | ₹32,990 |
+| Harbor | $149 | ₹12,499 | $1,490 | ₹1,24,990 |
+| Admiralty | $399 | ₹33,999 | $3,990 | ₹3,39,990 |
 
-Fleet is billed monthly per active domain, in bands. Each band is its own
-provider plan (`billing_plan.band`), and the quantity sync moves a subscription
-to the band its count falls in from the next period.
+Fleet is billed monthly per active domain, in bands, and has no annual price.
+Each band is its own provider plan (`billing_plan.band`), and the quantity sync
+moves a subscription to the band its count falls in from the next period. The
+count is Fleet's active domains: a domain counts if it sent a report in the last
+30 days or was added in the last 14.
 
 | Fleet band | USD per domain | INR per domain | Billed at least |
 |---|---|---|---|
@@ -184,7 +186,7 @@ gives up:
 |---|---|
 | `GET /workspaces/{id}/billing` | Current plan, status, period end, price |
 | `POST /workspaces/{id}/billing/checkout` | Start a subscription |
-| `PATCH /workspaces/{id}/billing/plan` | Change plan at period end |
+| `PATCH /workspaces/{id}/billing/plan` | Change plan: at period end on Razorpay, at once with proration on Paddle |
 | `POST /workspaces/{id}/billing/cancel` | Cancel, keeping the paid period |
 | `POST /workspaces/{id}/billing/resume` | Undo a pending cancellation |
 | `POST /workspaces/{id}/billing/portal` | Hosted portal (Paddle only) |
@@ -193,11 +195,24 @@ gives up:
 Moving a plan to Mooring is treated as a **cancellation**, not a plan change,
 so the customer keeps the period they paid for.
 
+**A plan change is refused while the account is over the target plan's limits**
+(`409 PLAN_CHANGE_OVER_QUOTA`): clients and active domains across every
+workspace the account owns, team members in the workspace, and the workspaces
+the account owns. Each exceeded limit is a row in `error.overage` with `quota`,
+`used`, `limit` and `by`, and the refusal is recorded as
+`BILLING_PLAN_CHANGE_REFUSED`. Checked before the provider is called, and for
+every target, not only a smaller plan. A cancellation is never refused: the
+workspace moves to Mooring at the end of the period with everything kept, and
+further clients, domains and members are refused until it is within Mooring's
+limits.
+
 ## Not built yet
 
-- **Proration.** A plan change is scheduled, never charged mid cycle. If a
-  customer needs to downgrade and start the cheaper plan immediately, that needs
-  a credit of the unused time and is a separate piece of work.
+- **Proration on Razorpay.** A Razorpay plan change is scheduled for the end of
+  the period, never charged mid cycle. If a customer needs to downgrade and start
+  the cheaper plan immediately, that needs a credit of the unused time and is a
+  separate piece of work. Paddle cannot schedule a price change, so there a
+  change applies at once and Paddle prorates it.
 - **Trials.** Mooring is the free tier and is the real trial. A time limited
   trial on Admiralty would hand over the custom domain and SSO for nothing, and
   neither can be evaluated in a fortnight anyway.

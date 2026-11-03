@@ -198,6 +198,14 @@ describe('limits never fall as a plan is upgraded', () => {
     expect(planCatalog.FLEET[field]).toBeGreaterThanOrEqual(planCatalog.HARBOR[field]);
   });
 
+  it('counts an active domain by the same window on every plan', () => {
+    // A window that grew with the plan made the limit stricter the more an
+    // agency paid: a domain parked for a year kept a Harbor slot but not a
+    // free one. The docs (docs-plan-claims.unit.test.ts) say one window.
+    const windows = new Set(catalogOrder.map((tier) => planCatalog[tier].activeDomainWindowDays));
+    expect(windows.size).toBe(1);
+  });
+
   it('offers prospect reports exactly where the feature is on', () => {
     for (const tier of catalogOrder) {
       const plan = planCatalog[tier];

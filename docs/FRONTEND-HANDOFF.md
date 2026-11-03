@@ -33,9 +33,13 @@ building fresh in **Next.js**.
 **Never hardcode plan names, feature names, limits, or prices in the frontend.**
 
 The backend owns all of it. Fetch `GET /api/workspaces/{organizationId}/entitlements`
-and render from that. When a request comes back `402`, the body is
-`{ error: { code, message, feature } }` where `feature` is the entitlement key —
-use it to route the user to the right upgrade prompt rather than guessing.
+and render from that. When a request comes back `402 FEATURE_NOT_IN_PLAN`, the
+body is `{ error: { code, message, feature, requiredIn, upgradeTo } }` where
+`feature` is the entitlement key — use it to route the user to the right upgrade
+prompt rather than guessing. A limit refusal (`PLAN_LIMIT_REACHED`,
+`WORKSPACE_LIMIT_REACHED`, `PROSPECT_LIMIT_REACHED`) carries `used`, `limit` and
+`upgradeTo` instead; the invitation refusal has those fields at the top level,
+not under `error`.
 
 This is not style advice. The ladder changed during the build: client digests
 moved from Fairway to Harbor, and SSO went from "not built" to Admiralty. Any

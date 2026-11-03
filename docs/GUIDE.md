@@ -4,6 +4,8 @@
 
 From a new account to a client domain at `p=reject`, in the order you will do it.
 Each step says which plan it needs; the FAQ answers the questions in between.
+Fleet has everything Harbor has, so "Fairway and above" and "Harbor and above"
+include Fleet. Your own domain and single sign-on are on Admiralty only.
 
 ---
 
@@ -92,8 +94,9 @@ counts the record's lookups and warns when it goes over 10.
 - **Alerts** (Fairway and above): create rules per domain for failure rate,
   failure count, volume from one source, report silence or new unauthenticated
   sources. Alerts go to the people you choose by email.
-- **Slack and Teams:** under Settings, connect one Slack channel and one Teams
-  channel, and every alert also posts there.
+- **Slack and Teams** (Fairway and above): under Settings, connect one Slack
+  channel and one Teams channel, and every alert also posts there. After a
+  downgrade a connected channel can still be paused or removed.
 - **PSA tickets** (Harbor and above): connect HaloPSA, ConnectWise Manage or
   Autotask, map each client to a PSA company, and alerts open, update and close
   tickets.
@@ -104,8 +107,9 @@ counts the record's lookups and warns when it goes over 10.
 ## 6. Bring in your team
 
 Under Settings, Members, invite colleagues by email as an admin, analyst or viewer.
-Open invitations count toward your plan's team size. On Admiralty you can connect
-SAML or OIDC single sign-on instead.
+Open invitations count toward your plan's team size, which is per workspace:
+Mooring 2, Fairway 5, Harbor 25, and Admiralty and Fleet have no limit. On
+Admiralty you can connect SAML or OIDC single sign-on instead.
 
 ## 7. Give your client a view
 
@@ -192,7 +196,7 @@ support.
 
 **"Plan limit reached".** The message says which limit and which plan raises it.
 Clients and active domains are counted across every workspace you own; a domain
-that has stopped reporting stops counting after the plan's window.
+that has stopped reporting stops counting 30 days after its last report.
 
 **A sender I recognise is failing.** Open it on the Senders tab. It shows whether SPF,
 DKIM or alignment failed, and from which addresses. Fix that service's DNS or its

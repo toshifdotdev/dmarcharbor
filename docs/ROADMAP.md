@@ -9,7 +9,7 @@ it survives a handover or a lost conversation.
 |---|---|---|
 | Core DMARC | `bb4e4ff` and earlier | Ingestion, readiness, shares, digests, alerts |
 | Session management | `bb4e4ff` | Device list, revocation, rate limits |
-| Canary and new senders | `02d48ea` | Rollout stages, spoofing detection |
+| Policy stages and new senders | `02d48ea` | Policy stage guidance, new sender detection. The paid staged rollout (`rollout.canary`) is not built and is not sold |
 | Alerts | `a1b0bd6` | Thresholds, escalation, rollups |
 | Plan entitlements | `e254c36` | Catalog, quotas, 402s, overrides |
 | Data inventory | `1c8a778` | What is held, per client |
@@ -28,6 +28,7 @@ it survives a handover or a lost conversation.
 | IMAP collection and dedup | `ed29d3d` | Shared mailbox, encrypted credentials, report identity |
 | Billing safety and scaling | `683d4cd` | Staff-only plan changes, atomic webhook claim |
 | Enterprise SSO | `683d4cd` | SAML and OIDC, domain allowlist, JIT provisioning |
+| PSA ticketing | `f9324ac` | HaloPSA, ConnectWise and Autotask tickets from alerts and DNS changes, Harbor and up |
 
 ## Remaining
 
@@ -84,10 +85,9 @@ subscription identifier is the piece that has to be released first.
 
 ## Not planned
 
-- **Proration.** A plan change is scheduled, never charged mid cycle. If a
-  customer needs to downgrade and start the cheaper plan immediately, that
-  needs a credit for the unused time.
+- **Proration on Razorpay.** A Razorpay plan change is scheduled, never charged
+  mid cycle. If a customer needs to downgrade and start the cheaper plan
+  immediately, that needs a credit for the unused time. Paddle changes apply at
+  once and Paddle prorates them.
 - **Shared Redis.** An in process TTL cache is sufficient until a second
   instance runs.
-- **HaloPSA connector.** The public API is the integration. There is no
-  connector to build.

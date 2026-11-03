@@ -375,17 +375,26 @@ export function planCatalogChunks(): CorpusChunk[] {
     text: overview.join('\n'),
   });
 
+  // "1 client", not "1 clients": Mooring's limits are ones.
+  const counted = (limit: number, one: string, many: string): string => `${limitText(limit)} ${limit === 1 ? one : many}`;
+
   for (const tier of catalogOrder) {
     const plan = planCatalog[tier];
     const granted = listedKeys().filter((key) => plan.features[key]);
     const missing = listedKeys().filter((key) => !plan.features[key]);
-    const members = Number.isFinite(plan.maxMembers) ? `${plan.maxMembers} team members per workspace` : 'an unlimited team';
+    // Members are the one limit counted per workspace, open invitations
+    // included; clients and domains are counted across the account, so the
+    // sentence says which is which rather than leaving both to read as per
+    // workspace.
+    const members = Number.isFinite(plan.maxMembers)
+      ? `${counted(plan.maxMembers, 'team member', 'team members')} per workspace, open invitations included`
+      : 'an unlimited team';
     const prospects =
       plan.maxProspectReportsPerMonth > 0 ? `${plan.maxProspectReportsPerMonth} prospect reports a month` : 'no prospect reports';
     const text = [
       `${plan.label} plan. ${plan.descriptor}`,
       priceLine(tier),
-      `Limits: up to ${limitText(plan.maxClients)} clients and ${limitText(plan.maxActiveDomains)} active domains, ${members}, up to ${plan.maxWorkspaces} workspaces per account, and ${prospects}.`,
+      `Limits: up to ${counted(plan.maxClients, 'client', 'clients')} and ${counted(plan.maxActiveDomains, 'active domain', 'active domains')} across every workspace the account owns, ${members}, up to ${counted(plan.maxWorkspaces, 'workspace', 'workspaces')} per account, and ${prospects}.`,
       `Includes: ${granted.map((key) => entitlementLabels[key]).join('; ')}.`,
       missing.length > 0 ? `Not included: ${missing.map((key) => entitlementLabels[key]).join('; ')}.` : 'Every listed feature is included.',
     ].join('\n');

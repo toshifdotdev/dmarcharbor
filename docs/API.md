@@ -170,7 +170,7 @@ Every error has one shape:
 | 400 | `PERIOD_TOO_OLD` | `GET /usage`: the month is more than 12 complete months ago |
 | 401 | `UNAUTHORIZED` | No key, or a key that is invalid, revoked or expired |
 | 402 | `FEATURE_NOT_IN_PLAN` | The plan does not include the API or the feature the route needs. Adds `feature`, `plan`, `planLabel`, `requiredIn` and `upgradeTo` |
-| 402 | `PLAN_LIMIT_REACHED` | A single create would go past the plan's clients or active domains, or a bulk request is over its size cap (adds `limit` and `requested`) |
+| 402 | `PLAN_LIMIT_REACHED` | A single create would go past the plan's clients or active domains (adds `quota`, `label`, `used`, `requested`, `limit`, `plan`, `planLabel`, `upgradeTo` and `upgradeToLabel`), or a bulk request is over its size cap (adds `limit` and `requested`) |
 | 403 | `FORBIDDEN` | The key does not carry the scope the route needs |
 | 404 | `NOT_FOUND` | The resource is not in this workspace, or the endpoint does not exist. This includes a `clientId` in a request body |
 | 409 | `CONFLICT` | The request conflicts with what exists: a slug or domain already in use, a scan of an unverified domain, an alert already acknowledged, a move blocked by a provider switch (adds `blockers`) |
@@ -195,6 +195,30 @@ A 402 for a missing feature looks like this:
   }
 }
 ```
+
+A 402 for a full plan on a single create looks like this:
+
+```json
+{
+  "error": {
+    "code": "PLAN_LIMIT_REACHED",
+    "message": "Harbor includes 80 active domains and you have 80. Upgrade to Admiralty for 300 active domains, or remove one.",
+    "quota": "activeDomain",
+    "label": "active domains",
+    "used": 80,
+    "requested": 1,
+    "limit": 80,
+    "plan": "HARBOR",
+    "planLabel": "Harbor",
+    "upgradeTo": "ADMIRALTY",
+    "upgradeToLabel": "Admiralty"
+  }
+}
+```
+
+- `quota` is `client` or `activeDomain`: the limit that was hit.
+- `used` is counted across every workspace the account owns, so it can include clients and domains in another of its workspaces. The answer never names that workspace.
+- `upgradeTo` is the next plan that raises this limit. It is `null` on Admiralty and Fleet, and the message then says to contact us.
 
 A malformed JSON body answers 400 `INVALID_REQUEST` with the parser's own message, for example "Expected property name or '}' in JSON at position 1", so you can see where the body broke.
 
@@ -258,15 +282,46 @@ The API is included on Harbor, Admiralty and Fleet (the `api.access` feature). S
 | Feature | Routes | Included on |
 |---|---|---|
 | `api.access` | Every `/api/v1` route | Harbor, Admiralty, Fleet |
-| `alerts.email` | `GET /alerts`, `POST /alerts/{alertId}/acknowledge` | Fairway and above |
-| `reports.tlsrpt` | `GET /domains/{domain}/tls-reports/summary` | Fairway and above |
+| `alerts.email` | `GET /alerts`, `POST /alerts/{alertId}/acknowledge` | Fairway, Harbor, Admiralty, Fleet |
+| `reports.tlsrpt` | `GET /domains/{domain}/tls-reports/summary` | Fairway, Harbor, Admiralty, Fleet |
 | `reports.usageExport` | `GET /usage` | Harbor, Admiralty, Fleet |
 
 Every plan that includes the API includes the other three today, so the 402 an integration usually meets is `api.access` after a downgrade. Check before you call: `GET /me` returns every feature as `true` or `false`, with the same keys used here.
 
 The plan is checked on every request, not only when the key is issued. A refusal is a 402 with code `FEATURE_NOT_IN_PLAN` and the feature's key in `feature` (see [Errors](#errors)).
 
-Plan limits are separate from features: the number of clients and active domains a plan includes. `GET /me` returns them under `limits`. A single create that would go past them answers 402 `PLAN_LIMIT_REACHED`; a bulk import creates what fits and lists the rest in `planLimitRejections`.
+Plan limits are separate from features: the number of clients and active domains a plan includes, counted across every workspace the account owns. `GET /me` returns them under `limits`. A single create that would go past them answers 402 `PLAN_LIMIT_REACHED` with the counts and the plan to move to (see [Errors](#errors)); a bulk import creates what fits and lists the rest in `planLimitRejections`. The size of a bulk request (200 clients or 500 domains) is the same on every plan.
+
+### Plan refusals from the app
+
+Three more limits are checked only on the app's own routes, which are not part of `/api/v1`. They answer 402 with the same kind of fields, so a screen can name the plan to move to:
+
+| Code | When | Fields beside `code` and `message` |
+|---|---|---|
+| `PLAN_LIMIT_REACHED` with `quota` `member` | Inviting someone when members plus open invitations fill the workspace's team size | `label`, `used` (members plus open invitations), `members`, `pending`, `limit`, `plan`, `planLabel`, `upgradeTo`, `upgradeToLabel` |
+| `WORKSPACE_LIMIT_REACHED` | Creating a workspace when the account already holds its plan's allowance | `quota` (`workspace`), `used`, `limit`, `plan`, `planLabel`, `upgradeTo`, `upgradeToLabel` |
+| `PROSPECT_LIMIT_REACHED` | Creating a prospect report past the month's allowance. Every report created this calendar month (UTC) counts, including removed ones | `used`, `limit`, `resetsAt`, `plan`, `planLabel`, `upgradeTo`, `upgradeToLabel` |
+
+The invitation refusal comes from the sign-in service, so its fields sit at the top level rather than under `error`:
+
+```json
+{
+  "message": "Fairway includes 5 team members and this workspace has 4 and 1 open invitation. Remove someone or cancel an invitation, or upgrade to Harbor for 25.",
+  "code": "PLAN_LIMIT_REACHED",
+  "quota": "member",
+  "label": "team members",
+  "used": 5,
+  "members": 4,
+  "pending": 1,
+  "limit": 5,
+  "plan": "FAIRWAY",
+  "planLabel": "Fairway",
+  "upgradeTo": "HARBOR",
+  "upgradeToLabel": "Harbor"
+}
+```
+
+In all three, `upgradeTo` is `null` where no plan on the ladder allows more, and the message says to contact us.
 
 ## Workspace
 
@@ -319,7 +374,8 @@ curl -sS https://app.dmarcharbor.example/api/v1/me \
     "integrations.psa": true,
     "prospects.reports": true,
     "reports.usageExport": true,
-    "dns.spfUsage": true
+    "dns.spfUsage": true,
+    "assistant.docs": true
   },
   "limits": { "maxClients": 20, "maxActiveDomains": 80, "maxMembers": 25 },
   "key": {
@@ -477,7 +533,7 @@ A domain that another workspace already monitors does not stop the client being 
 Errors:
 
 - 400 `INVALID_REQUEST`: the body is not valid (no name, a name over 120 characters, more than 100 domains), in which case the message is always "A client name is required.", or a domain name is not usable ("One of those domain names is not usable.").
-- 402 `PLAN_LIMIT_REACHED`: the plan has no room for another client or for these domains. The message says which.
+- 402 `PLAN_LIMIT_REACHED`: the plan has no room for another client or for these domains. `quota` says which (`client` or `activeDomain`), with `used`, `limit` and the plan to move to; see [Errors](#errors).
 - 409 `CONFLICT`: the slug is taken (`A client with the slug "corriwick-cafe" already exists.`) or a domain is already in this workspace (`Already monitoring corriwick-cafe.example.`). A domain already in this workspace fails the request, because it usually means the client is being created a second time.
 - 401, 402 `FEATURE_NOT_IN_PLAN`, 403, 409 `IDEMPOTENCY_KEY_REUSED`, 413 `PAYLOAD_TOO_LARGE`, 429, 500.
 
@@ -534,7 +590,7 @@ curl -sS -X POST https://app.dmarcharbor.example/api/v1/clients/bulk \
     { "index": 1, "name": "Pellowyn Dental", "reason": "A client with the slug \"pellowyn-dental\" already exists." }
   ],
   "planLimitRejections": [
-    { "index": 2, "name": "Ollerbeck Vets", "reason": "Harbor includes 80 active domains and only 1 remain." }
+    { "index": 2, "name": "Ollerbeck Vets", "quota": "activeDomain", "reason": "Harbor includes 80 active domains and only 1 remain. Upgrade to Admiralty for 300 active domains, or remove one." }
   ],
   "limits": { "maxClients": 200, "maxDomains": 500 }
 }
@@ -542,7 +598,7 @@ curl -sS -X POST https://app.dmarcharbor.example/api/v1/clients/bulk \
 
 - `index` is the row's position in your request, starting at 0, so you can match every outcome to its row.
 - `failures` are rows that were wrong: no name, a slug that is taken, a domain name that is not usable, a domain already in this workspace. Fix the row and send it again.
-- `planLimitRejections` are rows that were fine but did not fit the plan. Upgrade or free room, then send them again.
+- `planLimitRejections` are rows that were fine but did not fit the plan. Each has `quota`, the limit that stopped it (`client`, or `activeDomain` for a row whose domains did not fit), and a `reason` that ends with the plan that raises it. Upgrade or free room, then send them again.
 - A domain that another workspace already monitors does not fail its row. The client is created with its other domains, and that domain is listed in the client's `domainConflicts`, exactly as for [a single create](#post-api-v1-clients). `index` there is the domain's position in that row's `domains` list.
 - The answer is 201 even when no row was created. Read the counts.
 - `limits` is the per-request cap of this endpoint and of `POST /domains/bulk`, not the plan's limits.
@@ -641,7 +697,7 @@ curl -sS -X POST https://app.dmarcharbor.example/api/v1/domains \
 Errors:
 
 - 400 `INVALID_REQUEST`: no `clientId`, or no usable domain name.
-- 402 `PLAN_LIMIT_REACHED`: the plan has no room for another active domain.
+- 402 `PLAN_LIMIT_REACHED`: the plan has no room for another active domain. The error carries `quota` (`activeDomain`), `used`, `limit` and the plan to move to; see [Errors](#errors).
 - 404 `NOT_FOUND`: the `clientId` is not in this workspace ("That client is not in this workspace.").
 - 409 `CONFLICT`: the domain is already in this workspace, or another workspace monitors it ("That domain is already monitored by another workspace. Remove it there first, or ask them to release it.").
 - 401, 403, 409 `IDEMPOTENCY_KEY_REUSED`, 413 `PAYLOAD_TOO_LARGE`, 429, 500.
@@ -1673,7 +1729,7 @@ Sent the first time an aggregate report is stored. The same report arriving agai
 
 ### `entitlement.exceeded`
 
-Sent when someone in the app tries to add a client or a domain and the plan has no room. Rows refused by the API's own imports are reported in `planLimitRejections` instead and do not send this event.
+Sent when someone in the app, or a single create through the API (`POST /clients`, `POST /domains`), tries to add a client or a domain and the plan has no room. Rows refused by the API's bulk imports are reported in `planLimitRejections` instead and do not send this event.
 
 ```json
 {
@@ -1688,7 +1744,7 @@ Sent when someone in the app tries to add a client or a domain and the plan has 
 }
 ```
 
-`quota` is `client` or `activeDomain`. `upgradeTo` is the next plan up, or `null`.
+`quota` is `client` or `activeDomain`. `upgradeTo` is the next plan that raises that limit, or `null` on Admiralty and Fleet.
 
 ### `dns.changed`
 

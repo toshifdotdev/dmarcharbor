@@ -148,15 +148,15 @@ within **90 days**, except as retained under section 6.
 
 ## 6. Retention
 
-The following periods apply. Retention depends partly on the Controller's plan, so
-the Controller's actual periods are shown in its product.
+The following periods apply, and they are the same on every plan: plans differ in
+limits and features, not in how long data is kept.
 
 | Data | Period |
 |---|---|
-| Aggregated Evidence | 400 days on the default plan, up to 10 years on the highest |
-| Forensic report evidence | 30 days by default |
+| Aggregated Evidence | 400 days from receipt, on every plan |
+| Forensic report evidence | 30 days from receipt, on every plan |
 | **Named** recipient identifiers and subject lines | **7 days, on every plan** |
-| Audit trail | 30 days to 10 years, by plan |
+| Audit trail | Until a deletion request removes it, on every plan |
 | Invoices and payment records | As long as tax law requires, typically 6 to 8 years |
 | Erasure certificates | 3 years |
 

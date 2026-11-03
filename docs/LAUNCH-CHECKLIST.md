@@ -351,17 +351,22 @@ naming, not code.
 
 ### 11. Downgrade over-quota
 
-Before the first downgrade is requested by a real customer.
+Done; nothing to do before launch. The guard is in place:
 
-There is no guard. Twelve clients on Harbor, downgraded to Fairway which allows
-five: all twelve stay, fully working, and the API reports the limit with no
-usage, so the mismatch is invisible until the next creation fails with a
-misleading message.
+- `changePlan()` checks the target plan's limits against current usage before it
+  calls the provider: clients and active domains across every workspace the
+  account owns, team members in the workspace, and the workspaces the account
+  owns. Twelve clients on Harbor cannot move to Fairway, which allows five.
+- A move over any limit is refused with `409 PLAN_CHANGE_OVER_QUOTA`, each
+  exceeded limit listed in `overage`, and recorded as
+  `BILLING_PLAN_CHANGE_REFUSED`.
+- `GET /workspaces/{id}/entitlements` carries `used` and `limit` for clients,
+  active domains and members, so the billing screen shows them.
+- `pendingPlan` on the subscription shows a scheduled change before it happens.
 
-- Preflight the target plan's limits against current usage in `changePlan()`.
-- Refuse with the overage listed, or require explicit acknowledgement.
-- Surface `used` and `limit` in the entitlement payload so the UI can show it.
-- Add a `pendingPlan` column so a scheduled change is visible before it happens.
+By design, a cancellation and a failed payment whose grace has run out move the
+workspace to Mooring without this check. Everything is kept, and new clients,
+domains and members are refused until the workspace is within Mooring's limits.
 
 ### 12. Collecting reports from rua=https endpoints
 
