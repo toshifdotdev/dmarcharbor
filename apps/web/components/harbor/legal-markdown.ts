@@ -275,6 +275,180 @@ export function uniqueIdsAvoiding(texts: string[], taken: Iterable<string>): str
   });
 }
 
+/**
+ * Facts the business has not supplied yet, e.g. "[phone number: ...]",
+ * "to be set at launch" or a raw "[SECURITY EMAIL]". The renderer marks them
+ * as pending in place; anything machine-read (structured data, llms.txt)
+ * leaves out a passage that carries one rather than repeat it as a fact.
+ */
+export const PENDING_TOKEN = /(\[[^\]]*(?:supplied by the business|to be set)[^\]]*\]|to be set at launch|\[[A-Z][A-Z0-9 _-]{2,}\])/;
+
+/**
+ * An FAQ question: a source line that is one bold run ending in "?", such as
+ * "**What is DMARC?**". The answer starts on the next line. This is the shape
+ * apps/api/tests/docs-plan-claims.unit.test.ts finds answers by, so it is
+ * matched on the paragraph's first source line, not on the joined paragraph.
+ */
+export const QUESTION_LINE = /^\*\*([^*]+\?)\*\*$/;
+
+/** The question a paragraph opens with, or null when it is not one. */
+export function questionText(block: Block): string | null {
+  if (block.type !== "p") return null;
+  const m = QUESTION_LINE.exec(block.lines[0] ?? "");
+  return m ? m[1]! : null;
+}
+
+/** An id from a question's words, without the trailing dash a 64-character
+ *  cut can leave ("…-do-you-" reads as a typo in a shared link). */
+function questionSlug(text: string): string {
+  return slugify(text).replace(/-+$/, "") || "question";
+}
+
+/**
+ * The ids of every question in a document, in order. They never take an id a
+ * section already has, so turning question anchors on cannot move a section's
+ * address (the assistant and old links point at those).
+ */
+export function questionIds(blocks: Block[], taken: Iterable<string>): string[] {
+  const used = new Set(taken);
+  const out: string[] = [];
+  for (const block of blocks) {
+    const question = questionText(block);
+    if (question === null) continue;
+    const base = questionSlug(question);
+    let id = base;
+    for (let n = 2; used.has(id); n++) id = `${base}-${n}`;
+    used.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+/** Inline markdown as the words a reader sees: bold and code marks dropped,
+ *  a link reduced to its text. */
+export function plainInline(text: string): string {
+  return text
+    .split(INLINE_SPLIT)
+    .map((part) => {
+      if (part.startsWith("**") && part.endsWith("**") && part.length > 4) return plainInline(part.slice(2, -2));
+      if (part.startsWith("`") && part.endsWith("`") && part.length > 2) return part.slice(1, -1);
+      const link = LINK_TOKEN.exec(part);
+      if (link) return plainInline(link[1]!);
+      return part;
+    })
+    .join("");
+}
+
+function listText(block: ListBlock): string[] {
+  return block.lines.flatMap((item, j) => {
+    const child = block.children[j];
+    return [plainInline(item), ...(child ? listText(child) : [])];
+  });
+}
+
+/** A block as plain text: paragraphs as written, one line per list item, a
+ *  table as "Row: Column value; Column value." Images carry no answer text. */
+export function blockPlainText(block: Block): string {
+  switch (block.type) {
+    case "p":
+      return plainInline(block.lines.join(" "));
+    case "quote":
+      return block.lines.map(plainInline).join("\n");
+    case "ul":
+    case "ol":
+      return listText(block).join("\n");
+    case "code":
+      return block.lines.join("\n");
+    case "table": {
+      const rows = block.lines
+        .filter((r) => !/^\|[\s:|-]+\|$/.test(r.trim()))
+        .map((r) =>
+          r
+            .replace(/^\|/, "")
+            .replace(/\|$/, "")
+            .split("|")
+            .map((c) => plainInline(c.trim())),
+        );
+      const [head, ...body] = rows;
+      if (!head) return "";
+      return body
+        .map((row) => `${row[0]}: ${row.slice(1).map((cell, k) => `${head[k + 1] ?? ""} ${cell}`.trim()).join("; ")}.`)
+        .join("\n");
+    }
+    default:
+      return "";
+  }
+}
+
+export interface FaqEntry {
+  question: string;
+  /** The question's own anchor, as the renderer gives it with question headings on. */
+  id: string;
+  /** The section it sits in, and that section's anchor. */
+  section: string | null;
+  sectionId: string | null;
+  /** The answer as plain text, paragraphs separated by a blank line. */
+  answer: string;
+  /** True when the answer still carries a fact the business has not supplied. */
+  pending: boolean;
+}
+
+/**
+ * Every question in a document with its answer: the answer runs from the line
+ * after the question to the next question, heading or rule. The same parse
+ * and the same ids as LegalBody with `questionHeadings`, so the structured
+ * data and the page cannot disagree about what was asked.
+ */
+export function faqEntries(markdown: string, idOffset: string[] = []): FaqEntry[] {
+  const blocks = parseBlocks(markdown);
+  const h2Texts = blocks.filter((b) => b.type === "h2").map((b) => b.lines[0]!);
+  const allH2Ids = uniqueIds([...idOffset, ...h2Texts]);
+  const h2Ids = allH2Ids.slice(idOffset.length);
+  const qIds = questionIds(blocks, allH2Ids);
+  const entries: FaqEntry[] = [];
+  let open: { entry: FaqEntry; parts: string[]; raw: string[] } | null = null;
+  let section: string | null = null;
+  let sectionId: string | null = null;
+  let h2 = 0;
+  let q = 0;
+
+  const close = () => {
+    if (!open) return;
+    open.entry.answer = open.parts.filter((p) => p.trim() !== "").join("\n\n");
+    open.entry.pending = PENDING_TOKEN.test(open.raw.join("\n"));
+    entries.push(open.entry);
+    open = null;
+  };
+
+  for (const block of blocks) {
+    if (block.type === "h2" || block.type === "h3" || block.type === "hr") {
+      close();
+      if (block.type === "h2") {
+        section = block.lines[0]!.replace(/[`*]/g, "");
+        sectionId = h2Ids[h2++] ?? null;
+      }
+      continue;
+    }
+    const question = questionText(block);
+    if (question !== null) {
+      close();
+      const rest = block.lines.slice(1).join(" ");
+      open = {
+        entry: { question, id: qIds[q++]!, section, sectionId, answer: "", pending: false },
+        parts: rest ? [plainInline(rest)] : [],
+        raw: [question, rest],
+      };
+      continue;
+    }
+    if (open) {
+      open.parts.push(blockPlainText(block));
+      open.raw.push(block.lines.join("\n"));
+    }
+  }
+  close();
+  return entries;
+}
+
 /** Every image source in a document, for the registry to size. */
 export function imageSources(markdown: string): string[] {
   const out = new Set<string>();

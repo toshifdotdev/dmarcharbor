@@ -465,6 +465,29 @@ describe('client data erasure', () => {
     expect(await prisma.domain.count({ where: { client: { organizationId } } })).toBe(1);
   });
 
+  it('refuses a second erasure of a scope that is already scheduled, until it is cancelled', async () => {
+    const { agent, organizationId } = await setup();
+    const target = await seedClientDomain(agent, organizationId, 'Twice');
+
+    const first = await agent.post(`/api/workspaces/${organizationId}/erasures`).send({ scope: 'ORGANIZATION' });
+    expect(first.status).toBe(202);
+    const again = await agent.post(`/api/workspaces/${organizationId}/erasures`).send({ scope: 'ORGANIZATION' });
+    expect(again.status).toBe(409);
+    expect(again.body.error.code).toBe('CONFLICT');
+    expect(again.body.error.erasureId).toBe(first.body.id);
+    expect(await prisma.erasureRequest.count({ where: { organizationId, state: 'PENDING' } })).toBe(1);
+
+    // A different scope is a different request.
+    const client = await agent
+      .post(`/api/workspaces/${organizationId}/erasures`)
+      .send({ scope: 'CLIENT', targetId: target.clientId });
+    expect(client.status).toBe(202);
+
+    await agent.post(`/api/workspaces/${organizationId}/erasures/${first.body.id}/cancel`);
+    const after = await agent.post(`/api/workspaces/${organizationId}/erasures`).send({ scope: 'ORGANIZATION' });
+    expect(after.status).toBe(202);
+  });
+
   it('refuses to execute or cancel twice', async () => {
     const { agent, organizationId } = await setup();
     const created = await agent.post(`/api/workspaces/${organizationId}/erasures`).send({ scope: 'ORGANIZATION' });

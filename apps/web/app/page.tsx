@@ -1,11 +1,12 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { ApiError, getAllDomainSignals, getSessionUser, listClients, listWorkspaces } from "@/lib/api";
 import { instantLabel } from "@/lib/instant";
 import { daysSinceReport, policyLabel, resolvePosture, type Posture } from "@/lib/posture";
 import { pickActiveWorkspace } from "@/lib/session";
-import { requestOrigin } from "@/lib/metadata-origin";
 import { publicMetadata } from "@/lib/seo";
+import { hasSessionCookie } from "@/lib/session-cookie";
 import type { WorkspaceSummary } from "@/lib/types";
 import { AppShell } from "@/components/harbor/app-shell";
 import { Landing } from "@/components/harbor/landing";
@@ -22,16 +23,15 @@ import { ErrorState, LoadingState, UpgradeNotice } from "@/components/ui/states"
  *  the product. A signed-in operator's tab names the screen instead, like every
  *  other console route ("Clients", "Alerts"), rather than the marketing line. */
 export async function generateMetadata(): Promise<Metadata> {
-  // Per-request memo shared with the shell, so this adds no API call for an
-  // operator; a crawler is never signed in and gets the product metadata.
-  if (await getSessionUser()) return { title: "Portfolio" };
-  const origin = await requestOrigin();
+  // No session cookie, no API call: a crawler is never signed in, and its
+  // metadata must not wait on (or fail with) the API. With a cookie, the
+  // per-request memo is shared with the shell, so this adds no call.
+  if (hasSessionCookie(await cookies()) && (await getSessionUser())) return { title: "Portfolio" };
   return publicMetadata({
     title: "DMARC reports for MSPs managing client domains",
     description:
       "DMARC monitoring for agencies and MSPs: posture per client domain, evidence you can hand over, and a client portal in your brand. Measurement first; DNS changes only when you ask.",
     path: "/",
-    origin,
   });
 }
 
@@ -48,8 +48,15 @@ export async function generateMetadata(): Promise<Metadata> {
  * A slow or failing API must never show a landing page to someone who has just
  * signed in, which is why anything other than 401/403 is rethrown into the
  * app's error boundary rather than treated as "not signed in".
+ *
+ * With no session cookie at all the visitor is a stranger before any request
+ * is made, so the landing page renders without calling the API. That is every
+ * crawler, and it means an API outage never shows a search engine the error
+ * boundary in place of the home page.
  */
 export default async function RootPage() {
+  if (!hasSessionCookie(await cookies())) return <Landing />;
+
   let workspaces: WorkspaceSummary[];
   try {
     workspaces = await listWorkspaces();

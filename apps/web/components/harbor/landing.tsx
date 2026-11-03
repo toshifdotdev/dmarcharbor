@@ -44,7 +44,7 @@ export async function Landing() {
       <PublicHeader brand={brand} />
 
       <main id="main">
-        <Hero />
+        <Hero name={name} />
         <Board />
         <How name={name} />
         <Check />
@@ -60,16 +60,18 @@ export async function Landing() {
 
 /* ── Hero: one domain's mail as a transit map ──────────────────────────── */
 
-function Hero() {
+function Hero({ name }: { name: string }) {
   return (
     <section data-testid="home-hero" className={s.hero} aria-labelledby="home-headline">
       <div className={s.copy}>
         <h1 id="home-headline" data-testid="home-headline" className={s.headline}>
           Every sender, mapped.
         </h1>
+        {/* The first sentence defines the product in words an answer engine
+            can quote on its own; the headline above is the picture. */}
         <p className={s.line}>
-          DMARC for MSPs and agencies. Reports show every service that sends as a client&rsquo;s domain. Name the real
-          ones, and the rest is turned away at p=reject.
+          {name} is DMARC monitoring for MSPs and IT agencies. Reports show every service that sends as a client&rsquo;s
+          domain. Name the real ones, and the rest is turned away at p=reject.
         </p>
         <div className={s.ctaRow}>
           <Link href="/sign-up" className={s.cta}>

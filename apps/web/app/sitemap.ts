@@ -1,38 +1,27 @@
 import type { MetadataRoute } from "next";
-import { DEVELOPER_DOCS } from "@/lib/docs-registry";
-import { readHostBrand } from "@/lib/host-brand";
-import { requestOrigin } from "@/lib/metadata-origin";
-import { INDEXABLE_ROUTES, LEGAL_ROUTE_PRIORITY } from "@/lib/seo";
+import { sitemapEntries } from "@/lib/crawl-policy";
+import { canonicalOrigin, currentHostKind } from "@/lib/site-origin";
 
 /**
- * sitemap.ts — every URL this deployment offers a crawler.
+ * sitemap.ts — every URL our own host offers a crawler.
  *
- * The list is the indexable set from lib/seo.ts, so the sitemap and the
- * no-index rules cannot disagree: adding a route there adds it here, and the
- * tenant artefacts never appear in either. The developer documents come from
- * their own registry (lib/docs-registry.ts), so publishing one adds it here on
- * the same edit.
+ * The list is the public allowlist (lib/crawl-policy.ts PUBLIC_PATHS: the
+ * marketing pages, the legal set and the developer documents), so the sitemap
+ * and the robots meta cannot disagree. Every URL is on the canonical origin
+ * (SITE_URL), whichever of our hosts served the file.
  *
- * `lastModified` is the moment the sitemap was rendered. There is no per-page
- * content date to read — the legal documents carry a version and an effective
- * date that is still "to be set at launch", and inventing a date to make a
- * sitemap look maintained would be worse than an honest one.
+ * `lastModified` is set only where a real date exists: the legal set's
+ * effective date, once lib/legal-docs.ts carries one instead of "to be set at
+ * launch". It used to be the moment of the request on every entry.
  *
- * On an agency's verified domain the list is empty. Our pages redirect to the
- * portal there (lib/white-label.ts), and the pages a client uses are reached
- * from the links the agency sends, so none is ours to offer a crawler under
- * the agency's name.
+ * Empty on every host that is not our own public host: an agency's verified
+ * domain (our pages redirect to its portal there) and any duplicate or unknown
+ * host (noindex throughout).
  */
-export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  if ((await readHostBrand()).state === "verified") return [];
-  const origin = await requestOrigin();
-  const now = new Date();
-  const routes = [...new Set([...INDEXABLE_ROUTES, ...DEVELOPER_DOCS.map((d) => d.path)])];
+// Per request, for the same reason as app/robots.ts: the answer depends on the Host.
+export const dynamic = "force-dynamic";
 
-  return routes.map((route) => ({
-    url: new URL(route, origin).toString(),
-    lastModified: now,
-    changeFrequency: route === "/" ? ("weekly" as const) : ("monthly" as const),
-    priority: LEGAL_ROUTE_PRIORITY[route] ?? 0.7,
-  }));
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  if ((await currentHostKind()) !== "own") return [];
+  return sitemapEntries(await canonicalOrigin());
 }

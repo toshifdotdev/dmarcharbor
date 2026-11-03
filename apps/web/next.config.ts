@@ -42,8 +42,46 @@ const devAllowedOrigins = [
     .filter(Boolean),
 ];
 
+/**
+ * User agents that get BLOCKING metadata: <title>, description, canonical and
+ * robots in <head>, before the body.
+ *
+ * Next 16 streams metadata by default. When generateMetadata has not resolved
+ * by the time the shell is sent, its tags are appended to <body> later
+ * (node_modules/next/dist/docs/01-app/03-api-reference/04-functions/
+ * generate-metadata.md, "Streaming metadata"). That is fine for a crawler that
+ * runs JavaScript and reads the whole DOM, such as Googlebot. A user agent on
+ * the htmlLimitedBots list instead waits for the metadata, so it lands in
+ * <head> (node_modules/next/dist/docs/01-app/03-api-reference/05-config/
+ * 01-next-config-js/htmlLimitedBots.md).
+ *
+ * Setting the option REPLACES Next's default list, so the default is repeated
+ * here word for word (HTML_LIMITED_BOT_UA_RE in
+ * node_modules/next/dist/shared/lib/router/utils/html-bots.js, Next 16.4.3;
+ * tests/next-config.test.ts fails if a Next upgrade changes it), followed by
+ * the AI fetchers that read raw HTML and do not run JavaScript. Google-Extended
+ * and Applebot-Extended are robots.txt tokens, not fetchers, so they are not
+ * here; Applebot is already matched by the default's `applebot`.
+ */
+const NEXT_DEFAULT_HTML_LIMITED_BOTS =
+  "[\\w-]+-Google|Google-[\\w-]+|Chrome-Lighthouse|Slurp|DuckDuckBot|baiduspider|yandex|sogou|bitlybot|tumblr|vkShare|quora link preview|redditbot|ia_archiver|Bingbot|BingPreview|applebot|facebookexternalhit|facebookcatalog|Twitterbot|LinkedInBot|Slackbot|Discordbot|WhatsApp|SkypeUriPreview|Yeti|googleweblight";
+const AI_HTML_FETCHERS = [
+  "GPTBot",
+  "OAI-SearchBot",
+  "ChatGPT-User",
+  "ClaudeBot",
+  "Claude-SearchBot",
+  "Claude-User",
+  "PerplexityBot",
+  "Perplexity-User",
+  "Applebot",
+  "CCBot",
+];
+const HTML_LIMITED_BOTS = new RegExp(`${NEXT_DEFAULT_HTML_LIMITED_BOTS}|${AI_HTML_FETCHERS.join("|")}`, "i");
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  htmlLimitedBots: HTML_LIMITED_BOTS,
   // NEXT_DIST_DIR lets the verification harness build and serve its own copy
   // (scripts/verify-run.mjs uses `.next-verify`) without touching the `.next`
   // a running `npm run dev` is using.

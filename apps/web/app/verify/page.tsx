@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { verifyCompliancePack, PublicError } from "@/lib/api-public";
 import { getCapabilities } from "@/lib/api-ops";
 import { retryAfterText } from "@/lib/retry-after";
-import { requestOrigin } from "@/lib/metadata-origin";
-import { publicMetadata } from "@/lib/seo";
+import { publicMetadata, robotsForRequest } from "@/lib/seo";
+import { currentHostKind } from "@/lib/site-origin";
 import type { CompliancePackRecord } from "@/lib/types";
 import { ArtefactFrame } from "@/components/harbor/artefact-frame";
 import { Digest, FileCheck, ReferenceForm } from "@/components/harbor/pack-verifier";
@@ -12,19 +12,26 @@ import { PostureMark } from "@/components/ui/badge";
 import { KeyValue } from "@/components/ui/notice";
 import { CopyButton, CopyValue } from "@/components/ui/copy";
 
-/** Indexed on purpose. The page is only useful to someone who already holds a
- *  pack and needs to check it, and they arrive by searching for it rather than
- *  from a link inside the product, so a noindex here would hide the one route
- *  that has to be findable. */
+/** Indexed on our own host, on purpose. The page is only useful to someone who
+ *  already holds a pack and needs to check it, and they arrive by searching for
+ *  it rather than from a link inside the product, so a noindex there would hide
+ *  the one route that has to be findable.
+ *
+ *  On an agency's verified domain it is the agency's page (its compliance packs
+ *  link there): noindex, nofollow, with the agency's name as the site name and
+ *  the agency's own origin as canonical (lib/seo.ts publicMetadata). proxy.ts
+ *  sends the same rule as X-Robots-Tag. */
 export async function generateMetadata(): Promise<Metadata> {
-  const origin = await requestOrigin();
-  return publicMetadata({
-    title: "Document fingerprint verifier",
-    description:
-      "Check that a compliance pack or monthly report you hold is the one that was issued. A SHA-256 digest of the exact bytes is published against the document reference, and a copy is genuine when its digest matches. No account needed.",
-    path: "/verify",
-    origin,
-  });
+  const [meta, kind] = await Promise.all([
+    publicMetadata({
+      title: "Document fingerprint verifier",
+      description:
+        "Check that a compliance pack or monthly report you hold is the one that was issued. A SHA-256 digest of the exact bytes is published against the document reference, and a copy is genuine when its digest matches. No account needed.",
+      path: "/verify",
+    }),
+    currentHostKind(),
+  ]);
+  return { ...meta, robots: robotsForRequest("/verify", kind) };
 }
 
 function dateLabel(value: string): string {

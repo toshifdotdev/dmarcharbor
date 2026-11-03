@@ -20,7 +20,7 @@
  * paragraph is quoted verbatim by requirement and must stay one sentence run.
  */
 
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { CopyButton } from "@/components/ui/copy";
 import { SectionAnchor } from "./legal-client";
 import {
@@ -28,6 +28,9 @@ import {
   INLINE_SPLIT,
   LINK_TOKEN,
   parseBlocks,
+  PENDING_TOKEN,
+  questionIds,
+  questionText,
   safeHref,
   safeImageSrc,
   slugify,
@@ -59,7 +62,7 @@ export const PENDING_MARK =
   "rounded-[4px] bg-warn-wash px-1 font-semibold text-warn [box-decoration-break:clone] print:bg-transparent print:underline print:decoration-dotted";
 
 /** Bracketed tokens the business has not supplied yet, e.g. "[phone number: ...]". */
-const PENDING = /(\[[^\]]*(?:supplied by the business|to be set)[^\]]*\]|to be set at launch|\[[A-Z][A-Z0-9 _-]{2,}\])/;
+const PENDING = PENDING_TOKEN;
 
 const INLINE_CODE = "data rounded-[4px] bg-paper-3 px-1 py-px text-[0.9em] text-fg";
 
@@ -158,6 +161,9 @@ export function LegalHeading2({
     </h2>
   );
 }
+
+/** A bold line an answer hangs from: an FAQ question, or a lead-in. */
+const QUESTION_CLASS = "mt-4 text-[18px] font-semibold leading-[1.35] text-fg print:text-[11pt]";
 
 const H3_CLASS = "mt-5 text-[18px] font-bold leading-[1.3] tracking-[-0.01em] text-fg sm:text-[19px] print:text-[12pt]";
 /** An endpoint opens its own small section, so it stands further from the
@@ -291,6 +297,7 @@ export function LegalBody({
   idOffset = [],
   subheadingAnchors = false,
   images,
+  questionHeadings = false,
 }: {
   markdown: string;
   idOffset?: string[];
@@ -298,6 +305,10 @@ export function LegalBody({
   subheadingAnchors?: boolean;
   /** Intrinsic sizes by image source, read by the registry. */
   images?: Record<string, ImageSize>;
+  /** Set each FAQ question ("**What is DMARC?**" on a line of its own) as a
+   *  sub-heading with its own id and link, so /faq#what-is-dmarc lands on it.
+   *  The FAQ turns this on; the legal documents never do. */
+  questionHeadings?: boolean;
 }) {
   const blocks = parseBlocks(markdown);
   // Ids continue after any headings rendered before the body (required
@@ -305,16 +316,20 @@ export function LegalBody({
   const h2Texts = blocks.filter((b) => b.type === "h2").map((b) => b.lines[0]!);
   const allH2Ids = uniqueIds([...idOffset, ...h2Texts]);
   const ids = allH2Ids.slice(idOffset.length);
+  // Question ids are given out exactly as faqEntries() gives them, so the
+  // FAQPage structured data links to the same addresses.
+  const qIds = questionHeadings ? questionIds(blocks, allH2Ids) : [];
   // Sub-heading ids never take an id a section already has, so a section's
   // address is the same with or without them.
   const h3Ids = subheadingAnchors
     ? uniqueIdsAvoiding(
         blocks.filter((b) => b.type === "h3").map((b) => b.lines[0]!),
-        allH2Ids,
+        [...allH2Ids, ...qIds],
       )
     : [];
   let h2 = 0;
   let h3 = 0;
+  let q = 0;
 
   return (
     <div className={LEGAL_TEXT}>
@@ -398,12 +413,28 @@ export function LegalBody({
             );
           }
           default: {
+            const question = questionHeadings ? questionText(block) : null;
+            if (question !== null) {
+              // The question keeps the look of the bold line an answer hangs
+              // from (below), and becomes a heading with an address.
+              const id = qIds[q++]!;
+              const rest = block.lines.slice(1).join(" ");
+              return (
+                <Fragment key={i}>
+                  <h3 id={id} className={`group flex max-w-[68ch] scroll-mt-6 items-baseline gap-2 ${QUESTION_CLASS}`}>
+                    <span className="min-w-0 flex-1">{inline(question)}</span>
+                    <SectionAnchor id={id} />
+                  </h3>
+                  {rest ? <p>{inline(rest)}</p> : null}
+                </Fragment>
+              );
+            }
             const text = block.lines.join(" ");
             // A paragraph that is only bold is a question or a lead-in (the
             // FAQ's questions): set as the line the answer under it hangs from.
             if (/^\*\*[^*]+\*\*$/.test(text)) {
               return (
-                <p key={i} className="mt-4 text-[18px] font-semibold leading-[1.35] text-fg print:text-[11pt]">
+                <p key={i} className={QUESTION_CLASS}>
                   {inline(text.slice(2, -2))}
                 </p>
               );

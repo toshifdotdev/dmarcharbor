@@ -1,11 +1,11 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Albert_Sans, Atkinson_Hyperlegible_Mono } from "next/font/google";
 import { BrandApplier } from "@/components/brand-applier";
 import { brandName } from "@/components/harbor/public-frame";
 import { StructuredData } from "@/components/structured-data-view";
 import { readHostBrand } from "@/lib/host-brand";
-import { requestOrigin } from "@/lib/metadata-origin";
-import { currentPathname, robotsFor, SITE_DESCRIPTION } from "@/lib/seo";
+import { currentPathname, ogImageFor, robotsForRequest, SITE_DESCRIPTION } from "@/lib/seo";
+import { canonicalOrigin, currentHostKind } from "@/lib/site-origin";
 import { siteGraphJsonLd } from "@/lib/structured-data";
 import "./globals.css";
 
@@ -32,21 +32,49 @@ const hyperMono = Atkinson_Hyperlegible_Mono({
   adjustFontFallback: false,
 });
 
+/**
+ * The viewport, as its own export (the `viewport` metadata field is deprecated
+ * since Next 14: node_modules/next/dist/docs/01-app/03-api-reference/
+ * 04-functions/generate-viewport.md). Width and scale are Next's own defaults,
+ * stated so the theme colour does not drop them; the theme colour is the
+ * page's white ground.
+ */
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#ffffff",
+};
+
+/** Search-console ownership tags, from the environment, for our own host only. */
+function searchConsoleVerification(): Metadata["verification"] | undefined {
+  const google = process.env.GOOGLE_SITE_VERIFICATION?.trim();
+  const bing = process.env.BING_SITE_VERIFICATION?.trim();
+  if (!google && !bing) return undefined;
+  return {
+    ...(google ? { google } : {}),
+    ...(bing ? { other: { "msvalidate.01": bing } } : {}),
+  };
+}
+
 export async function generateMetadata(): Promise<Metadata> {
-  // metadataBase against the REQUEST's own origin: this build serves the
-  // product domain and branded custom domains at once, so a hardcoded base
-  // would claim the wrong host on every agency's site. openGraph rides the
-  // same origin so shared links resolve.
-  const origin = await requestOrigin();
-  // Which route this is, so the indexability below is right for it. Without
-  // this the root metadata is inherited verbatim by every page, and a
-  // canonical on the root named the homepage for all of them.
-  const pathname = await currentPathname();
+  // metadataBase is the CANONICAL origin (lib/site-origin.ts): SITE_URL for our
+  // pages on any of our hosts, the agency's own origin on its verified domain.
+  // Every relative canonical and og:url under it resolves there, so a www. or
+  // unknown host never claims to be the original of our pages, and an agency's
+  // page never points at ours.
+  const [origin, kind, pathname, brand] = await Promise.all([
+    canonicalOrigin(),
+    currentHostKind(),
+    // Which route this is, so the indexability below is right for it. Without
+    // this the root metadata is inherited verbatim by every page.
+    currentPathname(),
+    readHostBrand(),
+  ]);
   // The tab title names the host's brand: an agency's own name on its verified
   // domain (its portal, its error pages), ours everywhere else, and never an
-  // unverified agency name. It was "DMARC Harbor" on every host, so a client's tab
-  // read "Portal · DMARC Harbor" on the agency's own address.
-  const name = brandName(await readHostBrand());
+  // unverified agency name.
+  const name = brandName(brand);
+  const verification = kind === "own" ? searchConsoleVerification() : undefined;
   return {
     metadataBase: new URL(origin),
     title: {
@@ -57,7 +85,10 @@ export async function generateMetadata(): Promise<Metadata> {
     // No `alternates.canonical` here: a canonical on a layout applies to every
     // route under it. Each public page declares its own in lib/seo.ts.
     applicationName: name,
-    robots: robotsFor(pathname),
+    // The public allowlist on our host and an agency's; noindex throughout on
+    // any other host. proxy.ts sends the same rule as X-Robots-Tag.
+    robots: robotsForRequest(pathname, kind),
+    ...(verification ? { verification } : {}),
     // A crawler must not be told to revisit on a timer it may not honour.
     // Cache headers come from the response, not from here.
     openGraph: {
@@ -65,14 +96,7 @@ export async function generateMetadata(): Promise<Metadata> {
       title: name,
       description: SITE_DESCRIPTION,
       type: "website",
-      images: [
-        {
-          url: "/opengraph-image",
-          width: 1200,
-          height: 630,
-          alt: `${name}: every sender, mapped. DMARC monitoring for MSPs and agencies.`,
-        },
-      ],
+      images: [ogImageFor(name)],
     },
     twitter: {
       // No title or description here on purpose: both fall back to the page's
@@ -95,7 +119,7 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const origin = await requestOrigin();
+  const [origin, kind] = await Promise.all([canonicalOrigin(), currentHostKind()]);
   return (
     <html lang="en" className={`${routes.variable} ${hyperMono.variable}`}>
       <body>
@@ -122,8 +146,10 @@ export default async function RootLayout({
         {/* The company and the product, in the machine-readable copy a crawler
             builds an entity card from. Only the facts that are settled: the legal
             entity name, phone and address are placeholders until supplied, so
-            they are absent rather than invented. */}
-        <StructuredData data={siteGraphJsonLd(origin)} />
+            they are absent rather than invented. Never on an agency's verified
+            domain: every page there is the agency's, and our entity graph
+            would name us as its publisher. */}
+        {kind === "agency" ? null : <StructuredData data={siteGraphJsonLd(origin)} />}
         {children}
       </body>
     </html>

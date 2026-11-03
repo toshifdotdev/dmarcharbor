@@ -1,13 +1,14 @@
 import { headers } from "next/headers";
 
 /**
- * metadata-origin.ts — the public origin a canonical URL is built against.
+ * metadata-origin.ts — the origin the request arrived on.
  *
- * This app serves its own domain AND branded custom domains from the same
- * build, so a hardcoded origin is wrong on every custom domain: the canonical
- * for an agency's page is the agency's host, not ours. The request Host header
- * is the truth here (the same read the brand layer uses), with a configured
- * fallback for builds where no request exists.
+ * This is the address the visitor used, which is not always the address a
+ * crawler should know the page by: canonical URLs, the sitemap and structured
+ * data use canonicalOrigin() in lib/site-origin.ts, which names SITE_URL for
+ * our pages on any of our hosts and this origin only on an agency's verified
+ * domain. Use this one for links a person follows from where they are (a
+ * client's sign-in address shown in settings, for one).
  */
 
 export const DEFAULT_PUBLIC_ORIGIN = "https://dmarcharbor.com";

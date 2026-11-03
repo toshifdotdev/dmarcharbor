@@ -2465,10 +2465,17 @@ await evalJs(`(() => {
 // The confirmation word is typed again while the button stays disabled: a fill
 // that landed before hydration sits in the DOM but never reached React's
 // state, so the button never enabled and no request was ever sent.
+// After a click that was sent, nothing is typed or clicked again: a success
+// clears the confirmation and the pending panel appears only after the
+// refresh, and re-typing ERASE in that gap re-enabled the button and sent a
+// second request (one run sent eleven, and left two pending). The API now
+// refuses a second erasure of a scheduled scope with a 409 as well.
 await waitForHydration();
+let erasureSent = false;
 for (let i = 0; i < 40; i++) {
   const state = await evalJs(`(() => {
     if (document.querySelector('[data-testid="erasure-pending"]')) return 'pending';
+    if (${erasureSent ? "true" : "false"}) return 'sent';
     const b = document.querySelector('[data-testid="erasure-submit"]');
     if (b && !b.disabled && b.getAttribute('aria-busy') !== 'true') { b.click(); return 'clicked'; }
     const input = document.querySelector('[data-testid="erasure-confirm"]');
@@ -2482,6 +2489,7 @@ for (let i = 0; i < 40; i++) {
     return 'waiting';
   })()`);
   if (state === "pending") break;
+  if (state === "clicked") erasureSent = true;
   await new Promise((res) => setTimeout(res, state === "clicked" ? 1500 : 700));
 }
 await waitForEval(
@@ -3123,6 +3131,217 @@ check(
   JSON.stringify(ringSeen),
 );
 
+// 8d-seo. What a crawler reads on our own host (lib/crawl-policy.ts,
+//     lib/site-host.ts, proxy.ts). Raw HTTP with no cookie, as a crawler sends
+//     it, and a GPTBot user agent so the metadata must be in <head>
+//     (next.config.ts htmlLimitedBots). The harness sets no SITE_URL, so our
+//     host is the request's own and canonical URLs name it.
+const SEO_UA = "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.2; +https://openai.com/gptbot)";
+// The origin these requests arrive on (Host: localhost:<port>), which is the
+// canonical origin while SITE_URL is unset.
+const SEO_ORIGIN = `http://localhost:${WEB_PORT}`;
+function seoFetch(path, { host = `localhost:${WEB_PORT}`, headers = {} } = {}) {
+  return new Promise((resolve) => {
+    const req = httpRequest(
+      { hostname: "127.0.0.1", port: Number(WEB_PORT), path, headers: { host, "user-agent": SEO_UA, ...headers } },
+      (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks).toString("utf8") }));
+      },
+    );
+    req.on("error", (error) => resolve({ status: 0, headers: {}, body: "", error: String(error) }));
+    req.end();
+  });
+}
+/** The crawler-facing facts of one HTML response. */
+function seoRead(body) {
+  const headEnd = body.indexOf("</head>");
+  const head = headEnd >= 0 ? body.slice(0, headEnd) : "";
+  const attr = (tag, name) => new RegExp(`${name}="([^"]*)"`).exec(tag)?.[1] ?? null;
+  const tag = (re) => re.exec(head)?.[0] ?? null;
+  const canonicalTag = tag(/<link[^>]*rel="canonical"[^>]*>/);
+  const descriptionTag = tag(/<meta[^>]*name="description"[^>]*>/);
+  const robotsTag = /<meta[^>]*name="robots"[^>]*>/.exec(body)?.[0] ?? null;
+  const siteNameTag = /<meta[^>]*property="og:site_name"[^>]*>/.exec(body)?.[0] ?? null;
+  const jsonLd = [...body.matchAll(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+  return {
+    title: /<title>([^<]*)<\/title>/.exec(head)?.[1] ?? null,
+    description: descriptionTag ? attr(descriptionTag, "content") : null,
+    canonical: canonicalTag ? attr(canonicalTag, "href") : null,
+    robots: robotsTag ? attr(robotsTag, "content") : null,
+    siteName: siteNameTag ? attr(siteNameTag, "content") : null,
+    jsonLdCount: jsonLd.length,
+    harborJsonLd: jsonLd.some((block) => block.includes("DMARC Harbor")),
+  };
+}
+
+const seoPublic = {};
+for (const path of ["/", "/pricing", "/faq", "/guide", "/docs/api"]) {
+  const res = await seoFetch(path);
+  const read = seoRead(res.body);
+  seoPublic[path] = {
+    status: res.status,
+    ...read,
+    ok:
+      res.status === 200 &&
+      Boolean(read.title) &&
+      Boolean(read.description) &&
+      (path === "/" ? [SEO_ORIGIN, `${SEO_ORIGIN}/`].includes(read.canonical) : read.canonical === `${SEO_ORIGIN}${path}`) &&
+      read.jsonLdCount > 0 &&
+      !/noindex/.test(read.robots ?? "") &&
+      !res.headers["x-robots-tag"],
+  };
+}
+check(
+  "SEO: public pages have a title, a description, a canonical and JSON-LD",
+  Object.values(seoPublic).every((p) => p.ok),
+  JSON.stringify(Object.fromEntries(Object.entries(seoPublic).map(([k, v]) => [k, { ok: v.ok, status: v.status, title: v.title, canonical: v.canonical, robots: v.robots, jsonLd: v.jsonLdCount }]))),
+);
+
+// App and artefact pages: the auth wall and the portal raw (the portal also
+// carries X-Robots-Tag from the proxy), and a signed-in screen in the browser,
+// whose robots meta may stream into <body>.
+const seoSignIn = await seoFetch("/sign-in");
+const seoPortal = await seoFetch("/portal");
+await navigate(`${WEB}/account/security`);
+const seoAccountRobots = await waitForEval(
+  `document.querySelector('meta[name="robots"]')?.getAttribute('content') ?? null`,
+  (v) => typeof v === "string" && v.length > 0,
+  30000,
+);
+const seoPrivate = {
+  signIn: seoRead(seoSignIn.body).robots,
+  portalMeta: seoRead(seoPortal.body).robots,
+  portalHeader: seoPortal.headers["x-robots-tag"] ?? null,
+  account: seoAccountRobots,
+};
+check(
+  "SEO: app and artefact pages are noindex",
+  /noindex/.test(seoPrivate.signIn ?? "") &&
+    // Signed out, the portal sends its reader to sign-in, possibly before any
+    // markup; the proxy's header holds whatever the body is.
+    seoPrivate.portalHeader === "noindex, nofollow" &&
+    /noindex/.test(seoPrivate.account ?? ""),
+  JSON.stringify({ ...seoPrivate, portalStatus: seoPortal.status }),
+);
+
+const seoRobots = await seoFetch("/robots.txt");
+const seoSitemap = await seoFetch("/sitemap.xml");
+const seoSecurity = await seoFetch("/.well-known/security.txt");
+const seoDocs = await seoFetch("/docs");
+const seoLocs = [...seoSitemap.body.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
+const seoBots = ["GPTBot", "OAI-SearchBot", "ChatGPT-User", "ClaudeBot", "Claude-SearchBot", "Claude-User", "PerplexityBot", "Perplexity-User", "Google-Extended", "Applebot-Extended", "CCBot", "Bingbot", "Googlebot"];
+const seoCrawl = {
+  robotsStatus: seoRobots.status,
+  botsNamed: seoBots.filter((b) => !seoRobots.body.includes(`User-Agent: ${b}\n`)),
+  apiDisallowed: seoRobots.body.includes("Disallow: /api/"),
+  artefactsDisallowed: ["/share", "/trust", "/prospect", "/portal"].filter((p) => new RegExp(`^Disallow: ${p}/?$`, "m").test(seoRobots.body)),
+  sitemapLine: /^Sitemap: (.+)$/m.exec(seoRobots.body)?.[1] ?? null,
+  sitemapStatus: seoSitemap.status,
+  missingLocs: ["/", "/pricing", "/verify", "/support", "/faq", "/guide", "/terms", "/privacy", "/docs/api"].filter((p) => !seoLocs.includes(`${SEO_ORIGIN}${p}`)),
+  foreignLocs: seoLocs.filter((l) => !l.startsWith(`${SEO_ORIGIN}/`)),
+  llmsInSitemap: seoLocs.some((l) => l.endsWith("/llms.txt")),
+  lastmod: seoSitemap.body.includes("<lastmod>"),
+  security: seoSecurity.status === 200 && /^Contact: mailto:support@dmarcharbor\.com$/m.test(seoSecurity.body) && /^Expires: \d{4}-\d{2}-\d{2}T/m.test(seoSecurity.body),
+  docsRedirect: { status: seoDocs.status, location: seoDocs.headers.location ?? null },
+};
+check(
+  "SEO: robots.txt names the AI crawlers and sitemap.xml lists the public pages",
+  seoCrawl.robotsStatus === 200 &&
+    seoCrawl.botsNamed.length === 0 &&
+    seoCrawl.apiDisallowed &&
+    seoCrawl.artefactsDisallowed.length === 0 &&
+    seoCrawl.sitemapLine === `${SEO_ORIGIN}/sitemap.xml` &&
+    seoCrawl.sitemapStatus === 200 &&
+    seoCrawl.missingLocs.length === 0 &&
+    seoCrawl.foreignLocs.length === 0 &&
+    !seoCrawl.llmsInSitemap &&
+    !seoCrawl.lastmod &&
+    seoCrawl.security &&
+    seoCrawl.docsRedirect.status === 308 &&
+    String(seoCrawl.docsRedirect.location ?? "").endsWith("/docs/api"),
+  JSON.stringify({ ...seoCrawl, locs: seoLocs.length }),
+);
+
+// A hostname pointed at us that is not a verified agency domain: everything
+// disallowed, no sitemap, and every page noindex before any HTML.
+const SEO_STRANGER = `seo-stranger.example:${WEB_PORT}`;
+const strangerRobots = await seoFetch("/robots.txt", { host: SEO_STRANGER });
+const strangerSitemap = await seoFetch("/sitemap.xml", { host: SEO_STRANGER });
+const strangerHome = await seoFetch("/", { host: SEO_STRANGER });
+const seoStranger = {
+  robots: strangerRobots.body.trim(),
+  sitemapUrls: (strangerSitemap.body.match(/<url>/g) ?? []).length,
+  homeHeader: strangerHome.headers["x-robots-tag"] ?? null,
+  homeMeta: seoRead(strangerHome.body).robots,
+};
+check(
+  "SEO: an unknown host disallows everything and every page there is noindex",
+  seoStranger.robots === "User-Agent: *\nDisallow: /" &&
+    seoStranger.sitemapUrls === 0 &&
+    seoStranger.homeHeader === "noindex" &&
+    /noindex/.test(seoStranger.homeMeta ?? ""),
+  JSON.stringify(seoStranger),
+);
+
+// What an answer engine reads (lib/llms.ts, lib/structured-data.ts): the
+// llms.txt index with the catalogue's plans, the full text with no pending
+// fact outside code, the FAQ's questions as anchored headings with a FAQPage
+// over them, and the home page's definition sentence.
+const geoLlms = await seoFetch("/llms.txt");
+const geoFull = await seoFetch("/llms-full.txt");
+const geoFaq = await seoFetch("/faq");
+const geoHome = await seoFetch("/");
+const geoFaqLd = [...geoFaq.body.matchAll(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g)]
+  .map((m) => {
+    try {
+      return JSON.parse(m[1]);
+    } catch {
+      return null;
+    }
+  })
+  .flatMap((d) => (d && Array.isArray(d["@graph"]) ? d["@graph"] : d ? [d] : []));
+const geoFaqPage = geoFaqLd.find((n) => n["@type"] === "FAQPage") ?? null;
+const geoFullProse = geoFull.body.replace(/```[\s\S]*?```/g, "");
+const geo = {
+  llmsStatus: geoLlms.status,
+  llmsType: geoLlms.headers["content-type"] ?? null,
+  llmsHeader: geoLlms.headers["x-robots-tag"] ?? null,
+  llmsTitle: geoLlms.body.startsWith("# DMARC Harbor\n\n> DMARC Harbor is DMARC monitoring for MSPs and IT agencies."),
+  llmsPlans: (geoLlms.body.match(/^- \*\*[^*]+\*\*/gm) ?? []).length,
+  llmsForeign: [...geoLlms.body.matchAll(/\]\(([^)]+)\)/g)].map((m) => m[1]).filter((u) => !u.startsWith(`${SEO_ORIGIN}/`)),
+  fullStatus: geoFull.status,
+  fullDocs: (geoFull.body.match(/^Address: /gm) ?? []).length,
+  fullPending: /to be set at launch|supplied by the business|\[[A-Z][A-Z0-9 _-]{2,}\]/.test(geoFullProse),
+  faqAnchor: /<h3[^>]*id="what-is-dmarc"/.test(geoFaq.body),
+  faqQuestions: geoFaqPage?.mainEntity?.length ?? 0,
+  faqUrlsOk: (geoFaqPage?.mainEntity ?? []).every((q) => String(q.url).startsWith(`${SEO_ORIGIN}/faq#`)),
+  faqBreadcrumb: geoFaqLd.some((n) => n["@type"] === "BreadcrumbList"),
+  // React separates adjacent text nodes with an empty comment in server HTML.
+  homeDefinition: geoHome.body.replace(/<!-- -->/g, "").includes("DMARC Harbor is DMARC monitoring for MSPs and IT agencies."),
+  homeWebsite: geoHome.body.includes('"@type":"WebSite"'),
+};
+check(
+  "GEO: llms.txt, llms-full.txt, FAQ anchors with FAQPage, and the home definition",
+  geo.llmsStatus === 200 &&
+    /^text\/plain/.test(geo.llmsType ?? "") &&
+    geo.llmsHeader === "noindex" &&
+    geo.llmsTitle &&
+    geo.llmsPlans >= 4 &&
+    geo.llmsForeign.length === 0 &&
+    geo.fullStatus === 200 &&
+    geo.fullDocs === 3 &&
+    !geo.fullPending &&
+    geo.faqAnchor &&
+    geo.faqQuestions > 40 &&
+    geo.faqUrlsOk &&
+    geo.faqBreadcrumb &&
+    geo.homeDefinition &&
+    geo.homeWebsite,
+  JSON.stringify(geo),
+);
+
 // 8e. Custom-domain serving — the feature that was paying for nothing. Load
 //     the app on the AGENCY'S OWN HOST (Chrome resolves it to 127.0.0.1 via
 //     --host-resolver-rules, so the request genuinely arrives with
@@ -3289,6 +3508,50 @@ check(
   "custom domain: sign-in is the client form, with no social buttons and no link to our pricing",
   clientSignIn.status === 200 && clientSignIn.clientForm && clientSignIn.noSocial && clientSignIn.noPricingLink,
   JSON.stringify(clientSignIn),
+);
+// What a crawler reads on the agency's verified domain: none of our entity
+// graph, the verifier noindex under the agency's own name and canonical, no
+// sitemap and no security.txt of ours (lib/site-host.ts, lib/crawl-policy.ts).
+const AGENCY_HOST = `${CUSTOM_HOST}:${WEB_PORT}`;
+const agencyVerify = await seoFetch("/verify", { host: AGENCY_HOST });
+const agencySignInSeo = await seoFetch("/sign-in", { host: AGENCY_HOST });
+const agencyRobots = await seoFetch("/robots.txt", { host: AGENCY_HOST });
+const agencySitemap = await seoFetch("/sitemap.xml", { host: AGENCY_HOST });
+const agencySecurity = await seoFetch("/.well-known/security.txt", { host: AGENCY_HOST });
+const agencyLlms = await seoFetch("/llms.txt", { host: AGENCY_HOST });
+const agencyVerifyRead = seoRead(agencyVerify.body);
+const agencySeo = {
+  verifyStatus: agencyVerify.status,
+  verifyHeader: agencyVerify.headers["x-robots-tag"] ?? null,
+  verifyRobots: agencyVerifyRead.robots,
+  verifySiteName: agencyVerifyRead.siteName,
+  verifyCanonicalHost: (() => {
+    try {
+      return agencyVerifyRead.canonical ? new URL(agencyVerifyRead.canonical).host : null;
+    } catch {
+      return null;
+    }
+  })(),
+  harborJsonLd: agencyVerifyRead.harborJsonLd || seoRead(agencySignInSeo.body).harborJsonLd,
+  robotsSitemap: agencyRobots.body.includes("Sitemap:"),
+  sitemapUrls: (agencySitemap.body.match(/<url>/g) ?? []).length,
+  securityStatus: agencySecurity.status,
+  llmsStatus: agencyLlms.status,
+};
+check(
+  "SEO: no DMARC Harbor JSON-LD and /verify is noindex on an agency domain",
+  agencySeo.verifyStatus === 200 &&
+    agencySeo.verifyHeader === "noindex, nofollow" &&
+    /noindex/.test(agencySeo.verifyRobots ?? "") &&
+    /nofollow/.test(agencySeo.verifyRobots ?? "") &&
+    String(agencySeo.verifySiteName ?? "").toLowerCase().includes("example agency") &&
+    agencySeo.verifyCanonicalHost === AGENCY_HOST &&
+    !agencySeo.harborJsonLd &&
+    !agencySeo.robotsSitemap &&
+    agencySeo.sitemapUrls === 0 &&
+    agencySeo.securityStatus === 404 &&
+    agencySeo.llmsStatus === 404,
+  JSON.stringify(agencySeo),
 );
 // The same body the sign-in form sends (lib/auth-client.ts), callbackURL
 // included, from the agency's origin through this app's /api rewrite. A 403 is

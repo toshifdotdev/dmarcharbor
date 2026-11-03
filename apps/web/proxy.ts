@@ -2,6 +2,15 @@ import { NextResponse, type NextRequest } from "next/server";
 import http from "node:http";
 import { supportEmailOrNull, supportUrlOrNull } from "./lib/agency-contact";
 import { hasSessionCookie } from "./lib/session-cookie";
+import {
+  HOST_KIND_HEADER,
+  docsIndexRedirect,
+  hostKind,
+  hostnameOf,
+  robotsHeaderFor,
+  siteOriginFrom,
+  type HostState,
+} from "./lib/site-host";
 import { isVendorRoute, signedOutPortalNext } from "./lib/white-label";
 
 /**
@@ -261,17 +270,35 @@ export async function proxy(request: NextRequest) {
   // agency name it liked, error pages included (lib/host-brand.ts trusts them).
   requestHeaders.delete("x-harbor-host-state");
   requestHeaders.delete("x-harbor-brand");
+  requestHeaders.delete(HOST_KIND_HEADER);
 
   const rawHost = request.headers.get("host") ?? "";
   const host = rawHost.split(":")[0];
 
+  let hostState: HostState = "default";
   if (host && !DEFAULT_HOSTS.has(host)) {
     const entry = await resolveHost(host);
+    hostState = entry.state;
     requestHeaders.set("x-harbor-host-state", entry.state);
     if (entry.brand) {
       requestHeaders.set("x-harbor-brand", headerSafeJson(entry.brand));
     }
   }
+
+  // Our public host, an agency's verified domain, or another host serving our
+  // pages (lib/site-host.ts). Decided once here and stamped, so the robots meta
+  // the layout renders (lib/site-origin.ts reads the stamp) and the
+  // X-Robots-Tag header below always agree. The hostname is the one the
+  // canonical origin is built from (X-Forwarded-Host first, as in
+  // lib/metadata-origin.ts), so a reverse proxy that rewrites Host does not
+  // turn our own host into a duplicate.
+  const kind = hostKind({
+    state: hostState,
+    hostname: hostnameOf(request.headers.get("x-forwarded-host") ?? rawHost),
+    siteOrigin: siteOriginFrom(process.env.SITE_URL),
+  });
+  requestHeaders.set(HOST_KIND_HEADER, kind);
+  const robotsHeader = robotsHeaderFor({ kind, pathname: request.nextUrl.pathname });
 
   // On an agency's verified domain the tab and app icons are the agency's,
   // never our Pier (app/brand-icon/[spec]/route.tsx).
@@ -289,6 +316,18 @@ export async function proxy(request: NextRequest) {
   const agencyTarget = requestHeaders.get("x-harbor-host-state") === "verified" ? agencyHostTarget(request) : null;
   if (agencyTarget) return NextResponse.redirect(agencyTarget, 307);
 
+  // /docs has no page of its own while there is one developer document. Here,
+  // after the agency check, rather than in next.config.ts: config redirects
+  // run before the proxy, so an agency's /docs would first hop permanently to
+  // /docs/api and only then to /portal (lib/site-host.ts docsIndexRedirect).
+  const docsTarget =
+    request.method === "GET" || request.method === "HEAD" ? docsIndexRedirect(request.nextUrl.pathname) : null;
+  if (docsTarget) {
+    const target = request.nextUrl.clone();
+    target.pathname = docsTarget;
+    return NextResponse.redirect(target, 308);
+  }
+
   const exportPage = exportDownloadPage(request);
   // The address the person opened, for the export page to read. A rewritten
   // route handler does not reliably see the rewrite's own query string, so the
@@ -300,6 +339,10 @@ export async function proxy(request: NextRequest) {
     : NextResponse.next({ request: { headers: requestHeaders } });
 
   response.headers.set("Content-Security-Policy", csp);
+  // noindex before any HTML: the tenant artefacts on every host, every page
+  // on a host that is neither ours nor a verified agency's, and the verifier
+  // on an agency's domain (lib/site-host.ts robotsHeaderFor).
+  if (robotsHeader) response.headers.set("X-Robots-Tag", robotsHeader);
   return response;
 }
 

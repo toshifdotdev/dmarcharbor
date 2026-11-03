@@ -31,7 +31,12 @@ import type { ReactNode } from "react";
 import { DEVELOPER_INDEX, developerDoc, developerDocBody, localImageSizes } from "@/lib/docs-registry";
 import { readHostBrand } from "@/lib/host-brand";
 import { LEGAL_DOCS, LEGAL_EFFECTIVE_DATE, LEGAL_VERSION, legalBody } from "@/lib/legal-docs";
+import { legalSummary } from "@/lib/seo";
+import { canonicalOrigin, currentHostKind } from "@/lib/site-origin";
+import { breadcrumbJsonLd, faqPageJsonLd, graph, techArticleJsonLd } from "@/lib/structured-data";
 import { ChevronDown } from "@/components/ui/icons";
+import { StructuredData } from "@/components/structured-data-view";
+import { faqEntries } from "./legal-markdown";
 import { Contents, PrintButton } from "./legal-client";
 import { LEGAL_TEXT, LegalBody, LegalHeading2, legalHeadings, PENDING_MARK, slugify, type LegalHeading } from "./legal-render";
 import { brandName, PublicFooter, PublicHeader } from "./public-frame";
@@ -268,6 +273,10 @@ export async function DeveloperDocument({ slug }: { slug: string }) {
 
   const body = developerDocBody(doc);
   const headings = legalHeadings(body.text);
+  const data = await documentData((origin) => [
+    techArticleJsonLd(origin, { title: doc.title, description: doc.summary, path: doc.path, version: doc.version }),
+    breadcrumbJsonLd(origin, [{ name: doc.title, path: doc.path }]),
+  ]);
 
   return (
     <DocumentFrame
@@ -277,9 +286,22 @@ export async function DeveloperDocument({ slug }: { slug: string }) {
       headings={headings}
       developer={{ version: doc.version, basePath: doc.basePath, path: doc.path, index: DEVELOPER_INDEX }}
     >
+      {data ? <StructuredData data={data} /> : null}
       <LegalBody markdown={body.text} subheadingAnchors images={body.images} />
     </DocumentFrame>
   );
+}
+
+/**
+ * A document page's JSON-LD on the canonical origin, or null on an agency's
+ * domain. Those pages redirect to the portal there (proxy.ts), so this is a
+ * second guard: nothing on an agency's domain names us as its publisher.
+ */
+async function documentData(
+  build: (origin: string) => Array<Record<string, unknown> | null>,
+): Promise<Record<string, unknown> | null> {
+  if ((await currentHostKind()) === "agency") return null;
+  return graph(build(await canonicalOrigin()));
 }
 
 export async function LegalDocument({ slug }: { slug: string }) {
@@ -300,9 +322,20 @@ export async function LegalDocument({ slug }: { slug: string }) {
   const requiredTitles = required.map((s) => s.heading);
   const headings = legalHeadings(body.kind === "file" ? body.text : "", requiredTitles);
   const requiredIds = headings.slice(0, required.length).map((h) => h.id);
+  // The FAQ's questions are headings with their own anchors, and the same
+  // parse gives the FAQPage its questions, answers and addresses.
+  const isFaq = doc.slug === "faq" && body.kind === "file";
+  const path = `/${doc.slug}`;
+  const description = legalSummary(doc.slug, doc.title);
+  const data = await documentData((origin) => [
+    breadcrumbJsonLd(origin, [{ name: doc.title, path }]),
+    isFaq ? faqPageJsonLd(origin, path, faqEntries(body.text, requiredTitles)) : null,
+    doc.slug === "guide" ? techArticleJsonLd(origin, { title: doc.title, description, path }) : null,
+  ]);
 
   return (
     <DocumentFrame slug={doc.slug} kicker="Legal" title={doc.title} headings={headings}>
+      {data ? <StructuredData data={data} /> : null}
       {body.kind === "placeholder" ? (
         // The text is not published yet: a state notice, in place of it.
         <p
@@ -332,7 +365,12 @@ export async function LegalDocument({ slug }: { slug: string }) {
       })}
 
       {body.kind === "file" ? (
-        <LegalBody markdown={body.text} idOffset={requiredTitles} images={localImageSizes(body.text)} />
+        <LegalBody
+          markdown={body.text}
+          idOffset={requiredTitles}
+          images={localImageSizes(body.text)}
+          questionHeadings={isFaq}
+        />
       ) : null}
     </DocumentFrame>
   );

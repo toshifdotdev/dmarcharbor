@@ -136,7 +136,55 @@ verification started on an agency's own domain) is sent as
 of `EMAIL_FROM` is used with the agency's name in front. See step 5 for the DNS
 it needs.
 
-### 5. Trans transactional email
+Required for the web app (`apps/web`, see `apps/web/.env.example`):
+
+```
+API_BASE_URL=https://<the API's internal address>
+SITE_URL=https://dmarcharbor.com
+NEXT_PUBLIC_APP_HOST=dmarcharbor.com
+```
+
+- `API_BASE_URL` is read at build time and the build fails without it.
+- `SITE_URL` is the one public origin, read at runtime. Every canonical URL,
+  og:url, sitemap entry, robots.txt sitemap line, security.txt and JSON-LD
+  `@id` is built on it, whichever host served the page. Only its hostname is
+  indexable: `www.`, `app.`, a raw IP or any other host serving the same pages
+  answers `X-Robots-Tag: noindex`, a robots.txt that disallows everything and
+  an empty sitemap. Unset, every host canonicalises to itself and only the
+  app-local hosts below count as ours, which is right for development and
+  wrong for production.
+- `NEXT_PUBLIC_APP_HOST` is the hostname the app answers on, without scheme or
+  port (for example `dmarcharbor.com`, or `app.dmarcharbor.com` if that is where
+  the app is served). Requests on it skip the custom-domain branding lookup.
+  It is inlined into the build, so set it before `next build`, not only at
+  runtime. A host that is neither this nor an agency's verified domain is
+  looked up on every cache expiry; with `SITE_URL` set that costs time but does
+  not change what is indexed.
+
+Optional, for search consoles (each renders its ownership tag on our own host
+only, never on an agency's domain):
+
+```
+GOOGLE_SITE_VERIFICATION=<content of the google-site-verification tag>
+BING_SITE_VERIFICATION=<content of the msvalidate.01 tag>
+```
+
+After the first deploy, check `https://dmarcharbor.com/robots.txt` (named
+crawlers, a `Sitemap:` line on dmarcharbor.com), `/sitemap.xml` (the public
+pages only, all on dmarcharbor.com) and `/.well-known/security.txt`, then
+submit the sitemap in Google Search Console and Bing Webmaster Tools.
+
+For AI assistants, also check `/llms.txt` (the index, with the plans from the
+catalogue) and `/llms-full.txt` (the guide, the FAQ and the API reference).
+Neither carries a line with an unsupplied fact: once the legal entity name,
+the effective date and a security contact are supplied (lib/legal-docs.ts,
+docs/SECURITY.md), the passages that held them appear in both files and in the
+FAQ's structured data with no code change. security.txt names
+support@dmarcharbor.com until a dedicated security address exists; change it in
+`apps/web/lib/crawl-policy.ts` and `apps/api/src/routes/dpa.routes.ts`
+together.
+
+### 5. Transactional email
 
 Before any customer-facing flow, because invites, password resets, domain
 verification and billing mail all go through it and all silently no-op

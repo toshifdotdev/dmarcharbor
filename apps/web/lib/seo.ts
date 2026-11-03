@@ -1,31 +1,44 @@
 import { headers } from "next/headers";
 import type { Metadata } from "next";
+import { brandName } from "@/components/harbor/public-frame";
 import { LEGAL_DOCS } from "./legal-docs";
+import { readHostBrand } from "./host-brand";
+import { canonicalOrigin } from "./site-origin";
 
 /**
  * seo.ts — how this product wants to be read by a crawler.
  *
- * Three decisions live here, and each one is a decision rather than a default:
+ * Three decisions live here and in lib/crawl-policy.ts, and each one is a
+ * decision rather than a default:
  *
- * 1. WHICH ROUTES ARE PUBLIC. Only marketing and the legal set exist to be read
- *    by a stranger. Everything else is behind a session, or is one agency's
- *    artefact.
+ * 1. WHICH ROUTES ARE INDEXED. An allowlist: marketing, the legal set and the
+ *    developer documents, by exact path. Everything else is noindex, so a new
+ *    signed-in screen is private without anyone remembering to say so.
  *
- * 2. WHICH ROUTES MUST NOT BE INDEXED. A tenant artefact (`/share/:token`,
- *    `/portal/...`, `/trust/:slug`) is the same document twice over: once under
- *    the agency's own custom domain and once under ours. Indexing the second
- *    copy makes it a duplicate of the first, and the agency's brand is ours in
- *    the meantime. The auth screens are a login wall with no content behind it.
+ * 2. WHICH HOST IS CANONICAL. Our public pages have one address, SITE_URL
+ *    (lib/site-origin.ts), whichever of our hosts served them; an agency's
+ *    verified domain is canonical for its own pages. A host that is neither
+ *    is noindex throughout.
  *
- * 3. WHERE A CANONICAL POINTS. It points at the host the request arrived on,
- *    because this build serves dmarcharbor.com AND every agency's custom domain
- *    from one deployment. See lib/metadata-origin.ts.
+ * 3. WHOSE NAME IS ON THE CARD. The social card and its site name follow the
+ *    host's brand: an agency's own name on its verified domain, ours
+ *    everywhere else (brandName in components/harbor/public-frame.tsx).
  *
  * There is deliberately no canonical in the root layout. A canonical on a
  * layout is inherited by every route under it, so `/clients` and `/alerts` were
- * each declaring themselves the homepage. That is a soft duplicate-content
- * signal, and it applied to forty-odd pages nobody ever meant to point there.
+ * each declaring themselves the homepage.
  */
+
+export {
+  INDEXABLE_ROUTES,
+  LEGAL_ROUTE_PRIORITY,
+  NOINDEX_PREFIXES,
+  PUBLIC_PATHS,
+  isIndexablePath,
+  isNoindexPath,
+  robotsFor,
+  robotsForRequest,
+} from "./crawl-policy";
 
 export const SITE_NAME = "DMARC Harbor";
 
@@ -39,127 +52,39 @@ export const SITE_OG_DESCRIPTION =
   "Per-domain DMARC posture, compliance packs with a published fingerprint, and a client portal in your brand. It measures and proves, and changes DNS only when you ask.";
 
 /**
- * Routes a crawler should read. The legal set is derived rather than repeated
- * so adding a document to LEGAL_DOCS adds it to the sitemap on the same edit.
- */
-export const INDEXABLE_ROUTES: string[] = [
-  "/",
-  "/pricing",
-  "/verify",
-  // /support is its own route rather than a LEGAL_DOCS entry, because it is a
-  // contact page and not a document with a version and an effective date.
-  "/support",
-  ...LEGAL_DOCS.map((d) => `/${d.slug}`),
-];
-
-/**
- * The one social card for every public page.
+ * The one social card for every public page, captioned in the host's name.
  *
  * A single card rather than a per-page one: the card's job is to say what
- * product a link belongs to, and eleven variants of the same sentence buy
- * nothing. A route that genuinely needs its own card declares it in its own
- * segment, which is how app/opengraph-image.tsx works for `/`.
- *
- * It has to be named here rather than left to the file convention because
- * `opengraph-image.tsx` is segment-scoped: the one in app/ is applied to `/`
- * and to nothing under it. `/pricing` was reaching a card-less social preview
- * until it said so.
+ * product a link belongs to. It has to be named here rather than left to the
+ * file convention because `opengraph-image.tsx` is segment-scoped: the one in
+ * app/ is applied to `/` and to nothing under it.
  */
-const OG_IMAGE = {
-  url: "/opengraph-image",
-  width: 1200,
-  height: 630,
-  alt: "DMARC Harbor: every sender, mapped. DMARC monitoring for MSPs and agencies.",
-} as const;
+export function ogImageFor(siteName: string) {
+  return {
+    url: "/opengraph-image",
+    width: 1200,
+    height: 630,
+    alt: `${siteName}: every sender, mapped. DMARC monitoring for MSPs and agencies.`,
+  } as const;
+}
 
-/** The social-object fields a public route shares, image included. */
-function openGraphFor(input: {
+/** The social-object fields a public route shares, image included. Pure, so
+ *  the brand and origin are the caller's to supply. */
+export function openGraphFor(input: {
   title: string;
   description: string;
   path: string;
   origin: string;
+  siteName: string;
   type: "website" | "article";
 }) {
   return {
-    siteName: SITE_NAME,
-    title: `${input.title} · ${SITE_NAME}`,
+    siteName: input.siteName,
+    title: `${input.title} · ${input.siteName}`,
     description: input.description,
     type: input.type,
     url: absoluteUrl(input.origin, input.path),
-    images: [OG_IMAGE],
-  };
-}
-
-/** How much each indexable route is worth a crawl, in Google's own 0.0–1.0.
- *  A hint, and a weak one: Google has said repeatedly it treats priority as
- *  advisory. It is here because the alternative is leaving it off and letting
- *  the sitemap imply that the complaint policy matters as much as pricing. */
-export const LEGAL_ROUTE_PRIORITY: Record<string, number> = {
-  "/": 1.0,
-  "/pricing": 0.9,
-  "/verify": 0.6,
-  "/support": 0.5,
-  "/faq": 0.7,
-  "/guide": 0.7,
-  "/terms": 0.5,
-  "/privacy": 0.5,
-  "/dpa": 0.4,
-  "/refunds": 0.4,
-  "/acceptable-use": 0.3,
-  "/security": 0.4,
-  "/sub-processors": 0.3,
-  "/complaints": 0.3,
-  "/cookies": 0.3,
-};
-
-/** Path prefixes that must never be indexed. Matched on the route segment, not
- *  a full-path equality, so `/settings/api-keys` is caught by `/settings`. */
-export const NOINDEX_PREFIXES: string[] = [
-  // Auth screens: a wall, with nothing behind it for a crawler.
-  "/sign-in",
-  "/sign-up",
-  "/welcome",
-  // Tenant artefacts. Same content as an agency's own domain: the second copy
-  // is a duplicate, and it carries our brand instead of theirs.
-  "/portal",
-  "/share",
-  "/trust",
-  "/prospect",
-  // The operator's app. Behind a session, and useless to anyone else.
-  "/clients",
-  "/alerts",
-  "/billing",
-  "/digests",
-  "/notifications",
-  "/prospects",
-  "/domains",
-  "/onboarding",
-  "/settings",
-];
-
-/** True when this path is inside one of the no-index prefixes. */
-export function isNoindexPath(pathname: string): boolean {
-  return NOINDEX_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
-  );
-}
-
-/**
- * The robots directive for one route. Page-level metadata overrides the root's,
- * so this is what keeps the forty-odd protected screens out of an index while
- * the marketing and legal set stays in.
- */
-export function robotsFor(pathname: string): Metadata["robots"] {
-  if (!isNoindexPath(pathname)) {
-    return { index: true, follow: true };
-  }
-  // `follow` still true: an indexed page may legitimately link to these, and a
-  // nofollow here would throw away the signal those links carry.
-  return {
-    index: false,
-    follow: true,
-    nocache: true,
-    googleBot: { index: false, follow: true, nocache: true, noimageindex: true },
+    images: [ogImageFor(input.siteName)],
   };
 }
 
@@ -181,7 +106,7 @@ export async function currentPathname(): Promise<string> {
   return h.get("x-harbor-path") ?? "/";
 }
 
-/** The absolute URL of a route on the host that served it. */
+/** The absolute URL of a route on an origin. */
 export function absoluteUrl(origin: string, path: string): string {
   return new URL(path, origin).toString();
 }
@@ -201,38 +126,62 @@ const LEGAL_SUMMARIES: Record<string, string> = {
   cookies: "Which cookies we set and why. There is no advertising or analytics cookie.",
 };
 
-/** Metadata for a legal document, derived from its entry in LEGAL_DOCS. */
-export function legalMetadata(slug: string, origin: string): Metadata {
+/** A legal document's one-sentence summary, as its description tag says it. */
+export function legalSummary(slug: string, title: string): string {
+  return LEGAL_SUMMARIES[slug] ?? `${title} for ${SITE_NAME}.`;
+}
+
+/** The canonical origin and the host's display name, for a page's metadata. */
+async function pageContext(): Promise<{ origin: string; siteName: string }> {
+  const [origin, brand] = await Promise.all([canonicalOrigin(), readHostBrand()]);
+  return { origin, siteName: brandName(brand) };
+}
+
+/**
+ * Metadata for a legal document, derived from its entry in LEGAL_DOCS.
+ *
+ * The origin is the canonical one (lib/site-origin.ts), whatever the caller
+ * passes: the second argument is accepted so existing pages keep compiling,
+ * and is ignored, because the request's own host is exactly the address a
+ * duplicate host must not claim.
+ */
+export async function legalMetadata(slug: string, requestOrigin?: string): Promise<Metadata> {
+  void requestOrigin;
+  const { origin, siteName } = await pageContext();
   const doc = LEGAL_DOCS.find((d) => d.slug === slug);
   const path = `/${slug}`;
   const title = doc?.title ?? slug;
-  const description =
-    LEGAL_SUMMARIES[slug] ?? `${title} for DMARC Harbor.`;
+  const description = legalSummary(slug, title);
   return {
     title,
     description,
+    // Relative, against metadataBase, which the root layout sets to the same
+    // canonical origin.
     alternates: { canonical: path },
-    openGraph: openGraphFor({
-      title,
-      description,
-      path,
-      origin,
-      type: "article",
-    }),
+    openGraph: openGraphFor({ title, description, path, origin, siteName, type: "article" }),
   };
 }
 
-/** Metadata for a plain public page. */
-export function publicMetadata(input: {
+/** Metadata for a plain public page. `origin` is ignored for the same reason
+ *  as legalMetadata's second argument. */
+export async function publicMetadata(input: {
   title: string;
   description: string;
   path: string;
-  origin: string;
-}): Metadata {
+  origin?: string;
+}): Promise<Metadata> {
+  const { origin, siteName } = await pageContext();
   return {
     title: input.title,
     description: input.description,
     alternates: { canonical: input.path },
-    openGraph: openGraphFor({ ...input, type: "website" }),
+    openGraph: openGraphFor({
+      title: input.title,
+      description: input.description,
+      path: input.path,
+      origin,
+      siteName,
+      type: "website",
+    }),
   };
 }

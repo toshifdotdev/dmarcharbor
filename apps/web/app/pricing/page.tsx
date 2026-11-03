@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { listWorkspaces } from "@/lib/api";
 import {
   getBillingCurrency,
@@ -9,10 +10,11 @@ import {
   type DeploymentCapabilities,
 } from "@/lib/api-ops";
 import { readHostBrand } from "@/lib/host-brand";
-import { requestOrigin } from "@/lib/metadata-origin";
 import { onEveryPlan, planFeatureLabel } from "@/lib/plan-features";
 import { pickActiveWorkspace } from "@/lib/session";
 import { publicMetadata } from "@/lib/seo";
+import { hasSessionCookie } from "@/lib/session-cookie";
+import { canonicalOrigin } from "@/lib/site-origin";
 import { planOffersJsonLd } from "@/lib/structured-data";
 import type { BillingCurrencyPreference, PlanDefinition } from "@/lib/types";
 import { PricingBoard, type PricingCurrency, type PricingInterval } from "@/components/harbor/pricing-board";
@@ -21,15 +23,14 @@ import { StructuredData } from "@/components/structured-data-view";
 import s from "@/components/harbor/pricing.module.css";
 
 /** Pricing is the page a buyer shares with their finance team: canonical and
- *  OG card against the host the request came in on, custom domains included. */
+ *  OG card on the canonical origin (lib/site-origin.ts), whichever of our
+ *  hosts served it. */
 export async function generateMetadata(): Promise<Metadata> {
-  const origin = await requestOrigin();
   return publicMetadata({
     title: "Pricing",
     description:
       "Plans by the size of the client book: clients, active domains, members and workspaces, monthly or annual, with every feature compared.",
     path: "/pricing",
-    origin,
   });
 }
 
@@ -92,23 +93,27 @@ export default async function PricingPage({
   ]);
 
   // Signed in or not decides where the buttons go and whether a currency
-  // choice is stored. A failed read is "signed out": display only.
+  // choice is stored. A failed read is "signed out": display only. With no
+  // session cookie the answer is known without asking, so a signed-out
+  // visitor (every crawler) costs only the catalogue and capabilities reads.
   let organizationId: string | null = null;
   let preference: BillingCurrencyPreference | null = null;
   let currentTier: string | null = null;
-  try {
-    const active = await pickActiveWorkspace(await listWorkspaces());
-    if (active) {
-      organizationId = active.id;
-      const [pref, ent] = await Promise.all([
-        getBillingCurrency(active.id).catch(() => null),
-        getWorkspaceEntitlements(active.id).catch(() => null),
-      ]);
-      preference = pref;
-      currentTier = ent?.plan ?? null;
+  if (hasSessionCookie(await cookies())) {
+    try {
+      const active = await pickActiveWorkspace(await listWorkspaces());
+      if (active) {
+        organizationId = active.id;
+        const [pref, ent] = await Promise.all([
+          getBillingCurrency(active.id).catch(() => null),
+          getWorkspaceEntitlements(active.id).catch(() => null),
+        ]);
+        preference = pref;
+        currentTier = ent?.plan ?? null;
+      }
+    } catch {
+      // Signed out.
     }
-  } catch {
-    // Signed out.
   }
 
   if (!catalog) {
@@ -167,7 +172,7 @@ export default async function PricingPage({
   const baseline = ["reports.aggregate", "audit.trail"].filter((k) => onEveryPlan(plans, k));
 
   const offers = planOffersJsonLd(
-    await requestOrigin(),
+    await canonicalOrigin(),
     plans.map((p) => ({ name: p.label, monthlyMinor: p.prices.USD.monthlyMinor, pricing: p.pricing })),
   );
 

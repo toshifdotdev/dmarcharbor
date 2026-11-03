@@ -75,6 +75,30 @@ export async function requestErasureController(request: Request, response: Respo
   // Erasure is a statutory right and is never paywalled.
   await assertFeature(organizationId, 'data.erase');
 
+  // One scheduled erasure per scope. A second would only run the same deletion
+  // twice, and each one has to be cancelled separately to stop it: a repeated
+  // submit once left a workspace with eleven pending erasures, two of which
+  // nobody cancelled. The settings screen already says so; this is the rule.
+  const scheduled = await prisma.erasureRequest.findFirst({
+    where: {
+      organizationId,
+      scope: body.data.scope,
+      targetId: body.data.scope === 'ORGANIZATION' ? null : body.data.targetId,
+      state: { in: ['PENDING', 'EXECUTING'] },
+    },
+    select: { id: true },
+  });
+  if (scheduled) {
+    response.status(409).json({
+      error: {
+        code: 'CONFLICT',
+        message: 'An erasure of this scope is already scheduled. Cancel it first to schedule a new one.',
+        erasureId: scheduled.id,
+      },
+    });
+    return;
+  }
+
   const outcome = await requestErasure({
     organizationId,
     requestedById,
