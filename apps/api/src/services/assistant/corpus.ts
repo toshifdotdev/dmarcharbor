@@ -78,6 +78,8 @@ export const CORPUS_DOCUMENTS: readonly CorpusDocument[] = [
 
 /** The same address apps/web/lib/legal-docs.ts substitutes for [SUPPORT EMAIL]. */
 export const SUPPORT_EMAIL = 'support@dmarcharbor.com';
+/** The same address apps/web/lib/legal-docs.ts substitutes for [SECURITY EMAIL]. */
+export const SECURITY_EMAIL = 'security@dmarcharbor.com';
 export const SUPPORT_PATH = '/support';
 
 /**
@@ -87,6 +89,7 @@ export const SUPPORT_PATH = '/support';
  */
 const SUBSTITUTIONS: Array<[RegExp, string]> = [
   [/`?\[SUPPORT EMAIL\]`?/g, SUPPORT_EMAIL],
+  [/`?\[SECURITY EMAIL\]`?/g, SECURITY_EMAIL],
   [/`?\[EFFECTIVE DATE\]`?/g, 'to be set at launch'],
   [/`?\[YOUR LEGAL ENTITY NAME\]`?/g, '(legal entity name not yet published)'],
   [/`?\[[A-Z][A-Z0-9 _-]{2,}\]`?/g, '(not yet published)'],

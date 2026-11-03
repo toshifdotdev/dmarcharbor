@@ -152,14 +152,20 @@ NEXT_PUBLIC_APP_HOST=dmarcharbor.com
   answers `X-Robots-Tag: noindex`, a robots.txt that disallows everything and
   an empty sitemap. Unset, every host canonicalises to itself and only the
   app-local hosts below count as ours, which is right for development and
-  wrong for production.
+  wrong for production. Use the bare https origin: not `www.`, no trailing
+  path. The server refuses to start on a value without its scheme, an `http`
+  one, or one with a path; it logs a warning when `SITE_URL` is missing.
+- Point `www.dmarcharbor.com` at the same deployment as `dmarcharbor.com`: a
+  GET there is sent to `https://dmarcharbor.com` with a permanent (308)
+  redirect, path and query kept. A redirect at the CDN does the same job and
+  is fine too.
 - `NEXT_PUBLIC_APP_HOST` is the hostname the app answers on, without scheme or
-  port (for example `dmarcharbor.com`, or `app.dmarcharbor.com` if that is where
-  the app is served). Requests on it skip the custom-domain branding lookup.
-  It is inlined into the build, so set it before `next build`, not only at
-  runtime. A host that is neither this nor an agency's verified domain is
-  looked up on every cache expiry; with `SITE_URL` set that costs time but does
-  not change what is indexed.
+  port: `dmarcharbor.com`, the same host as `SITE_URL`, because the marketing
+  pages and the app are served from one deployment. Requests on it skip the
+  custom-domain branding lookup. It is inlined into the build, so set it
+  before `next build`, not only at runtime; the build refuses a value with a
+  scheme, port or path, and the server logs a warning when it differs from
+  `SITE_URL`'s host.
 
 Optional, for search consoles (each renders its ownership tag on our own host
 only, never on an agency's domain):
@@ -169,6 +175,14 @@ GOOGLE_SITE_VERIFICATION=<content of the google-site-verification tag>
 BING_SITE_VERIFICATION=<content of the msvalidate.01 tag>
 ```
 
+Better still for Google: add a **Domain property** for `dmarcharbor.com` in
+Search Console and verify it with the DNS TXT record it gives. That covers
+every host and protocol and survives a redeploy, and then
+`GOOGLE_SITE_VERIFICATION` can stay unset. Bing Webmaster Tools can import the
+verified site from Search Console, so `BING_SITE_VERIFICATION` is only needed
+if you add Bing on its own. A value pasted as the whole `<meta>` tag is reduced
+to its token; anything that is not a token is ignored with a warning.
+
 After the first deploy, check `https://dmarcharbor.com/robots.txt` (named
 crawlers, a `Sitemap:` line on dmarcharbor.com), `/sitemap.xml` (the public
 pages only, all on dmarcharbor.com) and `/.well-known/security.txt`, then
@@ -176,13 +190,17 @@ submit the sitemap in Google Search Console and Bing Webmaster Tools.
 
 For AI assistants, also check `/llms.txt` (the index, with the plans from the
 catalogue) and `/llms-full.txt` (the guide, the FAQ and the API reference).
-Neither carries a line with an unsupplied fact: once the legal entity name,
-the effective date and a security contact are supplied (lib/legal-docs.ts,
-docs/SECURITY.md), the passages that held them appear in both files and in the
-FAQ's structured data with no code change. security.txt names
-support@dmarcharbor.com until a dedicated security address exists; change it in
-`apps/web/lib/crawl-policy.ts` and `apps/api/src/routes/dpa.routes.ts`
-together.
+Neither carries a line with an unsupplied fact: once the legal entity name and
+the effective date are supplied (lib/legal-docs.ts), the passages that held
+them appear in both files and in the FAQ's structured data with no code change.
+
+The security contact is `security@dmarcharbor.com`: security.txt, the Security
+Policy, the FAQ, the Acceptable Use and Complaint policies and the in-app
+assistant all name it (`SECURITY_EMAIL` in `apps/web/lib/legal-docs.ts` and
+`apps/api/src/services/assistant/corpus.ts`, and
+`apps/api/src/routes/dpa.routes.ts`). **Create that mailbox or alias before
+launch** and route it to someone who reads it; security.txt promises an answer
+within 3 business days.
 
 ### 5. Transactional email
 

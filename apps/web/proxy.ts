@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import http from "node:http";
 import { supportEmailOrNull, supportUrlOrNull } from "./lib/agency-contact";
 import { hasSessionCookie } from "./lib/session-cookie";
+import { wwwTwinRedirect } from "./lib/site-config";
 import {
   HOST_KIND_HEADER,
   docsIndexRedirect,
@@ -275,6 +276,24 @@ export async function proxy(request: NextRequest) {
   const rawHost = request.headers.get("host") ?? "";
   const host = rawHost.split(":")[0];
 
+  // www.dmarcharbor.com (or the bare host, when SITE_URL is the www. one) is
+  // the same site under a second address: send it to the one address,
+  // permanently, before any lookup. Only GET and HEAD, so a form post is never
+  // turned into a lost request. Nothing happens while SITE_URL is unset.
+  const siteOrigin = siteOriginFrom(process.env.SITE_URL);
+  const wwwTarget =
+    request.method === "GET" || request.method === "HEAD"
+      ? wwwTwinRedirect({ hostname: hostnameOf(request.headers.get("x-forwarded-host") ?? rawHost), siteOrigin })
+      : null;
+  if (wwwTarget) {
+    // The path is set on the URL rather than resolved against it, so a path
+    // such as //other.example can never become a redirect to another site.
+    const target = new URL(wwwTarget);
+    target.pathname = request.nextUrl.pathname;
+    target.search = request.nextUrl.search;
+    return NextResponse.redirect(target, 308);
+  }
+
   let hostState: HostState = "default";
   if (host && !DEFAULT_HOSTS.has(host)) {
     const entry = await resolveHost(host);
@@ -295,7 +314,7 @@ export async function proxy(request: NextRequest) {
   const kind = hostKind({
     state: hostState,
     hostname: hostnameOf(request.headers.get("x-forwarded-host") ?? rawHost),
-    siteOrigin: siteOriginFrom(process.env.SITE_URL),
+    siteOrigin,
   });
   requestHeaders.set(HOST_KIND_HEADER, kind);
   const robotsHeader = robotsHeaderFor({ kind, pathname: request.nextUrl.pathname });

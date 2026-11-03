@@ -14,7 +14,7 @@ import {
   sitemapEntries,
 } from '../lib/crawl-policy';
 import { DEVELOPER_DOCS } from '../lib/docs-registry';
-import { LEGAL_DOCS } from '../lib/legal-docs';
+import { LEGAL_DOCS, SECURITY_EMAIL } from '../lib/legal-docs';
 
 /**
  * What a crawler may index, crawl and read. The robots.txt and sitemap.xml
@@ -197,7 +197,7 @@ describe('security.txt', () => {
   const field = (name: string) => text.split('\n').find((l) => l.startsWith(`${name}: `))?.slice(name.length + 2);
 
   it('carries the RFC 9116 fields against the canonical origin', () => {
-    expect(field('Contact')).toBe('mailto:support@dmarcharbor.com');
+    expect(field('Contact')).toBe('mailto:security@dmarcharbor.com');
     expect(field('Policy')).toBe(`${SITE}/security`);
     expect(field('Preferred-Languages')).toBe('en');
     expect(field('Canonical')).toBe(`${SITE}/.well-known/security.txt`);
@@ -208,7 +208,8 @@ describe('security.txt', () => {
     expect(field('Expires')).toBe('2026-07-09T12:00:00Z');
   });
 
-  it('never invents a security@ mailbox', () => {
-    expect(text).not.toContain('security@');
+  it('names one contact, the address the security policy names', () => {
+    expect(text.split('\n').filter((l) => l.startsWith('Contact: '))).toHaveLength(1);
+    expect(SECURITY_EMAIL).toBe('security@dmarcharbor.com');
   });
 });

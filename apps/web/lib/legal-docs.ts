@@ -58,6 +58,12 @@ export const REGISTERED_ADDRESS_PLACEHOLDER = "[registered address: supplied by 
 /** The support email: supplied, so it substitutes as a real value. */
 export const SUPPORT_EMAIL = "support@dmarcharbor.com";
 
+/** Where vulnerabilities are reported: security.txt's Contact and every
+ *  document's [SECURITY EMAIL]. `security@` is the name RFC 2142 gives the
+ *  role, and the first one a researcher tries. apps/api serves the same
+ *  address (routes/dpa.routes.ts, services/assistant/corpus.ts). */
+export const SECURITY_EMAIL = "security@dmarcharbor.com";
+
 /** The other half of the merchant-of-record section, so the fallback cannot mislead an
  *  INR customer into believing the Paddle paragraph above applies to them.
  *
@@ -82,6 +88,7 @@ const LEGAL_SUBSTITUTIONS: Array<[RegExp, string]> = [
   [/\[YOUR LEGAL ENTITY NAME\]/g, LEGAL_ENTITY_PLACEHOLDER],
   [/\[EFFECTIVE DATE\]/g, LEGAL_EFFECTIVE_DATE],
   [/\[SUPPORT EMAIL\]/g, SUPPORT_EMAIL],
+  [/\[SECURITY EMAIL\]/g, SECURITY_EMAIL],
   [/\[SUPPORT PHONE\]/g, SUPPORT_PHONE_PLACEHOLDER],
   [/\[REGISTERED ADDRESS\]/g, REGISTERED_ADDRESS_PLACEHOLDER],
 ];

@@ -72,15 +72,14 @@ dpaRouter.post(
  * Kept separate: RFC 9116 requires this at the host root, not under /api.
  *
  * The same fields as the web app's file (apps/web/lib/crawl-policy.ts
- * securityTxt), which is the one served on dmarcharbor.com: the real support
- * address, since docs/SECURITY.md still lists a dedicated security contact as
- * to be set, and the policy page at /security (there is no /legal/security).
+ * securityTxt), which is the one served on dmarcharbor.com: the security
+ * address docs/SECURITY.md names, and the policy page at /security.
  */
 export const wellKnownRouter = Router();
 
 wellKnownRouter.get('/.well-known/security.txt', (_request, response) => {
   const lines = [
-    'Contact: mailto:support@dmarcharbor.com',
+    'Contact: mailto:security@dmarcharbor.com',
     'Expires: ' + new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
     'Preferred-Languages: en',
     'Canonical: https://dmarcharbor.com/.well-known/security.txt',

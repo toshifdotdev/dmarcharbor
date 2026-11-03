@@ -1,6 +1,6 @@
 import type { Metadata, MetadataRoute } from "next";
 import { DEVELOPER_DOCS } from "./docs-registry";
-import { LEGAL_DOCS, LEGAL_EFFECTIVE_DATE, SUPPORT_EMAIL } from "./legal-docs";
+import { LEGAL_DOCS, LEGAL_EFFECTIVE_DATE, SECURITY_EMAIL } from "./legal-docs";
 import { ARTEFACT_PREFIXES, underPrefix, type HostKind } from "./site-host";
 
 /**
@@ -223,15 +223,15 @@ export function sitemapEntries(origin: string, effectiveDate: string = LEGAL_EFF
 export const SECURITY_TXT_VALID_DAYS = 180;
 
 /**
- * /.well-known/security.txt (RFC 9116). The contact is the real support
- * address (lib/legal-docs.ts SUPPORT_EMAIL); no security@ mailbox exists, and
- * one must not be invented. Expires is recomputed on each request, so the file
- * never lapses while the site is up.
+ * /.well-known/security.txt (RFC 9116). The contact is the security address
+ * (lib/legal-docs.ts SECURITY_EMAIL), the same one docs/SECURITY.md names.
+ * Expires is recomputed on each request, so the file never lapses while the
+ * site is up.
  */
 export function securityTxt(input: { origin: string; now: Date }): string {
   const expires = new Date(input.now.getTime() + SECURITY_TXT_VALID_DAYS * 24 * 60 * 60 * 1000);
   return [
-    `Contact: mailto:${SUPPORT_EMAIL}`,
+    `Contact: mailto:${SECURITY_EMAIL}`,
     `Expires: ${expires.toISOString().replace(/\.\d{3}Z$/, "Z")}`,
     "Preferred-Languages: en",
     `Canonical: ${new URL("/.well-known/security.txt", input.origin).toString()}`,

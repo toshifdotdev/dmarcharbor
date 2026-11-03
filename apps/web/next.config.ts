@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { appHostProblem, siteUrlProblem } from "./lib/site-config";
 
 // The rewrite target is fixed at build time, so a missing or wrong value
 // produces a build that succeeds and then 500s at runtime for the user. In a
@@ -78,6 +79,16 @@ const AI_HTML_FETCHERS = [
   "CCBot",
 ];
 const HTML_LIMITED_BOTS = new RegExp(`${NEXT_DEFAULT_HTML_LIMITED_BOTS}|${AI_HTML_FETCHERS.join("|")}`, "i");
+
+// NEXT_PUBLIC_APP_HOST is inlined into the build, so a wrong one is wrong in
+// every request until the next build; SITE_URL is read at runtime, but a bad
+// value present at build time is caught here too (lib/site-config.ts).
+{
+  const problem =
+    appHostProblem(process.env.NEXT_PUBLIC_APP_HOST) ??
+    siteUrlProblem(process.env.SITE_URL, process.env.NODE_ENV === "production");
+  if (problem) throw new Error(problem);
+}
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,

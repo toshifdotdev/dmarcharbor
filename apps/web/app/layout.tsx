@@ -5,6 +5,7 @@ import { brandName } from "@/components/harbor/public-frame";
 import { StructuredData } from "@/components/structured-data-view";
 import { readHostBrand } from "@/lib/host-brand";
 import { currentPathname, ogImageFor, robotsForRequest, SITE_DESCRIPTION } from "@/lib/seo";
+import { verificationToken } from "@/lib/site-config";
 import { canonicalOrigin, currentHostKind } from "@/lib/site-origin";
 import { siteGraphJsonLd } from "@/lib/structured-data";
 import "./globals.css";
@@ -47,8 +48,10 @@ export const viewport: Viewport = {
 
 /** Search-console ownership tags, from the environment, for our own host only. */
 function searchConsoleVerification(): Metadata["verification"] | undefined {
-  const google = process.env.GOOGLE_SITE_VERIFICATION?.trim();
-  const bing = process.env.BING_SITE_VERIFICATION?.trim();
+  // A pasted whole tag is reduced to its token; anything else is dropped
+  // (lib/site-config.ts verificationToken).
+  const google = verificationToken(process.env.GOOGLE_SITE_VERIFICATION);
+  const bing = verificationToken(process.env.BING_SITE_VERIFICATION);
   if (!google && !bing) return undefined;
   return {
     ...(google ? { google } : {}),

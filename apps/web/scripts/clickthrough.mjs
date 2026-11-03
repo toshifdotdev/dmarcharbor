@@ -3243,7 +3243,7 @@ const seoCrawl = {
   foreignLocs: seoLocs.filter((l) => !l.startsWith(`${SEO_ORIGIN}/`)),
   llmsInSitemap: seoLocs.some((l) => l.endsWith("/llms.txt")),
   lastmod: seoSitemap.body.includes("<lastmod>"),
-  security: seoSecurity.status === 200 && /^Contact: mailto:support@dmarcharbor\.com$/m.test(seoSecurity.body) && /^Expires: \d{4}-\d{2}-\d{2}T/m.test(seoSecurity.body),
+  security: seoSecurity.status === 200 && /^Contact: mailto:security@dmarcharbor\.com$/m.test(seoSecurity.body) && /^Expires: \d{4}-\d{2}-\d{2}T/m.test(seoSecurity.body),
   docsRedirect: { status: seoDocs.status, location: seoDocs.headers.location ?? null },
 };
 check(

@@ -219,8 +219,9 @@ is not worth reading:
 
 We would like to hear about security problems.
 
-**TBD**: security contact address and safe disclosure channel to be set before
-launch. We will acknowledge reports within 3 business days.
+Email `[SECURITY EMAIL]`. Do not include customer data in a report. We will
+acknowledge reports within 3 business days. The same address is published in
+`/.well-known/security.txt`.
 
 ## Documents
 
