@@ -54,6 +54,26 @@ export async function acceptDpa(
   }
 }
 
+/**
+ * A refused workspace creation, with the status and the API's code kept, so
+ * the form can tell a used-up allowance (402 WORKSPACE_LIMIT_REACHED, a plan
+ * matter with a way to Billing) from a taken slug or a missing agreement.
+ */
+export class WorkspaceCreateError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code: string | null,
+  ) {
+    super(message);
+    this.name = "WorkspaceCreateError";
+  }
+
+  get limitReached(): boolean {
+    return this.status === 402 || this.code === "WORKSPACE_LIMIT_REACHED" || this.code === "PLAN_LIMIT_REACHED";
+  }
+}
+
   export async function createWorkspace(body: {
     name: string;
     slug: string;
@@ -99,13 +119,15 @@ export async function acceptDpa(
   });
   if (!res.ok) {
     let message = `Workspace creation failed (${res.status})`;
+    let code: string | null = null;
     try {
-      const body2 = (await res.json()) as { error?: { message?: string } };
+      const body2 = (await res.json()) as { error?: { message?: string; code?: string } };
       if (body2.error?.message) message = body2.error.message;
+      if (typeof body2.error?.code === "string") code = body2.error.code;
     } catch {
       // keep default message
     }
-    throw new Error(message);
+    throw new WorkspaceCreateError(message, res.status, code);
   }
   // The response is the created organization: the id is what records the DPA
   // acceptance against, so the caller needs it rather than a void.

@@ -85,8 +85,10 @@ describe('team size', () => {
     // The owner and four open invitations fill five seats. A sixth person
     // would be a member the plan does not include.
     const refused = await invite(owner.agent, owner.organizationId, `five-${fixtureId}@example.com`);
-    expect(refused.status).toBe(403);
+    // 402 like every other plan limit, with the numbers and the next plan as data.
+    expect(refused.status).toBe(402);
     expect(refused.body.code).toBe('PLAN_LIMIT_REACHED');
+    expect(refused.body).toMatchObject({ quota: 'member', used: 5, limit: 5, members: 1, pending: 4, upgradeTo: 'HARBOR' });
     expect(String(refused.body.message)).toContain('includes 5 team members');
     expect(String(refused.body.message)).toContain('4 open invitations');
 
@@ -99,7 +101,7 @@ describe('team size', () => {
     expect((await invite(owner.agent, owner.organizationId, `helper-${fixtureId}@example.com`)).status).toBe(200);
 
     const refused = await invite(owner.agent, owner.organizationId, `second-${fixtureId}@example.com`);
-    expect(refused.status).toBe(403);
+    expect(refused.status).toBe(402);
     expect(String(refused.body.message)).toContain('Mooring includes 2 team members');
     expect(String(refused.body.message)).toContain('1 open invitation');
     expect(await prisma.invitation.count({ where: { organizationId: owner.organizationId } })).toBe(1);

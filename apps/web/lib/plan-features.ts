@@ -54,6 +54,13 @@ const LABEL = new Map(FEATURES);
 const ORDER = new Map(FEATURES.map(([k], i) => [k, i]));
 
 /**
+ * Every entitlement key this module has words for, in reading order. The plan
+ * gate test (tests/plan-gates.test.ts) reads it: each key here that is not on
+ * every plan must have a gate and an upgrade notice somewhere in the app.
+ */
+export const PLAN_FEATURE_KEYS: readonly string[] = FEATURES.map(([k]) => k);
+
+/**
  * The plan the company recommends to agencies, by tier id. This is advice, not
  * data: it carries no claim about what customers choose (there are no sales
  * figures behind it, and the page must never imply there are). The label,

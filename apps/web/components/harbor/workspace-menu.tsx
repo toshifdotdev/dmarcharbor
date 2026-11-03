@@ -13,8 +13,10 @@
  */
 
 import { useRouter } from "next/navigation";
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { clsx } from "clsx";
+import type { WorkspaceAllowance } from "@/lib/api";
+import { opsCall } from "@/lib/ops-client";
 import type { WorkspaceSummary } from "@/lib/types";
 import { ChevronDown, Plus } from "@/components/ui/icons";
 import {
@@ -43,6 +45,20 @@ export function WorkspaceMenu({
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  // Read when the menu first opens, never on every page: whether the plan
+  // allows another workspace. Unknown (not read, or the read failed) offers
+  // the form, whose page states the allowance and the API decides.
+  const [allowance, setAllowance] = useState<WorkspaceAllowance | null>(null);
+  const [asked, setAsked] = useState(false);
+  const full = allowance !== null && !allowance.allowed;
+
+  function onOpenChange(open: boolean) {
+    if (!open || asked) return;
+    setAsked(true);
+    void opsCall<WorkspaceAllowance>("/api/workspaces/allowance").then((r) => {
+      if (r.ok) setAllowance(r.data);
+    });
+  }
 
   function choose(id: string) {
     if (id === active.id) return;
@@ -56,7 +72,7 @@ export function WorkspaceMenu({
   }
 
   return (
-    <MenuRoot modal={false}>
+    <MenuRoot modal={false} onOpenChange={onOpenChange}>
       <MenuTrigger
         aria-label={`Workspace: ${active.name}. Switch workspace`}
         aria-busy={pending || undefined}
@@ -88,11 +104,27 @@ export function WorkspaceMenu({
         </div>
         <MenuSeparator />
         <MenuItem onSelect={() => router.push("/settings/workspace")}>Workspace settings</MenuItem>
-        {/* The only way to reach the create form once a workspace exists. */}
-        <MenuItem onSelect={() => router.push("/welcome")} data-testid="new-workspace">
-          <span className="flex items-center gap-2">
-            <Plus size={13} /> New workspace
-          </span>
+        {/* The only way to reach the create form once a workspace exists. At
+            the plan's allowance it says so, and leads to the plan options. */}
+        <MenuItem
+          onSelect={() => router.push(full ? "/billing" : "/welcome")}
+          data-testid="new-workspace"
+          data-quota={full ? "workspace" : undefined}
+        >
+          {full && allowance ? (
+            <span className="flex min-w-0 flex-col">
+              <span className="flex items-center gap-2 text-fg-3">
+                <Plus size={13} /> New workspace
+              </span>
+              <span className="tnum text-meta text-fg-3">
+                {allowance.used} of {allowance.maxWorkspaces} in use: see plan options
+              </span>
+            </span>
+          ) : (
+            <span className="flex items-center gap-2">
+              <Plus size={13} /> New workspace
+            </span>
+          )}
         </MenuItem>
       </MenuContent>
     </MenuRoot>

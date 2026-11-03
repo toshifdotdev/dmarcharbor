@@ -5,7 +5,7 @@ import { createAuthMiddleware, APIError } from 'better-auth/api';
 import { env } from '../config/env.js';
 import { prisma } from '../database/prisma.js';
 import { recordAuditEvent } from '../services/audit.service.js';
-import { memberAllowance, memberLimitMessage, resolveEntitlements } from '../services/entitlements/entitlement.service.js';
+import { memberAllowance, memberLimitDetails, memberLimitMessage, resolveEntitlements } from '../services/entitlements/entitlement.service.js';
 import { accessControl, organizationRoles } from './permissions.js';
 import { queueAuthEmail, queueEmail } from '../email/email.service.js';
 import { oneLine } from '../email/sender.js';
@@ -445,10 +445,28 @@ export const auth = betterAuth({
       disableOrganizationDeletion: true,
       membershipLimit: async (_user, organization) => (await resolveEntitlements(organization.id)).maxMembers,
       organizationHooks: {
+        /**
+         * 402, like every other plan limit, not 403.
+         *
+         * It was FORBIDDEN, which read as "you may not invite people" rather
+         * than "your plan is full": the one plan limit that did not answer
+         * Payment Required, and the only one without the numbers and the plan
+         * to move to beside the sentence. Better Auth's error takes any status
+         * better-call knows, PAYMENT_REQUIRED included, and its body is written
+         * flat ({ message, code, ...details }) rather than under `error`.
+         *
+         * Accepting an invitation after a downgrade is still refused by the
+         * plugin's own membershipLimit check above, with its own 403: that
+         * refusal reaches the invited person, who has no plan to upgrade.
+         */
         beforeCreateInvitation: async ({ organization }) => {
           const allowance = await memberAllowance(organization.id);
           if (allowance.members + allowance.pending >= allowance.limit) {
-            throw new APIError('FORBIDDEN', { message: memberLimitMessage(allowance), code: 'PLAN_LIMIT_REACHED' });
+            throw new APIError('PAYMENT_REQUIRED', {
+              message: memberLimitMessage(allowance),
+              code: 'PLAN_LIMIT_REACHED',
+              ...memberLimitDetails(allowance),
+            });
           }
         },
       },

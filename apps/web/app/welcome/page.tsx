@@ -7,6 +7,7 @@ import { signInRedirect } from "@/lib/session";
 import type { WorkspaceSummary } from "@/lib/types";
 import { AuthFrame } from "@/components/harbor/auth-frame";
 import { InvitationsForYou } from "@/components/harbor/invitations";
+import { PlanLimitNotice } from "@/components/harbor/plan-refusal";
 import { SetupLayout } from "@/components/harbor/setup-rail";
 import { WorkspaceSetup, type WorkspaceFormState } from "@/components/harbor/workspace-setup";
 
@@ -46,12 +47,15 @@ async function createWorkspaceAction(_prev: WorkspaceFormState, formData: FormDa
     };
   }
 
-  const { createWorkspace } = await import("@/lib/api-writes");
+  const { createWorkspace, WorkspaceCreateError } = await import("@/lib/api-writes");
   let created: { id: string } | null;
   try {
     created = await createWorkspace({ name, slug, tosAccepted: true, dpaHasRead: true, dpaConfirmsAuthority: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "The workspace could not be created.";
+    // The allowance ran out between reading the page and pressing the button:
+    // a plan matter, said as one, with the way to Billing.
+    if (error instanceof WorkspaceCreateError && error.limitReached) return { error: message, field: null, limit: true };
     if (/agreement|dpa/i.test(message)) return { error: message, field: "dpa" };
     if (/slug|exists|taken/i.test(message)) {
       return { error: `${message} Try a different slug.`, field: "slug" };
@@ -97,18 +101,20 @@ export default async function WelcomePage({ searchParams }: { searchParams: Prom
   }
   const hasOne = workspaces.length > 0;
   const allowance: WorkspaceAllowance | null = await readWorkspaceAllowance().catch(() => null);
+  const workspacesFull = allowance !== null && !allowance.allowed;
 
-  const form = (
-    <WorkspaceSetup
-      action={createWorkspaceAction}
-      disableSubmit={allowance ? !allowance.allowed : false}
-      limitReason={
-        allowance && !allowance.allowed
-          ? `All ${allowance.maxWorkspaces} workspaces your plan allows are in use. A higher plan allows more.`
-          : null
-      }
-    />
-  );
+  // At the allowance the form is not offered: the API would refuse it. The
+  // limit is said in its place, with the way to Billing.
+  const form =
+    workspacesFull && allowance ? (
+      <PlanLimitNotice
+        quota="workspace"
+        message={`Your plan allows ${allowance.maxWorkspaces} workspace${allowance.maxWorkspaces === 1 ? "" : "s"}, and this account has ${allowance.used}.`}
+        context="The allowance comes from the strongest plan across your workspaces. Delete a workspace you no longer use, or move one of them to a plan that allows more."
+      />
+    ) : (
+      <WorkspaceSetup action={createWorkspaceAction} />
+    );
 
   if (!hasOne) {
     // The first workspace: stop three of six, beside the route.

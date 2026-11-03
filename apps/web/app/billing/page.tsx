@@ -183,8 +183,8 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
             [
               "Moving to a smaller plan",
               s.provider === "PADDLE"
-                ? "Applies at once, and Paddle adjusts the charge for the rest of the period. It is refused while the workspace has more clients, active domains or members than the smaller plan allows: remove the excess first. Nothing is deleted or switched off to make it fit."
-                : "Applies when the period you have paid for ends, with no charge in between. It is refused while the workspace has more clients, active domains or members than the smaller plan allows: remove the excess first. Nothing is deleted or switched off to make it fit.",
+                ? "Applies at once, and Paddle adjusts the charge for the rest of the period. It is refused while the account has more clients, active domains, team members or workspaces than the smaller plan allows: remove the excess first. Nothing is deleted or switched off to make it fit."
+                : "Applies when the period you have paid for ends, with no charge in between. It is refused while the account has more clients, active domains, team members or workspaces than the smaller plan allows: remove the excess first. Nothing is deleted or switched off to make it fit.",
             ],
             [
               "Cancelling",

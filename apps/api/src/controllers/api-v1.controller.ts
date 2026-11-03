@@ -9,7 +9,7 @@ import {
   bulkDomainsSchema,
 } from '../models/api.model.js';
 import { resourceIdSchema } from '../models/client.model.js';
-import { EntitlementError, assertFeature } from '../services/entitlements/entitlement.service.js';
+import { EntitlementError, assertFeature, quotaRefusal } from '../services/entitlements/entitlement.service.js';
 import {
   ApiKeyNameTakenError,
   createApiKey,
@@ -84,6 +84,26 @@ function sendError(response: Response, error: unknown): void {
     return;
   }
   response.status(500).json({ error: { code: 'INTERNAL', message: 'The request could not be completed.' } });
+}
+
+/**
+ * The 402 a single create answers at the plan limit.
+ *
+ * It was a code and the import's one-line reason, while the browser's routes
+ * answered the same limit with the quota, the counts and the plan to move to.
+ * An integration had to parse the sentence to learn which limit it hit. It is
+ * now the same refusal the session route builds, from the same counts.
+ */
+async function planRefusal(
+  organizationId: string,
+  quota: 'client' | 'activeDomain',
+  requested: number,
+): Promise<{ status: number; body: unknown }> {
+  const refusal = await quotaRefusal(organizationId, quota, requested);
+  return {
+    status: refusal.status,
+    body: { error: { code: refusal.code, message: refusal.message, ...refusal.details } },
+  };
 }
 
 async function withIdempotency(
@@ -297,13 +317,18 @@ export async function createApiClientController(request: Request, response: Resp
         clients: [{ name, ...(slug ? { slug } : {}), domains: domains as string[] }],
       });
 
+      const blocked = result.planBlocked[0];
+      if (result.created.length === 0 && blocked) {
+        return planRefusal(organizationId, blocked.quota, blocked.quota === 'client' ? 1 : domains.length);
+      }
+
       if (result.created.length === 0) {
         return {
-          status: result.planBlocked.length > 0 ? 402 : 409,
+          status: 409,
           body: {
             error: {
-              code: result.planBlocked.length > 0 ? 'PLAN_LIMIT_REACHED' : 'CONFLICT',
-              message: result.planBlocked[0]?.reason ?? result.failed[0]?.reason ?? 'That client could not be created.',
+              code: 'CONFLICT',
+              message: result.failed[0]?.reason ?? 'That client could not be created.',
             },
           },
         };
@@ -337,13 +362,17 @@ export async function createApiDomainController(request: Request, response: Resp
     await withIdempotency(request, response, async () => {
       const result = await bulkImportDomains({ organizationId, actorUserId: null, clientId, domains: [name] });
 
+      if (result.created.length === 0 && result.planBlocked.length > 0) {
+        return planRefusal(organizationId, 'activeDomain', 1);
+      }
+
       if (result.created.length === 0) {
         return {
-          status: result.planBlocked.length > 0 ? 402 : 409,
+          status: 409,
           body: {
             error: {
-              code: result.planBlocked.length > 0 ? 'PLAN_LIMIT_REACHED' : 'CONFLICT',
-              message: result.planBlocked[0]?.reason ?? result.failed[0]?.reason ?? 'That domain could not be added.',
+              code: 'CONFLICT',
+              message: result.failed[0]?.reason ?? 'That domain could not be added.',
             },
           },
         };

@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getSessionUser, listClients } from "@/lib/api";
-import { getWorkspaceEntitlements, listAlertEvents, listAlertRules, listWorkspaceMembers } from "@/lib/api-ops";
+import { getPlanCatalog, getWorkspaceEntitlements, listAlertEvents, listAlertRules, listWorkspaceMembers } from "@/lib/api-ops";
 import { eventState, isMetric, minutesLabel, nextReminderAt, valueWithUnit } from "@/lib/alert-rules";
-import { featureOf } from "@/lib/entitlements";
+import { featureOf, includedFrom } from "@/lib/entitlements";
 import { instantLabel } from "@/lib/instant";
 import { resolveActiveWorkspace } from "@/lib/session";
 import type { AlertEventRow, AlertRuleRow, WorkspaceMemberRow } from "@/lib/types";
@@ -52,7 +52,7 @@ export default async function AlertsPage() {
   const { workspaces, active } = await resolveActiveWorkspace();
   if (!active) redirect("/welcome");
 
-  const [entitlements, clients, rules, events, members, me] = await Promise.all([
+  const [entitlements, clients, rules, events, members, me, catalog] = await Promise.all([
     getWorkspaceEntitlements(active.id).catch(() => null),
     listClients(active.id).catch(() => null),
     listAlertRules(active.id).catch(() => null),
@@ -61,6 +61,7 @@ export default async function AlertsPage() {
       .then((r) => r.members ?? [])
       .catch(() => null),
     getSessionUser().catch(() => null),
+    getPlanCatalog().catch(() => null),
   ]);
 
   const alerting = featureOf(entitlements, "alerts.email");
@@ -188,9 +189,9 @@ export default async function AlertsPage() {
           <aside className="flex flex-col gap-3 self-start lg:sticky lg:top-[104px]">
             {alerting === false ? (
               <UpgradeNotice
-                message="Alert rules are not included in this workspace's plan."
+                message={`Alert rules are not included in this workspace's plan. They are ${includedFrom(catalog, "alerts.email")}.`}
                 feature="alerts.email"
-                context="Existing events stay readable and can still be acknowledged."
+                context="Existing events stay readable and can still be acknowledged. Rules kept from an earlier plan stay listed."
               />
             ) : clients === null || members === null ? (
               <ErrorState
@@ -204,6 +205,7 @@ export default async function AlertsPage() {
                 members={memberChoices}
                 defaultRecipient={me?.id ?? memberChoices[0]?.userId ?? null}
                 spoofing={spoofing}
+                spoofingFrom={includedFrom(catalog, "alerts.spoofing")}
               />
             )}
           </aside>

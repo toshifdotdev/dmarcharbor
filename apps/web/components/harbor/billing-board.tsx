@@ -80,6 +80,27 @@ const LIMITS: Array<{ key: LimitKey; usage: keyof Usage; label: string; one: str
 
 const PROVIDER_FOR: Record<Currency, string> = { INR: "Razorpay", USD: "Paddle" };
 
+/**
+ * The words for a refused downgrade's overage row, by the API's quota key. The
+ * API sends its own `label`, which wins; this covers a row that arrives
+ * without one, so a new quota (workspaces) never renders as a blank.
+ */
+const OVERAGE_WORDS: Record<string, string> = {
+  client: "clients",
+  activeDomain: "active domains",
+  member: "team members",
+  workspace: "workspaces",
+  prospect: "prospect reports this month",
+};
+
+/** Quotas counted across the account rather than inside one workspace. */
+const ACCOUNT_QUOTAS = new Set(["client", "activeDomain", "workspace"]);
+
+function overageLabel(row: PlanOverageRow): string {
+  const label = typeof row.label === "string" && row.label.trim() ? row.label.trim() : null;
+  return label ?? OVERAGE_WORDS[row.quota] ?? row.quota;
+}
+
 function features(plan: PlanDefinition): Set<string> {
   return new Set(
     Object.entries(plan.features)
@@ -756,16 +777,22 @@ function Decision(props: RowProps & { action: Action; verb: string }) {
               the rows carry the numbers. */}
           <p className="font-semibold text-fail">
             {error.overage.length > 0
-              ? `${plan.label} is smaller than what this workspace uses. Remove the excess first, or keep ${currentLabel}.`
+              ? `${plan.label} is smaller than what ${
+                  error.overage.some((o) => ACCOUNT_QUOTAS.has(o.quota)) ? "this account" : "this workspace"
+                } uses. Remove the excess first, or keep ${currentLabel}.`
               : error.message}
           </p>
           {error.overage.length > 0 ? (
             <ul className="flex flex-col gap-0.5">
-              {error.overage.map((o) => (
-                <li key={o.quota} data-testid={`overage-row-${o.quota}`} className="tnum text-fg">
-                  {o.label.charAt(0).toUpperCase() + o.label.slice(1)}: {o.used} of {o.limit} allowed ({o.by} over)
-                </li>
-              ))}
+              {error.overage.map((o) => {
+                const label = overageLabel(o);
+                return (
+                  <li key={o.quota} data-testid={`overage-row-${o.quota}`} className="tnum text-fg">
+                    {label.charAt(0).toUpperCase() + label.slice(1)}: {o.used} of {o.limit} allowed (
+                    {typeof o.by === "number" ? o.by : Math.max(o.used - o.limit, 0)} over)
+                  </li>
+                );
+              })}
             </ul>
           ) : null}
           <p className="text-fg-2">Nothing changed: you stay on {currentLabel} for this period.</p>

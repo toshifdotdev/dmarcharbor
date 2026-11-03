@@ -11,6 +11,7 @@ import {
   tosPath,
 } from '../services/dpa-acceptance.service.js';
 import { workspaceAllowanceFor } from '../services/entitlements/workspace-allowance.service.js';
+import { nextTier, planCatalog, planLabel } from '../services/entitlements/plan-catalog.js';
 
 export async function listWorkspaces(request: Request, response: Response): Promise<void> {
   const workspaces = await auth.api.listOrganizations({ headers: fromNodeHeaders(request.headers) });
@@ -85,12 +86,33 @@ export async function createWorkspace(request: Request, response: Response): Pro
 
   const allowance = await workspaceAllowanceFor(session.user.id);
   if (!allowance.allowed) {
+    /**
+     * The refusal names the plan to move to, as every other limit does.
+     *
+     * It said "move up a plan", which a customer cannot act on without opening
+     * the pricing page to find which plan allows more, and it named the plan by
+     * its enum ("harbor"). The next rung is named only when it allows more
+     * workspaces; at the top of the ladder, and on Fleet, which is not a rung,
+     * the answer is to get in touch.
+     */
+    const next = nextTier(allowance.strongest);
+    const upgradeTo = next && planCatalog[next].maxWorkspaces > allowance.maxWorkspaces ? next : null;
+    const plural = (count: number) => `${count} workspace${count === 1 ? '' : 's'}`;
     response.status(402).json({
       error: {
         code: 'WORKSPACE_LIMIT_REACHED',
-        message: `Your ${allowance.strongest === 'MOORING' ? 'free' : allowance.strongest.toLowerCase()} plan includes ${allowance.maxWorkspaces} workspace${allowance.maxWorkspaces === 1 ? '' : 's'} and you already have ${allowance.used}. Remove one, or move up a plan to add another.`,
+        message:
+          `${planLabel(allowance.strongest)} includes ${plural(allowance.maxWorkspaces)} and you already have ${allowance.used}. ` +
+          (upgradeTo
+            ? `Remove one, or upgrade to ${planLabel(upgradeTo)} for ${plural(planCatalog[upgradeTo].maxWorkspaces)}.`
+            : 'Remove one, or contact us to add more.'),
+        quota: 'workspace',
         limit: allowance.maxWorkspaces,
         used: allowance.used,
+        plan: allowance.strongest,
+        planLabel: planLabel(allowance.strongest),
+        upgradeTo,
+        upgradeToLabel: upgradeTo ? planLabel(upgradeTo) : null,
       },
     });
     return;

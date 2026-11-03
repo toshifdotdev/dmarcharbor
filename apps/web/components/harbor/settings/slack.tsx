@@ -16,19 +16,28 @@
  * There is no test-send endpoint, so the page does not pretend to have one;
  * "last delivered" is the proof that alerts get through.
  *
- * Test hooks: slack-webhook, slack-label, slack-save, slack-masked, slack-error.
+ * Plan: connecting, replacing and switching on need alerts.email. On a plan
+ * without it the form is not offered at all: the upgrade notice says which
+ * plan carries it, and a kept destination stays listed as paused, with its
+ * removal, because removing is allowed on every plan.
+ *
+ * Test hooks: slack-webhook, slack-label, slack-save, slack-masked, slack-error;
+ * the plan gate is the UpgradeNotice carrying data-feature="alerts.email".
  */
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
 import { deleteSlackDestination, patchSlackDestinationEnabled, putSlackDestination } from "@/lib/ops-client";
+import type { FeatureStatus } from "@/lib/entitlements";
 import type { SlackDestination } from "@/lib/types";
+import { ActionRefusal, isPlanRefusal, type ActionError } from "@/components/harbor/plan-refusal";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/choice";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { Field, Input } from "@/components/ui/field";
 import { KeyValue, Notice } from "@/components/ui/notice";
+import { UpgradeNotice } from "@/components/ui/states";
 import { useToast } from "@/components/ui/toast";
 import { ConnectionLine, SetupSteps, type LineState } from "./lines";
 import { Panel } from "./parts";
@@ -47,11 +56,17 @@ export function SlackBoard({
   destination,
   canManage,
   lastDeliveredLabel,
+  alerting = null,
+  includedFrom = "included on a higher plan",
 }: {
   organizationId: string;
   destination: SlackDestination | null;
   canManage: boolean;
   lastDeliveredLabel: string | null;
+  /** alerts.email on this plan; null when the plan could not be read (the API decides). */
+  alerting?: FeatureStatus;
+  /** "included from Fairway", from the catalog. */
+  includedFrom?: string;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -60,23 +75,27 @@ export function SlackBoard({
   const [channel, setChannel] = useState(destination?.channelLabel ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [planError, setPlanError] = useState<ActionError | null>(null);
   const [toggleBusy, setToggleBusy] = useState(false);
   const [enabled, setEnabled] = useState(destination?.enabled ?? false);
   const [removeOpen, setRemoveOpen] = useState(false);
   const [removeBusy, setRemoveBusy] = useState(false);
+  const offPlan = alerting === false;
 
   async function save(e: FormEvent) {
     e.preventDefault();
     const webhookUrl = urlInput.current?.value.trim() ?? "";
-    if (busy) return;
+    if (busy || offPlan) return;
     setBusy(true);
     setError(null);
+    setPlanError(null);
     const res = await putSlackDestination(organizationId, { webhookUrl, channelLabel: channel.trim() || null });
     setBusy(false);
     // The URL leaves the page whatever happened: a refused one is pasted again.
     if (urlInput.current) urlInput.current.value = "";
     if (!res.ok) {
-      setError(slackMessage(res.error.code, res.error.message));
+      if (isPlanRefusal(res.error)) setPlanError(res.error);
+      else setError(slackMessage(res.error.code, res.error.message));
       return;
     }
     form.current?.reset();
@@ -88,10 +107,12 @@ export function SlackBoard({
   async function toggle(next: boolean) {
     setToggleBusy(true);
     setError(null);
+    setPlanError(null);
     const res = await patchSlackDestinationEnabled(organizationId, next);
     setToggleBusy(false);
     if (!res.ok) {
-      setError(res.error.message ?? "The change did not go through.");
+      if (isPlanRefusal(res.error)) setPlanError(res.error);
+      else setError(res.error.message ?? "The change did not go through.");
       return;
     }
     setEnabled(next);
@@ -113,21 +134,44 @@ export function SlackBoard({
   }
 
   const failures = destination?.consecutiveFailures ?? 0;
-  const state: LineState = !destination ? "none" : failures > 0 ? "failing" : enabled ? "live" : "paused";
+  const state: LineState = !destination
+    ? "none"
+    : offPlan
+      ? "paused"
+      : failures > 0
+        ? "failing"
+        : enabled
+          ? "live"
+          : "paused";
   const word = { none: "Not connected", failing: "Failing", live: "Delivering", paused: "Paused", unknown: "Unknown" }[state];
   const detail =
     state === "none"
-      ? "Alerts go by email only."
-      : state === "failing"
-        ? `Slack refused the last ${failures === 1 ? "attempt" : `${failures} attempts in a row`}.`
-        : state === "paused"
-          ? "Switched off here: nothing is sent to Slack until it is on again."
-          : lastDeliveredLabel
-            ? `Last alert delivered ${lastDeliveredLabel}.`
-            : "Connected. No alert has been raised since, so nothing has been delivered yet.";
+      ? offPlan
+        ? `Slack alerts are ${includedFrom}.`
+        : "Alerts go by email only."
+      : offPlan
+        ? `Kept, not sent on this plan: Slack alerts are ${includedFrom}.`
+        : state === "failing"
+          ? `Slack refused the last ${failures === 1 ? "attempt" : `${failures} attempts in a row`}.`
+          : state === "paused"
+            ? "Switched off here: nothing is sent to Slack until it is on again."
+            : lastDeliveredLabel
+              ? `Last alert delivered ${lastDeliveredLabel}.`
+              : "Connected. No alert has been raised since, so nothing has been delivered yet.";
 
   return (
     <div className="flex flex-col gap-10">
+      {offPlan ? (
+        <UpgradeNotice
+          feature="alerts.email"
+          message={`Slack alerts are not included in this workspace's plan. They are ${includedFrom}.`}
+          context={
+            destination
+              ? "The channel you connected is kept, but nothing is sent to it on this plan. You can still remove it below; upgrading starts delivery again without pasting the webhook again."
+              : "Nothing is connected, and nothing about this workspace changes."
+          }
+        />
+      ) : null}
       <section aria-label="Slack status" className="flex flex-col gap-4">
         <ConnectionLine
           state={state}
@@ -139,7 +183,7 @@ export function SlackBoard({
               : "Alert rules to Slack: not connected."
           }
           aside={
-            destination && canManage ? (
+            destination && canManage && !offPlan ? (
               <>
                 <Switch checked={enabled} onChange={toggle} busy={toggleBusy} label="Send alerts to Slack" />
                 <span className="text-ui font-medium text-fg-2">{enabled ? "On" : "Off"}</span>
@@ -177,13 +221,13 @@ export function SlackBoard({
             ]}
           />
         ) : null}
-        {failures > 0 ? (
+        {failures > 0 && !offPlan ? (
           <Notice tone="warn" title="Slack is refusing the alerts">
             The webhook may have been removed in Slack, or the channel archived. Paste a fresh webhook URL below; saving
             resets the failure count.
           </Notice>
         ) : null}
-        {destination ? (
+        {destination && !offPlan ? (
           <p className="text-meta text-fg-3">
             There is no test message. Raise one through an{" "}
             <Link href="/alerts" className="link">
@@ -192,8 +236,15 @@ export function SlackBoard({
             ; &ldquo;Last delivered&rdquo; shows when one got through.
           </p>
         ) : null}
+        <ActionRefusal error={planError} />
+        {error && offPlan ? (
+          <p role="alert" data-testid="slack-error" className="text-ui font-medium text-fail">
+            {error}
+          </p>
+        ) : null}
       </section>
 
+      {offPlan ? null : (
       <div className="grid gap-x-12 gap-y-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,17rem)]">
         <Panel
           id="slack-set"
@@ -262,6 +313,7 @@ export function SlackBoard({
           ]}
         />
       </div>
+      )}
 
       {destination && canManage ? (
         <section aria-labelledby="slack-stop" className="flex flex-col gap-2 border-t border-rule pt-5">

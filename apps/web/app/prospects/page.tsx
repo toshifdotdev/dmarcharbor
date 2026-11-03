@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { getWorkspaceEntitlements, listProspectReports, OpsError } from "@/lib/api-ops";
-import { featureOf } from "@/lib/entitlements";
+import { getPlanCatalog, getWorkspaceEntitlements, listProspectReports, OpsError } from "@/lib/api-ops";
+import { featureOf, includedFrom } from "@/lib/entitlements";
 import { instantLabel } from "@/lib/instant";
 import { resolveActiveWorkspace } from "@/lib/session";
 import { AppShell } from "@/components/harbor/app-shell";
@@ -24,11 +24,12 @@ export const metadata: Metadata = { title: "Prospects" };
 export default async function ProspectsPage() {
   const { workspaces, active } = await resolveActiveWorkspace();
   if (!active) redirect("/welcome");
-  const [entitlements, data] = await Promise.all([
+  const [entitlements, data, catalog] = await Promise.all([
     getWorkspaceEntitlements(active.id).catch(() => null),
     listProspectReports(active.id).catch((error: unknown) =>
       error instanceof OpsError && error.status === 403 ? ("forbidden" as const) : null,
     ),
+    getPlanCatalog().catch(() => null),
   ]);
   const onPlan = featureOf(entitlements, "prospects.reports");
   // The API checks the role on every write and answers a viewer with a 403,
@@ -60,7 +61,7 @@ export default async function ProspectsPage() {
         {onPlan === false ? (
           <UpgradeNotice
             feature="prospects.reports"
-            message="Prospect risk reports are included from Fairway."
+            message={`Prospect risk reports are not included in this workspace's plan. They are ${includedFrom(catalog, "prospects.reports")}.`}
             context="Reports already sent stay listed here, and can still be revoked."
           />
         ) : null}

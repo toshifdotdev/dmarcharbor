@@ -52,10 +52,18 @@ export function DigestBoard({
   organizationId,
   digests,
   forensicsOnPlan,
+  onPlan = true,
 }: {
   organizationId: string;
   digests: DigestView[];
   forensicsOnPlan: boolean;
+  /**
+   * False when the plan no longer includes digests. Digests kept from an
+   * earlier plan stay listed, and can be paused or deleted; sending, editing,
+   * resuming and running the schedule are the paid part, which the API refuses,
+   * so they are not offered.
+   */
+  onPlan?: boolean;
 }) {
   const router = useRouter();
   const [toggling, setToggling] = useState<string | null>(null);
@@ -171,6 +179,8 @@ export function DigestBoard({
                       onChange={(next) => toggle(d, next)}
                       label={`${d.enabled ? "Pause" : "Resume"} the digest for ${d.domain.name}`}
                       busy={toggling === d.id}
+                      // Off the plan a digest can be paused, never resumed.
+                      disabled={!onPlan && !d.enabled}
                     />
                   </div>
 
@@ -215,19 +225,23 @@ export function DigestBoard({
                     {rowError?.id === d.id ? <ActionRefusal error={rowError.error} className="mt-2" /> : null}
                   </div>
                   <div className="col-start-2 flex flex-wrap items-start gap-1 xl:col-start-auto xl:justify-end">
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        setConfirmError(null);
-                        setPending({ kind: "send", digest: d });
-                      }}
-                      data-testid={`send-digest-${d.id}`}
-                    >
-                      Send now
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setEditing(d)}>
-                      Edit
-                    </Button>
+                    {onPlan ? (
+                      <>
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setConfirmError(null);
+                            setPending({ kind: "send", digest: d });
+                          }}
+                          data-testid={`send-digest-${d.id}`}
+                        >
+                          Send now
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setEditing(d)}>
+                          Edit
+                        </Button>
+                      </>
+                    ) : null}
                     <Button
                       size="sm"
                       variant="ghost"
@@ -244,20 +258,22 @@ export function DigestBoard({
             })}
           </ul>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => {
-                setConfirmError(null);
-                setPending({ kind: "run" });
-              }}
-              data-testid="run-digests"
-            >
-              Run the schedule now
-            </Button>
-            <span className="text-meta text-fg-3">Sends whichever digests in this workspace are due; the rest wait for their day.</span>
-          </div>
+          {onPlan ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  setConfirmError(null);
+                  setPending({ kind: "run" });
+                }}
+                data-testid="run-digests"
+              >
+                Run the schedule now
+              </Button>
+              <span className="text-meta text-fg-3">Sends whichever digests in this workspace are due; the rest wait for their day.</span>
+            </div>
+          ) : null}
         </>
       )}
 

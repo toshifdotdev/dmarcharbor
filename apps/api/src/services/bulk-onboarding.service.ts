@@ -1,7 +1,13 @@
 import { domainSlug } from './domain-slug.js';
 import { prisma } from '../database/prisma.js';
 import { recordAuditEvent } from './audit.service.js';
-import { EntitlementError, quotaUsage, resolveEntitlements, withWorkspaceLock } from './entitlements/entitlement.service.js';
+import {
+  EntitlementError,
+  quotaUpgradeSentence,
+  quotaUsage,
+  resolveEntitlements,
+  withWorkspaceLock,
+} from './entitlements/entitlement.service.js';
 
 export const bulkLimits = {
   maxClients: 200,
@@ -30,7 +36,18 @@ export interface BulkClientResult {
     domainConflicts: BulkFailure[];
   }[];
   failed: BulkFailure[];
-  planBlocked: { index: number; name: string; reason: string }[];
+  planBlocked: PlanBlocked[];
+}
+
+/**
+ * A row the plan would not allow, and which limit stopped it.
+ *
+ * `quota` travels with the row so a caller can build the full refusal (the
+ * counts and the plan to move to) for the limit that was actually hit: a client
+ * row can be stopped by the client limit or by the domains it brings.
+ */
+export interface PlanBlocked extends BulkFailure {
+  quota: 'client' | 'activeDomain';
 }
 
 /**
@@ -166,7 +183,8 @@ export async function bulkImportClients(input: {
         result.planBlocked.push({
           index,
           name,
-          reason: `${entitlements.label} includes ${used.limit} clients and ${used.used} already exist.`,
+          quota: 'client',
+          reason: `${entitlements.label} includes ${used.limit} clients and ${used.used} already exist. ${quotaUpgradeSentence(entitlements.plan, 'client')}`,
         });
         continue;
       }
@@ -222,7 +240,8 @@ export async function bulkImportClients(input: {
         result.planBlocked.push({
           index,
           name,
-          reason: `${entitlements.label} includes ${entitlements.maxActiveDomains} active domains and only ${domainSlots} remain.`,
+          quota: 'activeDomain',
+          reason: `${entitlements.label} includes ${entitlements.maxActiveDomains} active domains and only ${domainSlots} remain. ${quotaUpgradeSentence(entitlements.plan, 'activeDomain')}`,
         });
         continue;
       }
@@ -294,7 +313,7 @@ export interface BulkDomainResult {
    */
   created: { index: number; domainId: string; slug: string; name: string; clientId: string; verificationHost: string; verificationValue: string }[];
   failed: BulkFailure[];
-  planBlocked: BulkFailure[];
+  planBlocked: PlanBlocked[];
 }
 
 /**
@@ -395,7 +414,8 @@ export async function bulkImportDomains(input: {
         result.planBlocked.push({
           index,
           name,
-          reason: `${entitlements.label} includes ${usage.limit} active domains and ${usage.used} already exist.`,
+          quota: 'activeDomain',
+          reason: `${entitlements.label} includes ${usage.limit} active domains and ${usage.used} already exist. ${quotaUpgradeSentence(entitlements.plan, 'activeDomain')}`,
         });
         continue;
       }

@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import type { Prisma, ProspectReport } from '@prisma/client';
+import type { PlanTier, Prisma, ProspectReport } from '@prisma/client';
 import { prisma } from '../../database/prisma.js';
 import type { ScanResult } from '../../models/scan.model.js';
 import { DomainValidationError, normalizeDomain } from '../../scanner/domain.js';
@@ -8,7 +8,7 @@ import { recordAuditEvent } from '../audit.service.js';
 import { resolveBranding } from '../branding.service.js';
 import { appOrigin, clientOrigin } from '../client-origin.js';
 import { resolveEntitlements } from '../entitlements/entitlement.service.js';
-import { planCatalog } from '../entitlements/plan-catalog.js';
+import { nextTier, planCatalog } from '../entitlements/plan-catalog.js';
 import { assessProspect, type ProspectAssessment } from './prospect-findings.js';
 
 /**
@@ -71,26 +71,85 @@ export interface ProspectUsage {
   resetsAt: string;
 }
 
-async function monthlyLimit(organizationId: string, now: Date): Promise<number> {
+interface MonthlyAllowance {
+  limit: number;
+  plan: PlanTier;
+  planLabel: string;
+}
+
+async function monthlyAllowance(organizationId: string, now: Date): Promise<MonthlyAllowance> {
   const entitlements = await resolveEntitlements(organizationId, now);
-  if (!entitlements.features['prospects.reports']) return 0;
-  return planCatalog[entitlements.plan]?.maxProspectReportsPerMonth ?? 0;
+  const limit = entitlements.features['prospects.reports']
+    ? (planCatalog[entitlements.plan]?.maxProspectReportsPerMonth ?? 0)
+    : 0;
+  return { limit, plan: entitlements.plan, planLabel: entitlements.label };
+}
+
+/**
+ * Reports created this month, counted so that removing one does not give it back.
+ *
+ * The allowance is a number of scans, and a scan has happened once the report
+ * exists. Counting stored rows alone meant revoke-then-delete returned the slot:
+ * an agency at its limit could remove a report and run another scan, as many
+ * times as it liked. Every creation writes a PROSPECT_REPORT_CREATED audit row in
+ * the same transaction as the report, and the audit log is never deleted from,
+ * so it is the record that survives a removal.
+ *
+ * The larger of the two counts, not the audit count alone, so a report whose
+ * audit row is missing (one made before the row was written in the same
+ * transaction, when it was written after the commit and could fail) still
+ * counts while it exists.
+ */
+async function createdThisMonth(
+  client: Prisma.TransactionClient | typeof prisma,
+  organizationId: string,
+  now: Date,
+): Promise<number> {
+  const since = startOfMonth(now);
+  const rows = await client.prospectReport.count({ where: { organizationId, createdAt: { gte: since } } });
+  const created = await client.auditLog.count({
+    where: { organizationId, action: 'PROSPECT_REPORT_CREATED', createdAt: { gte: since } },
+  });
+  return Math.max(rows, created);
 }
 
 export async function prospectUsage(organizationId: string, now: Date = new Date()): Promise<ProspectUsage> {
-  const [used, limit] = await Promise.all([
-    prisma.prospectReport.count({ where: { organizationId, createdAt: { gte: startOfMonth(now) } } }),
-    monthlyLimit(organizationId, now),
+  const [used, allowance] = await Promise.all([
+    createdThisMonth(prisma, organizationId, now),
+    monthlyAllowance(organizationId, now),
   ]);
-  return { used, limit, resetsAt: startOfNextMonth(now).toISOString() };
+  return { used, limit: allowance.limit, resetsAt: startOfNextMonth(now).toISOString() };
 }
 
-function limitReached(usage: ProspectUsage): ProspectReportError {
+/**
+ * The refusal at the monthly allowance, with the way past it.
+ *
+ * It used to stop at the reset date, the one plan limit that did not name a
+ * plan to move to. The next rung is named only when it actually allows more a
+ * month; at the top (Admiralty, and Fleet, which is not a rung) the answer is to
+ * get in touch.
+ */
+function limitReached(usage: ProspectUsage, allowance: MonthlyAllowance): ProspectReportError {
+  const next = nextTier(allowance.plan);
+  const nextLimit = next ? planCatalog[next].maxProspectReportsPerMonth : 0;
+  const upgradeTo = next && nextLimit > usage.limit ? next : null;
+  const resets = new Date(usage.resetsAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'UTC' });
   return new ProspectReportError(
-    `This workspace has used all ${usage.limit} prospect reports for this month. The allowance resets on ${new Date(usage.resetsAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'UTC' })}.`,
+    `This workspace has used all ${usage.limit} prospect reports for this month, and a removed report still counts. The allowance resets on ${resets}. ` +
+      (upgradeTo
+        ? `Upgrade to ${planCatalog[upgradeTo].label} for ${nextLimit} a month.`
+        : 'Contact us to add more.'),
     'PROSPECT_LIMIT_REACHED',
     402,
-    { used: usage.used, limit: usage.limit, resetsAt: usage.resetsAt },
+    {
+      used: usage.used,
+      limit: usage.limit,
+      resetsAt: usage.resetsAt,
+      plan: allowance.plan,
+      planLabel: allowance.planLabel,
+      upgradeTo,
+      upgradeToLabel: upgradeTo ? planCatalog[upgradeTo].label : null,
+    },
   );
 }
 
@@ -182,8 +241,13 @@ export async function createProspectReport(input: {
   // Checked before the scan, so a workspace at its limit does not make the
   // lookups at all. Checked again under the lock below, because two requests
   // can both pass here.
-  const before = await prospectUsage(input.organizationId, now);
-  if (before.used >= before.limit) throw limitReached(before);
+  const allowance = await monthlyAllowance(input.organizationId, now);
+  const before: ProspectUsage = {
+    used: await createdThisMonth(prisma, input.organizationId, now),
+    limit: allowance.limit,
+    resetsAt: startOfNextMonth(now).toISOString(),
+  };
+  if (before.used >= before.limit) throw limitReached(before, allowance);
 
   const result = await scanner()(domain);
   if (result.status === 'error') {
@@ -201,12 +265,10 @@ export async function createProspectReport(input: {
     // The organisation row is the lock: one creation at a time per workspace,
     // so the count and the insert cannot interleave with another request's.
     await transaction.$queryRaw`SELECT id FROM "organization" WHERE id = ${input.organizationId} FOR UPDATE`;
-    const used = await transaction.prospectReport.count({
-      where: { organizationId: input.organizationId, createdAt: { gte: startOfMonth(now) } },
-    });
-    if (used >= before.limit) throw limitReached({ ...before, used });
+    const used = await createdThisMonth(transaction, input.organizationId, now);
+    if (used >= before.limit) throw limitReached({ ...before, used }, allowance);
 
-    return transaction.prospectReport.create({
+    const report = await transaction.prospectReport.create({
       data: {
         organizationId: input.organizationId,
         createdById: input.actorUserId,
@@ -222,15 +284,24 @@ export async function createProspectReport(input: {
       },
       include: { createdBy: { select: { id: true, name: true } } },
     });
-  });
 
-  await recordAuditEvent({
-    organizationId: input.organizationId,
-    actorUserId: input.actorUserId ?? undefined,
-    action: 'PROSPECT_REPORT_CREATED',
-    targetType: 'prospect_report',
-    targetId: created.id,
-    detail: { domain, prospectName: created.prospectName, expiresInDays: days, score: created.score },
+    // In the same transaction and under the same lock as the report, because
+    // this row is what the monthly count reads once the report is removed. A
+    // row written after the commit could be missing, and the next request
+    // under the lock could read the count before it landed.
+    await recordAuditEvent(
+      {
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId ?? undefined,
+        action: 'PROSPECT_REPORT_CREATED',
+        targetType: 'prospect_report',
+        targetId: report.id,
+        detail: { domain, prospectName: report.prospectName, expiresInDays: days, score: report.score },
+      },
+      transaction,
+    );
+
+    return report;
   });
 
   return rowView(created, now, await clientOrigin(input.organizationId));
@@ -261,6 +332,9 @@ export async function revokeProspectReport(input: {
  * link can never disappear without its revocation in the audit trail. The
  * view count goes into the audit detail: it is the one record that the
  * prospect actually opened it.
+ *
+ * Removing does not hand the month's scan back: the allowance is counted from
+ * the creation record (createdThisMonth), which this does not touch.
  */
 export async function deleteProspectReport(input: {
   organizationId: string;

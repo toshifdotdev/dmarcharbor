@@ -50,6 +50,7 @@ import {
   type HostedDeletionPreview,
   type ManagedSpfDeletionPreview,
 } from "@/lib/ops-client";
+import { limitReached } from "@/lib/entitlements";
 import { domainHref, onboardingHref } from "@/lib/route-hrefs";
 import type { DomainStatus } from "@/lib/types";
 import { Button, ButtonLink } from "@/components/ui/button";
@@ -61,6 +62,7 @@ import { Notice } from "@/components/ui/notice";
 import { Nil } from "@/components/ui/table";
 import { AddClient, AddDomains } from "./client-forms";
 import { MoveDomainDialog, movedLine } from "./domain-move";
+import { UsageLine } from "./plan-refusal";
 import { PolicyStrip } from "./policy-strip";
 
 export interface DomainView {
@@ -117,7 +119,14 @@ export function ClientBook({
 }: {
   organizationId: string;
   clients: ClientView[];
-  limits: { plan: string; maxClients: number; maxActiveDomains: number } | null;
+  limits: {
+    plan: string;
+    maxClients: number;
+    maxActiveDomains: number;
+    /** What the quota counts, across every workspace the owner holds. Absent from an older API. */
+    clientsUsed?: number;
+    activeDomainsUsed?: number;
+  } | null;
   /** The product's name as this host shows it (white label), for the deletion warnings. */
   productName?: string;
 }) {
@@ -143,7 +152,13 @@ export function ClientBook({
 
   const domainTotal = clients.reduce((n, c) => n + c.domains.length, 0);
   const needsDns = clients.reduce((n, c) => n + c.domains.filter((d) => d.status !== "VERIFIED").length, 0);
-  const atLimit = limits !== null && clients.length >= limits.maxClients;
+  // The API counts clients and active domains across the owner's workspaces;
+  // this workspace's own count is the fallback for an API that does not say.
+  const clientsUsed = limits?.clientsUsed ?? clients.length;
+  const domainsUsed = limits?.activeDomainsUsed ?? null;
+  const atLimit = limits !== null && limitReached({ used: clientsUsed, limit: limits.maxClients });
+  const domainsAtLimit =
+    limits !== null && domainsUsed !== null && limitReached({ used: domainsUsed, limit: limits.maxActiveDomains });
 
   const q = query.trim().toLowerCase();
   const visible = clients
@@ -168,10 +183,17 @@ export function ClientBook({
     <div className="grid gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="flex min-w-0 flex-col gap-4">
         {limits ? (
-          <p className="tnum text-meta text-fg-3" data-testid="client-usage">
-            <span className="font-semibold text-fg-2">{clients.length}</span> of {limits.maxClients} clients and{" "}
-            <span className="font-semibold text-fg-2">{domainTotal}</span> domains; the {limits.plan} plan allows{" "}
-            {limits.maxActiveDomains} active domains.
+          <p className="text-meta text-fg-3" data-testid="client-usage">
+            <UsageLine quota="client" used={clientsUsed} limit={limits.maxClients} noun="clients" /> and{" "}
+            {domainsUsed !== null ? (
+              <UsageLine quota="activeDomain" used={domainsUsed} limit={limits.maxActiveDomains} noun="active domains" />
+            ) : (
+              <span className="tnum">
+                <span className="font-semibold text-fg-2">{domainTotal}</span> domains, of {limits.maxActiveDomains} active
+              </span>
+            )}{" "}
+            on the {limits.plan} plan
+            {limits.clientsUsed !== undefined ? ", counted across every workspace you own" : ""}.
           </p>
         ) : null}
 
@@ -293,7 +315,9 @@ export function ClientBook({
           atLimit={atLimit}
           limitLine={
             limits
-              ? `The ${limits.plan} plan allows ${limits.maxClients} client${limits.maxClients === 1 ? "" : "s"}, and this workspace has ${clients.length}.`
+              ? `The ${limits.plan} plan allows ${limits.maxClients} client${limits.maxClients === 1 ? "" : "s"}, and ${
+                  limits.clientsUsed !== undefined ? "your workspaces have" : "this workspace has"
+                } ${clientsUsed}. Delete one you no longer look after, or move to a plan with more.`
               : null
           }
           onCreated={(c) => {
@@ -302,7 +326,18 @@ export function ClientBook({
           }}
         />
         <div className="border-t border-rule pt-7">
-          <AddDomains ref={domainInput} organizationId={organizationId} clients={choices} target={effectiveTarget} onTarget={setTarget} />
+          <AddDomains
+            ref={domainInput}
+            organizationId={organizationId}
+            clients={choices}
+            target={effectiveTarget}
+            onTarget={setTarget}
+            domainLimit={
+              domainsAtLimit && limits && domainsUsed !== null
+                ? `The ${limits.plan} plan allows ${limits.maxActiveDomains} active domain${limits.maxActiveDomains === 1 ? "" : "s"}, and your workspaces have ${domainsUsed}.`
+                : null
+            }
+          />
         </div>
       </div>
 

@@ -25,6 +25,11 @@
  * client the agency's. An older API without `pageUrl` falls back to this
  * host's address, as before. Dates arrive formatted from the server; nothing
  * here formats a timestamp.
+ *
+ * Plan: making a link needs sharing.links. On a plan without it the form is
+ * replaced by the upgrade notice, and links made earlier stay listed with
+ * Revoke and Remove: the API answers them as withdrawn while the plan lacks
+ * the feature, and they open again after an upgrade.
  */
 
 import { useRouter } from "next/navigation";
@@ -37,14 +42,16 @@ import {
   revokeReportShare,
   revokeReportShares,
 } from "@/lib/ops-client";
+import type { FeatureStatus } from "@/lib/entitlements";
 import { shareHref } from "@/lib/route-hrefs";
 import { absoluteHttpUrl } from "@/lib/white-label";
-import { Button, ButtonLink } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/choice";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { CopyButton } from "@/components/ui/copy";
 import { Segmented } from "@/components/ui/field";
-import { Notice } from "@/components/ui/notice";
+import { UpgradeNotice } from "@/components/ui/states";
+import { ActionRefusal, type ActionError } from "./plan-refusal";
 
 export interface ShareView {
   id: string;
@@ -85,11 +92,17 @@ export function ShareLinks({
   domainId,
   domainName,
   shares,
+  sharing = null,
+  includedFrom = "included on a higher plan",
 }: {
   organizationId: string;
   domainId: string;
   domainName: string;
   shares: ShareView[];
+  /** sharing.links on this plan; null when the plan could not be read (the API decides). */
+  sharing?: FeatureStatus;
+  /** "included from Fairway", from the catalog. */
+  includedFrom?: string;
 }) {
   const router = useRouter();
   const origin = useOrigin();
@@ -97,7 +110,8 @@ export function ShareLinks({
   const [includeSources, setIncludeSources] = useState(true);
   const [includeForensics, setIncludeForensics] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<{ code: string; message: string } | null>(null);
+  const [error, setError] = useState<ActionError | null>(null);
+  const offPlan = sharing === false;
   const [created, setCreated] = useState<{ token: string; pageUrl: string | null } | null>(null);
   const [pending, setPending] = useState<Pending>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
@@ -111,7 +125,7 @@ export function ShareLinks({
 
   async function create(e: FormEvent) {
     e.preventDefault();
-    if (busy) return;
+    if (busy || offPlan) return;
     setBusy(true);
     setError(null);
     const res = await createReportShare(organizationId, {
@@ -122,7 +136,11 @@ export function ShareLinks({
     });
     setBusy(false);
     if (!res.ok) {
-      setError({ code: res.error.code ?? String(res.status), message: res.error.message ?? "The link could not be created." });
+      setError({
+        ...res.error,
+        code: res.error.code ?? String(res.status),
+        message: res.error.message ?? "The link could not be created.",
+      });
       return;
     }
     setCreated({ token: res.data.token, pageUrl: res.data.pageUrl ?? null });
@@ -164,6 +182,17 @@ export function ShareLinks({
         </p>
       </div>
 
+      {offPlan ? (
+        <UpgradeNotice
+          feature="sharing.links"
+          message={`Report share links are not included in this workspace's plan. They are ${includedFrom}.`}
+          context={
+            shares.some((s) => !s.revokedLabel && !s.expired)
+              ? "Links made on an earlier plan are kept below but do not open while the plan lacks share links. Revoke or remove them here; after an upgrade they open again until they expire."
+              : "Nothing about this domain or its reports changes."
+          }
+        />
+      ) : (
       <form onSubmit={create} className="flex flex-col gap-5 border-y border-rule py-5">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <span className="text-meta font-semibold text-fg-2">Expires after</span>
@@ -198,24 +227,9 @@ export function ShareLinks({
             {live.length === 0 ? "No live links for this domain." : `${live.length} live link${live.length === 1 ? "" : "s"} below.`}
           </span>
         </div>
-        {error ? (
-          error.code === "FEATURE_NOT_IN_PLAN" || error.code === "402" ? (
-            <Notice
-              tone="warn"
-              title="Share links are not on this workspace's plan"
-              action={
-                <ButtonLink href="/billing" size="sm">
-                  See plan options
-                </ButtonLink>
-              }
-            >
-              {error.message}
-            </Notice>
-          ) : (
-            <Notice tone="fail" title={error.message} />
-          )
-        ) : null}
+        <ActionRefusal error={error} />
       </form>
+      )}
 
       {created ? (
         <div role="status" data-copy-scope className="flex flex-col gap-2 rounded-[10px] border border-ok/30 bg-ok-wash px-3.5 py-3">

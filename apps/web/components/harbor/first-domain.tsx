@@ -35,6 +35,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useId, useMemo, useState, type FormEvent } from "react";
+import { limitReached } from "@/lib/entitlements";
 import { bulkCreateDomains, createClient, opsCall } from "@/lib/ops-client";
 import { onboardingHref } from "@/lib/route-hrefs";
 import type { OnboardingState } from "@/lib/types";
@@ -44,6 +45,7 @@ import { Notice } from "@/components/ui/notice";
 import { ArrowRight } from "@/components/ui/icons";
 import { DnsHandoff, type PublishRecord } from "./dns-handoff";
 import { OwnershipCheck } from "./ownership-check";
+import { ActionRefusal, PlanLimitNotice, UsageLine, type ActionError } from "./plan-refusal";
 import { RouteList } from "./route-list";
 import { SetupRail } from "./setup-rail";
 import { slugFrom } from "./workspace-setup";
@@ -91,21 +93,33 @@ export function FirstDomain({
   workspaceName: string;
   clients: Array<{ id: string; name: string }>;
   /** From the plan, when it could be read: shown so a limit is known up front. */
-  limits: { maxClients: number; maxActiveDomains: number; plan: string } | null;
+  limits: {
+    maxClients: number;
+    maxActiveDomains: number;
+    plan: string;
+    /** What the quotas count, across every workspace the owner holds. Absent from an older API. */
+    clientsUsed?: number;
+    activeDomainsUsed?: number;
+  } | null;
 }) {
   const router = useRouter();
   const ids = useId();
+  const clientsFull = limits?.clientsUsed !== undefined && limitReached({ used: limits.clientsUsed, limit: limits.maxClients });
+  const domainsFull =
+    limits?.activeDomainsUsed !== undefined && limitReached({ used: limits.activeDomainsUsed, limit: limits.maxActiveDomains });
   const [clientChoice, setClientChoice] = useState<string>(clients[0]?.id ?? "new");
   const [clientName, setClientName] = useState("");
   const [rawDomain, setRawDomain] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ActionError | null>(null);
   const [added, setAdded] = useState<Added | null>(null);
 
   const domain = useMemo(() => cleanDomain(rawDomain), [rawDomain]);
   const domainOk = DOMAIN.test(domain);
   const cleaned = rawDomain.trim() !== "" && domain !== rawDomain.trim().toLowerCase();
   const isNew = clientChoice === "new";
+  // Nothing can be added: no room for a domain, or no client to put it in and no room for one.
+  const blocked = domainsFull || (clientsFull && clients.length === 0);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -124,7 +138,8 @@ export function FirstDomain({
           made = await createClient(organizationId, { name, slug: `${base}-${Math.random().toString(36).slice(2, 6)}` });
         }
         if (!made.ok) {
-          setError(made.error.message ?? "The client could not be created.");
+          // The error keeps its code, so a plan limit reads as one, with the way to Billing.
+          setError({ ...made.error, message: made.error.message ?? "The client could not be created." });
           return;
         }
         clientId = made.data.id;
@@ -132,13 +147,17 @@ export function FirstDomain({
 
       const res = await bulkCreateDomains(organizationId, clientId, [domain]);
       if (!res.ok) {
-        setError(res.error.message ?? "The domain could not be added.");
+        setError({ ...res.error, message: res.error.message ?? "The domain could not be added." });
         return;
       }
       const row = res.data.domains[0];
       if (!row) {
-        const why = res.data.planLimitRejections[0]?.reason ?? res.data.failures[0]?.reason;
-        setError(why ?? "The domain was not added.");
+        const blockedByPlan = res.data.planLimitRejections[0]?.reason;
+        if (blockedByPlan) {
+          setError({ code: "PLAN_LIMIT_REACHED", quota: "activeDomain", message: blockedByPlan });
+          return;
+        }
+        setError({ message: res.data.failures[0]?.reason ?? "The domain was not added." });
         return;
       }
 
@@ -254,6 +273,20 @@ export function FirstDomain({
             </p>
           </div>
 
+          {blocked && limits ? (
+            <PlanLimitNotice
+              quota={domainsFull ? "activeDomain" : "client"}
+              message={
+                domainsFull
+                  ? `The ${limits.plan} plan allows ${limits.maxActiveDomains} active domain${limits.maxActiveDomains === 1 ? "" : "s"}, and your workspaces have ${limits.activeDomainsUsed}.`
+                  : `The ${limits.plan} plan allows ${limits.maxClients} client${limits.maxClients === 1 ? "" : "s"}, and your workspaces have ${limits.clientsUsed}.`
+              }
+              context="Clients and active domains count across every workspace you own. Remove one from another workspace, or move to a plan with more."
+            />
+          ) : null}
+
+          {blocked ? null : (
+            <>
           {clients.length > 0 ? (
             <Field label="Client">
               <Select size="lg" value={clientChoice} onChange={(e) => setClientChoice(e.target.value)} className="w-full">
@@ -262,7 +295,7 @@ export function FirstDomain({
                     {c.name}
                   </option>
                 ))}
-                <option value="new">A new client…</option>
+                {clientsFull ? null : <option value="new">A new client…</option>}
               </Select>
             </Field>
           ) : null}
@@ -313,7 +346,7 @@ export function FirstDomain({
             />
           </Field>
 
-          {error ? <Notice tone="fail" title={error} /> : null}
+          <ActionRefusal error={error} />
 
           <div className="flex flex-wrap items-center gap-x-5 gap-y-3 pt-1">
             <Button
@@ -330,6 +363,8 @@ export function FirstDomain({
               Adding many? Import a list on Clients
             </Link>
           </div>
+            </>
+          )}
         </form>
 
         <aside aria-labelledby={`${ids}-route`} className="flex flex-col gap-5 self-start border-t border-rule pt-6 lg:border-t-0 lg:pt-1">
@@ -339,11 +374,20 @@ export function FirstDomain({
           {/* The first station is where the reader is; the rest is planned, the portfolio its terminus. */}
           <RouteList steps={ROUTE} here={0} />
           {limits ? (
-            <p className="border-t border-rule pt-4 text-meta text-fg-3">
-              The <span className="font-semibold text-fg-2">{limits.plan}</span> plan allows{" "}
-              <span className="tnum">{limits.maxClients}</span> client{limits.maxClients === 1 ? "" : "s"} and{" "}
-              <span className="tnum">{limits.maxActiveDomains}</span> active domain{limits.maxActiveDomains === 1 ? "" : "s"}.
-            </p>
+            limits.clientsUsed !== undefined && limits.activeDomainsUsed !== undefined ? (
+              <p className="border-t border-rule pt-4 text-meta text-fg-3">
+                On the <span className="font-semibold text-fg-2">{limits.plan}</span> plan:{" "}
+                <UsageLine quota="client" used={limits.clientsUsed} limit={limits.maxClients} noun="clients" /> and{" "}
+                <UsageLine quota="activeDomain" used={limits.activeDomainsUsed} limit={limits.maxActiveDomains} noun="active domains" />,
+                counted across every workspace you own.
+              </p>
+            ) : (
+              <p className="border-t border-rule pt-4 text-meta text-fg-3">
+                The <span className="font-semibold text-fg-2">{limits.plan}</span> plan allows{" "}
+                <span className="tnum">{limits.maxClients}</span> client{limits.maxClients === 1 ? "" : "s"} and{" "}
+                <span className="tnum">{limits.maxActiveDomains}</span> active domain{limits.maxActiveDomains === 1 ? "" : "s"}.
+              </p>
+            )
           ) : null}
         </aside>
       </div>

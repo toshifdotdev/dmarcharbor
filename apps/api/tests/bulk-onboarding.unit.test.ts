@@ -83,6 +83,10 @@ vi.mock('../src/services/entitlements/entitlement.service.js', () => {
     quotaUsage: vi.fn(async (_organizationId: string, quota: string) =>
       quota === 'client' ? { used: 0, limit: 20 } : { used: 0, limit: 80 },
     ),
+    // A plan-blocked row's reason ends with the way past the limit.
+    quotaUpgradeSentence: vi.fn((_plan: string, quota: string) =>
+      quota === 'client' ? 'Upgrade to Admiralty for 75 clients, or remove one.' : 'Upgrade to Admiralty for 300 active domains, or remove one.',
+    ),
     withWorkspaceLock: vi.fn(async (_organizationId: string, work: (tx: unknown) => Promise<unknown>) => work(fakeTx())),
   };
 });

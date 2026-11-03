@@ -22,8 +22,14 @@
  * and the bot that messages appear from is named so nobody thinks it is
  * phishing.
  *
+ * **Plan.** Connecting, replacing, switching on and the test message need
+ * alerts.email. On a plan without it none of them is offered: the upgrade
+ * notice names the plan, and a kept destination stays listed as paused with
+ * its removal, which is allowed on every plan.
+ *
  * Test hooks: teams-webhook, teams-label, teams-save, teams-masked, teams-error,
- * teams-test, teams-test-result, teams-remove.
+ * teams-test, teams-test-result, teams-remove; the plan gate is the
+ * UpgradeNotice carrying data-feature="alerts.email".
  */
 
 import { useRouter } from "next/navigation";
@@ -34,12 +40,15 @@ import {
   putTeamsDestination,
   testTeamsDestination,
 } from "@/lib/ops-client";
+import type { FeatureStatus } from "@/lib/entitlements";
 import type { TeamsDestination } from "@/lib/types";
+import { ActionRefusal, isPlanRefusal, type ActionError } from "@/components/harbor/plan-refusal";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/choice";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { Field, Input } from "@/components/ui/field";
 import { KeyValue, Notice } from "@/components/ui/notice";
+import { UpgradeNotice } from "@/components/ui/states";
 import { useToast } from "@/components/ui/toast";
 import { ConnectionLine, SetupSteps, type LineState } from "./lines";
 import { Panel } from "./parts";
@@ -69,11 +78,17 @@ export function TeamsBoard({
   destination,
   canManage,
   lastDeliveredLabel,
+  alerting = null,
+  includedFrom = "included on a higher plan",
 }: {
   organizationId: string;
   destination: TeamsDestination | null;
   canManage: boolean;
   lastDeliveredLabel: string | null;
+  /** alerts.email on this plan; null when the plan could not be read (the API decides). */
+  alerting?: FeatureStatus;
+  /** "included from Fairway", from the catalog. */
+  includedFrom?: string;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -88,13 +103,16 @@ export function TeamsBoard({
   const [removeBusy, setRemoveBusy] = useState(false);
   const [testBusy, setTestBusy] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
+  const [planError, setPlanError] = useState<ActionError | null>(null);
+  const offPlan = alerting === false;
 
   async function save(e: FormEvent) {
     e.preventDefault();
     const webhookUrl = urlInput.current?.value.trim() ?? "";
-    if (busy) return;
+    if (busy || offPlan) return;
     setBusy(true);
     setError(null);
+    setPlanError(null);
     setTestResult(null);
     const res = await putTeamsDestination(organizationId, {
       webhookUrl,
@@ -104,7 +122,8 @@ export function TeamsBoard({
     // The address leaves the page whatever happened: a refused one is pasted again.
     if (urlInput.current) urlInput.current.value = "";
     if (!res.ok) {
-      setError(teamsMessage(res.error.code, res.error.message));
+      if (isPlanRefusal(res.error)) setPlanError(res.error);
+      else setError(teamsMessage(res.error.code, res.error.message));
       return;
     }
     form.current?.reset();
@@ -120,10 +139,12 @@ export function TeamsBoard({
   async function toggle(next: boolean) {
     setToggleBusy(true);
     setError(null);
+    setPlanError(null);
     const res = await patchTeamsDestinationEnabled(organizationId, next);
     setToggleBusy(false);
     if (!res.ok) {
-      setError(res.error.message ?? "The change did not go through.");
+      if (isPlanRefusal(res.error)) setPlanError(res.error);
+      else setError(res.error.message ?? "The change did not go through.");
       return;
     }
     setEnabled(next);
@@ -150,6 +171,10 @@ export function TeamsBoard({
     const res = await testTeamsDestination(organizationId);
     setTestBusy(false);
     if (!res.ok) {
+      if (isPlanRefusal(res.error)) {
+        setPlanError(res.error);
+        return;
+      }
       setTestResult(
         res.error.message && !/^[A-Z_]+$/.test(res.error.message)
           ? res.error.message
@@ -166,21 +191,44 @@ export function TeamsBoard({
   }
 
   const failures = destination?.consecutiveFailures ?? 0;
-  const state: LineState = !destination ? "none" : failures > 0 ? "failing" : enabled ? "live" : "paused";
+  const state: LineState = !destination
+    ? "none"
+    : offPlan
+      ? "paused"
+      : failures > 0
+        ? "failing"
+        : enabled
+          ? "live"
+          : "paused";
   const word = { none: "Not connected", failing: "Failing", live: "Delivering", paused: "Paused", unknown: "Unknown" }[state];
   const detail =
     state === "none"
-      ? "Alerts go by email, and to Slack if it is connected."
-      : state === "failing"
-        ? `Microsoft refused the last ${failures === 1 ? "attempt" : `${failures} attempts in a row`}.`
-        : state === "paused"
-          ? "Switched off here: nothing is sent to Teams until it is on again."
-          : lastDeliveredLabel
-            ? `Last alert delivered ${lastDeliveredLabel}.`
-            : "Connected. Nothing delivered yet: send a test message to be sure the flow works.";
+      ? offPlan
+        ? `Microsoft Teams alerts are ${includedFrom}.`
+        : "Alerts go by email, and to Slack if it is connected."
+      : offPlan
+        ? `Kept, not sent on this plan: Microsoft Teams alerts are ${includedFrom}.`
+        : state === "failing"
+          ? `Microsoft refused the last ${failures === 1 ? "attempt" : `${failures} attempts in a row`}.`
+          : state === "paused"
+            ? "Switched off here: nothing is sent to Teams until it is on again."
+            : lastDeliveredLabel
+              ? `Last alert delivered ${lastDeliveredLabel}.`
+              : "Connected. Nothing delivered yet: send a test message to be sure the flow works.";
 
   return (
     <div className="flex flex-col gap-10">
+      {offPlan ? (
+        <UpgradeNotice
+          feature="alerts.email"
+          message={`Microsoft Teams alerts are not included in this workspace's plan. They are ${includedFrom}.`}
+          context={
+            destination
+              ? "The channel you connected is kept, but nothing is sent to it on this plan, and the test message is paused too. You can still remove it below."
+              : "Nothing is connected, and nothing about this workspace changes."
+          }
+        />
+      ) : null}
       <section aria-label="Microsoft Teams status" className="flex flex-col gap-4">
         <ConnectionLine
           state={state}
@@ -192,7 +240,7 @@ export function TeamsBoard({
               : "Alert rules to Microsoft Teams: not connected."
           }
           aside={
-            destination && canManage ? (
+            destination && canManage && !offPlan ? (
               <>
                 <Switch checked={enabled} onChange={toggle} busy={toggleBusy} label="Send alerts to Microsoft Teams" />
                 <span className="text-ui font-medium text-fg-2">{enabled ? "On" : "Off"}</span>
@@ -231,13 +279,19 @@ export function TeamsBoard({
             ]}
           />
         ) : null}
-        {failures > 0 ? (
+        {failures > 0 && !offPlan ? (
           <Notice tone="warn" title="Microsoft is refusing the messages">
             The flow may have been turned off, the template replaced, or the address regenerated. Paste the current address
             below; saving resets the failure count.
           </Notice>
         ) : null}
-        {destination && canManage ? (
+        <ActionRefusal error={planError} />
+        {error && offPlan ? (
+          <p role="alert" data-testid="teams-error" className="text-ui font-medium text-fail">
+            {error}
+          </p>
+        ) : null}
+        {destination && canManage && !offPlan ? (
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <Button variant="secondary" busy={testBusy} busyLabel="Sending a test message" onClick={sendTest} data-testid="teams-test">
               Send test message
@@ -249,6 +303,7 @@ export function TeamsBoard({
         ) : null}
       </section>
 
+      {offPlan ? null : (
       <div className="grid gap-x-12 gap-y-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,17rem)]">
         <Panel
           id="teams-set"
@@ -337,6 +392,7 @@ export function TeamsBoard({
           ]}
         />
       </div>
+      )}
 
       {destination && canManage ? (
         <section aria-labelledby="teams-stop" className="flex flex-col gap-2 border-t border-rule pt-5">

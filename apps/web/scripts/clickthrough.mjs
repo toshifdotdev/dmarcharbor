@@ -2952,15 +2952,17 @@ const prospectsAudit = await waitForEval(
     usage: document.querySelector('[data-testid="prospects-usage"]')?.textContent.trim() ?? null,
     form: Boolean(document.querySelector('[data-testid="prospect-form"]')),
     upgrade: Boolean(document.querySelector('[data-feature="prospects.reports"]')),
+    // The month's allowance spent: the limit stands in place of the form.
+    limit: Boolean(document.querySelector('[data-testid="plan-limit"][data-quota="prospect"]')),
     listed: Boolean(document.querySelector('[data-testid="prospects-list"], [data-testid="prospects-empty"]')),
     failed: Boolean(document.querySelector('[data-testid="state-error"]')),
   }))()`,
-  (s) => s && (s.form || s.upgrade || s.failed),
+  (s) => s && (s.form || s.upgrade || s.limit || s.failed),
   45000,
 );
 check(
   "prospects page shows the allowance and the form or the upgrade notice",
-  Boolean(prospectsAudit && !prospectsAudit.failed && prospectsAudit.usage && prospectsAudit.listed && (prospectsAudit.form || prospectsAudit.upgrade)),
+  Boolean(prospectsAudit && !prospectsAudit.failed && prospectsAudit.usage && prospectsAudit.listed && (prospectsAudit.form || prospectsAudit.upgrade || prospectsAudit.limit)),
   JSON.stringify(prospectsAudit),
 );
 

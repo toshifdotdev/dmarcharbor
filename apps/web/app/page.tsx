@@ -148,7 +148,18 @@ async function PortfolioData({ organizationId, workspaceName }: { organizationId
         organizationId={organizationId}
         workspaceName={workspaceName}
         clients={clientList}
-        limits={ent ? { plan: ent.label, maxClients: ent.maxClients, maxActiveDomains: ent.maxActiveDomains } : null}
+        limits={
+          ent
+            ? {
+                plan: ent.label,
+                maxClients: ent.maxClients,
+                maxActiveDomains: ent.maxActiveDomains,
+                // Counted across every workspace the owner holds, as the API counts them.
+                clientsUsed: ent.usage?.client.used,
+                activeDomainsUsed: ent.usage?.activeDomain.used,
+              }
+            : null
+        }
       />
     );
   }

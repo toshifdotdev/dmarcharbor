@@ -19,7 +19,7 @@
 import Link from "next/link";
 import { useActionState, useState } from "react";
 import { clsx } from "clsx";
-import { Button } from "@/components/ui/button";
+import { Button, ButtonLink } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/choice";
 import { Input } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
@@ -27,6 +27,8 @@ import { Notice } from "@/components/ui/notice";
 export type WorkspaceFormState = {
   error: string | null;
   field: "name" | "slug" | "dpa" | "tos" | null;
+  /** The API refused because the account's workspace allowance is used up. */
+  limit?: boolean;
 };
 
 export function slugFrom(name: string): string {
@@ -169,7 +171,23 @@ export function WorkspaceSetup({
         </p>
       </fieldset>
 
-      {state.error ? <Notice tone="fail" title={state.error} /> : null}
+      {state.error && state.limit ? (
+        <div data-quota="workspace">
+          <Notice
+            tone="warn"
+            title="The plan's workspace limit is reached"
+            action={
+              <ButtonLink href="/billing" size="sm">
+                See plan options
+              </ButtonLink>
+            }
+          >
+            {state.error}
+          </Notice>
+        </div>
+      ) : state.error ? (
+        <Notice tone="fail" title={state.error} />
+      ) : null}
       {disableSubmit && limitReason ? <Notice tone="warn" title={limitReason} /> : null}
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">

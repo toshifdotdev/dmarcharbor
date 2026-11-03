@@ -81,6 +81,87 @@ export function ActionRefusal({ error, className }: { error: ActionError | null;
   return <Notice tone="fail" title={error.message ?? "That did not go through."} className={className} />;
 }
 
+/**
+ * A quota that is used up, said before anyone fills in a form the API would
+ * refuse: the count against the limit, what frees a place, and the way to
+ * Billing. The quota key rides on a data attribute for tests, never on screen.
+ * The words come from the caller, who has the plan's own numbers.
+ */
+export function PlanLimitNotice({
+  quota,
+  message,
+  context,
+  className,
+}: {
+  /** The API's quota key: client, activeDomain, member, workspace, prospect. */
+  quota: string;
+  message: string;
+  context?: string;
+  className?: string;
+}) {
+  return (
+    <section
+      role="status"
+      data-testid="plan-limit"
+      data-quota={quota}
+      className={`rounded-sheet border border-rule bg-paper px-6 py-6${className ? ` ${className}` : ""}`}
+    >
+      <p className="legend text-fg!">The plan&rsquo;s limit is reached</p>
+      <p className="mt-1.5 text-body font-semibold text-fg">{message}</p>
+      {context ? <p className="mt-1 max-w-[68ch] text-ui text-fg-2">{context}</p> : null}
+      <div className="mt-4">
+        <ButtonLink href="/billing" variant="primary">
+          See plan options
+        </ButtonLink>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * A count against a plan's limit, as one line: "3 of 5 team members", or
+ * "3 team members, no limit on this plan". Rendered wherever a quota is spent,
+ * so the limit is known before it is met.
+ */
+export function UsageLine({
+  quota,
+  used,
+  limit,
+  noun,
+  nounOne,
+  suffix,
+  className,
+}: {
+  quota: string;
+  used: number;
+  limit: number | null;
+  /** Plural noun: "team members". */
+  noun: string;
+  /** Singular, when the plural is not noun minus an s. */
+  nounOne?: string;
+  /** Said after the count: ", open invitations included". */
+  suffix?: string;
+  className?: string;
+}) {
+  const unlimited = limit === null || !Number.isFinite(limit);
+  const one = nounOne ?? noun.replace(/s$/, "");
+  return (
+    <span data-testid={`usage-${quota}`} data-quota={quota} className={`tnum${className ? ` ${className}` : ""}`}>
+      {unlimited ? (
+        <>
+          <span className="font-semibold text-fg-2">{used}</span> {used === 1 ? one : noun}
+          {suffix ?? ""}; no limit on this plan
+        </>
+      ) : (
+        <>
+          <span className="font-semibold text-fg-2">{used}</span> of {limit} {limit === 1 ? one : noun}
+          {suffix ?? ""}
+        </>
+      )}
+    </span>
+  );
+}
+
 export function PlanUnknown({ what }: { what: string }) {
   return (
     <Notice tone="warn" title="The plan could not be read" testId="plan-unknown">

@@ -35,7 +35,7 @@ import { ArrowRight } from "@/components/ui/icons";
 import { Notice } from "@/components/ui/notice";
 import { zoneLines } from "./dns-handoff";
 import { cleanDomain } from "./first-domain";
-import { ActionRefusal, type ActionError } from "./plan-refusal";
+import { ActionRefusal, PlanLimitNotice, type ActionError } from "./plan-refusal";
 
 const DOMAIN = /^(?=.{3,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{1,62}$/;
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -101,6 +101,22 @@ export function AddClient({
     router.refresh();
   }
 
+  if (atLimit) {
+    // The quota is used up: say so instead of a form the API would refuse.
+    return (
+      <section aria-labelledby={`${id}-head`} className="flex flex-col gap-3">
+        <h2 id={`${id}-head`} className="text-h3 font-bold tracking-[-0.01em] text-fg">
+          Add a client
+        </h2>
+        <PlanLimitNotice
+          quota="client"
+          message={limitLine ?? "The plan's client limit is reached."}
+          context="Clients count across every workspace you own. Existing clients and their domains carry on as before."
+        />
+      </section>
+    );
+  }
+
   return (
     <section aria-labelledby={`${id}-head`} className="flex flex-col gap-3">
       <h2 id={`${id}-head`} className="text-h3 font-bold tracking-[-0.01em] text-fg">
@@ -117,7 +133,6 @@ export function AddClient({
             required
             placeholder="Pellowyn Dental"
             data-testid="client-name"
-            disabled={atLimit}
           />
         </Field>
         <Field
@@ -137,22 +152,8 @@ export function AddClient({
             spellCheck={false}
             autoCapitalize="none"
             data-testid="client-slug"
-            disabled={atLimit}
           />
         </Field>
-        {atLimit ? (
-          <Notice
-            tone="warn"
-            title="The plan's client limit is reached"
-            action={
-              <ButtonLink href="/billing" size="sm">
-                See plan options
-              </ButtonLink>
-            }
-          >
-            {limitLine}
-          </Notice>
-        ) : null}
         <ActionRefusal error={error} />
         {done ? (
           <p role="status" className="flex items-baseline gap-2 text-ui text-fg-2">
@@ -167,7 +168,7 @@ export function AddClient({
           variant="primary"
           busy={busy}
           busyLabel="Creating the client"
-          disabled={atLimit || !nameOk || !slugOk}
+          disabled={!nameOk || !slugOk}
           data-testid="create-client"
           className="self-start"
         >
@@ -210,8 +211,10 @@ export const AddDomains = forwardRef<
     clients: Array<{ id: string; name: string }>;
     target: string;
     onTarget: (id: string) => void;
+    /** Set when the plan's active-domain limit is reached: the sentence saying so, in place of the form. */
+    domainLimit?: string | null;
   }
->(function AddDomains({ organizationId, clients, target, onTarget }, inputRef) {
+>(function AddDomains({ organizationId, clients, target, onTarget, domainLimit = null }, inputRef) {
   const router = useRouter();
   const id = useId();
   const [mode, setMode] = useState<"single" | "bulk">("single");
@@ -263,6 +266,19 @@ export const AddDomains = forwardRef<
       <section className="flex flex-col gap-2">
         <h2 className="text-h3 font-bold tracking-[-0.01em] text-fg">Add domains</h2>
         <p className="text-ui text-fg-3">Domains live inside a client. Add the client first, above.</p>
+      </section>
+    );
+  }
+
+  if (domainLimit) {
+    return (
+      <section className="flex flex-col gap-3">
+        <h2 className="text-h3 font-bold tracking-[-0.01em] text-fg">Add domains</h2>
+        <PlanLimitNotice
+          quota="activeDomain"
+          message={domainLimit}
+          context="A domain counts while it reports, and for its first days after it is added, across every workspace you own. Delete a domain you no longer look after, or move to a plan with more."
+        />
       </section>
     );
   }

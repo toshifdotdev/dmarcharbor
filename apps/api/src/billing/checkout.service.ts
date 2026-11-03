@@ -10,6 +10,7 @@ import {
   type QuotaKey,
 } from '../services/entitlements/plan-catalog.js';
 import { quotaUsage } from '../services/entitlements/entitlement.service.js';
+import { workspaceAllowanceFor } from '../services/entitlements/workspace-allowance.service.js';
 import { billableQuantity, billedQuantity } from './quantity.js';
 import type { BillingInterval, ProviderName } from './provider.js';
 import { resolveProviderForCheckout } from './registry.js';
@@ -237,7 +238,12 @@ if (input.currency) {
  * again, and discovering the next one.
  */
 export interface PlanOverage {
-  quota: QuotaKey;
+  /**
+   * A quota key, or `workspace` for the workspaces the account owns. Workspaces
+   * are not a `QuotaKey` because nothing creates one under `withQuota`: the
+   * allowance is checked by the create-workspace route against the account.
+   */
+  quota: QuotaKey | 'workspace';
   label: string;
   used: number;
   limit: number;
@@ -245,27 +251,49 @@ export interface PlanOverage {
 }
 
 /**
+ * How many workspaces the account behind this workspace owns.
+ *
+ * Counted by the same service that refuses the next workspace, so the number a
+ * downgrade is refused for is the number creation is refused for. A workspace
+ * with no owner row has no account to count across, so it counts as itself.
+ */
+async function ownedWorkspaces(organizationId: string): Promise<number> {
+  const owner = await prisma.member.findFirst({
+    where: { organizationId, role: 'owner' },
+    select: { userId: true },
+  });
+  if (!owner) return 1;
+  return (await workspaceAllowanceFor(owner.userId)).used;
+}
+
+/**
  * Counts what the workspace is using right now, measured against the plan being
  * moved to.
  *
- * Three counts, issued together. Sequential would be three round trips inside a
+ * Four counts, issued together. Sequential would be four round trips inside a
  * request that is already asking the payment provider to do something, and this
  * is on the path of every downgrade.
+ *
+ * Workspaces are one of them. They were left out, so an account holding three
+ * workspaces on Harbor could move to Fairway, which allows two, and keep all
+ * three: the only check on workspaces is at creation, and nothing is created.
  */
 async function planOverageFor(
   organizationId: string,
   targetPlan: PlanTier,
 ): Promise<PlanOverage[]> {
-  const [clients, domains, members] = await Promise.all([
+  const [clients, domains, members, workspaces] = await Promise.all([
     quotaUsage(organizationId, 'client', targetPlan),
     quotaUsage(organizationId, 'activeDomain', targetPlan),
     quotaUsage(organizationId, 'member', targetPlan),
+    ownedWorkspaces(organizationId),
   ]);
 
-  const counted: { quota: QuotaKey; label: string; used: number; limit: number }[] = [
+  const counted: { quota: PlanOverage['quota']; label: string; used: number; limit: number }[] = [
     { quota: 'client', label: 'clients', ...clients },
     { quota: 'activeDomain', label: 'active domains', ...domains },
     { quota: 'member', label: 'members', ...members },
+    { quota: 'workspace', label: 'workspaces', used: workspaces, limit: planCatalog[targetPlan].maxWorkspaces },
   ];
 
   return counted
@@ -349,10 +377,12 @@ export async function changePlan(input: {
     throw new CheckoutError(
       // One sentence a person reads: what the plan allows against what is used.
       // The rows travel separately in `overage` for a screen to set as a table.
+      // Each count names its own unit, because workspaces are counted across the
+      // account while the rest are counted for this workspace's portfolio.
       `${planCatalog[input.plan].label} allows ${overage
         .map((entry) => `${entry.limit} ${entry.label}`)
-        .join(' and ')}; this workspace has ${overage
-        .map((entry) => `${entry.used}`)
+        .join(' and ')}; in use now: ${overage
+        .map((entry) => `${entry.used} ${entry.label}`)
         .join(' and ')}. Remove the excess, or keep the current plan.`,
       'PLAN_CHANGE_OVER_QUOTA',
       409,

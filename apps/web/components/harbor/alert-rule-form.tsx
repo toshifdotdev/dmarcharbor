@@ -23,6 +23,7 @@
  * with the reason, not hidden.
  */
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useId, useState, type FormEvent } from "react";
 import { DEFAULTS, LIMITS, METRIC_ORDER, METRICS, OPERATORS, minutesLabel } from "@/lib/alert-rules";
@@ -95,7 +96,10 @@ export function AlertRuleForm({
   members,
   defaultRecipient,
   spoofing,
+  spoofingFrom = "included on a higher plan",
 }: {
+  /** "included from Harbor", from the catalog: said when spoofing alerts are off the plan. */
+  spoofingFrom?: string;
   organizationId: string;
   domainGroups: Array<{ clientName: string; domains: Array<{ id: string; name: string }> }>;
   members: MemberChoice[];
@@ -228,6 +232,14 @@ export function AlertRuleForm({
             ))}
           </Select>
         </Field>
+        {spoofing === false ? (
+          <p data-feature="alerts.spoofing" className="-mt-1.5 text-meta text-fg-3">
+            Spoofing alerts (a new unauthenticated source) are {spoofingFrom}.{" "}
+            <Link href="/billing" className="link font-semibold">
+              See plan options
+            </Link>
+          </p>
+        ) : null}
 
         <div className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] gap-3">
           <Field label="Operator">

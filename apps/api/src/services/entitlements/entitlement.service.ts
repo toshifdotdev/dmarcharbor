@@ -336,6 +336,30 @@ export function memberLimitMessage(allowance: { limit: number; members: number; 
   );
 }
 
+/**
+ * The same refusal as data, beside `memberLimitMessage`.
+ *
+ * Shaped like every other quota refusal (`quota`, `used`, `limit`, `upgradeTo`)
+ * so a screen can route the team-size refusal to an upgrade the way it routes
+ * the client and domain ones. `used` is members plus open invitations, because
+ * that is what the limit is checked against.
+ */
+export function memberLimitDetails(allowance: { limit: number; members: number; pending: number; plan: PlanTier; planLabel: string }): Record<string, unknown> {
+  const upgradeTo = quotaUpgradeFor(allowance.plan, 'member');
+  return {
+    quota: 'member',
+    label: quotaLabel('member'),
+    used: allowance.members + allowance.pending,
+    members: allowance.members,
+    pending: allowance.pending,
+    limit: allowance.limit,
+    plan: allowance.plan,
+    planLabel: allowance.planLabel,
+    upgradeTo,
+    upgradeToLabel: upgradeTo ? planCatalog[upgradeTo].label : null,
+  };
+}
+
 /** The first rung of the ladder that grants a feature, or null when none does. */
 export function requiredPlanFor(feature: EntitlementKey): PlanTier | null {
   // Ladder order, not price order. A per-domain unit price is not a rung and
@@ -389,6 +413,54 @@ export async function assertQuota(
 }
 
 /**
+ * The plan to move to for more of a quota, or null at the top.
+ *
+ * The next rung of the ladder, and only when it actually raises this limit:
+ * pointing at a plan with the same number would be an upgrade that does not
+ * help. Fleet is not a rung (nextTier answers null for it), so a Fleet
+ * workspace is told to get in touch rather than sent sideways.
+ */
+export function quotaUpgradeFor(plan: PlanTier, quota: QuotaKey): PlanTier | null {
+  const next = nextTier(plan);
+  return next && quotaLimitFor(next, quota) > quotaLimitFor(plan, quota) ? next : null;
+}
+
+/**
+ * The second half of every quota refusal: where to go from here.
+ *
+ * Shared by the single creates (through `quotaExceeded`) and the bulk imports,
+ * whose per-row refusals stated the limit and stopped there.
+ */
+export function quotaUpgradeSentence(plan: PlanTier, quota: QuotaKey): string {
+  const upgradeTo = quotaUpgradeFor(plan, quota);
+  // The upgrade names the limit that was hit; it used to quote active
+  // domains whichever quota (clients, members) had been reached.
+  return upgradeTo
+    ? `Upgrade to ${planCatalog[upgradeTo].label} for ${limitText(quotaLimitFor(upgradeTo, quota))} ${quotaLabel(quota)}, or remove one.`
+    : 'Contact us to add more.';
+}
+
+/**
+ * A quota refusal for a create that has already been turned down elsewhere.
+ *
+ * The bulk import decides row by row and reports a refused row as data; the
+ * single-create routes of the public API are built on it, and answered a 402
+ * with only a code and a sentence, where the session routes answer with the
+ * quota, the counts and the plan to move to. This builds the same refusal the
+ * session route would have given, from the same counts.
+ */
+export async function quotaRefusal(
+  organizationId: string,
+  quota: QuotaKey,
+  requested = 1,
+  now = new Date(),
+): Promise<EntitlementError> {
+  const entitlements = await resolveEntitlements(organizationId, now);
+  const usage = await quotaUsage(organizationId, quota, entitlements.plan, now);
+  return quotaExceeded(organizationId, entitlements, quota, usage, requested);
+}
+
+/**
  * The one place a quota refusal is built.
  *
  * Shared with `withQuota` so a customer gets the same message, the same payload and
@@ -403,7 +475,7 @@ async function quotaExceeded(
   requested: number,
 ): Promise<EntitlementError> {
   const label = quotaLabel(quota);
-  const upgradeTo = nextTier(entitlements.plan);
+  const upgradeTo = quotaUpgradeFor(entitlements.plan, quota);
   const upgradeName = upgradeTo ? planCatalog[upgradeTo].label : null;
 
   await emitEvent(organizationId, 'entitlement.exceeded', {
@@ -419,12 +491,7 @@ async function quotaExceeded(
 
   return new EntitlementError(
     'PLAN_LIMIT_REACHED',
-    `${entitlements.label} includes ${usage.limit} ${label} and you have ${usage.used}. ` +
-      // The upgrade names the limit that was hit; it used to quote active
-      // domains whichever quota (clients, members) had been reached.
-      (upgradeName
-        ? `Upgrade to ${upgradeName} for ${limitText(quotaLimitFor(upgradeTo!, quota))} ${label}, or remove one.`
-        : 'Contact us to add more.'),
+    `${entitlements.label} includes ${usage.limit} ${label} and you have ${usage.used}. ${quotaUpgradeSentence(entitlements.plan, quota)}`,
     {
       quota,
       label,

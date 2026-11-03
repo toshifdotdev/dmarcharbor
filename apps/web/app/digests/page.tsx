@@ -113,7 +113,12 @@ export default async function DigestsPage() {
             {digests === null ? (
               <ErrorState what="the scheduled digests" detail="This is a connection or API problem, not an empty schedule." />
             ) : (
-              <DigestBoard organizationId={active.id} digests={views} forensicsOnPlan={forensicsOnPlan === true} />
+              <DigestBoard
+                organizationId={active.id}
+                digests={views}
+                forensicsOnPlan={forensicsOnPlan === true}
+                onPlan={digestsOnPlan !== false}
+              />
             )}
           </OpsSection>
 
@@ -122,7 +127,7 @@ export default async function DigestsPage() {
               <UpgradeNotice
                 message="Scheduled digests are not included in this workspace's plan."
                 feature="digests"
-                context="Digests already scheduled keep their settings and can still be paused, edited, sent or deleted."
+                context="Digests already scheduled keep their settings and are not sent. They can be paused or deleted; sending, editing and resuming need a plan that includes digests."
               />
             ) : clients === null ? (
               <ErrorState what="the domain list" detail="The new-digest form needs it to offer domains." />

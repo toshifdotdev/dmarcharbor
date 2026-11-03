@@ -8,13 +8,18 @@
  * so a figure on an invoice never changes after it was sent. The month list is
  * built on the server and passed in, so the server markup and the browser agree.
  *
- * Shown on every plan; below Harbor the API's refusal names the plan that has
- * it, which is how a smaller agency finds out it exists.
+ * Gated on reports.usageExport. On a plan without it the month picker and the
+ * download are not offered: one line in their place names the plan that has
+ * it and links to Billing, which is how a smaller agency finds out it exists.
+ * When the plan could not be read the control is offered and the API decides;
+ * its refusal still renders as an upgrade notice.
  *
- * Test hooks: usage-month, usage-download.
+ * Test hooks: usage-month, usage-download, usage-export-gated.
  */
 
+import Link from "next/link";
 import { useState } from "react";
+import type { FeatureStatus } from "@/lib/entitlements";
 import { downloadClientBook, downloadUsageExport } from "@/lib/ops-client";
 import { ActionRefusal, type ActionError } from "@/components/harbor/plan-refusal";
 import { Button } from "@/components/ui/button";
@@ -34,13 +39,34 @@ function save(blob: Blob, filename: string): void {
 export function UsageExport({
   organizationId,
   months,
+  feature = null,
+  includedFrom = "included on a higher plan",
 }: {
   organizationId: string;
   months: Array<{ value: string; label: string }>;
+  /** reports.usageExport on this plan; null when the plan could not be read. */
+  feature?: FeatureStatus;
+  /** "included from Harbor", from the catalog. */
+  includedFrom?: string;
 }) {
   const [month, setMonth] = useState(months[0]?.value ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ActionError | null>(null);
+
+  if (feature === false) {
+    return (
+      <p
+        data-testid="usage-export-gated"
+        data-feature="reports.usageExport"
+        className="max-w-[22rem] text-right text-meta text-fg-3"
+      >
+        The monthly usage CSV per client is {includedFrom}.{" "}
+        <Link href="/billing" className="link font-semibold">
+          See plan options
+        </Link>
+      </p>
+    );
+  }
 
   async function download() {
     if (!month || busy) return;

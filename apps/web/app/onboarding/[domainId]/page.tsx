@@ -1,7 +1,17 @@
 import Link from "next/link";
 import { notFound, redirect, unstable_rethrow } from "next/navigation";
 import { ApiError, getOnboardingState, getSessionUserId, listClients } from "@/lib/api";
-import { getDnsConnections, getHostedDmarc, getManagedSpf, listReportShares, listWorkspaceMembers, OpsError } from "@/lib/api-ops";
+import {
+  getDnsConnections,
+  getHostedDmarc,
+  getManagedSpf,
+  getPlanCatalog,
+  getWorkspaceEntitlements,
+  listReportShares,
+  listWorkspaceMembers,
+  OpsError,
+} from "@/lib/api-ops";
+import { featureOf, includedFrom } from "@/lib/entitlements";
 import { readHostBrand } from "@/lib/host-brand";
 import { domainHref } from "@/lib/route-hrefs";
 import { resolveActiveWorkspace } from "@/lib/session";
@@ -72,11 +82,16 @@ export default async function OnboardingPage({ params }: { params: Promise<{ dom
 
   // Publishing is a domain:update action. The role comes from the roster, and
   // connections are read once rather than per record.
-  const [members, userId, dnsConnections] = await Promise.all([
+  const [members, userId, dnsConnections, entitlements, catalog] = await Promise.all([
     listWorkspaceMembers(active.id).catch(() => null),
     getSessionUserId().catch(() => null),
     getDnsConnections(active.id).catch(() => null),
+    getWorkspaceEntitlements(active.id).catch(() => null),
+    getPlanCatalog().catch(() => null),
   ]);
+  // Making a share link is sharing.links; revoking and removing kept ones is not.
+  const sharing = featureOf(entitlements, "sharing.links");
+  const sharingFrom = includedFrom(catalog, "sharing.links");
   const role = strongestRole(members?.members.find((member) => (member.userId ?? member.user?.id) === userId)?.role ?? null);
   const canPublish = role === null || ["owner", "admin", "analyst"].includes(role);
   // Moving a domain between clients is `client: update`: owner and admin.
@@ -328,7 +343,14 @@ export default async function OnboardingPage({ params }: { params: Promise<{ dom
               Share links did not load just now. Reload to manage them; existing links keep working.
             </p>
           ) : (
-            <ShareLinks organizationId={active.id} domainId={domain.id} domainName={domain.name} shares={shares} />
+            <ShareLinks
+              organizationId={active.id}
+              domainId={domain.id}
+              domainName={domain.name}
+              shares={shares}
+              sharing={sharing}
+              includedFrom={sharingFrom}
+            />
           )}
 
           {/* Owner and admin only, as the API decides; shown while there is

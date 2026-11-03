@@ -32,15 +32,18 @@
  * under that as map labels (bold page, lighter section). "I don't know" is set
  * as plainly as an answer, with the way to support beside it.
  *
- * Nothing is read until the window first opens. A plan without the assistant
- * sees the API's own refusal, which names the plan that carries it; a failed
- * read says so instead of claiming the plan lacks it.
+ * Nothing is read until the window first opens. Then the plan is read first:
+ * on a plan without assistant.docs the window holds one line naming the plan
+ * that carries it, with the way to Billing, and no question field, so nothing
+ * is offered that the API would refuse. When the plan could not be read the
+ * assistant is asked as before, and its own refusal still renders as an
+ * upgrade notice; a failed read says so instead of claiming the plan lacks it.
  *
  * Test hooks: assistant-open (the launcher), assistant-window (the window),
  * assistant-close, assistant-input, assistant-ask, assistant-log,
  * assistant-exchange, assistant-answer, assistant-unanswered,
  * assistant-source, assistant-starters, assistant-support,
- * assistant-links-mode.
+ * assistant-links-mode, assistant-off-plan (carrying data-feature).
  */
 
 import Link from "next/link";
@@ -53,6 +56,9 @@ import {
   type AssistantReply,
   type AssistantSource,
 } from "@/lib/assistant-client";
+import { featureOf, includedFrom, type PlanCatalog } from "@/lib/entitlements";
+import { opsCall } from "@/lib/ops-client";
+import type { ResolvedEntitlements } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/field";
 import { Close, External } from "@/components/ui/icons";
@@ -71,6 +77,7 @@ type Load =
   | { state: "idle" }
   | { state: "loading" }
   | { state: "ready"; intro: AssistantIntro }
+  | { state: "offPlan"; includedFrom: string }
   | { state: "refused"; error: ActionError }
   | { state: "failed"; message: string };
 
@@ -95,11 +102,20 @@ export function AssistantWidget({ organizationId, brand }: { organizationId: str
   useEffect(() => {
     if (!open || load.state !== "idle") return;
     setLoad({ state: "loading" });
-    void getAssistantIntro(organizationId).then((r) => {
+    void (async () => {
+      // The plan first: below the plan that carries the assistant, no chat is
+      // offered at all. A failed read is not "off the plan": the API decides.
+      const ent = await opsCall<ResolvedEntitlements>(`/api/workspaces/${organizationId}/entitlements`);
+      if (featureOf(ent.ok ? ent.data : null, "assistant.docs") === false) {
+        const plans = await opsCall<PlanCatalog>("/api/plans");
+        setLoad({ state: "offPlan", includedFrom: includedFrom(plans.ok ? plans.data : null, "assistant.docs") });
+        return;
+      }
+      const r = await getAssistantIntro(organizationId);
       if (r.ok) setLoad({ state: "ready", intro: r.data });
       else if (isPlanRefusal(r.error)) setLoad({ state: "refused", error: r.error });
       else setLoad({ state: "failed", message: r.error.message ?? "The service could not be reached." });
-    });
+    })();
   }, [open, load.state, organizationId]);
 
   // Until the conversation can take focus, the window's heading holds it, so
@@ -165,6 +181,27 @@ export function AssistantWidget({ organizationId, brand }: { organizationId: str
 
         {load.state === "ready" ? (
           <Conversation organizationId={organizationId} intro={load.intro} open={open} />
+        ) : load.state === "offPlan" ? (
+          <div
+            data-testid="assistant-off-plan"
+            data-feature="assistant.docs"
+            className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4"
+          >
+            <p className="text-ui font-semibold text-fg">
+              Questions answered from the documentation are {load.includedFrom}.{" "}
+              <Link href="/billing" className="link">
+                See plan options
+              </Link>
+            </p>
+            <p className="text-ui text-fg-2">
+              The <Link href="/faq" className="link">FAQ</Link> and the <Link href="/guide" className="link">setup guide</Link>{" "}
+              answer most questions on every plan, and{" "}
+              <Link href={FALLBACK_SUPPORT.url} className="link">
+                support
+              </Link>{" "}
+              answers the rest.
+            </p>
+          </div>
         ) : load.state === "refused" ? (
           <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
             <ActionRefusal error={load.error} />

@@ -31,7 +31,7 @@ import { Field, Input } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { Table, TBody, Td, Th, THead, Tr } from "@/components/ui/table";
 import { OpsSection, RouteList, StateWord, StepLine, type MarkShape } from "./ops-parts";
-import { ActionRefusal, type ActionError } from "./plan-refusal";
+import { ActionRefusal, PlanLimitNotice, type ActionError } from "./plan-refusal";
 
 const LEVEL: Record<ProspectReportRow["level"], { tone: "fail" | "warn" | "ok"; shape: MarkShape; label: string }> = {
   high: { tone: "fail", shape: "diamond", label: "High risk" },
@@ -116,7 +116,7 @@ export function ProspectBoard({
     const res = await revokeProspectReport(organizationId, id);
     setBusy(null);
     if (!res.ok) {
-      setError({ message: readable(res.error.message, "The link could not be revoked. It still works."), scope: "row" });
+      setError({ ...res.error, message: readable(res.error.message, "The link could not be revoked. It still works."), scope: "row" });
       return;
     }
     router.refresh();
@@ -128,7 +128,7 @@ export function ProspectBoard({
     const res = await deleteProspectReport(organizationId, id);
     setBusy(null);
     if (!res.ok) {
-      setError({ message: readable(res.error.message, "The report could not be removed."), scope: "row" });
+      setError({ ...res.error, message: readable(res.error.message, "The report could not be removed."), scope: "row" });
       return;
     }
     router.refresh();
@@ -168,7 +168,14 @@ export function ProspectBoard({
                 </div>
               </Notice>
             ) : null}
-            {canCreate ? (
+            {canCreate && left === 0 && usage.limit > 0 ? (
+              // The month's allowance is spent: the limit in place of a form the API would refuse.
+              <PlanLimitNotice
+                quota="prospect"
+                message={`This workspace has used all ${usage.limit} prospect reports for this month. The allowance resets on ${new Date(usage.resetsAt).toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" })}.`}
+                context="Reports already sent keep working and stay below. Deleting one does not give the check back; a plan with a larger allowance does."
+              />
+            ) : canCreate ? (
               <form onSubmit={create} className="flex flex-col gap-4" data-testid="prospect-form">
                 <div className="grid items-start gap-x-3 gap-y-3 sm:grid-cols-[minmax(0,1fr)_auto]">
                   <Field label="Their domain" hint="Any public domain. They do not need to be a client or to verify anything.">
@@ -215,11 +222,6 @@ export function ProspectBoard({
                   <Textarea value={note} onChange={(event) => setNote(event.target.value)} rows={2} maxLength={600} className="min-h-[64px]" />
                 </Field>
                 {error?.scope === "form" ? <ActionRefusal error={error} /> : null}
-                {left === 0 && usage.limit > 0 ? (
-                  <p className="text-meta font-semibold text-fg-2">
-                    This month&rsquo;s allowance is used. Reports already sent keep working; new checks open again on the reset date above.
-                  </p>
-                ) : null}
               </form>
             ) : (
               <p className="max-w-[60ch] text-ui text-fg-3">

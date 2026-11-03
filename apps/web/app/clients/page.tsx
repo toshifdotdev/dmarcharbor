@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { listClients } from "@/lib/api";
-import { getWorkspaceEntitlements } from "@/lib/api-ops";
+import { getPlanCatalog, getWorkspaceEntitlements } from "@/lib/api-ops";
+import { featureOf, includedFrom } from "@/lib/entitlements";
 import { readHostBrand } from "@/lib/host-brand";
 import { resolveActiveWorkspace } from "@/lib/session";
 import type { ClientRow } from "@/lib/types";
@@ -55,10 +56,11 @@ export default async function ClientsPage() {
   const { workspaces, active } = await resolveActiveWorkspace();
   if (!active) redirect("/welcome");
 
-  const [entitlements, clients, brand] = await Promise.all([
+  const [entitlements, clients, brand, catalog] = await Promise.all([
     getWorkspaceEntitlements(active.id).catch(() => null),
     listClients(active.id).catch(() => null as ClientRow[] | null),
     readHostBrand(),
+    getPlanCatalog().catch(() => null),
   ]);
 
   const views: ClientView[] = (clients ?? []).map((c) => ({
@@ -101,7 +103,14 @@ export default async function ClientsPage() {
           actions={
             <>
               {clients && clients.length > 0 ? <ClientBookExport organizationId={active.id} /> : null}
-              {clients && clients.length > 0 ? <UsageExport organizationId={active.id} months={completeMonths()} /> : null}
+              {clients && clients.length > 0 ? (
+                <UsageExport
+                  organizationId={active.id}
+                  months={completeMonths()}
+                  feature={featureOf(entitlements, "reports.usageExport")}
+                  includedFrom={includedFrom(catalog, "reports.usageExport")}
+                />
+              ) : null}
               <RefreshButton />
             </>
           }
@@ -115,7 +124,14 @@ export default async function ClientsPage() {
             productName={brandName(brand)}
             limits={
               entitlements
-                ? { plan: entitlements.label, maxClients: entitlements.maxClients, maxActiveDomains: entitlements.maxActiveDomains }
+                ? {
+                    plan: entitlements.label,
+                    maxClients: entitlements.maxClients,
+                    maxActiveDomains: entitlements.maxActiveDomains,
+                    // Counted as the API counts them: across every workspace the owner holds.
+                    clientsUsed: entitlements.usage?.client.used,
+                    activeDomainsUsed: entitlements.usage?.activeDomain.used,
+                  }
                 : null
             }
           />

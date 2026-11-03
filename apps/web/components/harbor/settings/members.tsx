@@ -39,7 +39,8 @@ import {
   updateMemberRole,
 } from "@/lib/ops-client";
 import type { WorkspaceSecurity } from "@/lib/types";
-import { ActionRefusal, type ActionError } from "@/components/harbor/plan-refusal";
+import { limitReached } from "@/lib/entitlements";
+import { ActionRefusal, PlanLimitNotice, UsageLine, type ActionError } from "@/components/harbor/plan-refusal";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/field";
@@ -102,6 +103,18 @@ export interface InvitationView {
   expiresLabel: string | null;
 }
 
+/**
+ * The plan's team-member limit, counted as the API counts it before it
+ * refuses an invitation: members of this workspace plus invitations still
+ * open. `limit` null is no limit.
+ */
+export interface Seats {
+  members: number;
+  pending: number;
+  limit: number | null;
+  plan: string;
+}
+
 export function MembersBoard({
   organizationId,
   members,
@@ -110,6 +123,7 @@ export function MembersBoard({
   canManage,
   isOwner,
   selfUserId,
+  seats = null,
 }: {
   organizationId: string;
   members: MemberView[];
@@ -120,7 +134,11 @@ export function MembersBoard({
   canManage: boolean;
   isOwner: boolean;
   selfUserId: string | null;
+  /** null when the plan or a count could not be read: the form is offered and the API decides. */
+  seats?: Seats | null;
 }) {
+  const seatsUsed = seats ? seats.members + seats.pending : 0;
+  const seatsFull = seats !== null && limitReached({ used: seatsUsed, limit: seats.limit });
   const router = useRouter();
   const toast = useToast();
 
@@ -367,12 +385,40 @@ export function MembersBoard({
         title="Invite someone"
         why="Invite colleagues. Client contacts go under Client portal access, which limits them to their own client."
         aside={
-          invitations && invitations.length > 0 ? (
-            <span className="tnum">{plural(invitations.length, "invitation")} waiting</span>
+          seats || (invitations && invitations.length > 0) ? (
+            <>
+              {seats ? (
+                <UsageLine
+                  quota="member"
+                  used={seatsUsed}
+                  limit={seats.limit}
+                  noun="team members"
+                  suffix=", open invitations included"
+                />
+              ) : null}
+              {invitations && invitations.length > 0 ? (
+                <span className="tnum">{plural(invitations.length, "invitation")} waiting</span>
+              ) : null}
+            </>
           ) : null
         }
       >
-        {canManage ? (
+        {canManage && seatsFull && seats ? (
+          <div className="flex flex-col gap-3">
+            <PlanLimitNotice
+              quota="member"
+              message={`${seats.plan} includes ${seats.limit} team member${seats.limit === 1 ? "" : "s"}, and this workspace has ${plural(seats.members, "member")}${
+                seats.pending > 0 ? ` and ${plural(seats.pending, "open invitation")}` : ""
+              }.`}
+              context={
+                seats.pending > 0
+                  ? "Withdraw an invitation below, or remove someone above, to free a place. Or move to a plan with a larger team."
+                  : "Remove someone above to free a place, or move to a plan with a larger team."
+              }
+            />
+            <ActionRefusal error={inviteError} />
+          </div>
+        ) : canManage ? (
           <form onSubmit={invite} className="flex flex-col gap-3">
             <div className="flex flex-wrap items-start gap-x-3 gap-y-3">
               <Field label="Email address" className="min-w-[min(100%,300px)] flex-1 basis-[300px]">

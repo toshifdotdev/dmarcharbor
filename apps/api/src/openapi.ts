@@ -84,6 +84,10 @@ export const openApiDocument = {
         security: [{ apiKeyAuth: [] }],
         responses: {
           201: { description: 'Created, with verification details and domainConflicts (empty when every domain was added).' },
+          402: {
+            description:
+              'PLAN_LIMIT_REACHED: the plan has no room for the client or its domains. The error carries quota (client or activeDomain), used, limit, requested, plan, planLabel, upgradeTo and upgradeToLabel, the same as the browser routes; upgradeTo is null at the top of the ladder.',
+          },
         },
       },
     },
@@ -127,6 +131,10 @@ export const openApiDocument = {
         security: [{ apiKeyAuth: [] }],
         responses: {
           201: { description: 'Added, with the verification record to publish.' },
+          402: {
+            description:
+              'PLAN_LIMIT_REACHED: the plan has no room for another active domain. The error carries quota (activeDomain), used, limit, requested, plan, planLabel, upgradeTo and upgradeToLabel, the same as the browser route; upgradeTo is null at the top of the ladder.',
+          },
           404: errorResponse('NOT_FOUND: the clientId is not in this workspace.'),
         },
       },
@@ -1279,7 +1287,7 @@ export const openApiDocument = {
         summary: 'Move to a different plan',
         description: [
           'Timing depends on the provider and is returned, not assumed. On Razorpay the change is scheduled for the end of the paid period with no proration, and the answer is status "scheduled" with that date. Paddle cannot schedule a price change, so it applies at once and prorates the rest of the period, and the answer is status "applied".',
-          'A move to a smaller plan is refused with PLAN_CHANGE_OVER_QUOTA while the workspace is over that plan\'s limits.',
+          'A move to a smaller plan is refused with PLAN_CHANGE_OVER_QUOTA while the workspace is over that plan\'s limits: clients, active domains, team members, or the workspaces the account owns. Each exceeded limit is a row in error.overage ({ quota, label, used, limit, by }, quota one of client, activeDomain, member, workspace).',
           'Moving to the free plan is treated as a cancellation, so the workspace keeps the period already paid for.',
         ].join(' '),
         requestBody: {
@@ -1755,10 +1763,12 @@ export const openApiDocument = {
           'Accepts a Slack incoming-webhook URL and validates it before storing: https only, host must be exactly hooks.slack.com, no explicit port, no embedded credentials, and the path must look like an incoming webhook.',
           'The host check is an exact match rather than a suffix match, because a suffix check accepts a host the customer controls and turns this into a request forwarder.',
           'Replaces any existing destination and clears its failure count, since a new webhook is a fresh start.',
+          'Requires alerts.email, the key behind every alert channel (from Fairway); a plan without it answers 402. Reading and removing a kept destination work on every plan.',
         ].join(' '),
         responses: {
           200: { description: 'The saved destination, masked.' },
           400: { description: 'The webhook URL was refused.' },
+          402: { description: 'Alerts are not included in this workspace plan.' },
         },
       },
       patch: {
@@ -1767,9 +1777,11 @@ export const openApiDocument = {
         description: [
           'Turning this off stops new posts and keeps the stored webhook, so the channel can be re-enabled without pasting it again.',
           'Disabling is not a rotation. To invalidate a webhook that may have leaked, delete the destination and create a new one in Slack.',
+          'Sending only enabled:false is allowed on every plan; turning it back on requires alerts.email and answers 402 without it.',
         ].join(' '),
         responses: {
           204: { description: 'Updated.' },
+          402: { description: 'Turning the destination on needs alerts, which this plan does not include.' },
           404: { description: 'No destination is configured.' },
         },
       },
@@ -1801,10 +1813,12 @@ export const openApiDocument = {
           'Accepts a Teams Workflows address and validates it before storing. Two host families are allowed: *.logic.azure.com with a path under /workflows/, and *.environment.api.powerplatform.com with a path under /powerautomate/. The host suffix is compared on a label boundary, so a lookalike host is refused.',
           'An old Office 365 connector address is refused with its own message, because Microsoft switched those off in May 2026 and a generic refusal would send the customer looking for a bug that is not there.',
           'Replaces any existing destination and clears its failure count, since a new address is a fresh start.',
+          'Requires alerts.email, the key behind every alert channel (from Fairway); a plan without it answers 402. Reading and removing a kept destination work on every plan.',
         ].join(' '),
         responses: {
           200: { description: 'The saved destination, masked.' },
           400: { description: 'The address was refused, with the reason in words.' },
+          402: { description: 'Alerts are not included in this workspace plan.' },
         },
       },
       patch: {
@@ -1813,9 +1827,11 @@ export const openApiDocument = {
         description: [
           'Turning this off stops new posts and keeps the stored address, so the channel can be re-enabled without pasting it again.',
           'Disabling is not a rotation. To invalidate an address that may have leaked, delete the destination and create a new flow in Teams.',
+          'Sending only enabled:false is allowed on every plan; turning it back on requires alerts.email and answers 402 without it.',
         ].join(' '),
         responses: {
           204: { description: 'Updated.' },
+          402: { description: 'Turning the destination on needs alerts, which this plan does not include.' },
           404: { description: 'No destination is configured.' },
         },
       },
@@ -1840,6 +1856,7 @@ export const openApiDocument = {
         ].join(' '),
         responses: {
           200: { description: '{ delivered, error? }.' },
+          402: { description: 'Alerts are not included in this workspace plan, so nothing is posted.' },
           404: { description: 'No destination is configured.' },
           429: { description: 'Five test messages already sent in the last minute.' },
         },
@@ -2433,7 +2450,10 @@ export const openApiDocument = {
         },
         responses: {
           201: { description: 'Workspace created.' },
-          402: { description: 'The account holds no further workspace allowance.' },
+          402: {
+            description:
+              'WORKSPACE_LIMIT_REACHED: the account holds no further workspace allowance. The error carries quota (workspace), used, limit, plan, planLabel, upgradeTo and upgradeToLabel; upgradeTo is null where no plan allows more.',
+          },
           ...standardErrors,
         },
       },
@@ -4209,7 +4229,7 @@ export const openApiDocument = {
         description: [
           'Scans any public domain (no verification: the prospect is not a client yet) and stores the result as a snapshot behind an expiring public link at /prospect/{token}, on the workspace\'s verified custom domain when it has one and APP_URL otherwise. Opening the link never scans again.',
           'Body: domain, and optionally prospectName (120), note (600), contactEmail, expiresInDays (1-90, default 30).',
-          'Counts against the plan\'s monthly allowance (Fairway 10, Harbor 50, Admiralty and Fleet 200), checked under a lock so two requests cannot both take the last one. A scan that fails is not saved and not counted (502 SCAN_FAILED). Rate limited like the scanner. 402 PROSPECT_LIMIT_REACHED with used, limit and resetsAt at the allowance. Requires report update permission.',
+          'Counts against the plan\'s monthly allowance (Fairway 10, Harbor 50, Admiralty and Fleet 200), checked under a lock so two requests cannot both take the last one. A scan that fails is not saved and not counted (502 SCAN_FAILED). Rate limited like the scanner. 402 PROSPECT_LIMIT_REACHED with used, limit, resetsAt, plan, upgradeTo and upgradeToLabel at the allowance. The allowance counts every report created this calendar month (UTC), including ones since revoked or removed, because each one was a scan. Requires report update permission.',
         ].join(' '),
         parameters: [orgParam],
         responses: {
@@ -4312,9 +4332,14 @@ export const openApiDocument = {
       patch: {
         tags: ['Notifications'],
         summary: 'Update a digest',
-        description: 'Recorded in the audit trail. Day of month is capped at 28 so a schedule never silently skips a month.',
+        description:
+          'Recorded in the audit trail. Day of month is capped at 28 so a schedule never silently skips a month. Requires digests (from Harbor), except a body of only enabled:false, which pauses a kept digest on any plan.',
         parameters: [orgParam, idParam('digestId', 'Digest identifier.')],
-        responses: { 200: { description: 'Updated.' }, ...standardErrors },
+        responses: {
+          200: { description: 'Updated.' },
+          402: { description: 'Digests are not included in this workspace plan; only pausing is allowed.' },
+          ...standardErrors,
+        },
       },
       delete: {
         tags: ['Notifications'],

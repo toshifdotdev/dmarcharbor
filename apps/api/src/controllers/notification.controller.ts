@@ -201,7 +201,8 @@ export async function sendReportDigestController(request: Request, response: Res
     return;
   }
 
-  // Sending is the paid part; reading, editing and removing a kept digest are not.
+  // Sending is the paid part, as editing is (gated on the PATCH route); reading,
+  // pausing and removing a kept digest are not.
   await assertFeature(response.locals.organizationId, 'digests');
 
   const content = await sendReportDigestNow(digestId, response.locals.organizationId);
