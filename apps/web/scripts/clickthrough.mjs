@@ -2520,7 +2520,10 @@ const shotErasure = await shot("22-settings-erasure.png");
 // once its grace period ends, and every later run starts without its data
 // (that is how the sample account was lost once). Cancel it through the same
 // button an owner would use, and prove it is no longer pending.
-await evalJs(`(() => { const b = document.querySelector('[data-testid="erasure-cancel"]'); if (b && !b.disabled) b.click(); return Boolean(b); })()`);
+// One click per poll, and only while one is still pending and the button is
+// hydrated and not busy: a single click sent before React had attached its
+// handler did nothing, left the erasure pending and the sample workspace on a
+// timer. The button is the owner's; the poll is what proves it worked.
 const erasureCancelled = await waitForEval(
   `(async () => {
     const ws = await (await fetch('/api/workspaces', { credentials: 'include' })).json();
@@ -2529,10 +2532,16 @@ const erasureCancelled = await waitForEval(
     if (!id) return null;
     const res = await (await fetch('/api/workspaces/' + id + '/erasures', { credentials: 'include' })).json();
     const rows = Array.isArray(res) ? res : res.items ?? res.requests ?? [];
-    return { pending: rows.filter((r) => r.state === 'PENDING').length, cancelled: rows.filter((r) => r.state === 'CANCELLED').length };
+    const pending = rows.filter((r) => r.state === 'PENDING').length;
+    if (pending > 0) {
+      const b = document.querySelector('[data-testid="erasure-cancel"]');
+      const hydrated = b && Object.keys(b).some((k) => k.startsWith('__react'));
+      if (b && hydrated && !b.disabled && b.getAttribute('aria-busy') !== 'true') b.click();
+    }
+    return { pending, cancelled: rows.filter((r) => r.state === 'CANCELLED').length };
   })()`,
   (v) => v && v.pending === 0,
-  30000,
+  45000,
 );
 check(
   "erasure: the test's own erasure is cancelled, so the sample workspace survives",
