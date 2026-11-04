@@ -227,6 +227,43 @@ describe('password changes', () => {
     expect(confirmation?.text).toContain('every other device');
   });
 
+  it('keeps the other devices signed in only when asked to, and says so in the email', async () => {
+    const { email } = await verifiedUser();
+    const here = request.agent(app);
+    const elsewhere = request.agent(app);
+    expect((await here.post('/api/auth/sign-in/email').send({ email, password })).status).toBe(200);
+    expect((await elsewhere.post('/api/auth/sign-in/email').send({ email, password })).status).toBe(200);
+
+    const kept = await here
+      .post('/api/auth/change-password')
+      .send({ currentPassword: password, newPassword: 'kept-devices-password-2026', revokeOtherSessions: false });
+    expect(kept.status).toBe(200);
+    expect((await elsewhere.get('/api/me')).status).toBe(200);
+    expect((await queuedEmail(email, 'Your password was changed'))?.text).toContain('stay signed in');
+    const audit = await prisma.auditLog.findFirst({ where: { action: 'PASSWORD_CHANGED' } });
+    expect((audit?.detail as { revokedOtherSessions?: boolean } | null)?.revokedOtherSessions).toBe(false);
+
+    // Left out, the default is to sign the others out.
+    const revoked = await here
+      .post('/api/auth/change-password')
+      .send({ currentPassword: 'kept-devices-password-2026', newPassword: 'revoked-devices-password-2026' });
+    expect(revoked.status).toBe(200);
+    expect((await elsewhere.get('/api/me')).status).toBe(401);
+  });
+
+  it('tells the security page whether there is a password and how else the account signs in', async () => {
+    const { email, userId } = await verifiedUser();
+    const agent = request.agent(app);
+    expect((await agent.post('/api/auth/sign-in/email').send({ email, password })).status).toBe(200);
+    const withPassword = await agent.get('/api/me/security');
+    expect(withPassword.body).toMatchObject({ hasPassword: true, signInProviders: [] });
+
+    // The same account as a Google-only one: no credential row, a Google one.
+    await prisma.account.updateMany({ where: { userId, providerId: 'credential' }, data: { providerId: 'google', password: null } });
+    const googleOnly = await agent.get('/api/me/security');
+    expect(googleOnly.body).toMatchObject({ hasPassword: false, signInProviders: ['google'] });
+  });
+
   it('sends nothing when the change is refused', async () => {
     const { email } = await verifiedUser();
     const agent = request.agent(app);

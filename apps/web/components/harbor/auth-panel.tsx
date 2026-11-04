@@ -52,6 +52,7 @@ import {
   verifyBackupCode,
   verifyTotp,
 } from "@/lib/auth-client";
+import { MIN_PASSWORD, passwordLengthHint } from "@/lib/password-rules";
 import type { AuthProviders } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/field";
@@ -59,7 +60,6 @@ import { Notice } from "@/components/ui/notice";
 import { SetupLayout } from "./setup-rail";
 
 type Mode = "sign-in" | "sign-up" | "forgot" | "reset" | "two-factor";
-const MIN_PASSWORD = 8;
 const RESEND_AFTER_S = 45;
 
 export function AuthPanel({
@@ -639,7 +639,7 @@ function PasswordField({
         {caps ? <span className="font-semibold text-warn">Caps Lock is on.</span> : null}
         {counted ? (
           <span className={clsx("tnum", short ? "text-warn" : value.length >= MIN_PASSWORD ? "text-ok" : "text-fg-3")}>
-            {value.length >= MIN_PASSWORD ? "Long enough." : `At least ${MIN_PASSWORD} characters${value.length ? ` · ${value.length} so far` : ""}.`}
+            {passwordLengthHint(value)}
           </span>
         ) : null}
       </p>

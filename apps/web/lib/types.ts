@@ -1767,6 +1767,8 @@ export interface WorkspaceMemberRow {
 export interface MySecurity {
   twoFactorEnabled: boolean;
   hasPassword: boolean;
+  /** The other ways the account signs in. Optional: an older API leaves it out. */
+  signInProviders?: Array<"google" | "microsoft" | "sso">;
   sessionAuthMethod: "sso" | null;
   backupCodesRemaining: number | null;
   requiredBy: Array<{ id: string; name: string }>;

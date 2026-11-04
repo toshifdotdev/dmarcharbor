@@ -12,7 +12,7 @@ import { AccountSecurityBoard } from "@/components/harbor/security";
 import { SettingsRail } from "@/components/harbor/settings/rail";
 import { ErrorState } from "@/components/ui/states";
 
-export const metadata: Metadata = { title: "Two-step verification" };
+export const metadata: Metadata = { title: "Password and two-step verification" };
 
 /**
  * /account/security — a personal setting, outside every workspace.
@@ -52,7 +52,7 @@ export default async function AccountSecurityPage({
       trail={[{ label: "Account security" }]}
     >
       <div className={gated ? "flex flex-col" : "grid gap-x-12 gap-y-6 lg:grid-cols-[212px_minmax(0,1fr)] xl:gap-x-16"}>
-        {gated ? null : <SettingsRail current="security" currentLabel="Two-step verification" />}
+        {gated ? null : <SettingsRail current="security" currentLabel="Password and two-step" />}
         <div className="flex min-w-0 max-w-[1040px] flex-col gap-12">
           <header className="flex flex-col gap-2.5">
             <p className="text-meta text-fg-3">
@@ -70,10 +70,10 @@ export default async function AccountSecurityPage({
                 </>
               )}
             </p>
-            <h1 className="display text-h1 text-fg [text-wrap:balance]">Two-step verification</h1>
+            <h1 className="display text-h1 text-fg [text-wrap:balance]">Password and two-step verification</h1>
             <p className="max-w-[68ch] text-body text-fg-2">
-              Your account&rsquo;s second step, wherever you sign in. It belongs to you, not to a workspace; a workspace can
-              require it, but only you can set it up.
+              How you sign in, wherever you sign in. It belongs to you, not to a workspace; a workspace can require
+              two-step verification, but only you can set it up.
             </p>
           </header>
           {security ? (

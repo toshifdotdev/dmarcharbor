@@ -561,7 +561,9 @@ export const auth = betterAuth({
 
       await assertPasswordNotBreached(body.newPassword);
 
-      body.revokeOtherSessions = true;
+      // Other devices are signed out unless the person unticked "Sign out my
+      // other devices" on Account security, which sends an explicit false.
+      body.revokeOtherSessions = body.revokeOtherSessions !== false;
     }),
     after: createAuthMiddleware(async (ctx) => {
       const returned = ctx.context.returned;
@@ -589,6 +591,7 @@ export const auth = betterAuth({
 
       if (ctx.path === '/change-password' && returned && !(returned instanceof Error)) {
         const newSession = ctx.context.newSession;
+        const signedOutOthers = (ctx.body as { revokeOtherSessions?: unknown } | undefined)?.revokeOtherSessions !== false;
         if (newSession?.user?.id) {
           try {
             await recordAuditEvent({
@@ -596,12 +599,12 @@ export const auth = betterAuth({
               action: 'PASSWORD_CHANGED',
               targetType: 'user',
               targetId: newSession.user.id,
-              detail: { revokedOtherSessions: true, sessionRotated: true },
+              detail: { revokedOtherSessions: signedOutOthers, sessionRotated: true },
             });
           } catch (error) {
             console.error('Failed to record password change audit event', error);
           }
-          queueAuthEmail({ to: newSession.user.email, ...passwordChangedEmail({ via: 'change' }) });
+          queueAuthEmail({ to: newSession.user.email, ...passwordChangedEmail({ via: 'change', signedOutOthers }) });
         }
       }
 

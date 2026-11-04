@@ -343,6 +343,9 @@ describe('account mail', () => {
         'If you did not do this, reset your password from the sign-in page now and tell whoever manages your account.',
     });
     expect(passwordChangedEmail({ via: 'change' }).text).toContain('every other device signed in to it was signed out');
+    expect(passwordChangedEmail({ via: 'change', signedOutOthers: false }).text).toContain(
+      'Devices already signed in to it stay signed in.',
+    );
     for (const rendered of [passwordChangedEmail({ via: 'reset' }), passwordChangedEmail({ via: 'change' })]) {
       for (const part of [rendered.subject, rendered.text, rendered.html]) {
         expect(part).not.toMatch(/DMARC Harbor|dmarcharbor/i);

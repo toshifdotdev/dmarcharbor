@@ -88,7 +88,49 @@ refused with "That code was already used"; the back-button retry landing on
 and its audit rows; the "Your password was changed" email after a reset and
 after a change; a breached password refused at sign-up.
 
-## Later sessions
+## All sessions
 
-Added here as each is planned, in the same form: the order, the accounts, and
-what each item must show.
+Seventeen in all. A session marked * needs nothing new set up; the others
+list what has to exist before they start. Each later session gets its own
+section below when it is planned, in the same form as session 1: the order,
+the accounts, and what each item must show.
+
+| # | Session | Set up first |
+|---|---|---|
+| 1 | Accounts and sign-in | done |
+| 2* | Workspace, team members, roles, invitations | nothing |
+| 3* | Clients and domains: add, verify ownership, bulk import, move, rename, delete | nothing |
+| 4 | Report ingestion: real DMARC reports arriving and being measured | the report mailbox (Migadu) and `rua` on our own `_dmarc` record |
+| 5* | Domain posture, senders, subdomains, readiness for quarantine and reject | nothing |
+| 6* | DNS monitoring, change history, expiry dates, Gmail, Yahoo and Microsoft checks, the home-page checker | nothing |
+| 7 | Alerts by email, Slack and Teams | a Slack and a Teams test channel |
+| 8 | PSA tickets and webhooks | a PSA trial (Halo, ConnectWise or Autotask), and a ConnectWise client id if testing that one |
+| 9 | Publishing DNS: Cloudflare connection, hosted DMARC, managed SPF | a Cloudflare token and zone id |
+| 10 | Hosted BIMI, MTA-STS, TLS reports | a BIMI origin and Cloudflare for SaaS |
+| 11 | Billing: checkout, upgrade, downgrade, failed payment, refund | Razorpay test keys, the Paddle sandbox, and a tunnel for webhooks |
+| 12 | White label: logo, colours, support contact, branded client emails | an S3 bucket for logos |
+| 13* | Client portal, approvals, share links, Trust Center, compliance packs, verifier, monthly reports, digests | nothing new (uses sessions 2, 3 and 12) |
+| 14 | Admiralty: custom domain, agency sending domain, single sign-on | a second domain, a full-access Resend key, an SSO identity provider |
+| 15* | Prospect reports, switch kit, usage export, API keys and the API | nothing |
+| 16* | Data export, erasure, audit trail, plan limits on every plan | nothing |
+| 17 | Ask (written answers), public site, docs and SEO, then one end-to-end run as a brand-new MSP | an Anthropic API key |
+
+## Session 2: workspace, team members, roles, invitations
+
+Owner `dmarcharbor+test1@gmail.com`. Invite `dmarcharbor+admin@gmail.com`,
+`+analyst` and `+viewer`, and `dmarcharbor@outlook.com` through Microsoft
+sign-in.
+
+1. **Roles.** Each role sees and can do exactly what the FAQ and the Security
+   Policy's access table say: only the owner changes the plan; an analyst does
+   not see named forensic recipients; a viewer sees no forensic data.
+2. **Seat limits.** Each plan's team size counts open invitations as well as
+   members.
+3. **Invitations.** Expiry, resend, cancel, and accepting one by email and
+   password and by Microsoft sign-in.
+4. **Members.** Remove a member, change a role, transfer ownership if it
+   exists.
+5. **Workspaces.** Switch between them, and the per-account workspace limit.
+
+For each: the FAQ, the guide and the words on screen, compared with dmarcian
+and EasyDMARC.

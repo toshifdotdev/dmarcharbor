@@ -201,6 +201,18 @@ export async function requestPasswordReset(email: string): Promise<void> {
   if (!res.ok) await fail(res);
 }
 
+/**
+ * Changes the password of the signed-in account. The API refuses a wrong
+ * current password (INVALID_PASSWORD), an unchanged one, and one found in a
+ * known breach (PASSWORD_COMPROMISED), and confirms a change by email. Its
+ * session is rotated either way; `signOutOthers` false keeps the other
+ * devices signed in.
+ */
+export async function changePassword(currentPassword: string, newPassword: string, signOutOthers: boolean): Promise<void> {
+  const res = await post("change-password", { currentPassword, newPassword, revokeOtherSessions: signOutOthers });
+  if (!res.ok) await fail(res);
+}
+
 /** Sets a new password with the token from the reset link. Every other session
  *  for the account is revoked by the API on success. */
 export async function resetPassword(token: string, newPassword: string): Promise<void> {

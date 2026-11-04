@@ -4,9 +4,22 @@ import { prisma } from '../database/prisma.js';
 export interface MySecurity {
   twoFactorEnabled: boolean;
   hasPassword: boolean;
+  /**
+   * The other ways this account signs in, so the page can say "You sign in
+   * with Google" to an account with no password. `sso` covers every
+   * single sign-on connection.
+   */
+  signInProviders: Array<'google' | 'microsoft' | 'sso'>;
   sessionAuthMethod: 'sso' | null;
   backupCodesRemaining: number | null;
   requiredBy: Array<{ id: string; name: string }>;
+}
+
+/** An account row's provider id, as the security page names it; null for the password itself. */
+export function signInProviderOf(providerId: string): 'google' | 'microsoft' | 'sso' | null {
+  if (providerId === 'credential') return null;
+  if (providerId === 'google' || providerId === 'microsoft') return providerId;
+  return 'sso';
 }
 
 export interface WorkspaceSecurity {
@@ -28,8 +41,7 @@ export async function mySecurity(userId: string, sessionAuthMethod: string | nul
     select: {
       twoFactorEnabled: true,
       accounts: {
-        where: { providerId: 'credential' },
-        select: { password: true },
+        select: { providerId: true, password: true },
       },
       members: {
         where: { role: { not: 'portal' }, organization: { requireMfa: true } },
@@ -52,7 +64,16 @@ export async function mySecurity(userId: string, sessionAuthMethod: string | nul
 
   return {
     twoFactorEnabled: user?.twoFactorEnabled ?? false,
-    hasPassword: Boolean(user?.accounts.some((account) => Boolean(account.password))),
+    hasPassword: Boolean(
+      user?.accounts.some((account) => account.providerId === 'credential' && Boolean(account.password)),
+    ),
+    signInProviders: [
+      ...new Set(
+        (user?.accounts ?? [])
+          .map((account) => signInProviderOf(account.providerId))
+          .filter((provider): provider is 'google' | 'microsoft' | 'sso' => provider !== null),
+      ),
+    ],
     sessionAuthMethod: sessionAuthMethod === 'sso' ? 'sso' : null,
     backupCodesRemaining,
     requiredBy: (user?.members ?? []).map((member) => member.organization),

@@ -1221,11 +1221,13 @@ export function existingAccountSignUpEmail(): RenderedEmail {
  * resets on the agency's domain, and the hook that sends this is not told
  * which host it was, so it names no product and has no button.
  */
-export function passwordChangedEmail(input: { via: 'reset' | 'change' }): RenderedEmail {
+export function passwordChangedEmail(input: { via: 'reset' | 'change'; signedOutOthers?: boolean }): RenderedEmail {
   const how =
     input.via === 'reset'
       ? 'The password for this account was changed with a reset link, and every device signed in to it was signed out.'
-      : 'The password for this account was changed, and every other device signed in to it was signed out.';
+      : input.signedOutOthers === false
+        ? 'The password for this account was changed. Devices already signed in to it stay signed in.'
+        : 'The password for this account was changed, and every other device signed in to it was signed out.';
   const ifNot = 'If you did not do this, reset your password from the sign-in page now and tell whoever manages your account.';
   return layout({
     title: 'Your password was changed',

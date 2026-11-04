@@ -5020,6 +5020,43 @@ check(
   JSON.stringify({ fixture: mfaFixture, signedUp: mfaSignedUp, off: mfaOff, started: mfaStarted, setup: Boolean(setupReady?.qr), backups: backupReady, on: mfaOn, prompt: codePrompt, submitted, landed: mfaSignedIn?.path ?? null }),
 );
 
+// 10h. Changing the password from Account security, on the same account: the
+//      live count, "Sign out my other devices" ticked by default, the success
+//      notice, and the API taking the new password and refusing the old one.
+await navigate(WEB + "/account/security");
+await waitForEval(`!!document.querySelector('[data-testid="password-change-form"]')`, (v) => v === true, 30000);
+await waitForHydration();
+const pwSignOutDefault = await evalJs(
+  `(() => { const box = document.querySelector('[data-testid="password-signout-others"]'); return box ? box.checked : null; })()`,
+);
+await fillInput('[data-testid="password-current"]', mfaPassword);
+await fillInput('[data-testid="password-new"]', "short1");
+const pwShortCount = await waitForEval(
+  `(() => { const el = document.querySelector('[data-testid="password-new-count"]'); return el ? el.textContent.trim() : null; })()`,
+  (v) => typeof v === "string" && v.includes("6 so far"),
+  10000,
+);
+const pwNew = `${mfaPassword}-changed`;
+await fillInput('[data-testid="password-new"]', pwNew);
+const pwSubmitted = await clickMfaTestId("password-change-submit");
+const pwChanged = await waitForEval(
+  `(() => { const el = document.querySelector('[data-testid="password-changed"]'); return el ? el.textContent.trim() : null; })()`,
+  (v) => typeof v === "string" && v.includes("Password changed"),
+  30000,
+);
+const pwApi = await evalJs(`(async () => {
+  const attempt = async (password) => (await fetch('/api/auth/sign-in/email', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'omit',
+    body: JSON.stringify({ email: ${JSON.stringify(mfaEmail)}, password }),
+  })).status;
+  return { old: await attempt(${JSON.stringify(mfaPassword)}), next: await attempt(${JSON.stringify(pwNew)}) };
+})()`);
+check(
+  "account security: change the password, other devices signed out by default",
+  Boolean(pwSignOutDefault === true && pwShortCount && pwSubmitted && pwChanged && pwApi?.old === 401 && pwApi?.next === 200),
+  JSON.stringify({ signOutDefault: pwSignOutDefault, count: pwShortCount, submitted: pwSubmitted, changed: Boolean(pwChanged), api: pwApi }),
+);
+
 // 8d. Console hygiene: the whole run must have produced zero uncaught errors,
 //     zero unexpected failed requests, zero React key warnings, zero hydration
 //     mismatches. Expected failures (the deliberate Slack probe, the revoked

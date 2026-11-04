@@ -19,7 +19,6 @@ import {
   disableTwoFactor,
   enableTwoFactor,
   regenerateBackupCodes,
-  requestPasswordReset,
 } from "@/lib/auth-client";
 import { groupSecret, totpSecretFromUri } from "@/lib/mfa";
 import type { MySecurity } from "@/lib/types";
@@ -30,6 +29,7 @@ import { Field, Input } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { InlineWaiting } from "@/components/ui/states";
 import { Panel, StateMark, StepLine, type StepState } from "@/components/harbor/settings/parts";
+import { ChangePasswordPanel } from "@/components/harbor/change-password";
 
 type Phase =
   | "idle"
@@ -89,7 +89,6 @@ export function AccountSecurityBoard({
   const [showDisable, setShowDisable] = useState(false);
   const [disablePassword, setDisablePassword] = useState("");
   const [disableError, setDisableError] = useState<string | null>(null);
-  const [resetSent, setResetSent] = useState(false);
 
   useEffect(() => {
     if (!setupUri) {
@@ -209,17 +208,6 @@ export function AccountSecurityBoard({
     }
   }
 
-  async function sendReset() {
-    if (!email) return;
-    setError(null);
-    try {
-      await requestPasswordReset(email);
-      setResetSent(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "The link could not be sent. Try again shortly.");
-    }
-  }
-
   async function copyCodes() {
     try {
       await navigator.clipboard.writeText(codes.join("\n"));
@@ -262,6 +250,12 @@ export function AccountSecurityBoard({
           The requirement may have been turned off since the redirect. You can still set it up here.
         </Notice>
       ) : null}
+
+      <ChangePasswordPanel
+        hasPassword={security.hasPassword}
+        providers={security.signInProviders ?? []}
+        email={email}
+      />
 
       <Panel
         title="Your authenticator app"
@@ -430,29 +424,22 @@ export function AccountSecurityBoard({
         ) : (
           <div className="flex flex-col gap-3">
             <p className="text-ui text-fg-2">
-              You sign in with Google, Microsoft or single sign-on, so there is no password to protect here.
+              Two-step verification asks for a code after your password, and this account has no password yet. Set
+              one under Your password above, then come back here.
             </p>
             {security.sessionAuthMethod === "sso" ? (
               <p className="text-ui text-fg-2">Your company&apos;s sign-in handles the second step.</p>
             ) : null}
             {security.requiredBy.length > 0 ? (
               <p className="max-w-[72ch] text-ui text-fg-2">
-                <span className="font-semibold text-fg">{names}</span> requires an authenticator app. Set a password
-                first (we will email a link), then come back here.
+                <span className="font-semibold text-fg">{names}</span> requires an authenticator app, so set a
+                password first.
               </p>
             ) : null}
             <p className="max-w-[72ch] text-meta text-fg-3">
               Once two-step verification is on, Google and Microsoft sign-in is turned off for this account, because
               {` ${serviceName} `}cannot see whether they asked for a second step.
             </p>
-            {email ? (
-              <div className="flex flex-wrap items-center gap-3">
-                <Button onClick={sendReset} busy={busy} busyLabel="Sending">
-                  Email me a password link
-                </Button>
-                {resetSent ? <span className="text-meta font-semibold text-ok">A reset link is on its way to {email}.</span> : null}
-              </div>
-            ) : null}
           </div>
         )}
       </Panel>

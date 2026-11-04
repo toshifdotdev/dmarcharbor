@@ -254,8 +254,13 @@ export function SessionsBoard({
             Think someone knows your password?
           </h2>
           <p className="mt-1.5 max-w-[72ch] text-ui text-fg-2">
-            Sign out everywhere, this device included, then choose a new password from the sign-in page
-            (&ldquo;Forgot password?&rdquo;). Until the password changes, anyone who has it can sign straight back in.
+            <Link href="/account/security#password" className="link font-semibold">
+              Change your password
+            </Link>{" "}
+            with &ldquo;Sign out my other devices&rdquo; ticked: the old password stops working and every other device is
+            signed out at once. Signing out alone is not enough, because anyone who has the password can sign straight
+            back in. If you no longer know it, sign out everywhere below and use &ldquo;Forgot password?&rdquo; on the
+            sign-in page.
           </p>
           {twoFactorEnabled ? (
             <p className="mt-2 text-ui text-fg-2">

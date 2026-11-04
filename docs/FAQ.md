@@ -444,6 +444,15 @@ in straight away. We email you whenever your password changes. You can see and
 end every signed-in device under Settings, Signed-in devices, or from the
 account menu.
 
+**How do I change my password?**
+Under Settings, Password and two-step. Enter your current password and a new
+one of at least 8 characters; a password found in a known data breach is
+refused. "Sign out my other devices" is ticked for you, so the old password and
+every other session stop working together. We email you to confirm the change.
+If you sign in with Google or Microsoft and have no password, Set a password
+there emails you a link instead. Forgotten it? Use Forgot password? on the
+sign-in page.
+
 **Do you support single sign-on?**
 Yes, on Admiralty. SAML and OIDC are both supported, with just-in-time provisioning
 limited to the email domains you allow.
