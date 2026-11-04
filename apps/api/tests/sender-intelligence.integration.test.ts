@@ -12,7 +12,16 @@ import { grantPlan } from './helpers/plan.js';
 
 let fixtureId = 0;
 const password = 'correct-horse-battery-staple';
-const now = new Date('2026-10-28T12:00:00.000Z');
+/**
+ * Relative to the real clock, not a fixed date. The senders endpoint and the
+ * snapshot read "the last 7 days" from Date.now(), so a fixed `now` (it was
+ * 2026-10-28T12:00Z) aged out of that window a week later and the spoofing
+ * test began failing at noon on 2026-11-04 with nothing in the product changed.
+ */
+const now = new Date(Math.floor(Date.now() / 60_000) * 60_000);
+const day = 24 * 60 * 60 * 1000;
+/** A cached lookup that is still fresh at `now`. */
+const freshIntelExpiry = new Date(now.getTime() + 30 * day);
 
 async function resetDatabase(): Promise<void> {
   await prisma.$executeRawUnsafe(
@@ -125,8 +134,8 @@ async function seedSender(input: {
       reportType: 'AGGREGATE',
       fingerprint: `sender-intel-${fixtureId}-${Date.now()}`,
       reportingOrganization: 'Google LLC',
-      dateRangeBegin: new Date('2026-10-27T00:00:00Z'),
-      dateRangeEnd: new Date('2026-10-27T23:59:59Z'),
+      dateRangeBegin: new Date(now.getTime() - 2 * day),
+      dateRangeEnd: new Date(now.getTime() - day),
       receivedAt: input.receivedAt ?? now,
       records: {
         create: [
@@ -245,7 +254,7 @@ describe('sender intelligence', () => {
         asnName: 'SENDGRID',
         status: 'OK',
         lookedUpAt: now,
-        expiresAt: new Date('2026-11-27T00:00:00Z'),
+        expiresAt: freshIntelExpiry,
         lastSeenAt: now,
       },
     });
@@ -280,7 +289,7 @@ describe('sender intelligence', () => {
         asnName: 'SENDGRID',
         status: 'OK',
         lookedUpAt: now,
-        expiresAt: new Date('2026-11-27T00:00:00Z'),
+        expiresAt: freshIntelExpiry,
         lastSeenAt: now,
       },
     });
