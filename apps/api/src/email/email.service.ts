@@ -4,6 +4,7 @@ import { enqueueEmail } from '../services/email-queue.service.js';
 import { EMAIL_SEND_TIMEOUT_MS, withGenericTimeout } from '../billing/provider-timeout.js';
 import { addressOf, sharedFromHeader } from './sender.js';
 import { plainTextEmail, type BrandLook, type ContactLine, type RenderedEmail } from './templates.js';
+import { UndeliverableRecipientError, undeliverableReason } from './reserved-recipient.js';
 
 /**
  * Outbound email transport.
@@ -57,6 +58,13 @@ export function isUnverifiedSenderDomain(error: { message?: string | null; name?
 
 export async function sendEmail(message: EmailMessage): Promise<void> {
   if (env.EMAIL_PROVIDER === 'resend') {
+    // A reserved address has no mailbox behind it; handing it to the provider
+    // only earns a bounce (reserved-recipient.ts). The queue records it as SKIPPED.
+    const undeliverable = undeliverableReason(message.to);
+    if (undeliverable) {
+      throw new UndeliverableRecipientError(message.to, undeliverable);
+    }
+
     if (!env.RESEND_API_KEY) {
       throw new Error('RESEND_API_KEY is not configured.');
     }

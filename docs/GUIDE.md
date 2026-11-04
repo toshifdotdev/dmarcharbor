@@ -11,8 +11,12 @@ include Fleet. Your own domain and single sign-on are on Admiralty only.
 
 ## 1. Create your account and workspace
 
-1. Sign up with your work email address, or with Google or Microsoft, and confirm
-   the email we send.
+1. Sign up with your work email address and a password, then open the
+   confirmation link we email you. Or sign up with Google or Microsoft: a Google
+   account or a personal Microsoft account is confirmed already, and a work or
+   school Microsoft account whose organisation has not verified its email
+   domain gets a confirmation link first. A password found in a known data
+   breach is refused, so choose one you have not used elsewhere.
 2. Create a workspace: your agency's name. You confirm the Data Processing Agreement
    and the Terms of Service on the same screen, because a workspace cannot exist
    without them.

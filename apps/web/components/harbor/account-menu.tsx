@@ -5,7 +5,7 @@
  *
  * The trigger shows initials; the menu names the person and the address in
  * full, because "which of our three logins is this" is a real question on a
- * shared MSP desk. Sign out ends this session; "Sessions" is where every other
+ * shared MSP desk. Sign out ends this session; "Signed-in devices" is where every other
  * signed-in device is seen and ended.
  */
 
@@ -47,7 +47,7 @@ export function AccountMenu({ name, email }: { name: string | null; email: strin
         </div>
         <MenuSeparator />
         <MenuItem onSelect={() => router.push("/notifications")}>Notifications and preferences</MenuItem>
-        <MenuItem onSelect={() => router.push("/settings/sessions")}>Signed-in sessions</MenuItem>
+        <MenuItem onSelect={() => router.push("/settings/sessions")}>Signed-in devices</MenuItem>
         <MenuSeparator />
         <MenuItem
           onSelect={(e) => {

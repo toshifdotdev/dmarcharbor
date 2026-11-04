@@ -1215,6 +1215,49 @@ export function existingAccountSignUpEmail(): RenderedEmail {
   });
 }
 
+/**
+ * The confirmation that an account's password changed, by a reset link or from
+ * the account itself. Neutral like the warning above: a client of an agency
+ * resets on the agency's domain, and the hook that sends this is not told
+ * which host it was, so it names no product and has no button.
+ */
+export function passwordChangedEmail(input: { via: 'reset' | 'change' }): RenderedEmail {
+  const how =
+    input.via === 'reset'
+      ? 'The password for this account was changed with a reset link, and every device signed in to it was signed out.'
+      : 'The password for this account was changed, and every other device signed in to it was signed out.';
+  const ifNot = 'If you did not do this, reset your password from the sign-in page now and tell whoever manages your account.';
+  return layout({
+    title: 'Your password was changed',
+    preheader: how,
+    heading: 'Your password was changed',
+    paragraphs: [how, ifNot],
+    kind: 'Account security',
+    neutral: true,
+    text: `${how}\n\n${ifNot}`,
+  });
+}
+
+/**
+ * To an account's owner when the per-account sign-in brake starts
+ * (auth/sign-in-brake.ts). Neutral for the same reason as the confirmation
+ * above. Says plainly that the password did not change, because the first
+ * question on reading "someone tried" is whether they got in.
+ */
+export function signInPausedEmail(input: { attempts: number; windowMinutes: number; pauseMinutes: number }): RenderedEmail {
+  const what = `Someone entered a wrong password for this account ${input.attempts} times in ${input.windowMinutes} minutes, so password sign-in is paused for ${input.pauseMinutes} minutes. Your password has not been changed.`;
+  const next = 'If this was you, wait and try again, or reset your password from the sign-in page. If it was not you, choose a new password and turn on two-step verification.';
+  return layout({
+    title: 'Sign-in to your account was paused',
+    preheader: what,
+    heading: 'Sign-in to your account was paused',
+    paragraphs: [what, next],
+    kind: 'Account security',
+    neutral: true,
+    text: `${what}\n\n${next}`,
+  });
+}
+
 const securityNoticeFooter = 'If this was not you, reset your password and contact your workspace owner.';
 
 /**

@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { env } from '../config/env.js';
 import { prisma } from '../database/prisma.js';
 import { sendEmail } from '../email/email.service.js';
+import { UndeliverableRecipientError } from '../email/reserved-recipient.js';
 import { withJobLease } from '../scheduler/job-lease.service.js';
 
 /**
@@ -121,6 +122,8 @@ export interface EmailSweep {
   sent: number;
   retried: number;
   dead: number;
+  /** Reserved recipients (reserved-recipient.ts): written down, never sent, never retried. */
+  skipped: number;
 }
 
 /**
@@ -131,7 +134,7 @@ export interface EmailSweep {
  * delivering all of them.
  */
 export async function drainEmailQueue(limit = 25, now = new Date()): Promise<EmailSweep> {
-  const summary: EmailSweep = { sent: 0, retried: 0, dead: 0 };
+  const summary: EmailSweep = { sent: 0, retried: 0, dead: 0, skipped: 0 };
 
   for (let index = 0; index < limit; index += 1) {
     const due = await prisma.emailDelivery.findFirst({
@@ -195,6 +198,17 @@ export async function drainEmailQueue(limit = 25, now = new Date()): Promise<Ema
       });
       summary.sent += 1;
     } catch (error) {
+      if (error instanceof UndeliverableRecipientError) {
+        // Final on the first attempt: retrying cannot make a reserved domain real.
+        await prisma.emailDelivery.update({
+          where: { id: row.id },
+          data: { state: 'SKIPPED', lastError: error.message },
+        });
+        console.info(`[email] skipped "${row.kind}": ${error.message}`);
+        summary.skipped += 1;
+        continue;
+      }
+
       const detail = error instanceof Error ? error.message : 'Unknown email delivery error.';
       const exhausted = row.attempts >= maxEmailAttempts;
 
@@ -229,15 +243,15 @@ export async function drainEmailQueue(limit = 25, now = new Date()): Promise<Ema
 
 /** One leased pass, so the fleet does not each drain the same rows. */
 export async function runEmailQueueOnce(): Promise<EmailSweep> {
-  const empty: EmailSweep = { sent: 0, retried: 0, dead: 0 };
+  const empty: EmailSweep = { sent: 0, retried: 0, dead: 0, skipped: 0 };
 
   try {
     const summary = await withJobLease('email-queue', async () => {
       const swept = await drainEmailQueue();
 
-      if (swept.sent + swept.retried + swept.dead > 0) {
+      if (swept.sent + swept.retried + swept.dead + swept.skipped > 0) {
         console.info(
-          `[email] queue drained: ${swept.sent} sent, ${swept.retried} awaiting retry, ${swept.dead} given up`,
+          `[email] queue drained: ${swept.sent} sent, ${swept.retried} awaiting retry, ${swept.dead} given up, ${swept.skipped} skipped (reserved address)`,
         );
       }
 

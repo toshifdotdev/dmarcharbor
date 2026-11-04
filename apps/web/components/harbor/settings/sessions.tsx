@@ -109,7 +109,14 @@ function Row({ s, onRevoke }: { s: SessionView; onRevoke?: () => void }) {
   );
 }
 
-export function SessionsBoard({ sessions }: { sessions: SessionView[] }) {
+export function SessionsBoard({
+  sessions,
+  twoFactorEnabled = null,
+}: {
+  sessions: SessionView[];
+  /** Whether this account has two-step verification on; null when it could not be read. */
+  twoFactorEnabled?: boolean | null;
+}) {
   const router = useRouter();
   const toast = useToast();
   const current = sessions.find((s) => s.current) ?? null;
@@ -220,7 +227,7 @@ export function SessionsBoard({ sessions }: { sessions: SessionView[] }) {
       <Panel
         id="sessions-act"
         title="Lost a device?"
-        why="Sign out everything except the device you are using now. Your work and settings are untouched; the other devices need the password again."
+        why="Sign out everything except the device you are using now. Your work and settings are untouched; the other devices have to sign in again."
       >
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <Button
@@ -236,7 +243,7 @@ export function SessionsBoard({ sessions }: { sessions: SessionView[] }) {
           <span className="tnum text-meta text-fg-3">
             {others.length === 0
               ? "Nothing to sign out: this is the only device."
-              : `${others.length} device${others.length === 1 ? "" : "s"} will need the password again. This one stays signed in.`}
+              : `${others.length} device${others.length === 1 ? "" : "s"} will have to sign in again. This one stays signed in.`}
           </span>
         </div>
       </Panel>
@@ -248,15 +255,22 @@ export function SessionsBoard({ sessions }: { sessions: SessionView[] }) {
           </h2>
           <p className="mt-1.5 max-w-[72ch] text-ui text-fg-2">
             Sign out everywhere, this device included, then choose a new password from the sign-in page
-            (&ldquo;Forgot your password?&rdquo;). Until the password changes, anyone who has it can sign straight back in.
+            (&ldquo;Forgot password?&rdquo;). Until the password changes, anyone who has it can sign straight back in.
           </p>
-          <p className="mt-2 text-ui text-fg-2">
-            Add a second step as well:{" "}
-            <Link href="/account/security" className="link font-semibold">
-              set up two-step verification
-            </Link>
-            , so a password alone is not enough.
-          </p>
+          {twoFactorEnabled ? (
+            <p className="mt-2 text-ui text-fg-2">
+              Two-step verification is on, so the password alone does not get anyone in. Keep the authenticator and the
+              backup codes away from the password.
+            </p>
+          ) : (
+            <p className="mt-2 text-ui text-fg-2">
+              Add a second step as well:{" "}
+              <Link href="/account/security" className="link font-semibold">
+                set up two-step verification
+              </Link>
+              , so a password alone is not enough.
+            </p>
+          )}
         </div>
         <div>
           <Button variant="danger" onClick={() => setAllOpen(true)} data-testid="revoke-all-toggle">
@@ -277,7 +291,7 @@ export function SessionsBoard({ sessions }: { sessions: SessionView[] }) {
           target ? (
             <>
               The session from <span className="data text-fg">{target.ip ?? "an unreported address"}</span>, started{" "}
-              {target.startedLabel}, is signed out at once. Whoever is using it has to sign in again with the password.
+              {target.startedLabel}, is signed out at once. Whoever is using it has to sign in again.
             </>
           ) : null
         }

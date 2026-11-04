@@ -137,13 +137,21 @@ export function listWorkspaces(): Promise<WorkspaceSummary[]> {
 // all ask who is signed in, and three identical get-session calls per render
 // were enough to trip the auth rate limit under load, which then read as "role
 // unknown" on screen.
-export const getSessionUser = cache(async (): Promise<{ id: string; name: string | null; email: string } | null> => {
+export const getSessionUser = cache(async (): Promise<{
+  id: string;
+  name: string | null;
+  email: string;
+  /** False for an account whose address is not confirmed yet; true only when Better Auth says so. */
+  emailVerified: boolean;
+} | null> => {
   try {
-    const session = await apiFetch<{ user?: { id?: string; name?: string | null; email?: string } } | null>(
-      "/api/auth/get-session",
-    );
+    const session = await apiFetch<{
+      user?: { id?: string; name?: string | null; email?: string; emailVerified?: boolean };
+    } | null>("/api/auth/get-session");
     const u = session?.user;
-    return u?.id && u.email ? { id: u.id, name: u.name?.trim() || null, email: u.email } : null;
+    return u?.id && u.email
+      ? { id: u.id, name: u.name?.trim() || null, email: u.email, emailVerified: u.emailVerified === true }
+      : null;
   } catch {
     return null;
   }

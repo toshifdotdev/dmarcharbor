@@ -2,13 +2,14 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { Fragment } from "react";
-import { ApiError, listWorkspaces, readWorkspaceAllowance, type WorkspaceAllowance } from "@/lib/api";
+import { ApiError, getSessionUser, listWorkspaces, readWorkspaceAllowance, type WorkspaceAllowance } from "@/lib/api";
 import { signInRedirect } from "@/lib/session";
 import type { WorkspaceSummary } from "@/lib/types";
 import { AuthFrame } from "@/components/harbor/auth-frame";
 import { InvitationsForYou } from "@/components/harbor/invitations";
 import { PlanLimitNotice } from "@/components/harbor/plan-refusal";
 import { SetupLayout } from "@/components/harbor/setup-rail";
+import { VerifyEmailNotice } from "@/components/harbor/verify-email-notice";
 import { WorkspaceSetup, type WorkspaceFormState } from "@/components/harbor/workspace-setup";
 
 /**
@@ -101,6 +102,9 @@ export default async function WelcomePage({ searchParams }: { searchParams: Prom
   }
   const hasOne = workspaces.length > 0;
   const allowance: WorkspaceAllowance | null = await readWorkspaceAllowance().catch(() => null);
+  // Read, not assumed: "Email verified" was printed for every account, including
+  // a Microsoft one whose address had not been confirmed.
+  const user = await getSessionUser();
   const workspacesFull = allowance !== null && !allowance.allowed;
 
   // At the allowance the form is not offered: the API would refuse it. The
@@ -123,12 +127,15 @@ export default async function WelcomePage({ searchParams }: { searchParams: Prom
         <SetupLayout current="workspace">
           <div className="flex flex-col gap-8">
             <InvitationsForYou explainLapsed />
+            {user && !user.emailVerified ? <VerifyEmailNotice email={user.email} /> : null}
             <div>
-              <p className="flex items-center gap-2 text-meta font-semibold text-ok">
-                <span aria-hidden className="block size-2 bg-ok" />
-                Email verified. You are signed in.
-              </p>
-              <h1 className={`mt-3 ${HEADING}`}>Name your workspace</h1>
+              {user?.emailVerified ? (
+                <p className="flex items-center gap-2 text-meta font-semibold text-ok">
+                  <span aria-hidden className="block size-2 bg-ok" />
+                  Email verified. You are signed in.
+                </p>
+              ) : null}
+              <h1 className={`${user?.emailVerified ? "mt-3 " : ""}${HEADING}`}>Name your workspace</h1>
               <p className="mt-3 text-lead text-fg-2">
                 It holds your clients, their domains, and every report receivers send about them. Next you add a first
                 client and domain, and get the records to publish.

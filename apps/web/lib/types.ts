@@ -1702,7 +1702,13 @@ export type AuditAction =
   | "SUBDOMAIN_RESTORED"
   | "CLIENT_UPDATED"
   | "DOMAIN_MOVED"
-  | "WORKSPACE_UPDATED";
+  | "WORKSPACE_UPDATED"
+  /** A new password was set with a reset link. */
+  | "PASSWORD_RESET"
+  /** A wrong password for an existing account (user level, refused). */
+  | "SIGN_IN_FAILED"
+  /** Password sign-in paused after too many wrong passwords (user level, refused). */
+  | "SIGN_IN_PAUSED";
 
 /**
  * AuditOutcome is SUCCESS or DENIED. There is no FAILED value: the trail records

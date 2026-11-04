@@ -252,7 +252,9 @@ export function AccountSecurityBoard({
           {security.requiredBy.length === 1 ? "requires" : "require"} two-step verification.{" "}
           {security.sessionAuthMethod === "sso"
             ? "Your company's single sign-on satisfies it."
-            : "Until this account has an authenticator app, its workspace API answers 403 and sends you here."}
+            : security.twoFactorEnabled
+              ? "Your authenticator app satisfies it. Turning two-step verification off would close it to you."
+              : `Set up an authenticator app below to open ${security.requiredBy.length === 1 ? "it" : "them"}. Until then, ${security.requiredBy.length === 1 ? "that workspace sends" : "those workspaces send"} you back here.`}
         </Notice>
       ) : null}
       {requiredArrival && security.requiredBy.length === 0 ? (

@@ -97,6 +97,15 @@ async function enableMfaFor(
   return { totpURI: enabled.body.totpURI as string, backupCodes: enabled.body.backupCodes as string[] };
 }
 
+/**
+ * The code for the next 30-second step, which the plugin still accepts. Each
+ * code works once (totp-replay.ts), so signing in straight after
+ * `enableMfaFor` with the code it just used would be refused as reused.
+ */
+function nextCode(totpURI: string): string {
+  return totpFromUri(totpURI, Date.now() + 30_000);
+}
+
 async function challengeSignIn(email: string): Promise<ReturnType<typeof request.agent>> {
   const agent = request.agent(app);
   const response = await agent.post('/api/auth/sign-in/email').send({ email, password });
@@ -164,7 +173,7 @@ describe('two-step verification', () => {
     const challenge = await challengeSignIn(email);
     const verified = await challenge
       .post('/api/auth/two-factor/verify-totp')
-      .send({ code: totpFromUri(totpURI) });
+      .send({ code: nextCode(totpURI) });
     expect(verified.status).toBe(200);
     expect((await challenge.get('/api/me')).status).toBe(200);
     expect(await prisma.auditLog.count({ where: { action: 'MFA_ENABLED' } })).toBe(1);
@@ -240,7 +249,7 @@ describe('two-step verification', () => {
     const challenge = await challengeSignIn(email);
 
     const verified = await challenge.post('/api/auth/two-factor/verify-totp').send({
-      code: totpFromUri(totpURI),
+      code: nextCode(totpURI),
       trustDevice: true,
     });
     expect(verified.status).toBe(200);

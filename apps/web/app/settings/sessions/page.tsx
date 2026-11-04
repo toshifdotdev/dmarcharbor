@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { getMySecurity } from "@/lib/api-ops";
 import { listSessions } from "@/lib/api-phase7";
 import { instantLabel } from "@/lib/instant";
 import { settingsContext } from "@/lib/settings-context";
@@ -12,7 +13,11 @@ export const metadata: Metadata = { title: "Signed-in devices" };
 /** /settings/sessions — account level: the same list in every workspace. */
 export default async function SessionsPage() {
   const ctx = await settingsContext();
-  const listed = await listSessions().catch(() => null);
+  const [listed, security] = await Promise.all([
+    listSessions().catch(() => null),
+    // Only for the advice under the list: whether to suggest two-step verification.
+    getMySecurity().catch(() => null),
+  ]);
   const sessions: SessionView[] | null = listed
     ? [...listed.sessions]
         .sort((a, b) => Number(b.current) - Number(a.current))
@@ -36,7 +41,7 @@ export default async function SessionsPage() {
       lede="Every device signed in as you, in any workspace. Sign out the ones you do not recognise: the cost of a wrong guess is one sign-in."
     >
       {sessions ? (
-        <SessionsBoard sessions={sessions} />
+        <SessionsBoard sessions={sessions} twoFactorEnabled={security?.twoFactorEnabled ?? null} />
       ) : (
         <ErrorState what="the list of signed-in devices" detail="No session was signed out. Retry to read the list." />
       )}

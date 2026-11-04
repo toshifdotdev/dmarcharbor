@@ -25,6 +25,7 @@ const {
   existingAccountSignUpEmail,
   exportReadyEmail,
   monthlyReportEmail,
+  passwordChangedEmail,
   passwordResetEmail,
   paymentFailedEmail,
   planChangedEmail,
@@ -34,6 +35,7 @@ const {
   policyProposalDecidedEmail,
   portalAccessGranted,
   securityNoticeEmail,
+  signInPausedEmail,
   subscriptionCancelledEmail,
   workspaceInvitationEmail,
 } = await import('../src/email/templates.js');
@@ -330,6 +332,34 @@ describe('account mail', () => {
       ['Your two-step verification was reset', 'Your two-step verification was reset by DMARC Harbor support. Sign in with your password and set it up again.'],
     ] as const) {
       expect(securityNoticeEmail({ subject, notice, appUrl })).toMatchObject({ subject, text: `${notice}\n\n${footer}` });
+    }
+  });
+
+  it('confirms a password change, and names no product in either part', () => {
+    expect(passwordChangedEmail({ via: 'reset' })).toMatchObject({
+      subject: 'Your password was changed',
+      text:
+        'The password for this account was changed with a reset link, and every device signed in to it was signed out.\n\n' +
+        'If you did not do this, reset your password from the sign-in page now and tell whoever manages your account.',
+    });
+    expect(passwordChangedEmail({ via: 'change' }).text).toContain('every other device signed in to it was signed out');
+    for (const rendered of [passwordChangedEmail({ via: 'reset' }), passwordChangedEmail({ via: 'change' })]) {
+      for (const part of [rendered.subject, rendered.text, rendered.html]) {
+        expect(part).not.toMatch(/DMARC Harbor|dmarcharbor/i);
+      }
+      expect(rendered.html).not.toContain('border-radius:999px');
+    }
+  });
+
+  it('tells the owner a sign-in pause started, and that the password did not change', () => {
+    const rendered = signInPausedEmail({ attempts: 10, windowMinutes: 15, pauseMinutes: 15 });
+    expect(rendered.subject).toBe('Sign-in to your account was paused');
+    expect(rendered.text).toBe(
+      'Someone entered a wrong password for this account 10 times in 15 minutes, so password sign-in is paused for 15 minutes. Your password has not been changed.\n\n' +
+        'If this was you, wait and try again, or reset your password from the sign-in page. If it was not you, choose a new password and turn on two-step verification.',
+    );
+    for (const part of [rendered.subject, rendered.text, rendered.html]) {
+      expect(part).not.toMatch(/DMARC Harbor|dmarcharbor/i);
     }
   });
 

@@ -1,7 +1,7 @@
 import { betterAuth } from 'better-auth';
 import { prismaAdapter } from '@better-auth/prisma-adapter';
 import { organization, twoFactor } from 'better-auth/plugins';
-import { createAuthMiddleware, APIError } from 'better-auth/api';
+import { createAuthMiddleware, APIError, getSessionFromCtx } from 'better-auth/api';
 import { env } from '../config/env.js';
 import { prisma } from '../database/prisma.js';
 import { recordAuditEvent } from '../services/audit.service.js';
@@ -12,13 +12,26 @@ import { oneLine } from '../email/sender.js';
 import {
   emailVerificationEmail,
   existingAccountSignUpEmail,
+  passwordChangedEmail,
   passwordResetEmail,
   securityNoticeEmail,
+  signInPausedEmail,
   workspaceInvitationEmail,
   type AuthEmailAgency,
 } from '../email/templates.js';
 import { agencyAuthLink, type AuthLink } from './agency-auth-link.js';
 import { trustedOriginsFor } from './agency-origin.js';
+import { passwordBreachCount } from './password-breach.js';
+import {
+  SIGN_IN_FAILURE_LIMIT,
+  SIGN_IN_FAILURE_WINDOW_MS,
+  SIGN_IN_PAUSE_MS,
+  clearSignInFailures,
+  recordSignInFailure,
+  signInPause,
+} from './sign-in-brake.js';
+import { socialProvidersFor } from './social-providers.js';
+import { claimTotpCode, claimableCode, releaseTotpCode } from './totp-replay.js';
 
 /**
  * Session creation is denied by default for a user with two-step verification.
@@ -240,28 +253,101 @@ async function handleTwoFactorAfter(ctx: MfaHookContext): Promise<void> {
   }
 }
 
-const socialProviders = {
-  ...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
-    ? {
-        google: {
-          clientId: env.GOOGLE_CLIENT_ID,
-          clientSecret: env.GOOGLE_CLIENT_SECRET,
-          prompt: 'select_account' as const,
-          requireEmailVerification: true,
-        },
-      }
-    : {}),
-  ...(env.MICROSOFT_CLIENT_ID && env.MICROSOFT_CLIENT_SECRET
-    ? {
-        microsoft: {
-          clientId: env.MICROSOFT_CLIENT_ID,
-          clientSecret: env.MICROSOFT_CLIENT_SECRET,
-          tenantId: env.MICROSOFT_TENANT_ID,
-          prompt: 'select_account' as const,
-        },
-      }
-    : {}),
-};
+const socialProviders = socialProvidersFor(env);
+
+/** The code on a Better Auth error that reached an after hook as `returned`, if it has one. */
+function apiErrorCode(returned: unknown): string | null {
+  if (!(returned instanceof Error)) return null;
+  const code = (returned as { body?: { code?: unknown } }).body?.code;
+  return typeof code === 'string' ? code : null;
+}
+
+type AuthHookContext = Parameters<Parameters<typeof createAuthMiddleware>[0]>[0];
+
+/**
+ * Who a two-factor verification is for: the signed-in user while setting it
+ * up, or, during sign-in, the user the two-factor challenge cookie names. The
+ * same lookup the plugin makes (verify-two-factor.mjs), without consuming the
+ * challenge.
+ */
+async function twoFactorUserId(ctx: AuthHookContext): Promise<string | null> {
+  try {
+    const session = await getSessionFromCtx(ctx);
+    if (session?.user?.id) return session.user.id;
+    const cookie = ctx.context.createAuthCookie('two_factor');
+    const signed = await ctx.getSignedCookie(cookie.name, ctx.context.secret);
+    if (!signed) return null;
+    const challenge = await ctx.context.internalAdapter.findVerificationValue(signed);
+    return challenge?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Refuses a new password that appears in a known breach (password-breach.ts).
+ * A password the service could not check is allowed: the length rule still
+ * applies, and an outage there must not stop anyone getting into an account.
+ */
+async function assertPasswordNotBreached(password: unknown): Promise<void> {
+  if (!env.PASSWORD_BREACH_CHECK || typeof password !== 'string' || password === '') {
+    return;
+  }
+  const count = await passwordBreachCount(password);
+  if (count !== null && count > 0) {
+    throw new APIError('BAD_REQUEST', {
+      code: 'PASSWORD_COMPROMISED',
+      message: 'This password appears in known data breaches, so it is easy to guess. Choose a different one.',
+    });
+  }
+}
+
+const minutes = (ms: number) => Math.round(ms / 60_000);
+
+/**
+ * A wrong password for an address (sign-in-brake.ts). Counted for any address;
+ * recorded and reported only when an account has it, so an address nobody
+ * owns leaves nothing in the audit trail and sends no mail.
+ */
+async function onWrongPassword(email: string): Promise<void> {
+  const failure = await recordSignInFailure(email);
+  const user = await prisma.user
+    .findUnique({ where: { email: email.trim().toLowerCase() }, select: { id: true, email: true } })
+    .catch(() => null);
+  if (!user) return;
+
+  try {
+    await recordAuditEvent({
+      action: 'SIGN_IN_FAILED',
+      outcome: 'DENIED',
+      targetType: 'user',
+      targetId: user.id,
+      detail: { reason: 'wrong password', ...(failure ? { failures: failure.failures } : {}) },
+    });
+    if (failure?.pausedNow) {
+      await recordAuditEvent({
+        action: 'SIGN_IN_PAUSED',
+        outcome: 'DENIED',
+        targetType: 'user',
+        targetId: user.id,
+        detail: { failures: failure.failures, pauseMinutes: minutes(SIGN_IN_PAUSE_MS) },
+      });
+    }
+  } catch (error) {
+    console.error('Failed to record a failed sign-in', error);
+  }
+
+  if (failure?.pausedNow) {
+    queueAuthEmail({
+      to: user.email,
+      ...signInPausedEmail({
+        attempts: SIGN_IN_FAILURE_LIMIT,
+        windowMinutes: minutes(SIGN_IN_FAILURE_WINDOW_MS),
+        pauseMinutes: minutes(SIGN_IN_PAUSE_MS),
+      }),
+    });
+  }
+}
 
 export const auth = betterAuth({
   appName: 'DMARC Harbor',
@@ -284,6 +370,17 @@ export const auth = betterAuth({
    * makes (auth.api.createOrganization) is not an HTTP request and still works.
    */
   disabledPaths: ['/organization/create'],
+  /**
+   * Where a failed Google or Microsoft sign-in lands when Better Auth has no
+   * error address of its own for it: a state that expired, was already used
+   * (the browser's back button), or belongs to another browser. Without this
+   * it rendered the library's own page on the API host ("Something went
+   * wrong, CODE: state_mismatch") with no way back. The sign-in page reads the
+   * `error` code and says what happened (apps/web/lib/sign-in-errors.ts).
+   */
+  onAPIError: {
+    errorURL: `${env.APP_URL.replace(/\/+$/, '')}/sign-in`,
+  },
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,
@@ -292,6 +389,26 @@ export const auth = betterAuth({
     requireEmailVerification: true,
     revokeSessionsOnPasswordReset: true,
     resetPasswordTokenExpiresIn: 60 * 60,
+    /**
+     * After a reset link set a new password: the audit entry, the confirmation
+     * to the owner, and the end of any sign-in pause, since whoever reset it
+     * has just proved they hold the mailbox.
+     */
+    onPasswordReset: async ({ user }) => {
+      await clearSignInFailures(user.email);
+      try {
+        await recordAuditEvent({
+          actorUserId: user.id,
+          action: 'PASSWORD_RESET',
+          targetType: 'user',
+          targetId: user.id,
+          detail: { revokedSessions: true },
+        });
+      } catch (error) {
+        console.error('Failed to record password reset audit event', error);
+      }
+      queueAuthEmail({ to: user.email, ...passwordChangedEmail({ via: 'reset' }) });
+    },
     /**
      * A reset started on an agency's own domain is answered in the agency's
      * name, with the link on that domain (agency-auth-link.ts says when).
@@ -372,10 +489,57 @@ export const auth = betterAuth({
   },
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
+      /**
+       * The per-account brake (sign-in-brake.ts): refused before the password
+       * is checked, so a paused address answers the same whether or not the
+       * password is right, and whether or not an account has it.
+       */
+      if (ctx.path === '/sign-in/email') {
+        const email = (ctx.body as { email?: unknown } | undefined)?.email;
+        if (typeof email === 'string' && email.trim() !== '') {
+          const pause = await signInPause(email);
+          if (pause.paused) {
+            const wait = Math.max(1, Math.ceil(pause.retryAfterSeconds / 60));
+            throw new APIError(
+              'TOO_MANY_REQUESTS',
+              {
+                code: 'SIGN_IN_PAUSED',
+                message: `Too many wrong passwords for this account, so password sign-in is paused for about ${wait} minute${wait === 1 ? '' : 's'}. Reset your password to get in now.`,
+              },
+              { 'Retry-After': String(pause.retryAfterSeconds) },
+            );
+          }
+        }
+        return;
+      }
+
+      if (ctx.path === '/sign-up/email') {
+        await assertPasswordNotBreached((ctx.body as { password?: unknown } | undefined)?.password);
+        return;
+      }
+
+      if (ctx.path === '/reset-password') {
+        await assertPasswordNotBreached((ctx.body as { newPassword?: unknown } | undefined)?.newPassword);
+        return;
+      }
+
       if (ctx.path === '/two-factor/verify-totp' || ctx.path === '/two-factor/verify-backup-code') {
-        const body = ctx.body as { trustDevice?: unknown } | undefined;
+        const body = ctx.body as { trustDevice?: unknown; code?: unknown } | undefined;
         if (body && typeof body === 'object') {
           body.trustDevice = false;
+        }
+
+        // One use per code (totp-replay.ts). Claimed before the plugin checks
+        // it, so two requests racing with the same code cannot both pass.
+        const code = ctx.path === '/two-factor/verify-totp' ? claimableCode(body?.code) : null;
+        if (code) {
+          const userId = await twoFactorUserId(ctx);
+          if (userId && !(await claimTotpCode(userId, code))) {
+            throw new APIError('UNAUTHORIZED', {
+              code: 'TOTP_CODE_REUSED',
+              message: 'That code was already used. Wait for the next code in your authenticator app.',
+            });
+          }
         }
         return;
       }
@@ -395,10 +559,35 @@ export const auth = betterAuth({
         });
       }
 
+      await assertPasswordNotBreached(body.newPassword);
+
       body.revokeOtherSessions = true;
     }),
     after: createAuthMiddleware(async (ctx) => {
-      if (ctx.path === '/change-password' && ctx.context.returned) {
+      const returned = ctx.context.returned;
+
+      if (ctx.path === '/sign-in/email') {
+        const email = (ctx.body as { email?: unknown } | undefined)?.email;
+        if (typeof email === 'string' && email.trim() !== '') {
+          if (apiErrorCode(returned) === 'INVALID_EMAIL_OR_PASSWORD') {
+            await onWrongPassword(email);
+          } else if (returned && !(returned instanceof Error)) {
+            // The password was right (a session, or the two-step challenge).
+            await clearSignInFailures(email);
+          }
+        }
+      }
+
+      // A refused code frees its claim, so the right code typed next still works.
+      if (ctx.path === '/two-factor/verify-totp' && returned instanceof Error && apiErrorCode(returned) !== 'TOTP_CODE_REUSED') {
+        const code = claimableCode((ctx.body as { code?: unknown } | undefined)?.code);
+        const userId = code ? await twoFactorUserId(ctx) : null;
+        if (code && userId) {
+          await releaseTotpCode(userId, code);
+        }
+      }
+
+      if (ctx.path === '/change-password' && returned && !(returned instanceof Error)) {
         const newSession = ctx.context.newSession;
         if (newSession?.user?.id) {
           try {
@@ -412,6 +601,7 @@ export const auth = betterAuth({
           } catch (error) {
             console.error('Failed to record password change audit event', error);
           }
+          queueAuthEmail({ to: newSession.user.email, ...passwordChangedEmail({ via: 'change' }) });
         }
       }
 

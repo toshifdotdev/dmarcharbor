@@ -37,8 +37,11 @@ export function InvitationsForYou({ explainLapsed = false }: { explainLapsed?: b
       if (!isLive()) return;
       if (!res.ok || !Array.isArray(res.data)) {
         // A 401 is a session that ended; the page's own sign-in redirect
-        // handles that, and "could not check" would be the wrong cause.
-        setReadFailed(res.ok || res.status !== 401);
+        // handles that, and "could not check" would be the wrong cause. So is
+        // Better Auth's refusal for an address that is not confirmed yet: the
+        // invitations are fine, and /welcome says to confirm the address.
+        const unconfirmed = !res.ok && res.error?.code === "EMAIL_VERIFICATION_REQUIRED_FOR_INVITATION";
+        setReadFailed(res.ok || (res.status !== 401 && !unconfirmed));
         return;
       }
       setReadFailed(false);

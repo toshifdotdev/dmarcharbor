@@ -157,6 +157,9 @@ const ACTION_SENTENCES: Record<AuditAction, string> = {
   CLIENT_UPDATED: "Client renamed",
   DOMAIN_MOVED: "Domain moved to another client",
   WORKSPACE_UPDATED: "Workspace renamed",
+  PASSWORD_RESET: "New password set with a reset link",
+  SIGN_IN_FAILED: "Sign-in refused: wrong password",
+  SIGN_IN_PAUSED: "Password sign-in paused after too many wrong passwords",
 };
 
 /**

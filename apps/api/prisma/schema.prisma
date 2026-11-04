@@ -2697,6 +2697,12 @@ enum AuditAction {
   /// The email provider first reported the agency's own sending domain as
   /// verified, so client mail started leaving from it.
   SENDING_DOMAIN_VERIFIED
+  /// A password was set with a reset link; every session on the account ended.
+  PASSWORD_RESET
+  /// A wrong password for an existing account. User-level, outcome DENIED.
+  SIGN_IN_FAILED
+  /// Password sign-in for an account paused after too many wrong passwords.
+  SIGN_IN_PAUSED
 }
 
 enum AuditOutcome {
@@ -2719,6 +2725,9 @@ enum EmailDeliveryState {
   /// vanished is the failure mode this table exists to remove, and a dead letter row
   /// is at least something an operator can see and resend.
   DEAD
+  /// Never sent: the recipient is on a reserved domain (.test, .example, .invalid,
+  /// example.com and the like), where no mailbox can exist. Final on the first attempt.
+  SKIPPED
 }
 
 /// Public network facts for a sending IP. Not tenant data: the same address

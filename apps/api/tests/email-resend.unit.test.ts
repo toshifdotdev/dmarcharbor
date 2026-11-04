@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { env } from '../src/config/env.js';
 import { isUnverifiedSenderDomain, sendEmail } from '../src/email/email.service.js';
+import { UndeliverableRecipientError } from '../src/email/reserved-recipient.js';
 import { SendingDomainProviderError, resendSendingDomainProvider } from '../src/services/branding/sending-domain-provider.js';
 
 /**
@@ -68,8 +69,10 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+// A real domain on purpose: mail to a reserved one never reaches the provider
+// (the last test in the first block). The SDK is mocked, so nothing is sent.
 const message = {
-  to: 'it@pellowyn.example',
+  to: 'dmarcharbor+pellowyn@gmail.com',
   subject: 'Pellowyn Dental email authentication report, November 2026',
   html: '<p>Report</p>',
   text: 'Report',
@@ -165,6 +168,15 @@ describe('sending through Resend', () => {
     resend.sendAnswers.push(unverified);
     await expect(sendEmail(message)).rejects.toThrow('is not verified');
     expect(resend.sends).toHaveLength(2);
+  });
+
+  it('never hands a reserved-domain recipient to Resend', async () => {
+    for (const to of ['toshif@dmarcharbor.test', 'it@pellowyn.example', 'x@verify.invalid', 'owner@example.com']) {
+      const failure = await sendEmail({ ...message, to }).catch((error: unknown) => error);
+      expect(failure, to).toBeInstanceOf(UndeliverableRecipientError);
+    }
+    expect(resend.sends).toHaveLength(0);
+    expect(resend.keys).toHaveLength(0);
   });
 
   it('recognises the unverified-domain refusal by its words', () => {

@@ -433,8 +433,16 @@ data at all. Each plan has a team size, and open invitations count against it.
 
 **How do you sign me in?**
 Email and password, or Google or Microsoft. Two-step verification with an
-authenticator app is available on every plan, and a workspace can require it of
-everyone. You can see and end every session from your account.
+authenticator app is available on every plan, and each code works once. Turning
+it on turns off Google and Microsoft sign-in for that account, because we cannot
+see whether they asked for a second step; you sign in with your email, password
+and code instead. A workspace can require two-step verification of everyone,
+and members who sign in with Google or Microsoft then set a password and an
+authenticator app. After 10 wrong passwords in 15 minutes, password sign-in for
+that account pauses for 15 minutes and we email you; a password reset gets you
+in straight away. We email you whenever your password changes. You can see and
+end every signed-in device under Settings, Signed-in devices, or from the
+account menu.
 
 **Do you support single sign-on?**
 Yes, on Admiralty. SAML and OIDC are both supported, with just-in-time provisioning

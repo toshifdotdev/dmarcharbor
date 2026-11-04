@@ -5005,7 +5005,9 @@ await fillInput('input[type="password"]', mfaPassword);
 await evalJs(`(() => { const b = document.querySelector('[data-testid="auth-submit"]'); if (b && !b.disabled) b.click(); return true; })()`);
 const codePrompt = await waitForEval(`!!document.querySelector('[data-testid="mfa-code"]')`, (v) => v === true, 30000);
 await waitForHydration();
-await fillInput('[data-testid="mfa-code"]', mfaCode(setupKey));
+// The next 30-second code, which the API still accepts: each code works once,
+// so the one that just turned two-step on is refused as already used.
+await fillInput('[data-testid="mfa-code"]', mfaCode(setupKey, Date.now() + 30_000));
 const submitted = await clickMfaTestId("mfa-submit");
 const mfaSignedIn = await waitForEval(
   `(() => ({ path: location.pathname, prompt: !!document.querySelector('[data-testid="mfa-code"]') }))()`,

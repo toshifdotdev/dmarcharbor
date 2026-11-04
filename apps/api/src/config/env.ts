@@ -295,6 +295,14 @@ const envSchema = z.object({
    * otherwise trip it for reasons that have nothing to do with the limit.
    */
   AUTH_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(10_000).default(20),
+  /**
+   * Checks every new password (sign-up, reset, change) against Have I Been
+   * Pwned's range API and refuses one found in a breach (auth/password-breach.ts).
+   * Only five characters of the password's SHA-1 leave the process. Fails open
+   * when the service cannot be reached. Off in the integration suite, which
+   * signs up hundreds of accounts and must not depend on a third party.
+   */
+  PASSWORD_BREACH_CHECK: z.enum(['true', 'false']).default('true').transform((value) => value === 'true'),
   /** Authenticated requests allowed per API key per minute. */
   API_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(100_000).default(300),
   /** Unauthenticated report share views allowed per client per minute. */

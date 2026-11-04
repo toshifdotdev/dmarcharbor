@@ -35,6 +35,9 @@ const MESSAGES: Record<string, string> = {
   TOO_MANY_ATTEMPTS_REQUEST_NEW_CODE: "This sign-in timed out or had too many attempts. Sign in again.",
   INVALID_TWO_FACTOR_COOKIE: "This sign-in timed out or had too many attempts. Sign in again.",
   ACCOUNT_TEMPORARILY_LOCKED: "Too many wrong codes. Wait 15 minutes, or use a backup code.",
+  TOTP_CODE_REUSED: "That code was already used. Wait for the next code in your authenticator app.",
+  PASSWORD_COMPROMISED:
+    "This password appears in known data breaches, so it is easy to guess. Choose a different one.",
   SESSION_NOT_FRESH: "For safety, sign out and sign in again before turning this off.",
   INVALID_PASSWORD: "That password is not right.",
 };
@@ -57,6 +60,11 @@ function messageFor(
   retryAfterSeconds: number | null = null,
 ): string {
   if (code && MESSAGES[code]) return MESSAGES[code];
+  // The per-account brake (the API's sign-in-brake.ts): a cooldown on this
+  // address, with its length in Retry-After, and a way in that skips it.
+  if (code === "SIGN_IN_PAUSED") {
+    return `Too many wrong passwords for this account, so password sign-in is paused. ${retryAfterText(retryAfterSeconds)} Or reset your password to get in now.`;
+  }
   // A rate limit is a wait, never a refusal: say so, and how long when the
   // limiter said (the API sends Retry-After, Better Auth X-Retry-After).
   if (status === 429) return `Too many attempts. ${retryAfterText(retryAfterSeconds)}`;

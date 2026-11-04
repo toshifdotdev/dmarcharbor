@@ -228,6 +228,36 @@ async incrementWithWindow(key: string, resetAtMs: number): Promise<{ totalHits: 
     return row.hits;
   }
 
+  /**
+   * The live bucket for a key, with the moment its window closes, or null when
+   * there is none. For callers outside express-rate-limit that need to say how
+   * long a wait is (the per-account sign-in brake), which `currentHits` cannot.
+   */
+  async peek(key: string): Promise<{ hits: number; resetAt: Date } | null> {
+    const rows = await prisma.$queryRawUnsafe<BucketRow[]>(
+      'SELECT "hits", "resetAt" FROM "rate_limit_bucket" WHERE "key" = $1 AND "limiter" = $2',
+      key,
+      this.limiterName,
+    );
+
+    const row = rows[0];
+    if (!row || row.resetAt.getTime() <= Date.now()) {
+      return null;
+    }
+
+    return { hits: row.hits, resetAt: row.resetAt };
+  }
+
+  /** Moves a live bucket's window end, so a pause can last its full length from the moment it starts. */
+  async extendTo(key: string, resetAt: Date): Promise<void> {
+    await prisma.$executeRawUnsafe(
+      'UPDATE "rate_limit_bucket" SET "resetAt" = $3 WHERE "key" = $1 AND "limiter" = $2',
+      key,
+      this.limiterName,
+      resetAt,
+    );
+  }
+
   /** Removes one bucket entirely. */
   async resetKey(key: string): Promise<void> {
     await prisma.$executeRawUnsafe(

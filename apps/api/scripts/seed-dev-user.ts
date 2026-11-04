@@ -35,7 +35,10 @@ import { setOrganizationPlan } from '../src/services/entitlements/entitlement.se
 import { recordDpaAcceptance } from '../src/services/dpa-acceptance.service.js';
 import { domainSlug } from '../src/services/domain-slug.js';
 
-const EMAIL = process.env.SEED_EMAIL ?? 'owner@dmarcharbor.test';
+// A real inbox (plus addressing on the team's Gmail), not a reserved domain:
+// the local schedulers send the seeded owner real alerts through Resend, and
+// mail to a reserved domain is never sent (email/reserved-recipient.ts).
+const EMAIL = process.env.SEED_EMAIL ?? 'dmarcharbor+toshif@gmail.com';
 const PASSWORD = process.env.SEED_PASSWORD ?? 'Harbor-Dev-Password-2026';
 const NAME = 'Dev Agency Owner';
 const WORKSPACE = 'Harbor Dev Agency';

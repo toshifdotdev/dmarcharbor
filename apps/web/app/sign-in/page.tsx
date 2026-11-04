@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getSessionUserId } from "@/lib/api";
 import { readHostBrand } from "@/lib/host-brand";
 import { safeNext } from "@/lib/session";
+import { signInErrorMessage } from "@/lib/sign-in-errors";
 import { AuthFrame } from "@/components/harbor/auth-frame";
 import { AuthPanel } from "@/components/harbor/auth-panel";
 
@@ -18,20 +19,6 @@ import { AuthPanel } from "@/components/harbor/auth-panel";
  * only (the panel's `portal` mode explains why).
  */
 
-const URL_ERRORS: Record<string, string> = {
-  social: "That sign-in did not complete with the provider. Try again, or sign in with email.",
-  INVALID_TOKEN: "That reset link is not valid any more: it was used already or it is over an hour old. Ask for a new one.",
-  unable_to_create_session:
-    "This account uses two-step verification. Sign in with your email, password and authenticator code.",
-  // From /welcome, where Better Auth returns a verification link that failed.
-  // Signing in with an unverified address sends a fresh link, so that is the
-  // next step either way.
-  verify_expired:
-    "That verification link has expired. Sign in with your email and password, and if the address still needs verifying we will send a fresh link.",
-  verify_invalid:
-    "That verification link did not work: it may have been used already or copied incompletely. Sign in, and if the address still needs verifying we will send a fresh link.",
-};
-
 export default async function SignInPage({
   searchParams,
 }: {
@@ -40,13 +27,9 @@ export default async function SignInPage({
   const { next: rawNext, token, error } = await searchParams;
   const next = safeNext(rawNext);
   // Better Auth appends its error code to the errorCallbackURL, so a provider
-  // failure can carry two `error` values. The last one is the actual outcome;
-  // taking the first would always read the placeholder "social".
+  // failure can carry two `error` values; sign-in-errors.ts reads the last.
   const errorCode = Array.isArray(error) ? error.at(-1) : error;
-  const errorMessage = errorCode
-    ? (URL_ERRORS[errorCode] ??
-      (Array.isArray(error) && error.includes("social") ? URL_ERRORS.social : "That did not work. Try again."))
-    : null;
+  const errorMessage = signInErrorMessage(error);
 
   const brand = await readHostBrand();
   const portal = brand.state === "verified" ? { agency: brand.workspaceName } : null;
