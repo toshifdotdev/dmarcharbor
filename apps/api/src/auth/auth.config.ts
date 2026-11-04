@@ -590,21 +590,26 @@ export const auth = betterAuth({
       }
 
       if (ctx.path === '/change-password' && returned && !(returned instanceof Error)) {
-        const newSession = ctx.context.newSession;
+        // Better Auth makes a new session only when it signs the others out;
+        // keeping them, it leaves the current one, so the user comes from
+        // whichever exists. Reading the new one alone lost the email and the
+        // audit entry whenever "Sign out my other devices" was unticked.
+        const rotated = ctx.context.newSession;
+        const user = rotated?.user ?? ctx.context.session?.user;
         const signedOutOthers = (ctx.body as { revokeOtherSessions?: unknown } | undefined)?.revokeOtherSessions !== false;
-        if (newSession?.user?.id) {
+        if (user?.id) {
           try {
             await recordAuditEvent({
-              actorUserId: newSession.user.id,
+              actorUserId: user.id,
               action: 'PASSWORD_CHANGED',
               targetType: 'user',
-              targetId: newSession.user.id,
-              detail: { revokedOtherSessions: signedOutOthers, sessionRotated: true },
+              targetId: user.id,
+              detail: { revokedOtherSessions: signedOutOthers, sessionRotated: Boolean(rotated) },
             });
           } catch (error) {
             console.error('Failed to record password change audit event', error);
           }
-          queueAuthEmail({ to: newSession.user.email, ...passwordChangedEmail({ via: 'change', signedOutOthers }) });
+          queueAuthEmail({ to: user.email, ...passwordChangedEmail({ via: 'change', signedOutOthers }) });
         }
       }
 

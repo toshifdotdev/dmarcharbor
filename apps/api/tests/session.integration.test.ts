@@ -152,15 +152,17 @@ describe('session management', () => {
     expect((await prisma.session.count({ where: { user: { email } } }))).toBe(0);
   });
 
-  it('changes the password, rotates the current session, and evicts every other device', async () => {
+  it('changes the password, rotates the current session, and evicts every other device by default', async () => {
     const { email } = await createUser();
     const first = await signIn(email);
     const second = await signIn(email);
 
+    // Left out, as a client that never heard of the option sends it. An
+    // explicit false keeps the others signed in: Account security's "Sign out
+    // my other devices" box (auth-hardening.integration.test.ts covers it).
     const response = await first.post('/api/auth/change-password').send({
       currentPassword: password,
       newPassword: 'a-much-better-password-2026',
-      revokeOtherSessions: false,
     });
 
     expect(response.status).toBe(200);
