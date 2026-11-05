@@ -212,6 +212,51 @@ describe('the ownership transfer preview', () => {
     expect(answer.body.refusal).toMatchObject({ status: 402, code: 'NEW_OWNER_LIMIT_REACHED', details: { quota: 'workspace' } });
   });
 
+  it("refuses a team bigger than the new owner's plan, counting open invitations, and says the two ways out", async () => {
+    const owner = await workspace('preview-team');
+    await grantPlan(owner.organizationId, 'HARBOR');
+    const admin = await joined(owner, 'preview-team-admin');
+    await joined(owner, 'preview-team-analyst', 'analyst');
+    await joined(owner, 'preview-team-viewer', 'viewer');
+    const open = await owner.agent
+      .post('/api/auth/organization/invite-member')
+      .send({ email: `waiting-${fixtureId}@example.com`, role: 'viewer', organizationId: owner.organizationId });
+    expect(open.status).toBe(200);
+
+    // Four members and one open invitation, handed to an account on Mooring (two).
+    const answer = await preview(owner.agent, owner.organizationId, admin.memberId);
+    expect(answer.status).toBe(200);
+    expect(answer.body.plan).toBe('MOORING');
+    expect(answer.body.refusal).toMatchObject({
+      status: 402,
+      code: 'NEW_OWNER_LIMIT_REACHED',
+      details: { quota: 'member', members: 4, pending: 1, limit: 2, wouldHave: 5, planLabel: 'Mooring' },
+    });
+    expect(answer.body.refusal.message).toBe(
+      'This workspace has 4 members and 1 open invitation; Mooring allows 2. Either preview-team-admin upgrades their own account first, or remove members and withdraw invitations until the team fits.',
+    );
+
+    const refused = await owner.agent
+      .post(`/api/workspaces/${owner.organizationId}/ownership/transfer`)
+      .send({ newOwnerMemberId: admin.memberId, password });
+    expect(refused.status).toBe(402);
+    expect(refused.body.error).toMatchObject({ code: 'NEW_OWNER_LIMIT_REACHED', quota: 'member', members: 4, pending: 1 });
+    expect((await prisma.member.findUniqueOrThrow({ where: { id: admin.memberId } })).role).toBe('admin');
+
+    // The new owner upgrading their own account first is the other way out.
+    await prisma.user.update({ where: { id: admin.userId }, data: { plan: 'HARBOR' } });
+    expect((await preview(owner.agent, owner.organizationId, admin.memberId)).body.refusal).toBeNull();
+  });
+
+  it('allows a lower plan whose team still fits: stopped features do not refuse it', async () => {
+    const owner = await workspace('preview-fits');
+    await grantPlan(owner.organizationId, 'HARBOR');
+    const admin = await joined(owner, 'preview-fits-admin');
+
+    const answer = await preview(owner.agent, owner.organizationId, admin.memberId);
+    expect(answer.body).toMatchObject({ currentPlan: 'HARBOR', plan: 'MOORING', refusal: null });
+  });
+
   it('is for the owner only', async () => {
     const owner = await workspace('preview-owner-only');
     const admin = await joined(owner, 'preview-owner-only-admin');

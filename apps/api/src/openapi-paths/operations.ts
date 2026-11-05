@@ -269,7 +269,7 @@ export const operationsPaths = {
       description: [
         'Owner only (organization delete). A workspace has one owner; the plugin route update-member-role refuses the owner role with OWNERSHIP_TRANSFER_REQUIRED, so this is the only way ownership moves.',
         'Confirm with password, or with code (a six-digit code from the owner authenticator, spent once). In one transaction the member becomes owner and the previous owner becomes admin. Both are emailed, and it is recorded as OWNERSHIP_TRANSFERRED.',
-        'The workspace then follows the new owner plan and counts toward their account. Refused with 402 NEW_OWNER_LIMIT_REACHED (quota workspace, client or activeDomain) when that would put their account over a limit, 409 SUBSCRIPTION_STILL_ACTIVE while the workspace carries a billed subscription, 409 EMAIL_NOT_VERIFIED when the new owner has not confirmed their address, 401 CONFIRMATION_FAILED for a wrong password or code, and 429 after ten attempts in 15 minutes.',
+        'The workspace then follows the new owner plan and counts toward their account. Refused with 402 NEW_OWNER_LIMIT_REACHED (quota workspace, client, activeDomain, or member, where members and open invitations together exceed the new owner plan team size; member also carries members and pending) when that would put their account over a limit, 409 SUBSCRIPTION_STILL_ACTIVE while the workspace carries a billed subscription, 409 EMAIL_NOT_VERIFIED when the new owner has not confirmed their address, 401 CONFIRMATION_FAILED for a wrong password or code, and 429 after ten attempts in 15 minutes.',
       ].join(' '),
       parameters: [orgParam],
       requestBody: {

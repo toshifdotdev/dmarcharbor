@@ -279,8 +279,9 @@ Browser routes under `/api` only; `/api/v1` is unchanged.
 - **`POST /api/workspaces/{id}/ownership/transfer`**, owner only, body
   `{ "newOwnerMemberId", "password" }` or `{ "newOwnerMemberId", "code" }`. The member
   becomes owner and the caller admin, in one transaction; both are emailed. Refused
-  with 402 `NEW_OWNER_LIMIT_REACHED` (`quota` `workspace`, `client` or `activeDomain`,
-  with `limit` and `wouldHave`) when the new owner's account has no room, 409
+  with 402 `NEW_OWNER_LIMIT_REACHED` (`quota` `workspace`, `client`, `activeDomain` or
+  `member`, with `limit` and `wouldHave`; `member` counts members plus open invitations
+  and also carries `members` and `pending`) when the new owner's account has no room, 409
   `SUBSCRIPTION_STILL_ACTIVE` while the workspace carries a billed subscription, 409
   `EMAIL_NOT_VERIFIED`, 401 `CONFIRMATION_FAILED`, and 429 after ten attempts in 15
   minutes.

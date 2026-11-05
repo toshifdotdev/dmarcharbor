@@ -47,7 +47,8 @@ second owner. The owner can hand the workspace to another member under Members: 
 confirm with their password or an authenticator code, the member becomes the owner
 and the previous owner becomes an admin in one step, both are emailed, and it is
 recorded in the audit trail. It is refused if the new owner's plan has no room for
-another workspace, or for the workspace's clients and active domains.
+another workspace, for the workspace's clients and active domains, or for its team
+(members plus open invitations).
 
 Permissions are individual statements, not a single flag, so "can view reports"
 and "can see who failed" are genuinely separate decisions. Being able to read

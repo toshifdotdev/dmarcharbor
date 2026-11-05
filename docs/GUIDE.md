@@ -120,7 +120,7 @@ two days; an expired one moves to its own list, frees its place, and can be sent
 again. The workspace has one owner, and the owner can hand it to a member under
 Transfer ownership, confirming with their password or an authenticator code. The new
 owner's plan then applies, and the transfer is refused if their plan has no room for
-the workspace, its clients or its active domains.
+the workspace, its clients, its active domains or its team, open invitations included.
 
 ## 7. Give your client a view
 

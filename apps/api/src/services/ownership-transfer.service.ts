@@ -177,7 +177,13 @@ async function assertTransferable({ organization, target }: TransferParties, now
     );
   }
 
-  await assertWithinNewOwnersLimits(target.userId, organization.id, target.user.plan, now);
+  await assertWithinNewOwnersLimits(
+    target.userId,
+    organization.id,
+    target.user.plan,
+    now,
+    target.user.name?.trim() || target.user.email,
+  );
 }
 
 export async function transferOwnership(input: TransferInput): Promise<TransferResult> {
@@ -264,6 +270,8 @@ export async function assertWithinNewOwnersLimits(
   organizationId: string,
   plan: PlanTier,
   now = new Date(),
+  /** Named in the team refusal, which tells the owner who has to upgrade. */
+  newOwnerName: string | null = null,
 ): Promise<void> {
   const definition = planCatalog[plan];
   const label = planLabel(plan);
@@ -289,6 +297,29 @@ export async function assertWithinNewOwnersLimits(
   if (domains > definition.maxActiveDomains) {
     throw limitRefusal('activeDomain', label, definition.maxActiveDomains, domains);
   }
+
+  // The team, counted inside this workspace the way an invitation and a
+  // downgrade count it: members plus invitations still open. Everyone stays
+  // on the team, the previous owner included, so all of them count.
+  const [members, pending] = await Promise.all([
+    prisma.member.count({ where: { organizationId } }),
+    prisma.invitation.count({ where: { organizationId, status: 'pending', expiresAt: { gt: now } } }),
+  ]);
+  if (members + pending > definition.maxMembers) {
+    throw teamRefusal(label, definition.maxMembers, members, pending, newOwnerName);
+  }
+}
+
+function teamRefusal(label: string, limit: number, members: number, pending: number, newOwnerName: string | null): OwnershipTransferError {
+  const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? '' : 's'}`;
+  const team = pending > 0 ? `${plural(members, 'member')} and ${plural(pending, 'open invitation')}` : plural(members, 'member');
+  const who = newOwnerName ?? 'the new owner';
+  return new OwnershipTransferError(
+    402,
+    'NEW_OWNER_LIMIT_REACHED',
+    `This workspace has ${team}; ${label} allows ${limit}. Either ${who} upgrades their own account first, or remove members${pending > 0 ? ' and withdraw invitations' : ''} until the team fits.`,
+    { quota: 'member', limit, wouldHave: members + pending, members, pending, planLabel: label },
+  );
 }
 
 const quotaNoun: Record<'workspace' | 'client' | 'activeDomain', [string, string]> = {
