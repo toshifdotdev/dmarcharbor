@@ -160,10 +160,18 @@ export async function ingestTlsReport(input: {
   }
 }
 
-export async function ingestTlsReportByPolicyDomain(json: string): Promise<TlsMailboxOutcome> {
+/** As ingestDmarcReportByPolicyDomain: scope keeps a workspace's own mailbox to its own domains. */
+export async function ingestTlsReportByPolicyDomain(
+  json: string,
+  scope?: { organizationId: string },
+): Promise<TlsMailboxOutcome> {
   const parsed = parseTlsReport(json);
   const domains = await prisma.domain.findMany({
-    where: { name: parsed.policyDomain, status: 'VERIFIED' },
+    where: {
+      name: parsed.policyDomain,
+      status: 'VERIFIED',
+      ...(scope ? { client: { organizationId: scope.organizationId } } : {}),
+    },
     select: { id: true, client: { select: { organizationId: true } } },
   });
   if (domains.length === 0) {

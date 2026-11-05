@@ -326,9 +326,14 @@ affects whether INR customers can pay at all.
 Last because it is the only step that needs the domain, the DNS and a decision
 you have not made yet.
 
-- Buy the Migadu Micro mailbox, about $19/year. There is no free tier worth
-  using for this.
-- Create one shared mailbox, for example `agg@reports.dmarcharbor.com`.
+- The report address needs a mailbox that holds mail while the API is down,
+  read over IMAP with `REPORT_MAILBOX_HOST`, `REPORT_MAILBOX_USERNAME` and
+  `REPORT_MAILBOX_PASSWORD` (`REPORT_MAILBOX_PORT`, default 993). Each report
+  goes to the workspace holding the verified domain it names. During testing
+  this is Cloudflare Email Routing forwarding `dmarc-reports@dmarcharbor.com`
+  to `dmarcharbor.reports@gmail.com`. For launch, decide between keeping that
+  (free, but a consumer Gmail holds customer report data) and a business
+  mailbox such as Migadu Micro, about $19/year, on `reports.dmarcharbor.com`.
 - Point `REPORT_AGGREGATE_ADDRESS` and `REPORT_FORENSIC_ADDRESS` at it.
 - Set `REPORT_ADDRESS_SUBADDRESSING=plus`. The guide and FAQ promise each
   client its own report address (`agg+<token>@reports.dmarcharbor.com`); with

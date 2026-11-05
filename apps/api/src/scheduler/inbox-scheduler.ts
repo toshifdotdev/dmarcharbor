@@ -1,6 +1,7 @@
 import { env } from '../config/env.js';
 import { prisma } from '../database/prisma.js';
 import { pollInbox, recordInboxFailure } from '../services/report/imap-inbox.service.js';
+import { pollPlatformMailbox } from '../services/report/platform-mailbox.service.js';
 import { resolveEntitlements } from '../services/entitlements/entitlement.service.js';
 import { withJobLease } from './job-lease.service.js';
 import { recordJobFailure, recordJobSuccess } from './heartbeat.js';
@@ -83,6 +84,23 @@ export async function runInboxPollOnce(): Promise<{ polled: number; accepted: nu
         await recordInboxFailure(inbox.organizationId, detail).catch(() => undefined);
         console.error(`[inbox] poll failed for workspace ${inbox.organizationId}: ${detail}`);
       }
+    }
+
+    // Our own report mailbox, after the workspaces' (platform-mailbox.service.ts).
+    // A failure is logged and the cycle carries on; the mail stays unread and
+    // is picked up next time.
+    try {
+      const own = await pollPlatformMailbox();
+      if (own && own.messages > 0) {
+        summary.accepted += own.accepted;
+        summary.duplicates += own.duplicates;
+        console.info(
+          `[report-mailbox] ${own.messages} message(s): ${own.accepted} accepted, ${own.duplicates} already held, ${own.unmatched} not matched to a verified domain`,
+        );
+      }
+    } catch (error) {
+      summary.failed += 1;
+      console.error(`[report-mailbox] poll failed: ${error instanceof Error ? error.message : 'unknown error'}`);
     }
 
     if (summary.polled > 0) {

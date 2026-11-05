@@ -86,6 +86,25 @@ async function workspaceWithDomain(domainName: string, opts: { verified?: boolea
 describe('routing an emailed report to its owner', () => {
   beforeEach(resetDatabase);
 
+  it("never files a workspace mailbox's report into another workspace's domain", async () => {
+    const victim = await workspaceWithDomain('victim-route.test');
+    const intruder = await workspaceWithDomain('intruder-route.test');
+
+    // A forged report for the victim's domain, read from the intruder's own mailbox.
+    const scoped = await ingestDmarcReportByPolicyDomain(aggregateReport('victim-route.test', 'r-forged'), {
+      organizationId: intruder.organizationId,
+    });
+    expect(scoped.status).toBe('domain_not_found');
+    expect(await prisma.dmarcReport.count({ where: { domainId: victim.domainId } })).toBe(0);
+
+    // The workspace's own domain still lands, and our own address serves everyone.
+    expect(
+      (await ingestDmarcReportByPolicyDomain(aggregateReport('intruder-route.test', 'r-own'), { organizationId: intruder.organizationId }))
+        .status,
+    ).toBe('created');
+    expect((await ingestDmarcReportByPolicyDomain(aggregateReport('victim-route.test', 'r-shared'))).status).toBe('created');
+  });
+
   it('files the report against the workspace that owns the domain', async () => {
     const owner = await workspaceWithDomain('owned-route.test');
 

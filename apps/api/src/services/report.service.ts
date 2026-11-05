@@ -211,12 +211,23 @@ export async function ingestDmarcReport(input: IngestReportInput): Promise<Inges
   }
 }
 
-export async function ingestDmarcReportByPolicyDomain(xml: string): Promise<MailboxIngestOutcome> {
+/**
+ * Ingests a mailed report into the one verified domain it names.
+ *
+ * scope limits the match to one workspace. A workspace's own mailbox passes
+ * it: without it, a tenant could connect a mailbox it controls, mail it a
+ * forged report for another agency's domain, and have it written there.
+ */
+export async function ingestDmarcReportByPolicyDomain(
+  xml: string,
+  scope?: { organizationId: string },
+): Promise<MailboxIngestOutcome> {
   const parsed = parseDmarcReport(xml);
   const domains = await prisma.domain.findMany({
     where: {
       name: parsed.policyDomain,
       status: 'VERIFIED',
+      ...(scope ? { client: { organizationId: scope.organizationId } } : {}),
     },
     select: {
       id: true,

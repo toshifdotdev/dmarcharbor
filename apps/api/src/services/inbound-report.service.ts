@@ -7,6 +7,9 @@ import { looksLikeTlsReportEmail } from './tls-report/detect.js';
 import { tlsReportJsonFromAttachment } from './tls-report/attachment.js';
 import { ingestTlsReportByPolicyDomain } from './tls-report/tls-report.service.js';
 
+/** Limits a mailed report to the domains of one workspace. */
+export type IngestScope = { organizationId: string };
+
 export type InboundReportStatus = 'created' | 'duplicate' | 'rejected' | 'failed' | 'ignored';
 export type InboundReportKind = 'aggregate' | 'forensic' | 'tlsrpt';
 
@@ -77,7 +80,7 @@ function describeForensicOutcome(
   return { kind: 'forensic', status: 'rejected', message: 'The report could not be matched to a workspace domain.' };
 }
 
-async function processForensicEmail(rawEmail: string): Promise<InboundEmailResult> {
+async function processForensicEmail(rawEmail: string, scope?: IngestScope): Promise<InboundEmailResult> {
   let reportedDomain: string | undefined;
 
   try {
@@ -95,7 +98,7 @@ async function processForensicEmail(rawEmail: string): Promise<InboundEmailResul
   }
 
   try {
-    const outcome = await ingestForensicReportByReportedDomain(rawEmail);
+    const outcome = await ingestForensicReportByReportedDomain(rawEmail, scope);
     return { candidateCount: 1, kind: 'forensic', results: [describeForensicOutcome(outcome)] };
   } catch (error) {
     return {
@@ -113,7 +116,7 @@ async function processForensicEmail(rawEmail: string): Promise<InboundEmailResul
   }
 }
 
-async function processAggregateEmail(rawEmail: string): Promise<InboundEmailResult> {
+async function processAggregateEmail(rawEmail: string, scope?: IngestScope): Promise<InboundEmailResult> {
   const parsedEmail = await simpleParser(rawEmail);
   // Each candidate is either XML to ingest or the reason an attachment could
   // not be read, which is reported per attachment rather than dropped.
@@ -152,7 +155,7 @@ async function processAggregateEmail(rawEmail: string): Promise<InboundEmailResu
     const xml = candidate.xml;
 
     try {
-      const outcome = await ingestDmarcReportByPolicyDomain(xml);
+      const outcome = await ingestDmarcReportByPolicyDomain(xml, scope);
       if (outcome.status === 'created' || outcome.status === 'duplicate') {
         results.push({
           kind: 'aggregate',
@@ -195,7 +198,7 @@ async function processAggregateEmail(rawEmail: string): Promise<InboundEmailResu
   };
 }
 
-async function processTlsReportEmail(rawEmail: string): Promise<InboundEmailResult> {
+async function processTlsReportEmail(rawEmail: string, scope?: IngestScope): Promise<InboundEmailResult> {
   const parsedEmail = await simpleParser(rawEmail);
   const attachments = parsedEmail.attachments;
   const qualified = attachments
@@ -244,7 +247,7 @@ async function processTlsReportEmail(rawEmail: string): Promise<InboundEmailResu
     }
 
     try {
-      const outcome = await ingestTlsReportByPolicyDomain(candidate.json);
+      const outcome = await ingestTlsReportByPolicyDomain(candidate.json, scope);
       if (outcome.status === 'created' || outcome.status === 'duplicate') {
         results.push({
           kind: 'tlsrpt',
@@ -287,9 +290,16 @@ async function processTlsReportEmail(rawEmail: string): Promise<InboundEmailResu
   return { candidateCount: candidates.length, kind: 'tlsrpt', results };
 }
 
-export async function processInboundDmarcEmail(rawEmail: string): Promise<InboundEmailResult> {
+/**
+ * One mailed report, routed to the verified domain it names.
+ *
+ * Unscoped for our own report addresses (the inbound webhook and the platform
+ * mailbox), which serve every workspace. Scoped to one workspace for a mailbox
+ * that workspace connected itself, so it can only write to its own domains.
+ */
+export async function processInboundDmarcEmail(rawEmail: string, scope?: IngestScope): Promise<InboundEmailResult> {
   if (looksLikeTlsReportEmail(rawEmail)) {
-    const tls = await processTlsReportEmail(rawEmail);
+    const tls = await processTlsReportEmail(rawEmail, scope);
     // The detector reads marker strings anywhere in the message, so a DMARC
     // report that merely quotes one (an ARF report carrying the headers of a
     // TLS-RPT message, say) would otherwise be dropped with nothing ingested.
@@ -299,8 +309,8 @@ export async function processInboundDmarcEmail(rawEmail: string): Promise<Inboun
     }
   }
   if (containsForensicParts(rawEmail)) {
-    return processForensicEmail(rawEmail);
+    return processForensicEmail(rawEmail, scope);
   }
 
-  return processAggregateEmail(rawEmail);
+  return processAggregateEmail(rawEmail, scope);
 }

@@ -291,7 +291,9 @@ export async function pollInbox(organizationId: string): Promise<PollOutcome> {
           // exactly like a fetched one, and forensic reports are handled too:
           // a shared mailbox receives those as well, and a collection path that
           // only understood aggregate XML would drop them silently.
-          const result = await processInboundDmarcEmail(Buffer.concat(chunks).toString('utf8'));
+          // Scoped to this workspace: a mailbox the tenant controls must never
+          // write a report into another workspace's domain.
+          const result = await processInboundDmarcEmail(Buffer.concat(chunks).toString('utf8'), { organizationId });
 
           if (result.kind === 'aggregate' || result.kind === 'tlsrpt') {
             for (const item of result.results) {

@@ -204,6 +204,16 @@ const envSchema = z.object({
     .email()
     .default('dmarc-reports@reports.dmarcharbor.com'),
   REPORT_FORENSIC_ADDRESS: z.string().trim().email().default('dmarc-forensics@reports.dmarcharbor.com'),
+  /**
+   * The mailbox our own report addresses deliver to, read over IMAP
+   * (services/report/platform-mailbox.service.ts). Host, username and password
+   * together, or none. Unset, reports reach the API only through the inbound
+   * webhook (workers/report-ingress).
+   */
+  REPORT_MAILBOX_HOST: optionalSecret,
+  REPORT_MAILBOX_PORT: z.coerce.number().int().min(1).max(65535).default(993),
+  REPORT_MAILBOX_USERNAME: optionalSecret,
+  REPORT_MAILBOX_PASSWORD: optionalSecret,
   /** Optional separate mailbox for TLS-RPT; defaults to the aggregate address. */
   REPORT_TLSRPT_ADDRESS: z.string().trim().email().optional(),
   /**
@@ -456,6 +466,16 @@ if (
   throw new Error(
     'REPORT_TLSRPT_ADDRESS local part must not contain "+" when REPORT_ADDRESS_SUBADDRESSING is plus: the client token is appended with one.',
   );
+}
+
+// The platform report mailbox: all three or none, so a typo cannot leave the
+// reports sitting unread while the service looks healthy.
+{
+  const mailbox = [parsed.data.REPORT_MAILBOX_HOST, parsed.data.REPORT_MAILBOX_USERNAME, parsed.data.REPORT_MAILBOX_PASSWORD];
+  const set = mailbox.filter(Boolean).length;
+  if (set > 0 && set < 3) {
+    throw new Error('REPORT_MAILBOX_HOST, REPORT_MAILBOX_USERNAME and REPORT_MAILBOX_PASSWORD must be configured together.');
+  }
 }
 
 // A half configured provider is worse than an unconfigured one, because it

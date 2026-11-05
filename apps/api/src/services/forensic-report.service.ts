@@ -213,13 +213,18 @@ export async function ingestForensicReport(input: IngestForensicInput): Promise<
   }
 }
 
-export async function ingestForensicReportByReportedDomain(rawEmail: string): Promise<ForensicMailboxIngestOutcome> {
+/** As ingestDmarcReportByPolicyDomain: scope keeps a workspace's own mailbox to its own domains. */
+export async function ingestForensicReportByReportedDomain(
+  rawEmail: string,
+  scope?: { organizationId: string },
+): Promise<ForensicMailboxIngestOutcome> {
   const parsed = parseForensicReport(rawEmail);
   const reportedDomain = normalizeDomain(parsed.reportedDomain);
   const domains = await prisma.domain.findMany({
     where: {
       name: reportedDomain,
       status: 'VERIFIED',
+      ...(scope ? { client: { organizationId: scope.organizationId } } : {}),
     },
     select: {
       id: true,
