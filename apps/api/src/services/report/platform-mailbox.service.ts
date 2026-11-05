@@ -16,11 +16,13 @@ import { processInboundDmarcEmail } from '../inbound-report.service.js';
  * report that arrives while the API is down or deploying waits there, where a
  * webhook delivery that fails its retries is gone.
  *
- * State lives in the mailbox: a message is marked read once handled, and only
- * unread messages are fetched. Nothing to migrate, and re-reading a message
+ * State lives in the mailbox: a message is moved out of the inbox to the
+ * PROCESSED_FOLDER once handled, and every message still in the inbox is read.
+ * Read or unread does not matter, so a person opening a report in the mail app
+ * cannot hide it from the app. Nothing to migrate, and reading a message twice
  * is harmless because ingest de-duplicates by report identity. A message that
- * fails is still marked read, so one malformed message cannot be retried on
- * every poll for ever; its outcome is in the log.
+ * fails is moved too, so one malformed message is not retried for ever; its
+ * outcome is in the log, and it can be moved back to the inbox to try again.
  */
 
 export interface PlatformMailboxOutcome {
@@ -34,10 +36,13 @@ export function platformMailboxConfigured(): boolean {
   return Boolean(env.REPORT_MAILBOX_HOST && env.REPORT_MAILBOX_USERNAME && env.REPORT_MAILBOX_PASSWORD);
 }
 
+/** Where handled messages go (a label in Gmail). */
+export const PROCESSED_FOLDER = 'DMARC Harbor processed';
+
 /** At most this many messages per poll, so one backlog cannot hold the timer. */
 const PER_POLL = 200;
 
-/** Reads unread messages and ingests them. Null when no mailbox is configured. */
+/** Reads the inbox and ingests what is there. Null when no mailbox is configured. */
 export async function pollPlatformMailbox(): Promise<PlatformMailboxOutcome | null> {
   if (!platformMailboxConfigured()) return null;
 
@@ -53,9 +58,11 @@ export async function pollPlatformMailbox(): Promise<PlatformMailboxOutcome | nu
   const outcome: PlatformMailboxOutcome = { messages: 0, accepted: 0, duplicates: 0, unmatched: 0 };
   await client.connect();
   try {
+    // Created once; an existing folder is the normal answer after that.
+    await client.mailboxCreate(PROCESSED_FOLDER).catch(() => undefined);
     const lock = await client.getMailboxLock('INBOX');
     try {
-      const found = await client.search({ seen: false }, { uid: true });
+      const found = await client.search({ all: true }, { uid: true });
       const uids = (Array.isArray(found) ? found : []).slice(0, PER_POLL);
 
       for (const uid of uids) {
@@ -82,6 +89,9 @@ export async function pollPlatformMailbox(): Promise<PlatformMailboxOutcome | nu
           console.error(`[report-mailbox] message ${uid} could not be read: ${error instanceof Error ? error.message : 'unknown error'}`);
         }
         await client.messageFlagsAdd(String(uid), ['\\Seen'], { uid: true }).catch(() => undefined);
+        await client.messageMove(String(uid), PROCESSED_FOLDER, { uid: true }).catch((error: unknown) => {
+          console.error(`[report-mailbox] message ${uid} could not be moved: ${error instanceof Error ? error.message : 'unknown error'}`);
+        });
       }
     } finally {
       lock.release();

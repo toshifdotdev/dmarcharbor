@@ -139,6 +139,11 @@ export function startInboxScheduler(): void {
   }, intervalMs);
 
   timer.unref?.();
+  // One poll a minute after start, so reports that arrived while the service
+  // was down are read now rather than a full interval later.
+  setTimeout(() => {
+    void runInboxPollOnce();
+  }, 60_000).unref?.();
   console.info(
     `[inbox] scheduler started, polling every ${env.REPORT_INBOX_POLL_INTERVAL_MINUTES} minutes`,
   );
