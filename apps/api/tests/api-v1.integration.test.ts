@@ -214,8 +214,11 @@ describe('bulk onboarding', () => {
       .set('Authorization', `Bearer ${key}`)
       .send({ clients });
 
-    expect(response.status).toBe(402);
+    // A request-size refusal, the same on every plan: a 400, never a 402.
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe('INVALID_REQUEST');
     expect(response.body.error.limit).toBe(200);
+    expect(response.body.error.requested).toBe(201);
   });
 
   it('adds many domains to one client', async () => {
