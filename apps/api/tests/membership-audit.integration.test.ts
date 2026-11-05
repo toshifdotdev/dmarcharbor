@@ -185,7 +185,8 @@ describe('one owner per workspace', () => {
     expect(invited.body.code).toBe('OWNERSHIP_TRANSFER_REQUIRED');
 
     expect(await prisma.member.count({ where: { organizationId: owner.organizationId, role: 'owner' } })).toBe(1);
-    expect(await prisma.invitation.count({ where: { organizationId: owner.organizationId } })).toBe(0);
+    // The admin's own accepted invitation is the only one.
+    expect(await prisma.invitation.count({ where: { organizationId: owner.organizationId, role: 'owner' } })).toBe(0);
   });
 
   it('the data fix keeps the earliest owner and makes the others admins', async () => {

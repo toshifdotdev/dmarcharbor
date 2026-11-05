@@ -643,9 +643,13 @@ export const auth = betterAuth({
         }
       }
 
-      if (ctx.path && membershipAuditPaths.has(ctx.path)) {
-        await closeExpiredInvitationsReplacedBy(ctx);
-        await recordMembershipAudit(ctx);
+      if (ctx.path && membershipAuditPaths.has(ctx.path) && returned && !(returned instanceof Error)) {
+        // The plugin's session middleware does not leave the session on the
+        // context the after hook sees, so the actor is read from the request.
+        const session = ctx.context.session ?? (await getSessionFromCtx(ctx).catch(() => null));
+        const membershipCtx = { path: ctx.path, body: ctx.body, context: { returned, session } };
+        await closeExpiredInvitationsReplacedBy(membershipCtx);
+        await recordMembershipAudit(membershipCtx);
       }
 
       await handleTwoFactorAfter(ctx as unknown as MfaHookContext);
