@@ -123,6 +123,44 @@ async function countDomainRows(domainId: string): Promise<DomainCounts> {
 const domainIdsFor = (clientId: string) =>
   prisma.domain.findMany({ where: { clientId }, select: { id: true } });
 
+/** What one domain takes with it, without deleting anything. The same numbers
+ *  deleteDomain records, so the preview and the result cannot disagree. */
+async function summariseDomain(domainId: string): Promise<DeletionSummary> {
+  const rows = await countDomainRows(domainId);
+  // Shares naming this domain: the client-level count is not added, because a
+  // domain delete does not remove shares attached to a sibling domain.
+  const reportShares = await prisma.reportShare.count({ where: { domainId } });
+  const summary: DeletionSummary = merge({ ...EMPTY, domains: 1 }, { ...rows, reportShares });
+  // The tickets stay in the customer's PSA: deleting the domain removes the
+  // link we hold, not the work someone may still be doing.
+  summary.psaOpenTickets = await prisma.psaTicketLink.count({ where: { domainId, state: 'OPEN' } });
+  summary.psaMappings = 0;
+  return summary;
+}
+
+/**
+ * What deleting one client or one domain of this workspace would destroy, or
+ * null when it is not in the workspace. The deletion preview used to answer a
+ * client's question with the whole workspace's totals.
+ */
+export async function summariseScope(
+  organizationId: string,
+  scope: { clientId?: string | null; domainId?: string | null },
+): Promise<DeletionSummary | null> {
+  if (scope.domainId) {
+    const domain = await prisma.domain.findFirst({
+      where: { client: { organizationId }, ...domainRef(scope.domainId) },
+      select: { id: true },
+    });
+    return domain ? summariseDomain(domain.id) : null;
+  }
+  if (scope.clientId) {
+    const client = await prisma.client.findFirst({ where: { id: scope.clientId, organizationId }, select: { id: true } });
+    return client ? summariseClient(client.id) : null;
+  }
+  return summariseWorkspace(organizationId);
+}
+
 export interface DomainDeletion {
   ok: boolean;
   reason?: 'not_found';
@@ -150,18 +188,7 @@ export async function deleteDomain(
 
   if (!domain) return { ok: false, reason: 'not_found' };
 
-  const rows = await countDomainRows(domain.id);
-  // Shares naming this domain: the client-level count is not added, because a
-  // domain delete does not remove shares attached to a sibling domain.
-  const reportShares = await prisma.reportShare.count({ where: { domainId: domain.id } });
-
-  const summary: DeletionSummary = merge({ ...EMPTY, domains: 1 }, { ...rows, reportShares });
-  // The tickets stay in the customer's PSA: deleting the domain removes the
-  // link we hold, not the work someone may still be doing.
-  summary.psaOpenTickets = await prisma.psaTicketLink.count({
-    where: { domainId: domain.id, state: 'OPEN' },
-  });
-  summary.psaMappings = 0;
+  const summary = await summariseDomain(domain.id);
   const hosted = await hostedSnapshotsForDomainIds([domain.id]);
   const spf = await managedSpfSnapshotsForDomainIds([domain.id]);
   const bimi = await hostedBimiSnapshotsForDomainIds([domain.id]);

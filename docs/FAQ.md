@@ -73,7 +73,7 @@ so there is no report data for that domain until it also lists our mailbox addre
 Add our address beside it rather than replacing it.
 
 **Can I add many domains at once?**
-Yes. Paste or import a list of up to 500 domains on a client's page, or use the
+Yes. Paste a list, or import a CSV file, of up to 500 domains on a client's page, or use the
 API's bulk endpoints, which take up to 200 clients or 500 domains a request. Each
 row is checked on its own, so one bad line does not stop the rest.
 
@@ -107,7 +107,8 @@ someone opens it.
 **Can I export my client list?**
 Yes. Client book CSV on the Clients page downloads every client and domain, one row
 per domain, with the ids, report address, ownership state and DMARC policy, ready
-for a PSA or CRM import. Any role can download it, and each download is recorded.
+for a PSA or CRM import. A client with no domains yet has one row with the domain
+columns empty. Any role can download it, and each download is recorded.
 
 **Can I undo a delete?**
 No. Deleting a domain, a client or the workspace removes its reports and history

@@ -2,12 +2,12 @@ import type { Request, Response } from 'express';
 import { DomainValidationError } from '../scanner/domain.js';
 import { createClientSchema, createDomainSchema, resourceIdSchema } from '../models/client.model.js';
 import { bulkDomainsSchema } from '../models/api.model.js';
-import { ClientNotInWorkspaceError, bulkImportDomains, bulkLimits } from '../services/bulk-onboarding.service.js';
-import { EntitlementError } from '../services/entitlements/entitlement.service.js';
+import { BulkSizeError, ClientNotInWorkspaceError, bulkImportDomains, bulkLimits } from '../services/bulk-onboarding.service.js';
 import { recordAuditEvent } from '../services/audit.service.js';
 import {
   createClient,
   createDomain,
+  DomainInOtherClientError,
   DomainNameTakenError,
   getClientReportAddress,
   listClients,
@@ -103,13 +103,12 @@ export async function bulkCreateDomainsController(request: Request, response: Re
       response.status(error.status).json({ error: { code: error.code, message: error.message } });
       return;
     }
-    // A request over the per-call cap throws a typed entitlement error, and that
-    // is a 402 rather than a 500: the caller is asking for more than one request
-    // may carry, and saying so plainly is the whole answer. `details` carries
-    // the limit and the requested count, which is what the screen needs to say
-    // "a single import takes at most N".
-    if (error instanceof EntitlementError) {
-      response.status(402).json({
+    // More rows than one request takes. The cap is the same on every plan, so
+    // this is a 400 about the request, never a plan refusal with an upgrade.
+    // `details` carries the cap and the count, for "a single import takes at
+    // most N".
+    if (error instanceof BulkSizeError) {
+      response.status(error.status).json({
         error: { code: error.code, message: error.message, details: error.details },
       });
       return;
@@ -198,10 +197,18 @@ export async function createDomainController(request: Request, response: Respons
         requestId: response.locals.requestId,
       });
     }
-    response.status(outcome.created ? 201 : 200).json(outcome.domain);
+    // `alreadyAdded` says it in the body too, so the screen does not announce
+    // "Added" for a domain that was already there.
+    response.status(outcome.created ? 201 : 200).json({ ...outcome.domain, alreadyAdded: !outcome.created });
   } catch (error) {
     if (error instanceof DomainValidationError) {
       response.status(400).json({ error: { message: error.message } });
+      return;
+    }
+    if (error instanceof DomainInOtherClientError) {
+      response.status(409).json({
+        error: { message: error.message, code: error.code, domain: error.domainName, client: error.clientName },
+      });
       return;
     }
     if (error instanceof DomainNameTakenError) {

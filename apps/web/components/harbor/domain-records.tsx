@@ -5,11 +5,11 @@
  * the first one is live.
  *
  * Two records, both the API's own strings:
- *   ownership  issued by POST /verify, which also runs the DNS lookup. The
- *              lookup changes the domain's status and can notify people, so
- *              the record appears when the operator presses the check, never
- *              on page load. Before publishing, "nothing found" is the
- *              expected answer and is worded that way.
+ *   ownership  from the onboarding state, shown on load so it can be
+ *              published before anyone presses Check. It used to appear only
+ *              after a check, and a check before the record existed left a
+ *              resolver caching the miss. The lookup itself still runs only
+ *              when the operator presses it.
  *   DMARC      onboarding.suggestedRecord, verbatim, with the API's notes.
  *
  * Each record says where it stands, from the API only: the ownership record
@@ -42,6 +42,7 @@ export function DomainRecords({
   canPublish,
   connections,
   brand = "DMARC Harbor",
+  ownership = null,
 }: {
   organizationId: string;
   domainId: string;
@@ -59,6 +60,8 @@ export function DomainRecords({
   connections: DnsConnectionRow[];
   /** The product name on this host (the agency's on a verified custom domain). */
   brand?: string;
+  /** The ownership record from the onboarding state, while the domain is not verified. */
+  ownership?: { host: string; value: string } | null;
 }) {
   const [check, setCheck] = useState<Verification | null>(null);
   const publishContext: DnsPublishContext = {
@@ -69,16 +72,19 @@ export function DomainRecords({
   };
 
   const records: PublishRecord[] = [];
-  if (check && check.status !== "VERIFIED") {
+  // The check's own record once one has run, else the one the page loaded with.
+  const ownershipRecord = check ? (check.status !== "VERIFIED" ? check : null) : !verified ? ownership : null;
+  if (ownershipRecord) {
     records.push({
       purpose: "Prove you manage this domain",
-      host: check.host,
-      value: check.value,
+      host: ownershipRecord.host,
+      value: ownershipRecord.value,
       note: "Only used to confirm ownership. It changes nothing about mail.",
       testId: "ownership-record",
       publish: { kind: "verification" },
-      status:
-        check.status === "FAILED"
+      status: !check
+        ? { word: "To publish", tone: "todo" }
+        : check.status === "FAILED"
           ? { word: "Gone from DNS", tone: "fail" }
           : { word: "Not in DNS yet", tone: "warn" },
     });
@@ -150,8 +156,8 @@ export function DomainRecords({
             </>
           ) : (
             <>
-              The ownership record comes with the check: press it to see the record to publish. Before you publish,{" "}
-              <span className="font-semibold text-fg">a lookup that finds nothing is the expected answer</span>.
+              Publish the ownership record below at the domain&rsquo;s DNS host, then check. A check before it is
+              published <span className="font-semibold text-fg">finds nothing, which is the expected answer</span>.
             </>
           )}
         </p>

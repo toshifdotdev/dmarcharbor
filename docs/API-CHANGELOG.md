@@ -254,6 +254,37 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-12-08 — Bulk size cap, domains in another client, and a scoped deletion preview
+
+### Changes an integration might notice
+
+- **The bulk size cap is a 400, not a 402.** `POST /api/v1/clients/bulk` with
+  more than 200 rows, and `POST /api/v1/domains/bulk` (and the browser route
+  `POST /api/workspaces/{id}/clients/{clientId}/domains/bulk`) with more than
+  500, answer 400 `INVALID_REQUEST` with `limit` and `requested`. They answered
+  402 `PLAN_LIMIT_REACHED`, which reads as a plan refusal; the cap is the same on
+  every plan. Split the request.
+
+### Browser routes only
+
+- **A domain under another client of the same workspace.** `POST
+  /api/workspaces/{id}/clients/{clientId}/domains` answers 409 `CONFLICT` naming
+  that client, with `client` in the error, instead of saying another workspace
+  monitors it. Move the domain instead.
+- **`alreadyAdded`** on the 200 that re-adding a name the client already holds
+  returns.
+- **`GET /api/workspaces/{id}/deletion-preview`** counts the scope asked about:
+  `?clientId=` one client and `?domainId=` (new) one domain. With `clientId` it
+  returned the whole workspace's totals. A client or domain outside the
+  workspace is a 404.
+- **`ownershipRecord`** (`host`, `type`, `value`) in the onboarding state while
+  the domain is not verified, so the setup page shows it before the first check.
+- **Ownership checks read the domain's own nameservers first**, so a check made
+  before the record was published no longer keeps failing on a resolver's
+  cached "not found" after it is.
+
+---
+
 ## 2026-12-07 — One owner per workspace, ownership transfer, and a membership audit trail
 
 Browser routes under `/api` only; `/api/v1` is unchanged.

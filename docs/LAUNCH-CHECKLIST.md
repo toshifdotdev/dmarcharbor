@@ -330,6 +330,11 @@ you have not made yet.
   using for this.
 - Create one shared mailbox, for example `agg@reports.dmarcharbor.com`.
 - Point `REPORT_AGGREGATE_ADDRESS` and `REPORT_FORENSIC_ADDRESS` at it.
+- Set `REPORT_ADDRESS_SUBADDRESSING=plus`. The guide and FAQ promise each
+  client its own report address (`agg+<token>@reports.dmarcharbor.com`); with
+  the default `off`, every client is shown the same shared address. Migadu
+  delivers `+` addresses to the base mailbox, but send one test message to a
+  `+something` address before turning it on, or reports bounce.
 - Publish the MX record.
 - Verify with `dig MX dmarcharbor.com`.
 - Then, and only then, can a customer be told to put that address in their
@@ -503,6 +508,24 @@ it is still the largest gap in the product.
 
 - The whole app
 - See the separate handoff prompt
+
+---
+
+## Backlog: decided, not now
+
+**Per-client staff access** (a technician sees only some clients). Not built
+before launch: it has to hold on every screen, export, email, webhook and API
+route, small MSPs rarely need it, and separate workspaces, the viewer role and
+the client portal cover most cases today.
+
+- **Build it when** several customers ask for it, a deal is lost over it, or we
+  sell to MSPs with more than about 25 staff.
+- **Then:** Admiralty and Fleet only. Owners and admins see everything; an
+  analyst or viewer can be limited to chosen clients; a new member sees all
+  clients, as now. Clients only, not single domains.
+- **How:** the check lives in the one layer that loads clients and domains, not
+  on each screen, and one test calls every route as a limited member and fails
+  on anything outside their clients.
 
 ---
 

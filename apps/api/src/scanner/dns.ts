@@ -16,6 +16,63 @@ function isMissingError(error: unknown): boolean {
   return code === 'ENOTFOUND' || code === 'ENODATA' || code === 'NXDOMAIN';
 }
 
+/** Names under these have no authority to ask (RFC 2606, RFC 6761). */
+const RESERVED_SUFFIX = /\.(test|example|invalid|localhost|local)$/i;
+
+/**
+ * The domain's own nameservers' IPv4 addresses, found by walking up from
+ * `name` to the first label that has NS records. Null when none answer.
+ */
+async function authoritativeServers(name: string): Promise<string[] | null> {
+  const labels = name.replace(/\.$/, '').split('.');
+  for (let i = 0; i < labels.length - 1; i++) {
+    const candidate = labels.slice(i).join('.');
+    let hosts: string[];
+    try {
+      hosts = await resolver.resolveNs(candidate);
+    } catch {
+      continue;
+    }
+    if (hosts.length === 0) continue;
+    const addresses = (
+      await Promise.all(hosts.slice(0, 4).map((host) => resolver.resolve4(host).catch(() => [] as string[])))
+    ).flat();
+    return addresses.length > 0 ? [...new Set(addresses)].slice(0, 4) : null;
+  }
+  return null;
+}
+
+/**
+ * A TXT lookup for a record someone has just published, such as an ownership
+ * token.
+ *
+ * Asked of the zone's own nameservers first, because a recursive resolver
+ * caches "no such record" for the zone's negative TTL (30 minutes on
+ * Cloudflare). A Check pressed before the record existed then kept answering
+ * "not found" for half an hour after it was published. Authoritative servers
+ * do not cache their own zone.
+ *
+ * A found answer from them is taken as is. Anything else falls back to the
+ * system resolver's answer, so a network that blocks direct DNS, or a name
+ * with no authority (the reserved test TLDs), behaves exactly as before.
+ */
+export async function resolveTxtFresh(name: string, zoneHint: string): Promise<LookupResult<string[][]>> {
+  if (!RESERVED_SUFFIX.test(zoneHint)) {
+    try {
+      const servers = await authoritativeServers(zoneHint);
+      if (servers) {
+        const direct = new Resolver({ tries: 1, timeout: 2500 });
+        direct.setServers(servers);
+        const value = await direct.resolveTxt(name);
+        if (value.length > 0) return { status: 'found', value };
+      }
+    } catch {
+      // Missing or unreachable at the authority: the system resolver decides.
+    }
+  }
+  return systemDnsReader.resolveTxt(name);
+}
+
 export const systemDnsReader: DnsReader = {
   async resolveTxt(name: string): Promise<LookupResult<string[][]>> {
     try {

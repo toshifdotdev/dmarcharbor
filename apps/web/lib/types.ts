@@ -610,6 +610,8 @@ export interface OnboardingState {
   suggestedRecord: DmarcRecordDraft;
   /** The TLS-RPT record to publish, shown beside the DMARC suggestion. */
   tlsRpt: TlsRecordView;
+  /** The ownership TXT record while the domain is not verified; null once it is. */
+  ownershipRecord?: { host: string; type: "TXT"; value: string } | null;
   recommendedPolicy: "none" | "quarantine" | "reject";
 }
 

@@ -603,7 +603,7 @@ curl -sS -X POST https://app.dmarcharbor.example/api/v1/clients/bulk \
 - The answer is 201 even when no row was created. Read the counts.
 - `limits` is the per-request cap of this endpoint and of `POST /domains/bulk`, not the plan's limits.
 
-Errors: 400 (no `clients` array, or a row of the wrong shape), 401, 402 `FEATURE_NOT_IN_PLAN`, 402 `PLAN_LIMIT_REACHED` with `limit` and `requested` (more than 200 rows), 403, 409 `IDEMPOTENCY_KEY_REUSED`, 413 `PAYLOAD_TOO_LARGE`, 429, 500.
+Errors: 400 (no `clients` array, or a row of the wrong shape), 401, 402 `FEATURE_NOT_IN_PLAN`, 400 `INVALID_REQUEST` with `limit` and `requested` (more than 200 rows; the cap is the same on every plan), 403, 409 `IDEMPOTENCY_KEY_REUSED`, 413 `PAYLOAD_TOO_LARGE`, 429, 500.
 
 ## Domains
 
@@ -749,7 +749,7 @@ curl -sS -X POST https://app.dmarcharbor.example/api/v1/domains/bulk \
 }
 ```
 
-Errors: 400, 401, 402 `PLAN_LIMIT_REACHED` with `limit` and `requested` (more than 500 domains), 403, 404 `NOT_FOUND` for a `clientId` that is not in this workspace ("That client is not in this workspace."), 409 `IDEMPOTENCY_KEY_REUSED`, 413 `PAYLOAD_TOO_LARGE`, 429, 500.
+Errors: 400 (also `INVALID_REQUEST` with `limit` and `requested` for more than 500 domains; the cap is the same on every plan), 401, 402 `PLAN_LIMIT_REACHED` when the plan has no room, 403, 404 `NOT_FOUND` for a `clientId` that is not in this workspace ("That client is not in this workspace."), 409 `IDEMPOTENCY_KEY_REUSED`, 413 `PAYLOAD_TOO_LARGE`, 429, 500.
 
 ### POST /api/v1/domains/{domainId}/verify
 

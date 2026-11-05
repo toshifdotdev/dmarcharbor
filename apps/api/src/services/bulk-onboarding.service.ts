@@ -2,7 +2,6 @@ import { domainSlug } from './domain-slug.js';
 import { prisma } from '../database/prisma.js';
 import { recordAuditEvent } from './audit.service.js';
 import {
-  EntitlementError,
   quotaUpgradeSentence,
   quotaUsage,
   resolveEntitlements,
@@ -59,6 +58,25 @@ export const domainHeldElsewhereReason =
   'That domain is already monitored by another workspace. Remove it there first, or ask them to release it.';
 
 /**
+ * Raised when one import carries more rows than a single request takes.
+ *
+ * The cap is the same on every plan, so it is a 400 about the request, not a
+ * 402 about the plan: it used to be PLAN_LIMIT_REACHED, and the app showed
+ * "The plan's limit is reached" with a link to upgrade, which no plan changes.
+ */
+export class BulkSizeError extends Error {
+  readonly status = 400;
+  readonly code = 'INVALID_REQUEST';
+  constructor(
+    message: string,
+    readonly details: { limit: number; requested: number },
+  ) {
+    super(message);
+    this.name = 'BulkSizeError';
+  }
+}
+
+/**
  * Raised when a domain import names a client that is not in the workspace.
  *
  * It used to be an `EntitlementError('FEATURE_NOT_IN_PLAN')`, so a mistyped
@@ -106,7 +124,7 @@ export async function bulkImportClients(input: {
   const result: BulkClientResult = { created: [], failed: [], planBlocked: [] };
 
   if (input.clients.length > bulkLimits.maxClients) {
-    throw new EntitlementError('PLAN_LIMIT_REACHED', `A single import accepts up to ${bulkLimits.maxClients} clients.`, {
+    throw new BulkSizeError(`A single import accepts up to ${bulkLimits.maxClients} clients. Split the list and import the rest separately.`, {
       limit: bulkLimits.maxClients,
       requested: input.clients.length,
     });
@@ -330,7 +348,7 @@ export async function bulkImportDomains(input: {
   const result: BulkDomainResult = { created: [], failed: [], planBlocked: [] };
 
   if (input.domains.length > bulkLimits.maxDomains) {
-    throw new EntitlementError('PLAN_LIMIT_REACHED', `A single import accepts up to ${bulkLimits.maxDomains} domains.`, {
+    throw new BulkSizeError(`A single import accepts up to ${bulkLimits.maxDomains} domains. Split the list and import the rest separately.`, {
       limit: bulkLimits.maxDomains,
       requested: input.domains.length,
     });

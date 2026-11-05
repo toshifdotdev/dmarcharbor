@@ -37,7 +37,7 @@ when your client book needs it.
 |---|---|---|
 | `_dmarc-harbor-verification.<domain>` | TXT | `dmarc-harbor-verification=<token>` |
 
-Then press Check. DNS can take a few minutes to an hour to update; checking again
+The record is on the setup page as soon as the domain is added. Publish it, then press\nCheck DNS now. DNS can take a few minutes to an hour to update; checking again
 is safe.
 
 ![The Clients page: each client with its report address and its domains, each domain with its ownership state and the policy it publishes](/docs-media/client-book.png "Clients. Each client lists its report address and domains; each domain shows whether ownership is verified and which DMARC policy it publishes. Sample data: invented clients on .example domains.")

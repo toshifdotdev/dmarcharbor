@@ -22,6 +22,7 @@ import {
   type IssuedApiKey,
 } from '../services/api-key.service.js';
 import {
+  BulkSizeError,
   ClientNotInWorkspaceError,
   bulkImportClients,
   bulkImportDomains,
@@ -73,6 +74,11 @@ function pageOf<T extends { id: string }>(rows: T[], limit: number): { items: T[
 
 function sendError(response: Response, error: unknown): void {
   if (error instanceof EntitlementError) {
+    response.status(error.status).json({ error: { code: error.code, message: error.message, ...error.details } });
+    return;
+  }
+  // More rows than one request takes: the same on every plan, so a 400.
+  if (error instanceof BulkSizeError) {
     response.status(error.status).json({ error: { code: error.code, message: error.message, ...error.details } });
     return;
   }

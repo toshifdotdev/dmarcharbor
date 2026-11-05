@@ -6,7 +6,7 @@ import { recordAuditEvent } from './audit.service.js';
 import { sendDomainVerificationEmail } from '../email/mailer.js';
 import { normalizeDomain } from '../scanner/domain.js';
 import { withQuota } from './entitlements/entitlement.service.js';
-import { systemDnsReader } from '../scanner/dns.js';
+import { resolveTxtFresh, systemDnsReader } from '../scanner/dns.js';
 import { isDmarcPolicyRecord } from '../scanner/dmarc-policy.js';
 import { readDmarcRecord } from '../scanner/dmarc-tags.js';
 import { classifyReportAddress, clientAggregateAddress } from './report-address.service.js';
@@ -92,6 +92,27 @@ export class DomainNameTakenError extends Error {
   }
 }
 
+/**
+ * Raised when the name is already under another client of the SAME workspace.
+ * It used to be DomainNameTakenError, which told the operator another
+ * workspace held a domain that was sitting in their own client book. Naming
+ * the client is safe here: it is theirs.
+ */
+export class DomainInOtherClientError extends Error {
+  readonly code = 'CONFLICT';
+  readonly status = 409;
+
+  constructor(
+    public readonly domainName: string,
+    public readonly clientName: string,
+  ) {
+    super(
+      `${domainName} is already under ${clientName} in this workspace. Use Move on its row to put it under this client instead.`,
+    );
+    this.name = 'DomainInOtherClientError';
+  }
+}
+
 export interface CreateDomainOutcome {
   domain: Awaited<ReturnType<typeof prisma.domain.findUnique>>;
   /** False when this name was already held by this client and nothing was created. */
@@ -138,9 +159,13 @@ export async function createDomain(
    * domain.
    */
   return withQuota(organizationId, 'activeDomain', async (tx) => {
-    const held = await tx.domain.findUnique({ where: { name }, select: { id: true, clientId: true } });
+    const held = await tx.domain.findUnique({
+      where: { name },
+      select: { id: true, clientId: true, client: { select: { organizationId: true, name: true } } },
+    });
 
     if (held && held.clientId !== clientId) {
+      if (held.client.organizationId === organizationId) throw new DomainInOtherClientError(name, held.client.name);
       throw new DomainNameTakenError(name);
     }
 
@@ -219,7 +244,9 @@ export async function checkDomainOwnership(domain: {
   const checkReportAddress = Boolean(domain.reportToken) && env.REPORT_ADDRESS_SUBADDRESSING === 'plus';
 
   const [lookup, dmarcLookup] = await Promise.all([
-    systemDnsReader.resolveTxt(host),
+    // From the zone's own nameservers first: a Check pressed before the record
+    // existed must not keep failing on a cached miss (scanner/dns.ts).
+    resolveTxtFresh(host, domain.name),
     checkReportAddress
       ? systemDnsReader.resolveTxt(`_dmarc.${domain.name}`)
       : Promise.resolve(null),

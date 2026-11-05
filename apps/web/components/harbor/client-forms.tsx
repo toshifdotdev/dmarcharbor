@@ -35,6 +35,7 @@ import { ArrowRight } from "@/components/ui/icons";
 import { Notice } from "@/components/ui/notice";
 import { zoneLines } from "./dns-handoff";
 import { cleanDomain } from "./first-domain";
+import { domainsFromCsv } from "@/lib/domain-csv";
 import { ActionRefusal, PlanLimitNotice, type ActionError } from "./plan-refusal";
 
 const DOMAIN = /^(?=.{3,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{1,62}$/;
@@ -200,8 +201,11 @@ function parseList(raw: string): { names: string[]; invalid: string[]; duplicate
   return { names, invalid, duplicates };
 }
 
+/** The most rows one import takes: apps/api bulkLimits.maxDomains, the same on every plan. */
+const BULK_DOMAIN_MAX = 500;
+
 type Outcome =
-  | { kind: "single"; clientName: string; name: string; slug: string }
+  | { kind: "single"; clientName: string; name: string; slug: string; already: boolean }
   | { kind: "bulk"; clientName: string; result: BulkDomainResult };
 
 export const AddDomains = forwardRef<
@@ -246,7 +250,13 @@ export const AddDomains = forwardRef<
         setError(res.error);
         return;
       }
-      setOutcome({ kind: "single", clientName: targetName, name: res.data.name, slug: res.data.slug });
+      setOutcome({
+        kind: "single",
+        clientName: targetName,
+        name: res.data.name,
+        slug: res.data.slug,
+        already: res.data.alreadyAdded === true,
+      });
       setSingle("");
     } else {
       const res = await bulkCreateDomains(organizationId, target, parsed.names);
@@ -271,14 +281,18 @@ export const AddDomains = forwardRef<
   }
 
   if (domainLimit) {
+    // An import that has just filled the plan keeps its result on screen: the
+    // refresh that follows it reaches this branch, and replacing the result
+    // with the notice hid which rows were refused and the records to publish.
     return (
       <section className="flex flex-col gap-3">
         <h2 className="text-h3 font-bold tracking-[-0.01em] text-fg">Add domains</h2>
         <PlanLimitNotice
           quota="activeDomain"
           message={domainLimit}
-          context="A domain counts while it reports, and for its first days after it is added, across every workspace you own. Delete a domain you no longer look after, or move to a plan with more."
+          context="A domain counts for its first 14 days after it is added, and while it has sent a report in the last 30 days, across every workspace you own. Delete a domain you no longer look after, or move to a plan with more."
         />
+        {outcome?.kind === "bulk" ? <BulkResult clientName={outcome.clientName} result={outcome.result} /> : null}
       </section>
     );
   }
@@ -380,9 +394,32 @@ export const AddDomains = forwardRef<
               placeholder={"client.example\nmail.client.example\nclient-brand.example"}
               data-testid="bulk-domain-input"
             />
+            <label className="inline-flex cursor-pointer items-center gap-2 self-start text-meta font-semibold text-act underline underline-offset-4 has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-act">
+              <input
+                type="file"
+                accept=".csv,.txt,text/csv,text/plain"
+                className="sr-only"
+                data-testid="bulk-domain-file"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (!file) return;
+                  // Read here, never uploaded: the names join the list above and
+                  // go through the same check as a paste.
+                  const names = domainsFromCsv(await file.text());
+                  setList((current) => [current.trim(), ...names].filter(Boolean).join("\n"));
+                }}
+              />
+              Import a CSV file
+            </label>
             <p className="text-meta text-fg-3" aria-live="polite">
               {list.trim() === "" ? (
-                "Commas and spaces work too. Duplicates and blank lines are skipped; each domain needs its own records afterwards."
+                "Commas and spaces work too. A CSV uses its domain column, or the first one. Duplicates and blank lines are skipped; each domain needs its own records afterwards."
+              ) : parsed.names.length > BULK_DOMAIN_MAX ? (
+                <span className="font-semibold text-warn" data-testid="bulk-over-cap">
+                  {parsed.names.length.toLocaleString("en-GB")} domains: a single import takes up to {BULK_DOMAIN_MAX} on every
+                  plan. Split the list and import the rest separately.
+                </span>
               ) : (
                 <>
                   <span className="tnum font-semibold text-fg">{parsed.names.length}</span> to add
@@ -407,7 +444,7 @@ export const AddDomains = forwardRef<
           variant="primary"
           busy={busy}
           busyLabel={mode === "single" ? "Adding the domain" : `Adding ${parsed.names.length} domains`}
-          disabled={mode === "single" ? !singleOk : parsed.names.length === 0}
+          disabled={mode === "single" ? !singleOk : parsed.names.length === 0 || parsed.names.length > BULK_DOMAIN_MAX}
           data-testid="add-domain"
           className="self-start"
         >
@@ -421,12 +458,19 @@ export const AddDomains = forwardRef<
 
       {outcome?.kind === "single" ? (
         <div role="status" className="flex flex-col gap-2.5 border-t border-rule pt-3">
-          <p className="text-ui text-fg-2">
-            <span aria-hidden className="mr-2 inline-block size-2 translate-y-[-1px] bg-ok" />
-            <span className="font-semibold text-ok">Added</span>{" "}
-            <span className="data font-semibold text-fg">{outcome.name}</span> to {outcome.clientName}. Its two records
-            are on the setup page.
-          </p>
+          {outcome.already ? (
+            <p className="text-ui text-fg-2" data-testid="domain-already-added">
+              <span className="data font-semibold text-fg">{outcome.name}</span> is already under {outcome.clientName}.
+              Nothing was added; its records are on the setup page.
+            </p>
+          ) : (
+            <p className="text-ui text-fg-2">
+              <span aria-hidden className="mr-2 inline-block size-2 translate-y-[-1px] bg-ok" />
+              <span className="font-semibold text-ok">Added</span>{" "}
+              <span className="data font-semibold text-fg">{outcome.name}</span> to {outcome.clientName}. Its two records
+              are on the setup page.
+            </p>
+          )}
           <ButtonLink href={onboardingHref(outcome.slug)} variant="secondary" data-testid="continue-setup" className="self-start">
             Continue setup
             <ArrowRight size={14} />

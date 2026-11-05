@@ -355,8 +355,39 @@ describe('bulk domain import from the console', () => {
       .post(`/api/workspaces/${organizationId}/clients/${clientId}/domains/bulk`)
       .send({ domains });
 
-    expect(response.status).toBe(402);
+    // A request-size refusal, the same on every plan: never a 402 plan refusal.
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe('INVALID_REQUEST');
     expect(response.body.error.message).toMatch(/up to 500 domains/i);
+    expect(response.body.error.details).toEqual({ limit: 500, requested: 501 });
+  });
+
+  it('names the client when the domain is already under another client of this workspace', async () => {
+    const { agent, organizationId, clientId } = await workspaceWithClient();
+    const other = await agent
+      .post(`/api/workspaces/${organizationId}/clients`)
+      .send({ name: 'Pellowyn Dental', slug: `pellowyn-${Date.now()}-${fixtureId}` });
+    const name = uniqueName('sibling');
+    expect((await agent.post(`/api/workspaces/${organizationId}/clients/${other.body.id}/domains`).send({ name })).status).toBe(201);
+
+    const response = await agent.post(`/api/workspaces/${organizationId}/clients/${clientId}/domains`).send({ name });
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe('CONFLICT');
+    expect(response.body.error.client).toBe('Pellowyn Dental');
+    expect(response.body.error.message).toContain('already under Pellowyn Dental in this workspace');
+    expect(response.body.error.message).not.toContain('another workspace');
+  });
+
+  it('says a re-added domain was already there', async () => {
+    const { agent, organizationId, clientId } = await workspaceWithClient();
+    const name = uniqueName('again');
+    const first = await agent.post(`/api/workspaces/${organizationId}/clients/${clientId}/domains`).send({ name });
+    expect(first.status).toBe(201);
+    expect(first.body.alreadyAdded).toBe(false);
+    const again = await agent.post(`/api/workspaces/${organizationId}/clients/${clientId}/domains`).send({ name });
+    expect(again.status).toBe(200);
+    expect(again.body.alreadyAdded).toBe(true);
+    expect(again.body.id).toBe(first.body.id);
   });
 
   it('keeps a bulk import to one client even when another client owns the name', async () => {

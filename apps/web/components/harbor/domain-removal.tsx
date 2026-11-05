@@ -9,13 +9,15 @@
  * the domain's name typed out: a reflex click on "Delete" in a dialog is not
  * enough for evidence that cannot come back.
  *
- * What goes is said in words, not as a count: there is no per-domain count
- * endpoint, and a workspace total would be a wrong number.
+ * What goes is said in words and in numbers: the counts come from the
+ * deletion preview scoped to this domain (GET .../deletion-preview?domainId),
+ * the same numbers the deletion records.
  */
 
 import { useRouter } from "next/navigation";
-import { useId, useState } from "react";
-import { deleteDomain } from "@/lib/ops-client";
+import { useEffect, useId, useState } from "react";
+import { summariseDeletion } from "@/lib/deletion-words";
+import { deleteDomain, previewWorkspaceDeletion, type DeletionSummary } from "@/lib/ops-client";
 import { Button } from "@/components/ui/button";
 import { DnsRecord } from "@/components/ui/copy";
 import { Dialog } from "@/components/ui/dialog";
@@ -47,6 +49,22 @@ export function DomainRemoval({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const matches = typed.trim().toLowerCase() === domainName.toLowerCase();
+  const [counts, setCounts] = useState<DeletionSummary | null>(null);
+
+  // Counted when the dialog opens, for this domain only.
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    setCounts(null);
+    previewWorkspaceDeletion(organizationId, { domainId })
+      .then((result) => {
+        if (active && result.ok) setCounts(result.data.summary);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [open, organizationId, domainId]);
 
   async function run() {
     if (!matches || busy) return;
@@ -58,8 +76,9 @@ export function DomainRemoval({
       setError(res.error.message ?? "The domain could not be deleted.");
       return;
     }
-    // The page describes a domain that no longer exists: leave it.
-    router.push("/clients");
+    // The page describes a domain that no longer exists: leave it, and say on
+    // the Clients page what was deleted.
+    router.push(`/clients?deleted=${encodeURIComponent(domainName)}`);
     router.refresh();
   }
 
@@ -120,6 +139,10 @@ export function DomainRemoval({
           <p className="text-body text-fg-2">
             Every report, forensic report, scan, alert rule, alert event, share link and digest for this domain is
             deleted. Live share links stop working. This cannot be undone.
+          </p>
+          <p className="text-ui text-fg-2" data-testid="delete-domain-counts">
+            <span className="font-semibold text-fg">What goes:</span>{" "}
+            {counts ? summariseDeletion(counts, { skipDomains: true }) : "counting what is attached…"}
           </p>
           {hosted ? (
             <Notice

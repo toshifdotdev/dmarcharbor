@@ -400,6 +400,12 @@ export interface OnboardingResult extends OnboardingState_ {
   suggestedRecord: DmarcRecordDraft;
   /** The TLS-RPT record to publish, shown beside the DMARC suggestion. */
   tlsRpt: TlsRecordView;
+  /**
+   * The ownership TXT record, while the domain is not verified. On the setup
+   * page from the start: it used to appear only after a first Check, which ran
+   * a lookup before the record existed and left a resolver caching the miss.
+   */
+  ownershipRecord: { host: string; type: 'TXT'; value: string } | null;
 }
 
 export async function getOnboardingState(organizationId: string, domainId: string): Promise<OnboardingResult | null> {
@@ -415,6 +421,7 @@ export async function getOnboardingState(organizationId: string, domainId: strin
       dmarcRecord: true,
       collectForensicReports: true,
       retainForensicPii: true,
+      verificationToken: true,
       client: { select: { reportToken: true } },
     },
   });
@@ -593,6 +600,13 @@ export async function getOnboardingState(organizationId: string, domainId: strin
     recommendedPolicy: readiness.level,
     readiness,
     rollout: rollout,
+    ownershipRecord: verified
+      ? null
+      : {
+          host: `_dmarc-harbor-verification.${domain.name}`,
+          type: 'TXT' as const,
+          value: `dmarc-harbor-verification=${domain.verificationToken}`,
+        },
     suggestedRecord: buildDmarcRecord(domain.name, 'none', !forensicConfigured, {
       aggregateAddress: clientAddress,
     }),

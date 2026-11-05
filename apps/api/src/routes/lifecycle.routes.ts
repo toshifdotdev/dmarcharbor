@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from 'express';
-import { deleteClient, deleteDomain, deleteWorkspace, summariseWorkspace } from '../services/lifecycle-deletion.service.js';
+import { deleteClient, deleteDomain, deleteWorkspace, summariseScope } from '../services/lifecycle-deletion.service.js';
+import { domainRef } from '../services/domain-ref.js';
 import { prisma } from '../database/prisma.js';
 import { managedSpfRepublish } from '../services/hosted-dns/managed-spf.service.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
@@ -90,13 +91,24 @@ lifecycleRouter.get(
   async (request: Request, response: Response) => {
     const organizationIdValue = organizationId(request);
     const clientId = typeof request.query.clientId === 'string' ? request.query.clientId : null;
-    const [summary, hosted, spf, bimi, mtaSts, psaTickets] = await Promise.all([
-      summariseWorkspace(organizationIdValue),
+    const domainParam = typeof request.query.domainId === 'string' ? request.query.domainId : null;
+    // The summary is the scope asked about: one domain, one client, or the
+    // whole workspace. It used to be the workspace's totals for every question.
+    const summary = await summariseScope(organizationIdValue, { clientId, domainId: domainParam });
+    if (!summary) {
+      response.status(404).json({ error: { message: 'That client or domain is not in this workspace.' } });
+      return;
+    }
+    const domainId = domainParam
+      ? ((await prisma.domain.findFirst({ where: { client: { organizationId: organizationIdValue }, ...domainRef(domainParam) }, select: { id: true } }))?.id ?? null)
+      : null;
+    const scope = domainId ? { domainId } : clientId ? { domain: { clientId } } : {};
+    const [hosted, spf, bimi, mtaSts, psaTickets] = await Promise.all([
       prisma.hostedDmarcRecord.findMany({
         where: {
           organizationId: organizationIdValue,
           status: { not: 'RELEASED' },
-          ...(clientId ? { domain: { clientId } } : {}),
+          ...scope,
         },
         select: { value: true, domain: { select: { name: true } } },
         orderBy: { domain: { name: 'asc' } },
@@ -105,7 +117,7 @@ lifecycleRouter.get(
         where: {
           organizationId: organizationIdValue,
           status: { not: 'RELEASED' },
-          ...(clientId ? { domain: { clientId } } : {}),
+          ...scope,
         },
         select: { sources: true, allQualifier: true, domain: { select: { name: true } } },
         orderBy: { domain: { name: 'asc' } },
@@ -114,7 +126,7 @@ lifecycleRouter.get(
         where: {
           organizationId: organizationIdValue,
           status: { not: 'RELEASED' },
-          ...(clientId ? { domain: { clientId } } : {}),
+          ...scope,
         },
         select: { status: true, domain: { select: { name: true } } },
         orderBy: { domain: { name: 'asc' } },
@@ -123,7 +135,7 @@ lifecycleRouter.get(
         where: {
           organizationId: organizationIdValue,
           status: { not: 'RELEASED' },
-          ...(clientId ? { domain: { clientId } } : {}),
+          ...scope,
         },
         select: { status: true, mode: true, maxAge: true, domain: { select: { name: true } } },
         orderBy: { domain: { name: 'asc' } },
@@ -132,7 +144,7 @@ lifecycleRouter.get(
         where: {
           organizationId: organizationIdValue,
           state: 'OPEN',
-          ...(clientId ? { domain: { clientId } } : {}),
+          ...scope,
         },
         select: { externalTicketId: true, externalTicketUrl: true, domain: { select: { name: true } } },
         orderBy: { createdAt: 'asc' },

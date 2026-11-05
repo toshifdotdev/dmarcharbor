@@ -125,6 +125,37 @@ describe('domain and client deletion', () => {
     expect(await prisma.domain.count({ where: { id: domainId } })).toBe(0);
   });
 
+  it('previews one client or one domain, not the whole workspace', async () => {
+    const { agent, organizationId, clientId, domainId } = await workspace();
+    // A second client with its own domain, which neither preview may count.
+    const other = await agent
+      .post(`/api/workspaces/${organizationId}/clients`)
+      .send({ name: 'Other Client', slug: `other-client-${Date.now()}-${fixtureId}` });
+    expect(other.status).toBe(201);
+    expect(
+      (await agent.post(`/api/workspaces/${organizationId}/clients/${other.body.id}/domains`).send({ name: `other-${fixtureId}.test` }))
+        .status,
+    ).toBe(201);
+
+    const whole = await agent.get(`/api/workspaces/${organizationId}/deletion-preview`);
+    expect(whole.body.summary.domains).toBe(2);
+    const client = await agent.get(`/api/workspaces/${organizationId}/deletion-preview?clientId=${clientId}`);
+    expect(client.status).toBe(200);
+    expect(client.body.summary.domains).toBe(1);
+    const domain = await agent.get(`/api/workspaces/${organizationId}/deletion-preview?domainId=${domainId}`);
+    expect(domain.status).toBe(200);
+    expect(domain.body.summary.domains).toBe(1);
+
+    // Another workspace's ids are a 404, never its counts.
+    const stranger = await workspace();
+    expect(
+      (await stranger.agent.get(`/api/workspaces/${stranger.organizationId}/deletion-preview?clientId=${clientId}`)).status,
+    ).toBe(404);
+    expect(
+      (await stranger.agent.get(`/api/workspaces/${stranger.organizationId}/deletion-preview?domainId=${domainId}`)).status,
+    ).toBe(404);
+  });
+
   it('accepts a domain slug as well as its id, so the UI link works', async () => {
     const { agent, organizationId, domainSlug } = await workspace();
 

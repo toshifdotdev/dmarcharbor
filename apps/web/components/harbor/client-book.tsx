@@ -51,6 +51,7 @@ import {
   type ManagedSpfDeletionPreview,
 } from "@/lib/ops-client";
 import { limitReached } from "@/lib/entitlements";
+import { summariseDeletion } from "@/lib/deletion-words";
 import { domainHref, onboardingHref } from "@/lib/route-hrefs";
 import type { DomainStatus } from "@/lib/types";
 import { Button, ButtonLink } from "@/components/ui/button";
@@ -91,22 +92,7 @@ const OWNERSHIP: Record<DomainStatus, { label: string; hint: string }> = {
   FAILED: { label: "Ownership record gone", hint: "It was verified, and the record has since been removed from DNS." },
 };
 
-const SUMMARY_WORDS: Array<[keyof DeletionSummary, string, string]> = [
-  ["domains", "domain", "domains"],
-  ["dmarcReports", "report", "reports"],
-  ["forensicReports", "forensic report", "forensic reports"],
-  ["alertRules", "alert rule", "alert rules"],
-  ["alertEvents", "alert event", "alert events"],
-  ["reportDigests", "digest", "digests"],
-  ["scans", "scan", "scans"],
-  ["reportShares", "share link", "share links"],
-  ["compliancePacks", "compliance pack", "compliance packs"],
-];
-
-function summarise(s: DeletionSummary): string {
-  const parts = SUMMARY_WORDS.filter(([k]) => s[k] > 0).map(([k, one, many]) => `${s[k]} ${s[k] === 1 ? one : many}`);
-  return parts.length ? parts.join(", ") : "nothing else was attached";
-}
+const summarise = (s: DeletionSummary) => summariseDeletion(s);
 
 /* The client line's geometry, in px from the cell's left edge. */
 const LINE = "left-[14.5px] w-[3px]";
@@ -116,6 +102,7 @@ export function ClientBook({
   clients,
   limits,
   productName = "this service",
+  deletedDomain = null,
 }: {
   organizationId: string;
   clients: ClientView[];
@@ -129,6 +116,8 @@ export function ClientBook({
   } | null;
   /** The product's name as this host shows it (white label), for the deletion warnings. */
   productName?: string;
+  /** A domain just deleted from its setup page, from ?deleted=, already checked to be a domain name. */
+  deletedDomain?: string | null;
 }) {
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<"all" | "dns">("all");
@@ -139,7 +128,12 @@ export function ClientBook({
   const [removed, setRemoved] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<ClientView | null>(null);
   const [moving, setMoving] = useState<{ domain: DomainView; client: ClientView } | null>(null);
-  const [changed, setChanged] = useState<{ title: string; line: string } | null>(null);
+  // A domain deleted from its own page lands here, and is said so.
+  const [changed, setChanged] = useState<{ title: string; line: string } | null>(
+    deletedDomain
+      ? { title: "Domain deleted", line: `${deletedDomain} was deleted, with its reports, scans, alerts and share links.` }
+      : null,
+  );
   const domainInput = useRef<HTMLInputElement | null>(null);
   const formsRef = useRef<HTMLDivElement | null>(null);
 
@@ -188,8 +182,11 @@ export function ClientBook({
             {domainsUsed !== null ? (
               <UsageLine quota="activeDomain" used={domainsUsed} limit={limits.maxActiveDomains} noun="active domains" />
             ) : (
+              // Without the API's count only this workspace's total is known,
+              // which is not the active count: say each for what it is.
               <span className="tnum">
-                <span className="font-semibold text-fg-2">{domainTotal}</span> domains, of {limits.maxActiveDomains} active
+                <span className="font-semibold text-fg-2">{domainTotal}</span> domain{domainTotal === 1 ? "" : "s"} in this
+                workspace, with up to {limits.maxActiveDomains} active allowed
               </span>
             )}{" "}
             on the {limits.plan} plan
@@ -622,19 +619,23 @@ function DeleteClientDialog({
   const [shownFor, setShownFor] = useState<string | null>(null);
   const [hosted, setHosted] = useState<HostedDeletionPreview[]>([]);
   const [managedSpf, setManagedSpf] = useState<ManagedSpfDeletionPreview[]>([]);
+  const [counts, setCounts] = useState<DeletionSummary | null>(null);
 
   useEffect(() => {
     if (!client) {
       setHosted([]);
       setManagedSpf([]);
+      setCounts(null);
       return;
     }
     let active = true;
+    setCounts(null);
     previewWorkspaceDeletion(organizationId, client.id)
       .then((result) => {
         if (active && result.ok) {
           setHosted(result.data.hostedDmarc ?? []);
           setManagedSpf(result.data.managedSpf ?? []);
+          setCounts(result.data.summary);
         }
       })
       .catch(() => undefined);
@@ -700,6 +701,10 @@ function DeleteClientDialog({
               <p className="text-body text-fg-2">
                 This deletes the client and its {n} domain{n === 1 ? "" : "s"}, with every report, forensic report, scan,
                 alert, digest and share link attached to them. Live share links stop working. This cannot be undone.
+              </p>
+              <p className="text-ui text-fg-2" data-testid="delete-client-counts">
+                <span className="font-semibold text-fg">What goes:</span>{" "}
+                {counts ? summarise(counts) : "counting what is attached…"}
               </p>
               <ul className="data flex max-h-[140px] flex-col gap-0.5 overflow-y-auto border-y border-rule py-2 text-meta text-fg">
                 {client.domains.map((d) => (

@@ -700,7 +700,8 @@ export const createDomain = (
     ) =>
     // `slug` comes back so the "Domain added" link can carry the URL identifier
     // rather than the cuid. It is the same field the list endpoints return.
-    call<{ id: string; slug: string; name: string }>(
+    // `alreadyAdded` is true when the client already held the name (a 200).
+    call<{ id: string; slug: string; name: string; alreadyAdded?: boolean }>(
 
 wsPath(orgId, `/clients/${clientId}/domains`),
       { method: "POST", body: JSON.stringify(body) },
@@ -1316,12 +1317,20 @@ export interface ManagedSpfDeletionPreview {
   republish: { host: string; type: "TXT"; value: string };
 }
 
-export const previewWorkspaceDeletion = (orgId: string, clientId?: string) =>
-  call<{
+/** What deleting the workspace, one client (a string id) or one domain would destroy. */
+export const previewWorkspaceDeletion = (orgId: string, scope?: string | { domainId: string }) => {
+  const query =
+    typeof scope === "string"
+      ? `?clientId=${encodeURIComponent(scope)}`
+      : scope
+        ? `?domainId=${encodeURIComponent(scope.domainId)}`
+        : "";
+  return call<{
     summary: DeletionSummary;
     hostedDmarc: HostedDeletionPreview[];
     managedSpf: ManagedSpfDeletionPreview[];
-  }>(wsPath(orgId, `/deletion-preview${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`));
+  }>(wsPath(orgId, `/deletion-preview${query}`));
+};
 
 export const deleteDomain = (orgId: string, domainId: string) =>
   call<DeletionResult>(wsPath(orgId, `/domains/${domainId}`), { method: "DELETE" });

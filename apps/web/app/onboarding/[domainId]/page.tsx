@@ -312,6 +312,7 @@ export default async function OnboardingPage({ params }: { params: Promise<{ dom
               canPublish={canPublish}
               connections={publishConnections}
               brand={brand}
+              ownership={onboarding.ownershipRecord ?? null}
             />
           </section>
         </div>

@@ -239,6 +239,13 @@ describe('onboarding state', () => {
     const dmarcStep = response.body.steps.find((step: { id: string }) => step.id === 'dmarc_published');
     expect(dmarcStep.status).toBe('blocked');
     expect(response.body.suggestedRecord.value).toContain('v=DMARC1');
+    // The record to publish is there before any check has run.
+    const token = (await prisma.domain.findUniqueOrThrow({ where: { id: domainId } })).verificationToken;
+    expect(response.body.ownershipRecord).toEqual({
+      host: `_dmarc-harbor-verification.${response.body.domain.name}`,
+      type: 'TXT',
+      value: `dmarc-harbor-verification=${token}`,
+    });
   });
 
   it('moves through awaiting reports to monitoring', async () => {
@@ -246,6 +253,8 @@ describe('onboarding state', () => {
 
     const before = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/onboarding`);
     expect(before.body.state).toBe('AWAITING_REPORTS');
+    // Verified: nothing left to publish for ownership.
+    expect(before.body.ownershipRecord).toBeNull();
     const flowing = before.body.steps.find((step: { id: string }) => step.id === 'reports_flowing');
     expect(flowing.status).toBe('pending');
 

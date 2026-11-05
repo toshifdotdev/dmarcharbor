@@ -52,9 +52,14 @@ function dateLabel(value: string | null): string | null {
  *
  * Three states, never two: a failed read is never "no clients yet".
  */
-export default async function ClientsPage() {
+export default async function ClientsPage({ searchParams }: { searchParams: Promise<{ deleted?: string }> }) {
   const { workspaces, active } = await resolveActiveWorkspace();
   if (!active) redirect("/welcome");
+  // A domain deleted from its setup page, named in the notice only when it
+  // reads as a domain name, so the address cannot put other words on screen.
+  const { deleted } = await searchParams;
+  const deletedDomain =
+    typeof deleted === "string" && /^(?=.{3,253}$)([a-z0-9-]+\.)+[a-z0-9-]{2,63}$/.test(deleted) ? deleted : null;
 
   const [entitlements, clients, brand, catalog] = await Promise.all([
     getWorkspaceEntitlements(active.id).catch(() => null),
@@ -122,6 +127,7 @@ export default async function ClientsPage() {
             organizationId={active.id}
             clients={views}
             productName={brandName(brand)}
+            deletedDomain={deletedDomain}
             limits={
               entitlements
                 ? {
