@@ -9,6 +9,7 @@ import { queueEmail } from '../email/email.service.js';
 import { ownershipTransferredEmail } from '../email/templates.js';
 import { rateLimitStoreFor } from '../middleware/postgres-rate-limit-store.js';
 import { recordAuditEvent } from './audit.service.js';
+import { resolveEntitlements } from './entitlements/entitlement.service.js';
 import { planCatalog, planLabel } from './entitlements/plan-catalog.js';
 import { workspaceAllowanceFor } from './entitlements/workspace-allowance.service.js';
 import { countCountedDomainsIn } from './inventory/inventory.service.js';
@@ -67,16 +68,54 @@ export interface TransferResult {
   planLabel: string;
 }
 
-export async function transferOwnership(input: TransferInput): Promise<TransferResult> {
-  const now = input.now ?? new Date();
+/**
+ * What the transfer would do, before the owner confirms: the plan the
+ * workspace follows afterwards, and the refusal it would meet, if any. The
+ * members page shows both in the confirmation, so a downgrade or a blocked
+ * transfer is read before a password is typed rather than after.
+ */
+export interface TransferPreview {
+  newOwner: { memberId: string; name: string; email: string };
+  currentPlan: PlanTier;
+  currentPlanLabel: string;
+  plan: PlanTier;
+  planLabel: string;
+  refusal: { status: number; code: string; message: string; details: Record<string, unknown> } | null;
+}
 
-  const { totalHits } = await attempts
-    .incrementWithWindow(input.actorUserId, now.getTime() + ATTEMPT_WINDOW_MS)
-    .catch(() => ({ totalHits: 0 }));
-  if (totalHits > ATTEMPT_LIMIT) {
-    throw new OwnershipTransferError(429, 'TOO_MANY_ATTEMPTS', 'Too many attempts. Wait 15 minutes and try again.');
+export async function previewTransfer(input: {
+  organizationId: string;
+  actorUserId: string;
+  newOwnerMemberId: string;
+  now?: Date;
+}): Promise<TransferPreview> {
+  const parties = await transferParties(input);
+  const currentPlan = (await resolveEntitlements(input.organizationId, input.now)).plan;
+  let refusal: TransferPreview['refusal'] = null;
+  try {
+    await assertTransferable(parties, input.now ?? new Date());
+  } catch (error) {
+    if (!(error instanceof OwnershipTransferError)) throw error;
+    refusal = { status: error.status, code: error.code, message: error.message, details: error.details };
   }
+  return {
+    newOwner: {
+      memberId: parties.target.id,
+      name: parties.target.user.name?.trim() || parties.target.user.email,
+      email: parties.target.user.email,
+    },
+    currentPlan,
+    currentPlanLabel: planLabel(currentPlan),
+    plan: parties.target.user.plan,
+    planLabel: planLabel(parties.target.user.plan),
+    refusal,
+  };
+}
 
+type TransferParties = Awaited<ReturnType<typeof transferParties>>;
+
+/** The workspace, its owner (the caller) and the member taking it over. */
+async function transferParties(input: { organizationId: string; actorUserId: string; newOwnerMemberId: string }) {
   const organization = await prisma.organization.findUnique({
     where: { id: input.organizationId },
     select: { id: true, name: true },
@@ -108,11 +147,14 @@ export async function transferOwnership(input: TransferInput): Promise<TransferR
   if (target.userId === current.userId) {
     throw new OwnershipTransferError(400, 'ALREADY_OWNER', 'You already own this workspace. Choose another member.');
   }
+  return { organization, current, target };
+}
+
+/** Every refusal that does not depend on the confirmation. */
+async function assertTransferable({ organization, target }: TransferParties, now: Date): Promise<void> {
   if (!target.user.emailVerified) {
     throw new OwnershipTransferError(409, 'EMAIL_NOT_VERIFIED', `${target.user.email} has not confirmed their email address yet, so the workspace cannot be handed to them.`);
   }
-
-  await confirmIdentity(input.actorUserId, input.password, input.code);
 
   const billed = await prisma.subscription.findFirst({
     where: {
@@ -123,15 +165,38 @@ export async function transferOwnership(input: TransferInput): Promise<TransferR
     select: { id: true },
   });
   if (billed) {
+    // The subscription is the current owner's, paid through this workspace, so
+    // it cannot follow the workspace to someone else's account. The refusal
+    // names both ways through, because "cancel it" alone leaves the owner
+    // wondering whether the workspace goes unpaid in between.
     throw new OwnershipTransferError(
       409,
       'SUBSCRIPTION_STILL_ACTIVE',
-      'This workspace carries the subscription your account is billed through. Cancel it on the Billing page, or contact us to move the billing, before handing the workspace over.',
+      "This workspace's plan is paid through a subscription on your account, and a subscription cannot move to someone else's account. Either cancel it on the Billing page, transfer the workspace once the paid period has ended, and the new owner then subscribes on their own account; or contact support to move the subscription to them without a gap.",
+      { billingUrl: '/billing', supportUrl: '/support' },
     );
   }
 
+  await assertWithinNewOwnersLimits(target.userId, organization.id, target.user.plan, now);
+}
+
+export async function transferOwnership(input: TransferInput): Promise<TransferResult> {
+  const now = input.now ?? new Date();
+
+  const { totalHits } = await attempts
+    .incrementWithWindow(input.actorUserId, now.getTime() + ATTEMPT_WINDOW_MS)
+    .catch(() => ({ totalHits: 0 }));
+  if (totalHits > ATTEMPT_LIMIT) {
+    throw new OwnershipTransferError(429, 'TOO_MANY_ATTEMPTS', 'Too many attempts. Wait 15 minutes and try again.');
+  }
+
+  const parties = await transferParties(input);
+  const { organization, current, target } = parties;
+
+  await confirmIdentity(input.actorUserId, input.password, input.code);
+  await assertTransferable(parties, now);
+
   const plan = target.user.plan;
-  await assertWithinNewOwnersLimits(target.userId, organization.id, plan, now);
 
   await prisma.$transaction(async (tx) => {
     // The same lock the quota checks take, so a transfer and a plan write on

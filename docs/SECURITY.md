@@ -160,7 +160,9 @@ Every privileged action is recorded in an append-only log:
 - Invitations sent, sent again, withdrawn, accepted and declined; role changes,
   with the role before and after; people removed or leaving; and ownership
   transfers
-- Plan changes and entitlement overrides
+- Clients and domains added, one at a time or in bulk, and each domain's
+  ownership first verified, whether by a person, an API key or the background check
+- Plan changes, the billing currency chosen, and entitlement overrides
 - Forensic data purges, identity toggles, and forensic collection turned on or off
 - Report share link creation and revocation
 - Session revocations, two-step verification changes and single sign-on events

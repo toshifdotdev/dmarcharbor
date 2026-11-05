@@ -251,7 +251,7 @@ async function defaultRefresh(input: {
   actorUserId: string | null;
 }): Promise<void> {
   if (input.kind === 'verification') {
-    await verifyDomain(input.organizationId, input.domainId);
+    await verifyDomain(input.organizationId, input.domainId, { actorUserId: input.actorUserId, source: 'app' });
     return;
   }
   await runDomainScan({

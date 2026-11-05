@@ -167,6 +167,8 @@ export async function setBillingCurrencyController(request: Request, response: R
       await setBillingCurrencyPreference({
         organizationId: response.locals.organizationId,
         currency: parsed.data.currency,
+        actorUserId: response.locals.session?.user?.id ?? null,
+        requestId: response.locals.requestId,
       }),
     );
   } catch (error) {

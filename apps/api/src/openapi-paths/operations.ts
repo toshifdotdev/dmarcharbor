@@ -243,6 +243,25 @@ export const operationsPaths = {
       },
     },
   },
+  '/workspaces/{organizationId}/ownership/transfer/preview': {
+    get: {
+      tags: ['Lifecycle'],
+      summary: 'Preview handing the workspace to a member',
+      description: [
+        'Owner only (organization delete). Read-only. Query newOwnerMemberId.',
+        'Answers the plan the workspace is on now (currentPlan, currentPlanLabel) and the plan it follows after the transfer, which is the new owner account plan (plan, planLabel).',
+        'refusal is null when the transfer can go ahead once confirmed, or the refusal the transfer would meet (status, code, message, details): NEW_OWNER_LIMIT_REACHED, SUBSCRIPTION_STILL_ACTIVE (details carry billingUrl and supportUrl) or EMAIL_NOT_VERIFIED.',
+      ].join(' '),
+      parameters: [
+        orgParam,
+        { name: 'newOwnerMemberId', in: 'query', required: true, schema: { type: 'string' }, description: 'The member id of the new owner.' },
+      ],
+      responses: {
+        200: { description: '{ newOwner, currentPlan, currentPlanLabel, plan, planLabel, refusal }.' },
+        ...standardErrors,
+      },
+    },
+  },
   '/workspaces/{organizationId}/ownership/transfer': {
     post: {
       tags: ['Lifecycle'],

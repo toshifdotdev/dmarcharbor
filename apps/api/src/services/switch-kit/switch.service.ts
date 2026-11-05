@@ -748,7 +748,10 @@ async function performCheck(input: {
 
   let verification: CheckOutcome['verification'] = null;
   if (input.domain.status !== 'VERIFIED') {
-    const verified = await verifyDomain(input.organizationId, input.domain.id);
+    const verified = await verifyDomain(input.organizationId, input.domain.id, {
+      actorUserId: input.actorUserId ?? null,
+      ...(input.actorUserId ? { source: 'app' as const } : {}),
+    });
     verification = verified?.verification ?? null;
   }
 

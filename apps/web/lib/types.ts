@@ -1408,6 +1408,19 @@ export interface PerDomainBand {
   unitMinor: { USD: number; INR: number };
 }
 
+/** GET /workspaces/:id/ownership/transfer/preview */
+export interface OwnershipTransferPreview {
+  newOwner: { memberId: string; name: string; email: string };
+  /** The plan the workspace is on now: the current owner's. */
+  currentPlan: string;
+  currentPlanLabel: string;
+  /** The plan it follows after the transfer: the new owner's. */
+  plan: string;
+  planLabel: string;
+  /** The refusal the transfer would meet, or null when it can go ahead once confirmed. */
+  refusal: { status: number; code: string; message: string; details: { billingUrl?: string; supportUrl?: string } & Record<string, unknown> } | null;
+}
+
 export interface PlanDefinition {
   tier: string;
   label: string;
@@ -1723,7 +1736,11 @@ export type AuditAction =
   | "TEAMS_DESTINATION_PAUSED"
   | "TEAMS_DESTINATION_RESUMED"
   | "FORENSIC_COLLECTION_ENABLED"
-  | "FORENSIC_COLLECTION_DISABLED";
+  | "FORENSIC_COLLECTION_DISABLED"
+  | "CLIENT_CREATED"
+  | "DOMAIN_CREATED"
+  | "DOMAIN_VERIFIED"
+  | "BILLING_CURRENCY_SET";
 
 /**
  * AuditOutcome is SUCCESS or DENIED. There is no FAILED value: the trail records

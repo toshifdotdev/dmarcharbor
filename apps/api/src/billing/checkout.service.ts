@@ -857,6 +857,8 @@ export async function billingCurrencyPreference(organizationId: string): Promise
 export async function setBillingCurrencyPreference(input: {
   organizationId: string;
   currency: BillingCurrency;
+  actorUserId?: string | null;
+  requestId?: string;
 }): Promise<{ preferredCurrency: BillingCurrency; locked: boolean; reason: string | null }> {
   const current = await billingCurrencyPreference(input.organizationId);
 
@@ -872,6 +874,21 @@ export async function setBillingCurrencyPreference(input: {
     where: { id: input.organizationId },
     data: { preferredCurrency: input.currency },
   });
+
+  // The currency picks the payment processor (INR Razorpay, USD Paddle), so
+  // choosing it is recorded like the checkout it leads to. Saving the same
+  // currency again changes nothing and writes nothing.
+  if (current.preferredCurrency !== input.currency) {
+    await recordAuditEvent({
+      organizationId: input.organizationId,
+      ...(input.actorUserId ? { actorUserId: input.actorUserId } : {}),
+      action: 'BILLING_CURRENCY_SET',
+      targetType: 'organization',
+      targetId: input.organizationId,
+      detail: { from: current.preferredCurrency, to: input.currency },
+      ...(input.requestId ? { requestId: input.requestId } : {}),
+    });
+  }
 
   return { ...current, preferredCurrency: input.currency };
 }

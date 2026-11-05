@@ -38,15 +38,17 @@ import {
   removeMember,
   resendInvitation,
   resetMemberMfa,
+  previewOwnershipTransfer,
   setWorkspaceMfaRequirement,
   transferOwnership,
   updateMemberRole,
 } from "@/lib/ops-client";
-import type { WorkspaceSecurity } from "@/lib/types";
+import type { OwnershipTransferPreview, PlanDefinition, WorkspaceSecurity } from "@/lib/types";
+import { transferPlanSummary } from "@/lib/ownership-transfer";
 import { limitReached } from "@/lib/entitlements";
 import { ActionRefusal, PlanLimitNotice, UsageLine, type ActionError } from "@/components/harbor/plan-refusal";
 import { Button } from "@/components/ui/button";
-import { ConfirmDialog } from "@/components/ui/dialog";
+import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { Field, Input, Segmented, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { Table, TBody, Td, Th, THead, Tr } from "@/components/ui/table";
@@ -130,6 +132,7 @@ export function MembersBoard({
   isOwner,
   selfUserId,
   seats = null,
+  plans = null,
 }: {
   organizationId: string;
   members: MemberView[];
@@ -142,6 +145,8 @@ export function MembersBoard({
   selfUserId: string | null;
   /** null when the plan or a count could not be read: the form is offered and the API decides. */
   seats?: Seats | null;
+  /** The plan catalog, read for the owner: the transfer confirmation lists what a lower plan stops. */
+  plans?: PlanDefinition[] | null;
 }) {
   const waiting = invitations ? invitations.filter((inv) => !inv.expired) : null;
   const expired = invitations ? invitations.filter((inv) => inv.expired) : [];
@@ -172,6 +177,9 @@ export function MembersBoard({
   const [transferProof, setTransferProof] = useState("");
   const [transferBusy, setTransferBusy] = useState(false);
   const [transferError, setTransferError] = useState<string | null>(null);
+  // What the transfer would do, read when the dialog opens: null while reading.
+  const [preview, setPreview] = useState<OwnershipTransferPreview | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   const [mfaSecurity, setMfaSecurity] = useState(security);
   const [mfaBusy, setMfaBusy] = useState(false);
@@ -282,8 +290,27 @@ export function MembersBoard({
   const successors = members.filter((m) => m.userId !== selfUserId && asRole(m.role) !== "owner" && asRole(m.role) !== "portal");
   const successor = successors.find((m) => m.id === successorId) ?? null;
 
+  async function openTransfer() {
+    if (!successor) return;
+    setTransferError(null);
+    setTransferProof("");
+    setPreview(null);
+    setPreviewError(null);
+    setTransferOpen(true);
+    const res = await previewOwnershipTransfer(organizationId, successor.id);
+    if (!res.ok) {
+      setPreviewError(res.error?.message ?? "What the transfer would change could not be read. Close this and try again.");
+      return;
+    }
+    setPreview(res.data);
+  }
+
+  const summary = preview ? transferPlanSummary(preview, plans) : null;
+  const refusal = preview?.refusal ?? null;
+  const transferReady = preview !== null && refusal === null;
+
   async function transfer() {
-    if (!successor || transferBusy) return;
+    if (!successor || transferBusy || !transferReady) return;
     const proof = transferProof.trim();
     if (!proof) {
       setTransferError(transferWith === "password" ? "Enter your password." : "Enter the code from your authenticator app.");
@@ -666,11 +693,7 @@ export function MembersBoard({
               variant="secondary"
               disabled={!successorId}
               data-testid="transfer-owner-open"
-              onClick={() => {
-                setTransferError(null);
-                setTransferProof("");
-                setTransferOpen(true);
-              }}
+              onClick={() => void openTransfer()}
             >
               Transfer ownership
             </Button>
@@ -920,22 +943,90 @@ export function MembersBoard({
         error={cancelling ? error : null}
       />
 
-      <ConfirmDialog
+      <Dialog
         open={transferOpen && successor !== null}
         onClose={() => {
+          if (transferBusy) return;
           setTransferOpen(false);
           setTransferError(null);
         }}
-        onConfirm={() => void transfer()}
-        testId="transfer-owner"
+        testId="transfer-owner-confirm"
         title={successor ? `Make ${successor.name} the owner?` : "Transfer ownership?"}
-        body={
-          successor ? (
-            <div className="flex flex-col gap-3">
-              <p>
-                {successor.name} becomes the owner and you become an admin, in one step. Only they can hand it back.
-                The workspace follows the plan on their account from now on, and counts toward its limits.
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              disabled={transferBusy}
+              onClick={() => {
+                setTransferOpen(false);
+                setTransferError(null);
+              }}
+            >
+              {refusal ? "Close" : "Cancel"}
+            </Button>
+            {refusal || previewError ? null : (
+              <Button
+                variant="danger"
+                onClick={() => void transfer()}
+                busy={transferBusy}
+                busyLabel="Transfer ownership"
+                disabled={!transferReady}
+                data-testid="transfer-owner-confirm-button"
+              >
+                Transfer ownership
+              </Button>
+            )}
+          </>
+        }
+      >
+        {successor ? (
+          <div className="flex flex-col gap-3 text-body text-fg-2">
+            <p>
+              {successor.name} becomes the owner and you become an admin, in one step. Only they can hand it back.
+            </p>
+
+            {previewError ? (
+              <Notice tone="fail" title={previewError} />
+            ) : !preview || !summary ? (
+              <p className="text-ui text-fg-3" data-testid="transfer-owner-reading">
+                Reading what the transfer would change.
               </p>
+            ) : (
+              <div data-testid="transfer-owner-plan" className="flex flex-col gap-1.5">
+                <p className="text-body text-fg">{summary.sentence}</p>
+                {summary.lower ? (
+                  <ul className="flex flex-col gap-0.5 text-ui text-fg" data-testid="transfer-owner-stops">
+                    {summary.stops.map((label) => (
+                      <li key={label}>− {label}</li>
+                    ))}
+                    {summary.limits.map((line) => (
+                      <li key={line} className="tnum">
+                        − {line}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            )}
+
+            {refusal ? (
+              <Notice tone="fail" title="This transfer cannot go ahead" testId="transfer-owner-refusal">
+                <p>{refusal.message}</p>
+                {refusal.code === "SUBSCRIPTION_STILL_ACTIVE" ? (
+                  <p className="mt-2 flex flex-wrap gap-x-4">
+                    <Link href={refusal.details?.billingUrl ?? "/billing"} className="link font-semibold">
+                      Open Billing
+                    </Link>
+                    <a href={refusal.details?.supportUrl ?? "/support"} className="link font-semibold">
+                      Contact support
+                    </a>
+                  </p>
+                ) : null}
+              </Notice>
+            ) : null}
+
+            {transferReady ? (
+              <>
               <Segmented
                 label="Confirm with"
                 size="sm"
@@ -966,14 +1057,17 @@ export function MembersBoard({
                   data-testid="transfer-owner-proof"
                 />
               </Field>
-            </div>
-          ) : null
-        }
-        confirmLabel="Transfer ownership"
-        busy={transferBusy}
-        danger
-        error={transferError}
-      />
+              </>
+            ) : null}
+
+            {transferError ? (
+              <p role="alert" className="text-ui font-medium text-fail">
+                {transferError}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </Dialog>
     </div>
   );
 }

@@ -6,7 +6,7 @@ import { requireOrganizationPermission } from '../middleware/organization-permis
 import { requireSession } from '../middleware/auth.middleware.js';
 import { renameWorkspaceController } from '../controllers/operations.controller.js';
 import { z } from 'zod';
-import { OwnershipTransferError, transferOwnership } from '../services/ownership-transfer.service.js';
+import { OwnershipTransferError, previewTransfer, transferOwnership } from '../services/ownership-transfer.service.js';
 
 /**
  * Deleting what was created.
@@ -230,6 +230,39 @@ const transferSchema = z
     code: z.string().trim().max(12).optional(),
   })
   .strict();
+
+/**
+ * What a transfer to this member would do: the plan the workspace follows
+ * afterwards and any refusal it would meet. Read-only; owner only, like the
+ * transfer itself.
+ */
+lifecycleRouter.get(
+  '/workspaces/:organizationId/ownership/transfer/preview',
+  requireSession,
+  requireOrganizationPermission('organization', 'delete'),
+  async (request: Request, response: Response) => {
+    const memberId = typeof request.query.newOwnerMemberId === 'string' ? request.query.newOwnerMemberId.trim() : '';
+    if (!memberId || memberId.length > 200) {
+      response.status(400).json({ error: { code: 'INVALID_REQUEST', message: 'Choose the new owner.' } });
+      return;
+    }
+    try {
+      response.json(
+        await previewTransfer({
+          organizationId: organizationId(request),
+          actorUserId: String(response.locals.session?.user?.id ?? ''),
+          newOwnerMemberId: memberId,
+        }),
+      );
+    } catch (error) {
+      if (error instanceof OwnershipTransferError) {
+        response.status(error.status).json({ error: { code: error.code, message: error.message, ...error.details } });
+        return;
+      }
+      throw error;
+    }
+  },
+);
 
 lifecycleRouter.post(
   '/workspaces/:organizationId/ownership/transfer',

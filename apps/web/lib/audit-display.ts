@@ -175,6 +175,10 @@ const ACTION_SENTENCES: Record<AuditAction, string> = {
   TEAMS_DESTINATION_RESUMED: "Microsoft Teams destination resumed",
   FORENSIC_COLLECTION_ENABLED: "Forensic report collection turned on",
   FORENSIC_COLLECTION_DISABLED: "Forensic report collection turned off",
+  CLIENT_CREATED: "Client added",
+  DOMAIN_CREATED: "Domain added",
+  DOMAIN_VERIFIED: "Domain ownership verified",
+  BILLING_CURRENCY_SET: "Billing currency chosen",
 };
 
 /**
@@ -469,6 +473,70 @@ export function auditDayLabel(dayKey: string, now: Date): string {
   });
 }
 
+// ─── the subject ──────────────────────────────────────────────────────────────
+
+export interface AuditSubject {
+  /** " for ", " to " or ": ", placed between the action and the subject. */
+  join: string;
+  text: string;
+}
+
+function text(value: unknown): string | null {
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
+}
+
+function field(detail: AuditDetail, key: string): unknown {
+  return detail && typeof detail === "object" && !Array.isArray(detail) ? (detail as Record<string, AuditDetail>)[key] : undefined;
+}
+
+const INVITATION_ACTIONS = new Set([
+  "MEMBER_INVITED",
+  "INVITATION_RESENT",
+  "INVITATION_CANCELED",
+  "INVITATION_ACCEPTED",
+  "INVITATION_REJECTED",
+]);
+
+/**
+ * Who or what a row is about, read from what the API stored with it.
+ *
+ * The row used to say only "Team member role changed by Test One", and the
+ * person whose role changed was under Detail. The sentence now names them.
+ * Membership rows have their own wording; everything else takes the first
+ * name the detail carries (an email, a name, a domain, a channel), then the
+ * domain the row is filed under, then a "from to" pair. A row with none of
+ * those is about the workspace itself and names nothing.
+ */
+export function auditSubject(event: Pick<AuditEventRow, "action" | "detail" | "domain">): AuditSubject | null {
+  const detail = event.detail;
+  const email = text(field(detail, "email"));
+  const role = text(field(detail, "role"));
+
+  if (event.action === "OWNERSHIP_TRANSFERRED") {
+    const to = field(detail, "to");
+    const toEmail = text(field(to as AuditDetail, "email"));
+    return toEmail ? { join: " to ", text: toEmail } : null;
+  }
+  if (event.action === "MEMBER_ROLE_CHANGED" && email) {
+    const previous = text(field(detail, "previousRole"));
+    return { join: " for ", text: previous && role ? `${email} (${previous} to ${role})` : role ? `${email} (now ${role})` : email };
+  }
+  if (INVITATION_ACTIONS.has(event.action) && email) {
+    return { join: " for ", text: role ? `${email} as ${role}` : email };
+  }
+
+  for (const key of ["email", "name", "domainName", "clientName", "channelLabel", "label", "host"]) {
+    const value = text(field(detail, key));
+    if (value) return { join: ": ", text: value };
+  }
+  if (event.domain?.name) return { join: ": ", text: event.domain.name };
+
+  const from = text(field(detail, "from"));
+  const to = text(field(detail, "to"));
+  if (from && to) return { join: ": ", text: `${from} to ${to}` };
+  return null;
+}
+
 // ─── the timeline ─────────────────────────────────────────────────────────────
 
 /** One row, already written in English. */
@@ -487,6 +555,12 @@ export interface AuditTimelineEntry {
   actor: string;
   /** The email, when it says something the name does not. */
   actorDetail: string | null;
+  /**
+   * Who or what the action was done to, for the sentence itself: "Team member
+   * role changed for alex@… (analyst to viewer) by …". Null when the row names
+   * nothing beyond the workspace. `join` is the words before it.
+   */
+  subject: AuditSubject | null;
   targetLabel: string;
   targetId: string | null;
   domainName: string | null;
@@ -550,6 +624,7 @@ export function buildAuditTimeline(
        */
       actor: name || email ? name || email : "Unattributed",
       actorDetail: name && email && name !== email ? email : null,
+      subject: auditSubject(event),
       targetLabel: auditTargetLabel(event.targetType),
       targetId: event.targetId,
       domainName: event.domain?.name ?? null,

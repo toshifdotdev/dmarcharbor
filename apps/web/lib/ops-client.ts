@@ -60,6 +60,7 @@ import type {
   TeamsTestResult,
   TlsReportDetail,
   VerifyDomainResult,
+  OwnershipTransferPreview,
 } from "./types";
 import { errorFromResponse, extractErrorCode, genericForStatus, networkUiError } from "./ui-errors";
 import { retryAfterFrom } from "./retry-after";
@@ -1750,6 +1751,13 @@ export const transferOwnership = (
     method: "POST",
     body: JSON.stringify({ newOwnerMemberId, ...proof }),
   });
+
+/** GET /ownership/transfer/preview — the plan after a transfer, and any refusal it would meet. */
+export const previewOwnershipTransfer = (orgId: string, newOwnerMemberId: string) =>
+  call<OwnershipTransferPreview>(
+    wsPath(orgId, `/ownership/transfer/preview?newOwnerMemberId=${encodeURIComponent(newOwnerMemberId)}`),
+    { method: "GET" },
+  );
 
 /** POST /rename — the workspace's name. The slug and id stay. */
 export const renameWorkspace = (orgId: string, name: string) =>

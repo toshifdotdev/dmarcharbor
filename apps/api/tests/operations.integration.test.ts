@@ -350,12 +350,12 @@ describe('audit trail', () => {
     const foreign = await other.agent.get(`/api/workspaces/${other.organizationId}/audit-events`);
     expect(foreign.status).toBe(200);
     expect(foreign.body.items.some((entry: { action: string }) => entry.action === 'FORENSIC_IDENTITY_ENABLED')).toBe(false);
-    // Only creation rows, and nothing that names the other workspace.
-    expect(
-      foreign.body.items.every((entry: { action: string }) =>
-        entry.action === 'DPA_ACCEPTED' || entry.action === 'TERMS_ACCEPTED',
-      ),
-    ).toBe(true);
+    // Only its own creation rows (the agreements, and the client and domain the
+    // fixture added), and nothing that names the other workspace.
+    const creation = new Set(['DPA_ACCEPTED', 'TERMS_ACCEPTED', 'CLIENT_CREATED', 'DOMAIN_CREATED', 'DOMAIN_VERIFIED']);
+    expect(foreign.body.items.every((entry: { action: string }) => creation.has(entry.action))).toBe(true);
+    expect(JSON.stringify(foreign.body.items)).not.toContain(first.domainId);
+    expect(JSON.stringify(foreign.body.items)).not.toContain(first.organizationId);
   });
 
   it('keeps audit rows append only by never exposing an update or delete route', async () => {

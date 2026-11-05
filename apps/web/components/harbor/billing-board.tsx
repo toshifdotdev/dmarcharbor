@@ -42,6 +42,7 @@ import {
   catalogMonthsSaved,
   isFree,
   limitLabel,
+  lostFeatures,
   planFeatureLabel,
   planLimit,
   soldFeatures,
@@ -557,7 +558,8 @@ function Decision(props: RowProps & { action: Action; verb: string }) {
   const now = current ? features(current) : new Set<string>();
   const next = features(plan);
   const gains = [...next].filter((k) => !now.has(k));
-  const losses = [...now].filter((k) => !next.has(k));
+  // The same list the ownership transfer shows when the new owner's plan is lower.
+  const losses = current ? lostFeatures(current, plan) : [];
   const down = current ? plan.maxClients < current.maxClients : false;
   const currentLabel = current?.label ?? "the current plan";
 

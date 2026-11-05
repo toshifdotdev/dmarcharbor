@@ -157,3 +157,37 @@ export function catalogMonthsSaved(plans: PlanDefinition[]): number | null {
   if (all.length === 0 || all.some((m) => m === null)) return null;
   return all.every((m) => m === all[0]) ? all[0] : null;
 }
+
+/**
+ * What moving from one plan to another stops: the features the first grants
+ * and the second does not, in reading order. The Billing page lists these as
+ * "No longer included" before a downgrade, and the ownership transfer lists
+ * the same ones when the new owner's plan is lower, so the two cannot drift.
+ */
+export function lostFeatures(from: PlanDefinition, to: PlanDefinition): string[] {
+  const next = new Set(granted(to));
+  return granted(from)
+    .filter((k) => !next.has(k))
+    .sort(byReadingOrder);
+}
+
+/** The limits that are smaller on `to` than on `from`. A null limit is no limit. */
+export function loweredLimits(
+  from: PlanDefinition,
+  to: PlanDefinition,
+): Array<{ key: "maxClients" | "maxActiveDomains" | "maxMembers" | "maxWorkspaces"; label: string; before: number; after: number }> {
+  const rows = [
+    { key: "maxClients", label: "Clients" },
+    { key: "maxActiveDomains", label: "Active domains" },
+    { key: "maxMembers", label: "Team members" },
+    { key: "maxWorkspaces", label: "Workspaces" },
+  ] as const;
+  return rows
+    .map((row) => ({ ...row, before: planLimit(from[row.key]), after: planLimit(to[row.key]) }))
+    .filter((row) => row.after < row.before);
+}
+
+/** True when `to` takes something away from `from`: a feature or a limit. */
+export function isLowerPlan(from: PlanDefinition, to: PlanDefinition): boolean {
+  return lostFeatures(from, to).length > 0 || loweredLimits(from, to).length > 0;
+}

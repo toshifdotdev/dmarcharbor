@@ -2722,6 +2722,13 @@ enum AuditAction {
   /// Failure-report collection turned on or off for a domain.
   FORENSIC_COLLECTION_ENABLED
   FORENSIC_COLLECTION_DISABLED
+  /// A client or a domain added one at a time in the web app (bulk imports are CLIENTS_ / DOMAINS_BULK_IMPORTED).
+  CLIENT_CREATED
+  DOMAIN_CREATED
+  /// A domain's ownership proof found for the first time, by a person's check or the background check.
+  DOMAIN_VERIFIED
+  /// The currency future checkouts use. Detail has from and to.
+  BILLING_CURRENCY_SET
 }
 
 enum AuditOutcome {

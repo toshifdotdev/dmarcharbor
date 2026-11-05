@@ -4,6 +4,7 @@ import { createClientSchema, createDomainSchema, resourceIdSchema } from '../mod
 import { bulkDomainsSchema } from '../models/api.model.js';
 import { ClientNotInWorkspaceError, bulkImportDomains, bulkLimits } from '../services/bulk-onboarding.service.js';
 import { EntitlementError } from '../services/entitlements/entitlement.service.js';
+import { recordAuditEvent } from '../services/audit.service.js';
 import {
   createClient,
   createDomain,
@@ -127,6 +128,17 @@ export async function createClientController(request: Request, response: Respons
 
   try {
     const client = await createClient(response.locals.organizationId, parsed.data);
+    // One at a time from the web app. The API v1 route goes through the bulk
+    // import and is recorded there as CLIENTS_BULK_IMPORTED.
+    await recordAuditEvent({
+      organizationId: response.locals.organizationId,
+      actorUserId: response.locals.session?.user?.id,
+      action: 'CLIENT_CREATED',
+      targetType: 'client',
+      targetId: client.id,
+      detail: { name: client.name, slug: client.slug },
+      requestId: response.locals.requestId,
+    });
     response.status(201).json(client);
   } catch (error) {
     if (isUniqueConstraint(error)) {
@@ -173,6 +185,19 @@ export async function createDomainController(request: Request, response: Respons
      * would be a small lie on a route whose whole job is to be truthful about
      * uniqueness.
      */
+    // Only when a row was made: re-adding a name the client holds changes nothing.
+    if (outcome.created && outcome.domain) {
+      await recordAuditEvent({
+        organizationId: response.locals.organizationId,
+        domainId: outcome.domain.id,
+        actorUserId: response.locals.session?.user?.id,
+        action: 'DOMAIN_CREATED',
+        targetType: 'domain',
+        targetId: outcome.domain.id,
+        detail: { name: outcome.domain.name, clientId: clientId.data },
+        requestId: response.locals.requestId,
+      });
+    }
     response.status(outcome.created ? 201 : 200).json(outcome.domain);
   } catch (error) {
     if (error instanceof DomainValidationError) {
@@ -202,7 +227,10 @@ export async function verifyDomainController(request: Request, response: Respons
     return;
   }
 
-  const result = await verifyDomain(response.locals.organizationId, domainId.data);
+  const result = await verifyDomain(response.locals.organizationId, domainId.data, {
+    actorUserId: response.locals.session?.user?.id ?? null,
+    source: 'app',
+  });
 
   if (!result) {
     response.status(404).json({ error: { message: 'Domain not found in this workspace.' } });

@@ -288,7 +288,15 @@ Browser routes under `/api` only; `/api/v1` is unchanged.
   `INVITATION_ACCEPTED`, `INVITATION_REJECTED`, `MEMBER_ROLE_CHANGED` (detail has
   `role` and `previousRole`), `MEMBER_REMOVED`, `MEMBER_LEFT`, `OWNERSHIP_TRANSFERRED`,
   `SLACK_DESTINATION_PAUSED` and `_RESUMED`, `TEAMS_DESTINATION_PAUSED` and
-  `_RESUMED`, and `FORENSIC_COLLECTION_ENABLED` and `_DISABLED`.
+  `_RESUMED`, `FORENSIC_COLLECTION_ENABLED` and `_DISABLED`, `CLIENT_CREATED` and
+  `DOMAIN_CREATED` (the web app's single-item routes), `DOMAIN_VERIFIED` (detail
+  `checkedBy`: `app`, `api` or `background`) and `BILLING_CURRENCY_SET` (detail
+  `from` and `to`).
+- **`GET /api/workspaces/{id}/ownership/transfer/preview?newOwnerMemberId=`**,
+  owner only, read-only: `currentPlan`, `plan` (the new owner's, which the
+  workspace follows afterwards) and `refusal`, the refusal a transfer would meet
+  or null. `SUBSCRIPTION_STILL_ACTIVE` now says what to do and carries
+  `billingUrl` and `supportUrl`.
 
 ---
 

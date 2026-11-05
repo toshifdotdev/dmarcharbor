@@ -95,12 +95,16 @@ This is deliberately much shorter than evidence retention.
 
 Only members of your workspace, according to their role:
 
-| Role | Can see |
+| Role | Can see and do |
 |---|---|
-| Owner | Everything in the workspace, including billing and plan |
-| Admin | Everything except billing changes |
-| Analyst | Domains, reports, forensic evidence, alerts. **Cannot** identify named recipients |
-| Viewer | Read only. No forensic access |
+| Owner | Everything in the workspace, including billing, changing the plan, deleting the workspace and handing it to another member |
+| Admin | Everything except changing the plan, deleting the workspace and handing it on. Reads billing |
+| Analyst | Reads clients; reads and changes domains and reports, but cannot add or delete domains or delete reports; reads and uploads forensic evidence with recipients hidden; reads billing. **Cannot** identify named recipients or manage people |
+| Viewer | Reads clients, domains, reports and billing. No forensic access |
+| Portal contact | A client's own contact: reads the domains and reports of the clients they were given. No forensic access, no billing, and nothing about the agency's other clients or its team |
+
+Each workspace has exactly one owner. The full permission table is in the
+Security Policy.
 
 **Tenant isolation:** every query is scoped to a single workspace. We do not
 offer a combined view across workspaces to any user, including our own staff.

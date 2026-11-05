@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { getWorkspaceEntitlements, getWorkspaceSecurity, listPendingInvitations } from "@/lib/api-ops";
+import { getPlanCatalog, getWorkspaceEntitlements, getWorkspaceSecurity, listPendingInvitations } from "@/lib/api-ops";
 import { instantLabel } from "@/lib/instant";
 import { splitInvitations } from "@/lib/invitations";
 import { settingsContext } from "@/lib/settings-context";
@@ -21,12 +21,14 @@ export const metadata: Metadata = { title: "Members and roles" };
 export default async function MembersPage() {
   const ctx = await settingsContext();
   const now = Date.now();
-  const [split, security, entitlements] = await Promise.all([
+  const [split, security, entitlements, catalog] = await Promise.all([
     listPendingInvitations(ctx.active.id)
       .then((list) => splitInvitations(list ?? [], now))
       .catch(() => null),
     ctx.role === "owner" ? getWorkspaceSecurity(ctx.active.id).catch(() => null) : Promise.resolve(null),
     getWorkspaceEntitlements(ctx.active.id).catch(() => null),
+    // Read for the owner only: the transfer confirmation lists what a lower plan stops.
+    ctx.role === "owner" ? getPlanCatalog().catch(() => null) : Promise.resolve(null),
   ]);
   const view = (i: { id: string; email: string; role: string; expiresAt?: string | null }, expired: boolean): InvitationView => ({
     id: i.id,
@@ -80,6 +82,7 @@ export default async function MembersPage() {
           isOwner={ctx.role === "owner"}
           selfUserId={ctx.userId}
           seats={seats}
+          plans={catalog?.plans ?? null}
         />
       ) : (
         <ErrorState what="the member list" detail="This is not the same as having no members: the list could not be read." />

@@ -405,7 +405,7 @@ export async function verifyApiDomainController(request: Request, response: Resp
      */
     await withIdempotency(request, response, async () => {
       const { verifyDomain } = await import('../services/client.service.js');
-      const outcome = await verifyDomain(organizationId, domainId.data);
+      const outcome = await verifyDomain(organizationId, domainId.data, { source: 'api' });
 
       if (!outcome) {
         return {

@@ -2,6 +2,7 @@ import { domainSlug } from './domain-slug.js';
 import { prisma } from '../database/prisma.js';
 import { env } from '../config/env.js';
 import { emitEvent } from './webhook.service.js';
+import { recordAuditEvent } from './audit.service.js';
 import { sendDomainVerificationEmail } from '../email/mailer.js';
 import { normalizeDomain } from '../scanner/domain.js';
 import { withQuota } from './entitlements/entitlement.service.js';
@@ -270,11 +271,25 @@ export async function applyOwnershipResult(
   domain: { id: string; name: string; clientId: string; status: string; verificationToken: string },
   check: OwnershipCheckResult,
   now = new Date(),
+  /** Who asked for the check: a person in the app, an API key, or the background job. */
+  by: { actorUserId?: string | null; source?: 'app' | 'api' | 'background' } = {},
 ): Promise<'VERIFIED' | 'FAILED' | 'PENDING'> {
+  const actorUserId = by.actorUserId ?? null;
   const alreadyVerified = domain.status === 'VERIFIED';
 
   if (check.verified) {
     if (!alreadyVerified) {
+      // The transition only, like the event and the email below: the daily
+      // re-check of a verified domain is not news.
+      await recordAuditEvent({
+        organizationId,
+        domainId: domain.id,
+        ...(actorUserId ? { actorUserId } : {}),
+        action: 'DOMAIN_VERIFIED',
+        targetType: 'domain',
+        targetId: domain.id,
+        detail: { name: domain.name, method: check.method, checkedBy: by.source ?? (actorUserId ? 'app' : 'background') },
+      });
       await emitEvent(organizationId, 'domain.verified', {
         domainId: domain.id,
         domainName: domain.name,
@@ -328,7 +343,11 @@ export async function applyOwnershipResult(
   return domain.status === 'VERIFIED' ? 'VERIFIED' : 'PENDING';
 }
 
-export async function verifyDomain(organizationId: string, domainId: string) {
+export async function verifyDomain(
+  organizationId: string,
+  domainId: string,
+  by: { actorUserId?: string | null; source?: 'app' | 'api' } = {},
+) {
   const domain = await getDomain(organizationId, domainId);
 
   if (!domain) {
@@ -336,7 +355,7 @@ export async function verifyDomain(organizationId: string, domainId: string) {
   }
 
   const verification = await checkDomainOwnership({ ...domain, reportToken: domain.client.reportToken });
-  const status = await applyOwnershipResult(organizationId, domain, verification);
+  const status = await applyOwnershipResult(organizationId, domain, verification, new Date(), by);
 
   const updated = await prisma.domain.findUniqueOrThrow({
     where: { id: domain.id },

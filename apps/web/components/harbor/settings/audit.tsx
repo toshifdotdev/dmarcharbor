@@ -198,7 +198,15 @@ export function AuditTrail({
                                 <span className="font-semibold text-fail">{e.actionLabel}: refused</span>
                               ) : (
                                 <span className="font-semibold">{e.actionLabel}</span>
-                              )}{" "}
+                              )}
+                              {e.subject ? (
+                                <>
+                                  <span className="text-fg-3">{e.denied && e.subject.join === ": " ? " · " : e.subject.join}</span>
+                                  <span className="font-medium text-fg" data-testid="audit-subject">
+                                    {e.subject.text}
+                                  </span>
+                                </>
+                              ) : null}{" "}
                               <span className="text-fg-3">{e.denied ? "tried by" : "by"}</span>{" "}
                               <span className="font-medium text-fg-2">{e.actor}</span>
                             </p>
