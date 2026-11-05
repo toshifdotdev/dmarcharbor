@@ -38,6 +38,7 @@ const {
   signInPausedEmail,
   subscriptionCancelledEmail,
   workspaceInvitationEmail,
+  ownershipTransferredEmail,
 } = await import('../src/email/templates.js');
 const { alertEmail, alertEmailBody, escalationSubject, rollupEmailBody, rollupEmailSubject } = await import(
   '../src/services/alert-email.js'
@@ -125,6 +126,17 @@ const failing = new Set(['domain-lost-verification', 'payment-failed', 'domain-e
 function everyRendering(): Array<[string, Rendered]> {
   return [
     ['workspace-invitation', workspaceInvitationEmail({ workspaceName: 'Wistholm IT', inviterName: 'Ffion', role: 'admin', signInUrl: `${appUrl}/welcome`, expiresAt: when })],
+    ...(['new-owner', 'previous-owner'] as const).map((recipient): [string, Rendered] => [
+      `ownership-transferred-${recipient}`,
+      ownershipTransferredEmail({
+        recipient,
+        workspaceName: 'Wistholm IT',
+        previousOwnerName: 'Ffion Rees',
+        newOwnerName: 'Tomos Hale',
+        planLabel: 'Fairway',
+        membersUrl: `${appUrl}/settings/members`,
+      }),
+    ]),
     ['portal-access', portalAccessGranted({ brand: { workspaceName: 'Wistholm IT' }, clientName: 'Pellowyn Dental', signInUrl: `${appUrl}/portal`, agencyName: 'Wistholm IT' })],
     ['portal-access-agency', portalAccessGranted({ brand: agencyBrand, clientName: 'Pellowyn Dental', signInUrl: 'https://reports.wistholm.example/portal', agencyName: 'Wistholm IT', contact })],
     [

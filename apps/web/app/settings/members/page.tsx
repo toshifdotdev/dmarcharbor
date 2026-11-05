@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getWorkspaceEntitlements, getWorkspaceSecurity, listPendingInvitations } from "@/lib/api-ops";
 import { instantLabel } from "@/lib/instant";
+import { splitInvitations } from "@/lib/invitations";
 import { settingsContext } from "@/lib/settings-context";
 import { mayChange } from "@/lib/settings-map";
 import { SettingsFrame } from "@/components/harbor/settings/frame";
@@ -20,15 +21,22 @@ export const metadata: Metadata = { title: "Members and roles" };
 export default async function MembersPage() {
   const ctx = await settingsContext();
   const now = Date.now();
-  const [pending, security, entitlements] = await Promise.all([
+  const [split, security, entitlements] = await Promise.all([
     listPendingInvitations(ctx.active.id)
-      .then((list) => (list ?? []).filter((i) => !i.status || i.status === "pending"))
+      .then((list) => splitInvitations(list ?? [], now))
       .catch(() => null),
     ctx.role === "owner" ? getWorkspaceSecurity(ctx.active.id).catch(() => null) : Promise.resolve(null),
     getWorkspaceEntitlements(ctx.active.id).catch(() => null),
   ]);
-  const invitations: InvitationView[] | null = pending
-    ? pending.map((i) => ({ id: i.id, email: i.email, role: i.role, expiresLabel: i.expiresAt ? instantLabel(i.expiresAt) : null }))
+  const view = (i: { id: string; email: string; role: string; expiresAt?: string | null }, expired: boolean): InvitationView => ({
+    id: i.id,
+    email: i.email,
+    role: i.role,
+    expiresLabel: i.expiresAt ? instantLabel(i.expiresAt) : null,
+    expired,
+  });
+  const invitations: InvitationView[] | null = split
+    ? [...split.waiting.map((i) => view(i, false)), ...split.expired.map((i) => view(i, true))]
     : null;
 
   const members: MemberView[] | null = ctx.members
@@ -49,12 +57,12 @@ export default async function MembersPage() {
 
   // Only when both counts and the plan were read: a guessed count must not
   // hide the invite form, nor claim room that is not there.
-  // A lapsed invitation is still listed (to withdraw) but no longer holds a place.
+  // An expired invitation is still listed (to resend or withdraw) but no longer holds a place.
   const seats: Seats | null =
-    members && pending && entitlements
+    members && invitations && entitlements
       ? {
           members: members.length,
-          pending: pending.filter((i) => !i.expiresAt || new Date(i.expiresAt).getTime() > now).length,
+          pending: invitations.filter((i) => !i.expired).length,
           limit: entitlements.maxMembers,
           plan: entitlements.label,
         }

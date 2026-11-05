@@ -160,6 +160,21 @@ const ACTION_SENTENCES: Record<AuditAction, string> = {
   PASSWORD_RESET: "New password set with a reset link",
   SIGN_IN_FAILED: "Sign-in refused: wrong password",
   SIGN_IN_PAUSED: "Password sign-in paused after too many wrong passwords",
+  MEMBER_INVITED: "Team member invited",
+  INVITATION_RESENT: "Invitation sent again",
+  INVITATION_CANCELED: "Invitation withdrawn",
+  INVITATION_ACCEPTED: "Invitation accepted",
+  INVITATION_REJECTED: "Invitation declined",
+  MEMBER_ROLE_CHANGED: "Team member role changed",
+  MEMBER_REMOVED: "Team member removed",
+  MEMBER_LEFT: "Team member left the workspace",
+  OWNERSHIP_TRANSFERRED: "Workspace ownership transferred",
+  SLACK_DESTINATION_PAUSED: "Slack destination paused",
+  SLACK_DESTINATION_RESUMED: "Slack destination resumed",
+  TEAMS_DESTINATION_PAUSED: "Microsoft Teams destination paused",
+  TEAMS_DESTINATION_RESUMED: "Microsoft Teams destination resumed",
+  FORENSIC_COLLECTION_ENABLED: "Forensic report collection turned on",
+  FORENSIC_COLLECTION_DISABLED: "Forensic report collection turned off",
 };
 
 /**
@@ -224,6 +239,10 @@ const TARGET_SENTENCES: Record<string, string> = {
   subdomain: "Subdomain",
   sender_review: "Sender review",
   sender_review_bulk: "Bulk sender review",
+  member: "Team member",
+  invitation: "Invitation",
+  slack_destination: "Slack destination",
+  teams_destination: "Microsoft Teams destination",
 };
 
 export function auditTargetLabel(targetType: string): string {

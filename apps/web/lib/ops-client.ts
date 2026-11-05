@@ -1732,6 +1732,25 @@ export async function downloadClientBook(
   }
 }
 
+/**
+ * POST /ownership/transfer — hands the workspace to another member. The owner
+ * confirms with their password or an authenticator code; they become an admin.
+ */
+export const transferOwnership = (
+  orgId: string,
+  newOwnerMemberId: string,
+  proof: { password: string } | { code: string },
+) =>
+  call<{
+    newOwner: { memberId: string; email: string; name: string };
+    previousOwner: { memberId: string; role: "admin" };
+    plan: string;
+    planLabel: string;
+  }>(wsPath(orgId, "/ownership/transfer"), {
+    method: "POST",
+    body: JSON.stringify({ newOwnerMemberId, ...proof }),
+  });
+
 /** POST /rename — the workspace's name. The slug and id stay. */
 export const renameWorkspace = (orgId: string, name: string) =>
   call<{ workspace: { id: string; name: string; slug: string }; changed: boolean }>(wsPath(orgId, "/rename"), {

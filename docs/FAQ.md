@@ -427,9 +427,16 @@ client emails come from our shared address with your agency's name.
 ## Team and security
 
 **Can colleagues work in the same workspace?**
-Yes. Invite them by email as an admin, analyst or viewer. Only the owner can change
-the plan; analysts cannot see named forensic recipients; viewers cannot see forensic
-data at all. Each plan has a team size, and open invitations count against it.
+Yes. Invite them by email as an admin, analyst or viewer. Admins run the workspace
+but cannot change the plan or delete the workspace. Analysts can change domains and
+reports but cannot add or delete domains, delete reports, manage clients or see named
+forensic recipients. Viewers read clients, domains and reports, and cannot see forensic
+data at all. Everyone on the team can see the plan and its usage; only the owner can
+change it. Each plan has a team size, and open invitations count against it; an
+invitation that has expired does not. A workspace has one owner, who can hand it to
+another member under Settings, Members, confirming with their password or an
+authenticator code. They stay on as an admin, and the workspace then follows the new
+owner's plan.
 
 **How do you sign me in?**
 Email and password, or Google or Microsoft. Two-step verification with an

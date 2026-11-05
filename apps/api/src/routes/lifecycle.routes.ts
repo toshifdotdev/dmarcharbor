@@ -5,6 +5,8 @@ import { managedSpfRepublish } from '../services/hosted-dns/managed-spf.service.
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
 import { requireSession } from '../middleware/auth.middleware.js';
 import { renameWorkspaceController } from '../controllers/operations.controller.js';
+import { z } from 'zod';
+import { OwnershipTransferError, transferOwnership } from '../services/ownership-transfer.service.js';
 
 /**
  * Deleting what was created.
@@ -212,6 +214,54 @@ lifecycleRouter.post(
   requireSession,
   requireOrganizationPermission('organization', 'update'),
   renameWorkspaceController,
+);
+
+/**
+ * Handing the workspace to another member (ownership-transfer.service.ts).
+ *
+ * `organization: delete` because only the owner holds it, the same right the
+ * deletion below checks: whoever can hand the workspace away is whoever could
+ * delete it. The service checks again that the caller is the owner.
+ */
+const transferSchema = z
+  .object({
+    newOwnerMemberId: z.string().trim().min(1).max(200),
+    password: z.string().min(1).max(256).optional(),
+    code: z.string().trim().max(12).optional(),
+  })
+  .strict();
+
+lifecycleRouter.post(
+  '/workspaces/:organizationId/ownership/transfer',
+  requireSession,
+  requireOrganizationPermission('organization', 'delete'),
+  async (request: Request, response: Response) => {
+    const parsed = transferSchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      response.status(400).json({
+        error: { code: 'INVALID_REQUEST', message: 'Choose the new owner, and confirm with your password or a code from your authenticator app.' },
+      });
+      return;
+    }
+    try {
+      const result = await transferOwnership({
+        organizationId: organizationId(request),
+        actorUserId: String(response.locals.session?.user?.id ?? ''),
+        newOwnerMemberId: parsed.data.newOwnerMemberId,
+        password: parsed.data.password,
+        code: parsed.data.code,
+        ipAddress: request.ip,
+        requestId: response.locals.requestId,
+      });
+      response.json(result);
+    } catch (error) {
+      if (error instanceof OwnershipTransferError) {
+        response.status(error.status).json({ error: { code: error.code, message: error.message, ...error.details } });
+        return;
+      }
+      throw error;
+    }
+  },
 );
 
 lifecycleRouter.delete(

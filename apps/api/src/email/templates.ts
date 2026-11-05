@@ -598,6 +598,45 @@ export function workspaceInvitationEmail(input: {
   });
 }
 
+/**
+ * A workspace changed hands. Sent to both people: the new owner learns what
+ * they now hold, and the previous owner has a record they can act on if they
+ * did not do it. Agency facing, like the invitation.
+ */
+export function ownershipTransferredEmail(input: {
+  recipient: 'new-owner' | 'previous-owner';
+  workspaceName: string;
+  previousOwnerName: string;
+  newOwnerName: string;
+  /** The plan the workspace follows from now on, which is the new owner's. */
+  planLabel: string;
+  membersUrl: string;
+}): RenderedEmail {
+  const toNewOwner = input.recipient === 'new-owner';
+  const title = toNewOwner ? `You now own ${input.workspaceName}` : `${input.workspaceName} now belongs to ${input.newOwnerName}`;
+  return layout({
+    title,
+    preheader: toNewOwner
+      ? `${input.previousOwnerName} handed ${input.workspaceName} to you.`
+      : `You handed ${input.workspaceName} to ${input.newOwnerName} and are now an admin.`,
+    heading: title,
+    paragraphs: toNewOwner
+      ? [
+          `${input.previousOwnerName} made you the owner of ${input.workspaceName} on DMARC Harbor. They stay on the team as an admin.`,
+          `The workspace now follows the plan on your account, ${input.planLabel}, and counts toward your account's workspace, client and domain limits.`,
+          'As the owner you can manage billing, delete the workspace, and hand it on again.',
+        ]
+      : [
+          `You made ${input.newOwnerName} the owner of ${input.workspaceName} on DMARC Harbor. You are now an admin there.`,
+          `The workspace now follows ${input.newOwnerName}'s plan, ${input.planLabel}, and no longer counts toward your account's limits.`,
+          'If you did not do this, sign in, change your password, and contact us straight away.',
+        ],
+    action: { label: 'Open the team', url: input.membersUrl },
+    footer: 'You are receiving this because the owner of a DMARC Harbor workspace changed.',
+    kind: 'Team',
+  });
+}
+
 export function portalAccessGranted(input: {
   brand: BrandLook;
   clientName: string;

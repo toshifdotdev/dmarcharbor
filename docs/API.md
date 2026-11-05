@@ -306,7 +306,7 @@ The invitation refusal comes from the sign-in service, so its fields sit at the 
 
 ```json
 {
-  "message": "Fairway includes 5 team members and this workspace has 4 and 1 open invitation. Remove someone or cancel an invitation, or upgrade to Harbor for 25.",
+  "message": "Fairway includes 5 team members and this workspace has 4 members and 1 open invitation. Remove someone or cancel an invitation, or upgrade to Harbor for 25.",
   "code": "PLAN_LIMIT_REACHED",
   "quota": "member",
   "label": "team members",

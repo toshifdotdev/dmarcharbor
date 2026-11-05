@@ -115,6 +115,13 @@ Open invitations count toward your plan's team size, which is per workspace:
 Mooring 2, Fairway 5, Harbor 25, and Admiralty and Fleet have no limit. On
 Admiralty you can connect SAML or OIDC single sign-on instead.
 
+The role table on the Members page says what each role can do. An invitation lasts
+two days; an expired one moves to its own list, frees its place, and can be sent
+again. The workspace has one owner, and the owner can hand it to a member under
+Transfer ownership, confirming with their password or an authenticator code. The new
+owner's plan then applies, and the transfer is refused if their plan has no room for
+the workspace, its clients or its active domains.
+
 ## 7. Give your client a view
 
 - **Client portal** (Harbor and above): under Settings, Client portal, invite a

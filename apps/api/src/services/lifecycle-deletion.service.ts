@@ -168,17 +168,22 @@ export async function deleteDomain(
   const mtaSts = await hostedMtaStsSnapshotsForDomainIds([domain.id]);
 
   await prisma.$transaction(async (transaction) => {
-    await transaction.domain.delete({ where: { id: domain.id } });
     // Recorded with the actor, because "who deleted this evidence" is a question
     // a customer auditor asks, and a deletion with no author cannot be answered.
-    await recordAuditEvent({
-      organizationId,
-      actorUserId: actorUserId ?? undefined,
-      action: 'DOMAIN_DELETED',
-      targetType: 'domain',
-      targetId: domain.id,
-      detail: { name: domain.name, destroyed: summary },
-    });
+    // On this transaction's client, so a deletion that rolls back leaves no
+    // entry claiming it happened (it was written on the global client before).
+    await recordAuditEvent(
+      {
+        organizationId,
+        actorUserId: actorUserId ?? undefined,
+        action: 'DOMAIN_DELETED',
+        targetType: 'domain',
+        targetId: domain.id,
+        detail: { name: domain.name, destroyed: summary },
+      },
+      transaction,
+    );
+    await transaction.domain.delete({ where: { id: domain.id } });
   });
 
   await removeHostedForDeletion(hosted);
@@ -263,15 +268,19 @@ export async function deleteClient(
   ]);
 
   await prisma.$transaction(async (transaction) => {
+    // On this transaction's client, as for a domain above.
+    await recordAuditEvent(
+      {
+        organizationId,
+        actorUserId: actorUserId ?? undefined,
+        action: 'CLIENT_DELETED',
+        targetType: 'client',
+        targetId: client.id,
+        detail: { name: client.name, slug: client.slug, destroyed: summary },
+      },
+      transaction,
+    );
     await transaction.client.delete({ where: { id: client.id } });
-    await recordAuditEvent({
-      organizationId,
-      actorUserId: actorUserId ?? undefined,
-      action: 'CLIENT_DELETED',
-      targetType: 'client',
-      targetId: client.id,
-      detail: { name: client.name, slug: client.slug, destroyed: summary },
-    });
   });
 
   await removeHostedForDeletion(hosted);

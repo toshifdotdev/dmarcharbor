@@ -1,0 +1,12 @@
+-- One owner per workspace.
+--
+-- Until now an owner could make another member owner through the plugin's
+-- update-member-role, so a workspace could end up with two. The plan comes
+-- from the owner's account, so two owners made the plan, the allowance and
+-- who may delete the workspace ambiguous. Ownership now moves only through
+-- the transfer, which swaps the two roles in one transaction.
+--
+-- The earliest owner keeps the role; any later one becomes an admin, which
+-- keeps every permission except deleting the workspace and moving ownership.
+-- Only rows in workspaces that have more than one owner are touched.
+UPDATE "member" AS m SET "role" = 'admin' WHERE m."role" = 'owner' AND EXISTS (SELECT 1 FROM "member" AS earlier WHERE earlier."organizationId" = m."organizationId" AND earlier."role" = 'owner' AND (earlier."createdAt" < m."createdAt" OR (earlier."createdAt" = m."createdAt" AND earlier."id" < m."id"))); -- expand-contract: approved: a bounded data fix (only second owners), and the previous release reads the role the same way

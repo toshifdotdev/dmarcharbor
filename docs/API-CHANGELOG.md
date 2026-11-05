@@ -254,6 +254,44 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-12-07 — One owner per workspace, ownership transfer, and a membership audit trail
+
+Browser routes under `/api` only; `/api/v1` is unchanged.
+
+### Changes an integration or a screen might notice
+
+- **The owner role cannot be given.** `POST /api/auth/organization/update-member-role`
+  answers 403 `OWNERSHIP_TRANSFER_REQUIRED` when the new role is owner or the member
+  is the owner, and `POST /api/auth/organization/invite-member` answers the same for
+  an invitation as owner. A migration made any second owner an admin, keeping the
+  earliest.
+- **`POST /api/auth/revoke-session`, `/revoke-sessions` and `/revoke-other-sessions`
+  return 404.** They revoked sessions with no audit entry. Use
+  `DELETE /api/me/sessions/{sessionId}`, `POST /api/me/sessions/revoke-others` and
+  `POST /api/me/sessions/revoke-all`.
+- **Resending an expired invitation** (`invite-member` with `resend: true`) creates a
+  new invitation, as before, and now marks the expired one `canceled`.
+- **The team-size refusal names the members it counted:** "...and this workspace
+  has 4 members and 1 open invitation."
+
+### Additive changes
+
+- **`POST /api/workspaces/{id}/ownership/transfer`**, owner only, body
+  `{ "newOwnerMemberId", "password" }` or `{ "newOwnerMemberId", "code" }`. The member
+  becomes owner and the caller admin, in one transaction; both are emailed. Refused
+  with 402 `NEW_OWNER_LIMIT_REACHED` (`quota` `workspace`, `client` or `activeDomain`,
+  with `limit` and `wouldHave`) when the new owner's account has no room, 409
+  `SUBSCRIPTION_STILL_ACTIVE` while the workspace carries a billed subscription, 409
+  `EMAIL_NOT_VERIFIED`, 401 `CONFIRMATION_FAILED`, and 429 after ten attempts in 15
+  minutes.
+- **New audit actions:** `MEMBER_INVITED`, `INVITATION_RESENT`, `INVITATION_CANCELED`,
+  `INVITATION_ACCEPTED`, `INVITATION_REJECTED`, `MEMBER_ROLE_CHANGED` (detail has
+  `role` and `previousRole`), `MEMBER_REMOVED`, `MEMBER_LEFT`, `OWNERSHIP_TRANSFERRED`,
+  `SLACK_DESTINATION_PAUSED` and `_RESUMED`, `TEAMS_DESTINATION_PAUSED` and
+  `_RESUMED`, and `FORENSIC_COLLECTION_ENABLED` and `_DISABLED`.
+
+---
+
 ## 2026-12-06 — Slack, Teams and digest gates, workspaces in the downgrade check, and quota refusals that name the upgrade
 
 Plan limits now hold on the browser routes that skipped them, and every quota

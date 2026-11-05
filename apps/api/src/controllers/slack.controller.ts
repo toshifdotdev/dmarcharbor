@@ -96,6 +96,15 @@ export async function setSlackDestinationEnabledController(request: Request, res
       organizationId: organizationId(request),
       enabled: body.enabled === true,
     });
+    // Pausing a channel silences every alert sent to it, so it is recorded
+    // like the other connection changes.
+    await recordAuditEvent({
+      organizationId: organizationId(request),
+      actorUserId: response.locals.session?.user?.id,
+      action: body.enabled ? 'SLACK_DESTINATION_RESUMED' : 'SLACK_DESTINATION_PAUSED',
+      targetType: 'slack_destination',
+      requestId: response.locals.requestId,
+    });
     response.status(204).send();
   } catch (error) {
     handle(error, response);

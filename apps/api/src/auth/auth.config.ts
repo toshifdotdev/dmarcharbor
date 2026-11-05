@@ -30,6 +30,12 @@ import {
   recordSignInFailure,
   signInPause,
 } from './sign-in-brake.js';
+import {
+  closeExpiredInvitationsReplacedBy,
+  membershipAuditPaths,
+  recordMembershipAudit,
+  rememberPreviousRole,
+} from './membership-audit.js';
 import { socialProvidersFor } from './social-providers.js';
 import { claimTotpCode, claimableCode, releaseTotpCode } from './totp-replay.js';
 
@@ -304,6 +310,19 @@ async function assertPasswordNotBreached(password: unknown): Promise<void> {
 
 const minutes = (ms: number) => Math.round(ms / 60_000);
 
+/** True when a role string (possibly "a,b") includes owner. */
+function hasOwnerRole(role: string | string[] | undefined | null): boolean {
+  const roles = Array.isArray(role) ? role : String(role ?? '').split(',');
+  return roles.some((value) => value.trim() === 'owner');
+}
+
+function ownershipMovesByTransfer(): APIError {
+  return new APIError('FORBIDDEN', {
+    code: 'OWNERSHIP_TRANSFER_REQUIRED',
+    message: 'A workspace has one owner. To hand it to someone else, use Transfer ownership on the Members page.',
+  });
+}
+
 /**
  * A wrong password for an address (sign-in-brake.ts). Counted for any address;
  * recorded and reported only when an account has it, so an address nobody
@@ -369,7 +388,13 @@ export const auth = betterAuth({
    * workspaces with no acceptance on record. The server-side call our route
    * makes (auth.api.createOrganization) is not an HTTP request and still works.
    */
-  disabledPaths: ['/organization/create'],
+  /**
+   * The plugin's own session revocations are switched off for the same kind of
+   * reason: Account security uses /api/me/sessions, which records each
+   * revocation in the audit log, and these three did the same thing with no
+   * entry. Nothing in the app called them.
+   */
+  disabledPaths: ['/organization/create', '/revoke-session', '/revoke-sessions', '/revoke-other-sessions'],
   /**
    * Where a failed Google or Microsoft sign-in lands when Better Auth has no
    * error address of its own for it: a state that expired, was already used
@@ -544,6 +569,11 @@ export const auth = betterAuth({
         return;
       }
 
+      if (ctx.path === '/organization/update-member-role') {
+        await rememberPreviousRole(ctx.body);
+        return;
+      }
+
       if (ctx.path !== '/change-password') {
         return;
       }
@@ -613,6 +643,11 @@ export const auth = betterAuth({
         }
       }
 
+      if (ctx.path && membershipAuditPaths.has(ctx.path)) {
+        await closeExpiredInvitationsReplacedBy(ctx);
+        await recordMembershipAudit(ctx);
+      }
+
       await handleTwoFactorAfter(ctx as unknown as MfaHookContext);
     }),
   },
@@ -657,7 +692,10 @@ export const auth = betterAuth({
          * plugin's own membershipLimit check above, with its own 403: that
          * refusal reaches the invited person, who has no plan to upgrade.
          */
-        beforeCreateInvitation: async ({ organization }) => {
+        beforeCreateInvitation: async ({ invitation, organization }) => {
+          if (hasOwnerRole(invitation.role)) {
+            throw ownershipMovesByTransfer();
+          }
           const allowance = await memberAllowance(organization.id);
           if (allowance.members + allowance.pending >= allowance.limit) {
             throw new APIError('PAYMENT_REQUIRED', {
@@ -665,6 +703,21 @@ export const auth = betterAuth({
               code: 'PLAN_LIMIT_REACHED',
               ...memberLimitDetails(allowance),
             });
+          }
+        },
+        /**
+         * Exactly one owner per workspace.
+         *
+         * The plan, the workspace allowance and the right to delete the
+         * workspace all come from the owner's account, so a second owner made
+         * each of them ambiguous, and the plugin let an owner make anyone an
+         * owner. Ownership now moves only through the transfer
+         * (ownership-transfer.service.ts), which demotes the old owner in the
+         * same transaction. The owner's own role does not change here either.
+         */
+        beforeUpdateMemberRole: async ({ member, newRole }) => {
+          if (hasOwnerRole(newRole) || hasOwnerRole(member.role)) {
+            throw ownershipMovesByTransfer();
           }
         },
       },

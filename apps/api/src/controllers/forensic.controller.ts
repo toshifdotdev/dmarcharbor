@@ -224,6 +224,18 @@ export async function setForensicCollectionController(request: Request, response
     return;
   }
 
+  // Turning collection on starts storing message samples, so it is recorded
+  // beside the identity toggle.
+  await recordAuditEvent({
+    organizationId: response.locals.organizationId,
+    domainId,
+    actorUserId: response.locals.session?.user?.id,
+    action: body.data.collectForensicReports ? 'FORENSIC_COLLECTION_ENABLED' : 'FORENSIC_COLLECTION_DISABLED',
+    targetType: 'domain',
+    targetId: domainId,
+    requestId: response.locals.requestId,
+  });
+
   response.json({ domain: outcome.domain, ...forensicRetentionSummary() });
 }
 

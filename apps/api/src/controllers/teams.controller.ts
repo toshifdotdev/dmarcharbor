@@ -87,6 +87,15 @@ export async function setTeamsDestinationEnabledController(request: Request, res
       organizationId: organizationId(request),
       enabled: body.enabled === true,
     });
+    // Pausing a channel silences every alert sent to it, so it is recorded
+    // like the other connection changes.
+    await recordAuditEvent({
+      organizationId: organizationId(request),
+      actorUserId: response.locals.session?.user?.id,
+      action: body.enabled ? 'TEAMS_DESTINATION_RESUMED' : 'TEAMS_DESTINATION_PAUSED',
+      targetType: 'teams_destination',
+      requestId: response.locals.requestId,
+    });
     response.status(204).send();
   } catch (error) {
     handle(error, response);

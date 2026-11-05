@@ -29,12 +29,25 @@ many messages, when. That contains no recipient data.
 
 ## Access control
 
-| Role | Domains and reports | Forensic evidence | Identify named recipients | Billing |
-|---|---|---|---|---|
-| Owner | Yes | Yes | Yes | Read and change plan |
-| Admin | Yes | Yes | Yes | Read only |
-| Analyst | Yes | Yes | No | No |
-| Viewer | Read only | No | No | No |
+| Role | Clients | Domains | Reports | Forensic evidence | Named recipients | People | Billing |
+|---|---|---|---|---|---|---|---|
+| Owner | Add, change, delete | Add, change, delete | Upload, change, delete | Read, upload, purge | Yes | Invite, change roles, remove, hand on ownership | Read and change plan |
+| Admin | Add, change, delete | Add, change, delete | Upload, change, delete | Read, upload, purge | Yes | Invite, change roles, remove | Read only |
+| Analyst | Read only | Read and change, not add or delete | Upload and change, not delete | Read and upload, recipients hidden | No | No | Read only |
+| Viewer | Read only | Read only | Read only | No | No | No | Read only |
+| Portal contact | Their own client only, read only | Read only | Read only | No | No | No | No |
+
+A portal contact is a client's own person, added under Client portal access. They
+see only the clients they were given, and nothing about the agency's other clients,
+its team or its billing.
+
+**Each workspace has exactly one owner.** The plan, the workspace allowance and the
+right to delete the workspace come from the owner's account, so nobody can be made a
+second owner. The owner can hand the workspace to another member under Members: they
+confirm with their password or an authenticator code, the member becomes the owner
+and the previous owner becomes an admin in one step, both are emailed, and it is
+recorded in the audit trail. It is refused if the new owner's plan has no room for
+another workspace, or for the workspace's clients and active domains.
 
 Permissions are individual statements, not a single flag, so "can view reports"
 and "can see who failed" are genuinely separate decisions. Being able to read
@@ -52,9 +65,11 @@ is paying for.
   started, and end any of them
 - **You can sign out everything else** in one click, or everything including your
   current device
-- **Changing your password always signs out every other device.** This is enforced
-  on the server. You cannot turn it off, and a direct API call cannot skip it, so a
-  stolen password cannot outlive a password change
+- **Changing your password signs out every other device**, unless you untick "Sign
+  out my other devices" on Account security. The box is ticked by default, and the
+  server signs the others out whenever a request does not say otherwise. Resetting a
+  forgotten password by email always signs out every device, including the one you
+  are on
 - Setting your new password to your old one is rejected
 - **Two-step verification** with an authenticator app and one-time backup codes, on
   every plan. A workspace owner can require it for every member, and a session that
@@ -142,9 +157,11 @@ Report volume is rate limited, and the service rejects oversized payloads.
 
 Every privileged action is recorded in an append-only log:
 
-- Role and membership changes
+- Invitations sent, sent again, withdrawn, accepted and declined; role changes,
+  with the role before and after; people removed or leaving; and ownership
+  transfers
 - Plan changes and entitlement overrides
-- Forensic data purges and identity toggles
+- Forensic data purges, identity toggles, and forensic collection turned on or off
 - Report share link creation and revocation
 - Session revocations, two-step verification changes and single sign-on events
 - Every DNS change made for you: records published through Cloudflare, and every
@@ -152,7 +169,8 @@ Every privileged action is recorded in an append-only log:
   replaced
 - Policy approval requests, and the client's approval or decline under their own
   account
-- API keys, webhooks, PSA, Slack and Teams connections created, changed or removed
+- API keys, webhooks, PSA, Slack and Teams connections created, changed, paused,
+  resumed or removed
 - Data exports requested, downloaded and revoked, and monthly usage exports
   downloaded
 - Data erasures requested, cancelled and completed

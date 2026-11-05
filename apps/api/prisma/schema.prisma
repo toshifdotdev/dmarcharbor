@@ -2703,6 +2703,25 @@ enum AuditAction {
   SIGN_IN_FAILED
   /// Password sign-in for an account paused after too many wrong passwords.
   SIGN_IN_PAUSED
+  /// Membership. Detail carries the email and role; a role change also the previous role.
+  MEMBER_INVITED
+  INVITATION_RESENT
+  INVITATION_CANCELED
+  INVITATION_ACCEPTED
+  INVITATION_REJECTED
+  MEMBER_ROLE_CHANGED
+  MEMBER_REMOVED
+  MEMBER_LEFT
+  /// The owner handed the workspace to another member and became an admin.
+  OWNERSHIP_TRANSFERRED
+  /// A Slack or Teams channel paused or resumed (alerts stop or start going to it).
+  SLACK_DESTINATION_PAUSED
+  SLACK_DESTINATION_RESUMED
+  TEAMS_DESTINATION_PAUSED
+  TEAMS_DESTINATION_RESUMED
+  /// Failure-report collection turned on or off for a domain.
+  FORENSIC_COLLECTION_ENABLED
+  FORENSIC_COLLECTION_DISABLED
 }
 
 enum AuditOutcome {

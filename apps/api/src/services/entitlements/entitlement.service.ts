@@ -328,8 +328,11 @@ export async function memberAllowance(
 export function memberLimitMessage(allowance: { limit: number; members: number; pending: number; plan: PlanTier; planLabel: string }): string {
   const upgradeTo = nextTier(allowance.plan);
   const waiting = allowance.pending > 0 ? ` and ${allowance.pending} open invitation${allowance.pending === 1 ? '' : 's'}` : '';
+  // "has 1 member and 1 open invitation": the count named what it counted
+  // only after the invitations, so it read "has 1 and 1 open invitation".
+  const members = `${allowance.members} member${allowance.members === 1 ? '' : 's'}`;
   return (
-    `${allowance.planLabel} includes ${allowance.limit} team member${allowance.limit === 1 ? '' : 's'} and this workspace has ${allowance.members}${waiting}. ` +
+    `${allowance.planLabel} includes ${allowance.limit} team member${allowance.limit === 1 ? '' : 's'} and this workspace has ${members}${waiting}. ` +
     (upgradeTo
       ? `Remove someone or cancel an invitation, or upgrade to ${planCatalog[upgradeTo].label} for ${limitText(planCatalog[upgradeTo].maxMembers)}.`
       : 'Remove someone or cancel an invitation, or contact us to add more.')

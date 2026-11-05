@@ -11,12 +11,15 @@
  * table itself is on the page so nobody has to guess what "analyst" means.
  *
  * Owners are not edited or removed here: ownership is the account that can
- * delete the workspace and change the plan, and the API offers no transfer.
+ * delete the workspace and change the plan, and a workspace has one owner.
+ * It moves only through Transfer ownership, where the owner picks a member and
+ * confirms with their password or an authenticator code, and becomes an admin.
  *
  * Invitations are emailed by the API (sendInvitationEmail) with a link to
  * /welcome, where the invited address finds them; the portfolio lists them too.
  * A pending one can be sent again (the plugin's own resend: same invitation,
- * new expiry, new email) or withdrawn.
+ * new expiry, new email) or withdrawn. An expired one is listed apart, as
+ * Expired, outside the waiting count, with the same two actions.
  *
  * The page reads in the order the job comes: who is here, invite someone, the
  * workspace's two-step rule, then what each role can do. That last table is
@@ -36,6 +39,7 @@ import {
   resendInvitation,
   resetMemberMfa,
   setWorkspaceMfaRequirement,
+  transferOwnership,
   updateMemberRole,
 } from "@/lib/ops-client";
 import type { WorkspaceSecurity } from "@/lib/types";
@@ -43,7 +47,7 @@ import { limitReached } from "@/lib/entitlements";
 import { ActionRefusal, PlanLimitNotice, UsageLine, type ActionError } from "@/components/harbor/plan-refusal";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/dialog";
-import { Field, Input, Select } from "@/components/ui/field";
+import { Field, Input, Segmented, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { Table, TBody, Td, Th, THead, Tr } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
@@ -74,7 +78,7 @@ const CAPABILITIES: Array<{ label: string; roles: Role[] }> = [
   { label: "Change integrations, branding and SSO", roles: ["owner", "admin"] },
   { label: "See and revoke API keys", roles: ["owner", "admin"] },
   { label: "Change the plan, issue API keys, erase data", roles: ["owner"] },
-  { label: "Delete the workspace", roles: ["owner"] },
+  { label: "Delete the workspace, or hand it to another member", roles: ["owner"] },
 ];
 
 function diff(from: Role, to: Role) {
@@ -101,6 +105,8 @@ export interface InvitationView {
   email: string;
   role: string;
   expiresLabel: string | null;
+  /** Past its expiry: it can no longer be accepted and holds no place. */
+  expired?: boolean;
 }
 
 /**
@@ -137,6 +143,8 @@ export function MembersBoard({
   /** null when the plan or a count could not be read: the form is offered and the API decides. */
   seats?: Seats | null;
 }) {
+  const waiting = invitations ? invitations.filter((inv) => !inv.expired) : null;
+  const expired = invitations ? invitations.filter((inv) => inv.expired) : [];
   const seatsUsed = seats ? seats.members + seats.pending : 0;
   const seatsFull = seats !== null && limitReached({ used: seatsUsed, limit: seats.limit });
   const router = useRouter();
@@ -157,6 +165,13 @@ export function MembersBoard({
   const [resetError, setResetError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [successorId, setSuccessorId] = useState("");
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [transferWith, setTransferWith] = useState<"password" | "code">("password");
+  const [transferProof, setTransferProof] = useState("");
+  const [transferBusy, setTransferBusy] = useState(false);
+  const [transferError, setTransferError] = useState<string | null>(null);
 
   const [mfaSecurity, setMfaSecurity] = useState(security);
   const [mfaBusy, setMfaBusy] = useState(false);
@@ -258,6 +273,40 @@ export function MembersBoard({
       title: res.data.requireMfa
         ? "Two-step verification is required for this workspace"
         : "Two-step verification is no longer required",
+      tone: "ok",
+    });
+    router.refresh();
+  }
+
+  // Anyone on the team but the owner and client portal contacts.
+  const successors = members.filter((m) => m.userId !== selfUserId && asRole(m.role) !== "owner" && asRole(m.role) !== "portal");
+  const successor = successors.find((m) => m.id === successorId) ?? null;
+
+  async function transfer() {
+    if (!successor || transferBusy) return;
+    const proof = transferProof.trim();
+    if (!proof) {
+      setTransferError(transferWith === "password" ? "Enter your password." : "Enter the code from your authenticator app.");
+      return;
+    }
+    setTransferBusy(true);
+    setTransferError(null);
+    const res = await transferOwnership(
+      organizationId,
+      successor.id,
+      transferWith === "password" ? { password: transferProof } : { code: proof },
+    );
+    setTransferBusy(false);
+    if (!res.ok) {
+      setTransferError(res.error?.message ?? "That did not go through. Nothing changed.");
+      return;
+    }
+    setTransferOpen(false);
+    setTransferProof("");
+    setSuccessorId("");
+    toast({
+      title: `${successor.name} now owns this workspace`,
+      body: `You are an admin. The workspace follows their plan, ${res.data.planLabel}.`,
       tone: "ok",
     });
     router.refresh();
@@ -385,7 +434,7 @@ export function MembersBoard({
         title="Invite someone"
         why="Invite colleagues. Client contacts go under Client portal access, which limits them to their own client."
         aside={
-          seats || (invitations && invitations.length > 0) ? (
+          seats || (waiting && waiting.length > 0) ? (
             <>
               {seats ? (
                 <UsageLine
@@ -396,8 +445,10 @@ export function MembersBoard({
                   suffix=", open invitations included"
                 />
               ) : null}
-              {invitations && invitations.length > 0 ? (
-                <span className="tnum">{plural(invitations.length, "invitation")} waiting</span>
+              {waiting && waiting.length > 0 ? (
+                <span className="tnum" data-testid="waiting-count">
+                  {plural(waiting.length, "invitation")} waiting
+                </span>
               ) : null}
             </>
           ) : null
@@ -470,15 +521,15 @@ export function MembersBoard({
 
         <div className="mt-3">
           <h3 className="text-ui font-bold text-fg">Waiting to be accepted</h3>
-          {invitations === null ? (
+          {waiting === null ? (
             <Notice tone="warn" title="The pending invitations could not be read" className="mt-2">
               This is not the same as having none. Reload to try again.
             </Notice>
-          ) : invitations.length === 0 ? (
+          ) : waiting.length === 0 ? (
             <p className="mt-1 text-ui text-fg-3">No invitation is waiting.</p>
           ) : (
             <ul data-testid="pending-invitations" className="mt-2 flex flex-col border-t border-rule">
-              {invitations.map((inv) => (
+              {waiting.map((inv) => (
                 <li
                   key={inv.id}
                   className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-0.5 border-b border-rule py-2.5 text-ui sm:grid-cols-[auto_minmax(0,1fr)_7rem_minmax(0,12rem)_auto]"
@@ -527,7 +578,109 @@ export function MembersBoard({
             </ul>
           )}
         </div>
+
+        {expired.length > 0 ? (
+          <div className="mt-3">
+            <h3 className="text-ui font-bold text-fg">Expired</h3>
+            <p className="mt-0.5 max-w-[72ch] text-meta text-fg-3">
+              These can no longer be accepted and hold no place on the team. Resend one to send a fresh invitation.
+            </p>
+            <ul data-testid="expired-invitations" className="mt-2 flex flex-col border-t border-rule">
+              {expired.map((inv) => (
+                <li
+                  key={inv.id}
+                  data-testid={`expired-invitation-${inv.id}`}
+                  className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-0.5 border-b border-rule py-2.5 text-ui sm:grid-cols-[auto_minmax(0,1fr)_7rem_minmax(0,12rem)_auto]"
+                >
+                  <span className="relative top-[1px]">
+                    <StateMark shape="closed" tone="void" />
+                  </span>
+                  <span className="data min-w-0 break-all font-semibold text-fg-2">{inv.email}</span>
+                  <span className="hidden capitalize text-fg-3 sm:block">{inv.role}</span>
+                  <span className="col-start-2 text-meta text-fg-3 sm:col-start-auto">
+                    <span className="capitalize sm:hidden">{inv.role} · </span>
+                    <span className="font-semibold">Expired</span>
+                    {inv.expiresLabel ? ` ${inv.expiresLabel}` : null}
+                  </span>
+                  {canManage ? (
+                    <span className="col-start-3 row-start-1 flex items-center gap-1 self-center sm:col-start-auto sm:row-start-auto">
+                      {isAssignable(inv.role) ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={resending !== null && resending !== inv.id}
+                          busy={resending === inv.id}
+                          busyLabel="Sending"
+                          data-testid={`resend-invitation-${inv.id}`}
+                          aria-label={`Send a new invitation to ${inv.email}`}
+                          onClick={() => void resend(inv)}
+                        >
+                          Resend
+                        </Button>
+                      ) : null}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setError(null);
+                          setCancelling(inv);
+                        }}
+                      >
+                        Withdraw
+                      </Button>
+                    </span>
+                  ) : (
+                    <span />
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </Panel>
+
+      {isOwner && successors.length > 0 ? (
+        <Panel
+          id="ownership"
+          title="Transfer ownership"
+          why="A workspace has one owner: the account that holds the plan, manages billing and can delete the workspace. Hand it to a member and you stay on the team as an admin."
+        >
+          <div className="flex flex-wrap items-end gap-x-3 gap-y-3">
+            <Field label="New owner" className="w-full sm:w-[min(100%,360px)]">
+              <Select
+                value={successorId}
+                onChange={(e) => setSuccessorId(e.target.value)}
+                data-testid="transfer-owner-member"
+                className="w-full"
+              >
+                <option value="">Choose a member</option>
+                {successors.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                    {m.email && m.email !== m.name ? ` (${m.email})` : ""}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Button
+              variant="secondary"
+              disabled={!successorId}
+              data-testid="transfer-owner-open"
+              onClick={() => {
+                setTransferError(null);
+                setTransferProof("");
+                setTransferOpen(true);
+              }}
+            >
+              Transfer ownership
+            </Button>
+          </div>
+          <p className="max-w-[72ch] text-meta text-fg-3">
+            The workspace then follows the plan on their account and counts toward its workspace, client and domain
+            limits. It is refused if their plan has no room. You are both emailed, and it is recorded in the audit trail.
+          </p>
+        </Panel>
+      ) : null}
 
       {isOwner ? (
         <Panel
@@ -765,6 +918,61 @@ export function MembersBoard({
         confirmLabel="Withdraw invitation"
         busy={busy}
         error={cancelling ? error : null}
+      />
+
+      <ConfirmDialog
+        open={transferOpen && successor !== null}
+        onClose={() => {
+          setTransferOpen(false);
+          setTransferError(null);
+        }}
+        onConfirm={() => void transfer()}
+        testId="transfer-owner"
+        title={successor ? `Make ${successor.name} the owner?` : "Transfer ownership?"}
+        body={
+          successor ? (
+            <div className="flex flex-col gap-3">
+              <p>
+                {successor.name} becomes the owner and you become an admin, in one step. Only they can hand it back.
+                The workspace follows the plan on their account from now on, and counts toward its limits.
+              </p>
+              <Segmented
+                label="Confirm with"
+                size="sm"
+                value={transferWith}
+                onChange={(next) => {
+                  setTransferWith(next);
+                  setTransferProof("");
+                  setTransferError(null);
+                }}
+                options={[
+                  { value: "password", label: "Password" },
+                  { value: "code", label: "Authenticator code" },
+                ]}
+              />
+              <Field label={transferWith === "password" ? "Your password" : "Code from your authenticator app"}>
+                <Input
+                  type={transferWith === "password" ? "password" : "text"}
+                  inputMode={transferWith === "code" ? "numeric" : undefined}
+                  autoComplete={transferWith === "password" ? "current-password" : "one-time-code"}
+                  value={transferProof}
+                  onChange={(e) => setTransferProof(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void transfer();
+                    }
+                  }}
+                  data-testid="transfer-owner-proof"
+                />
+              </Field>
+            </div>
+          ) : null
+        }
+        confirmLabel="Transfer ownership"
+        busy={transferBusy}
+        danger
+        error={transferError}
       />
     </div>
   );

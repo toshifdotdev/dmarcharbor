@@ -113,8 +113,8 @@ export default async function WelcomePage({ searchParams }: { searchParams: Prom
     workspacesFull && allowance ? (
       <PlanLimitNotice
         quota="workspace"
-        message={`Your plan allows ${allowance.maxWorkspaces} workspace${allowance.maxWorkspaces === 1 ? "" : "s"}, and this account has ${allowance.used}.`}
-        context="The allowance comes from the strongest plan across your workspaces. Delete a workspace you no longer use, or move one of them to a plan that allows more."
+        message={`Your plan allows ${allowance.maxWorkspaces} workspace${allowance.maxWorkspaces === 1 ? "" : "s"}, and you own ${allowance.used}.`}
+        context="The allowance comes from the plan on your account, and only workspaces you own count toward it: workspaces you were invited to do not. Delete one you own and no longer use, hand one to a colleague under Members, or upgrade your plan."
       />
     ) : (
       <WorkspaceSetup action={createWorkspaceAction} />
@@ -175,8 +175,8 @@ export default async function WelcomePage({ searchParams }: { searchParams: Prom
           <div>
             <h1 className={HEADING}>Add another workspace</h1>
             <p className="mt-3 text-lead text-fg-2">
-              A workspace holds its own clients, domains and measurements, and carries its own plan. Nothing is shared
-              with the ones you already have.
+              A workspace holds its own clients, domains and measurements, and nothing in it is shared with the others.
+              Every workspace you own follows the plan on your account and counts toward its limits.
             </p>
           </div>
           {form}

@@ -1708,7 +1708,22 @@ export type AuditAction =
   /** A wrong password for an existing account (user level, refused). */
   | "SIGN_IN_FAILED"
   /** Password sign-in paused after too many wrong passwords (user level, refused). */
-  | "SIGN_IN_PAUSED";
+  | "SIGN_IN_PAUSED"
+  | "MEMBER_INVITED"
+  | "INVITATION_RESENT"
+  | "INVITATION_CANCELED"
+  | "INVITATION_ACCEPTED"
+  | "INVITATION_REJECTED"
+  | "MEMBER_ROLE_CHANGED"
+  | "MEMBER_REMOVED"
+  | "MEMBER_LEFT"
+  | "OWNERSHIP_TRANSFERRED"
+  | "SLACK_DESTINATION_PAUSED"
+  | "SLACK_DESTINATION_RESUMED"
+  | "TEAMS_DESTINATION_PAUSED"
+  | "TEAMS_DESTINATION_RESUMED"
+  | "FORENSIC_COLLECTION_ENABLED"
+  | "FORENSIC_COLLECTION_DISABLED";
 
 /**
  * AuditOutcome is SUCCESS or DENIED. There is no FAILED value: the trail records
