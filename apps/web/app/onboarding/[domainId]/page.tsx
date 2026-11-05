@@ -3,6 +3,7 @@ import { notFound, redirect, unstable_rethrow } from "next/navigation";
 import { ApiError, getOnboardingState, getSessionUserId, listClients } from "@/lib/api";
 import {
   getDnsConnections,
+  getDomainSwitch,
   getHostedDmarc,
   getManagedSpf,
   getPlanCatalog,
@@ -162,6 +163,11 @@ export default async function OnboardingPage({ params }: { params: Promise<{ dom
   } catch {
     managedSpf = null;
   }
+  // A switch from another service that has not cut over yet: the setup page
+  // shows its dual-reporting record, never a fresh p=none record.
+  const switching = await getDomainSwitch(active.id, domain.id).catch(() => null);
+  const switchRecord =
+    switching?.switch && switching.switch.status !== "CUT_OVER" && switching.records?.dual ? switching.records.dual : null;
   const spfRepublish =
     managedSpf?.managed && managedSpf.managed.status !== "RELEASED"
       ? {
@@ -313,6 +319,7 @@ export default async function OnboardingPage({ params }: { params: Promise<{ dom
               connections={publishConnections}
               brand={brand}
               ownership={onboarding.ownershipRecord ?? null}
+              switchRecord={switchRecord}
             />
           </section>
         </div>

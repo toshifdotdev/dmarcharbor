@@ -43,6 +43,7 @@ export function DomainRecords({
   connections,
   brand = "DMARC Harbor",
   ownership = null,
+  switchRecord = null,
 }: {
   organizationId: string;
   domainId: string;
@@ -62,6 +63,10 @@ export function DomainRecords({
   brand?: string;
   /** The ownership record from the onboarding state, while the domain is not verified. */
   ownership?: { host: string; value: string } | null;
+  /** A switch from another DMARC service is under way: its dual-reporting
+   *  record replaces the fresh p=none suggestion, which would drop the other
+   *  service and the current policy. */
+  switchRecord?: { host: string; value: string } | null;
 }) {
   const [check, setCheck] = useState<Verification | null>(null);
   const publishContext: DnsPublishContext = {
@@ -96,7 +101,15 @@ export function DomainRecords({
   const relaxes =
     dmarc !== null && published !== null && (STRENGTH[published] ?? -1) > (STRENGTH[dmarc.policy] ?? 0);
 
-  if (dmarc) {
+  if (switchRecord) {
+    records.push({
+      purpose: "Send reports to both services while you switch",
+      host: switchRecord.host,
+      value: switchRecord.value,
+      note: "A switch is under way. This keeps the domain's current policy and adds our address beside the other service's. Do not publish a fresh p=none record: it would drop the other service and weaken the policy. The cutover record is on the domain page.",
+      testId: "switch-dual-record",
+    });
+  } else if (dmarc) {
     records.push({
       purpose: dmarc.policy === "none" ? "Start receiving DMARC reports" : `Move the DMARC policy to p=${dmarc.policy}`,
       host: dmarc.host,
@@ -180,11 +193,11 @@ export function DomainRecords({
         </p>
       )}
 
-      {dmarc ? (
+      {dmarc && !switchRecord ? (
         <div className="flex flex-col gap-5">
           <p className="max-w-[76ch] text-ui text-fg-2">
             Prefer not to edit DNS for every policy change?{" "}
-            <Link href={`/domains/${encodeURIComponent(slug)}?tab=setup`} className="link font-semibold">
+            <Link href={`/domains/${encodeURIComponent(slug)}#setup`} className="link font-semibold">
               Host this record with {brand}
             </Link>{" "}
             from the domain&apos;s Reporting and setup tab.

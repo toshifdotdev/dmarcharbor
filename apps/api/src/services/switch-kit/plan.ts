@@ -214,9 +214,16 @@ export async function planDomainSwitch(input: {
   }
 
   const incumbentHosts = new Set(incumbents.map((entry) => entry.host));
+  // A vendor often takes forensic reports on a different host from aggregate
+  // ones (dmarcian: corp-ag-in.dmarcian.com and fr.dmarcian.com), so a ruf
+  // target counts when it is the same host or the same known vendor.
+  const incumbentVendors = new Set(
+    incumbents.map((entry) => entry.vendor).filter((vendor) => vendor !== 'other' && vendor !== 'self'),
+  );
   const incumbentForensicTargets = readRuaUris(tags.ruf ?? '').filter((uri) => {
     const forensicHost = hostOf(uri);
-    return forensicHost !== null && incumbentHosts.has(forensicHost);
+    if (forensicHost === null) return false;
+    return incumbentHosts.has(forensicHost) || incumbentVendors.has(detectVendor(forensicHost, domainName).id);
   });
 
   const dual = buildDualRecord(currentRecord, ourAddress);

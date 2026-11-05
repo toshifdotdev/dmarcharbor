@@ -152,6 +152,18 @@ describe('planning a switch from what DNS shows', () => {
     expect(result.externalAuthorization).toBe('authorized');
   });
 
+  it("counts a vendor's forensic address on a different host from its aggregate one", async () => {
+    const result = await plan({
+      dmarc: txt(
+        'v=DMARC1; p=reject; rua=mailto:a@corp-ag-in.dmarcian.com; ruf=mailto:f@fr.dmarcian.com,mailto:me@owner.example',
+      ),
+      authorization: txt('v=DMARC1'),
+    });
+
+    // dmarcian takes forensic reports on another host; an unknown mailbox is not the vendor's.
+    expect(result.incumbentForensicTargets).toEqual(['mailto:f@fr.dmarcian.com']);
+  });
+
   it('treats an https rua target as an incumbent and takes its host', async () => {
     const result = await plan({
       dmarc: txt('v=DMARC1; p=reject; rua=https://reports.easydmarc.us/v1/abc'),

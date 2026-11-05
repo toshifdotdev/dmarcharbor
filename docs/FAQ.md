@@ -512,9 +512,10 @@ period starts, the same as the monthly client report. The same figures are at
 `GET /api/v1/usage` for a PSA or billing tool. Starts on Harbor.
 
 **Is there an API?**
-Yes, on Harbor and above. The workspace owner creates API keys with read or write
-scope. The reference is published at `/api/docs/openapi.json`, and changes are
-listed in the API changelog.
+Yes, on Harbor and above. The workspace owner creates API keys that read, or read
+and change. The reference, with every endpoint, example and error, is at
+`/docs/api`; the machine-readable version is `/api/docs/openapi.json`, and changes
+are listed in the API changelog.
 
 ## Support
 

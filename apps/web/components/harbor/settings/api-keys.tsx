@@ -59,8 +59,12 @@ const EXPIRY = [
   { days: 1095, label: "3 years (the longest allowed)" },
 ];
 
+/** The key's scopes as words. A key with write and no read (possible through
+ *  the API) is said as it is: it cannot read anything. */
 function scopeWords(scopes: Array<"read" | "write">) {
-  return scopes.includes("write") ? "Read and change" : "Read only";
+  const read = scopes.includes("read");
+  const write = scopes.includes("write");
+  return read && write ? "Read and change" : write ? "Change only (cannot read)" : "Read only";
 }
 
 export function ApiKeysBoard({
@@ -170,7 +174,7 @@ export function ApiKeysBoard({
           <p>{issued.notice ?? "This key is shown once and cannot be retrieved again. Store it now."}</p>
           <p className="mt-1">
             Send it as <code className="data text-fg">Authorization: Bearer &lt;key&gt;</code> to the API under{" "}
-            <code className="data text-fg">/api/v1</code>. It can {issued.scopes.includes("write") ? "read and change" : "read"} this
+            <code className="data text-fg">/api/v1</code>. It can {scopeWords(issued.scopes).toLowerCase()} this
             workspace&rsquo;s clients and domains, and read their scans, reports, senders, policy readiness, TLS summaries,
             alerts and DNS changes until it is revoked or expires on {new Date(issued.expiresAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}.
           </p>
@@ -294,10 +298,15 @@ export function ApiKeysBoard({
               </Field>
               <fieldset className="flex flex-col gap-2.5">
                 <legend className="mb-1 text-meta font-semibold text-fg-2">What it may do</legend>
-                <Checkbox checked={read} onChange={(e) => setRead(e.target.checked)} label="Read" hint="List clients and domains, read a domain's scans, reports, senders, policy readiness and TLS summary, and read alerts and DNS changes." />
+                <Checkbox checked={read} disabled={write} onChange={(e) => setRead(e.target.checked)} label="Read" hint="List clients and domains, read a domain's scans, reports, senders, policy readiness and TLS summary, and read alerts and DNS changes." />
                 <Checkbox
                   checked={write}
-                  onChange={(e) => setWrite(e.target.checked)}
+                  onChange={(e) => {
+                    // A key that changes things needs to read them too:
+                    // write alone cannot even list the clients it creates.
+                    setWrite(e.target.checked);
+                    if (e.target.checked) setRead(true);
+                  }}
                   label="Change"
                   hint="Create clients and domains, run a scan, and acknowledge alerts and DNS changes. Give this only to a system that needs it: a leaked key that can write can add domains under your plan."
                 />
