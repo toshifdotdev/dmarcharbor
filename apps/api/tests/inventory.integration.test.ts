@@ -288,13 +288,13 @@ describe('data inventory', () => {
     expect(notices.map((entry) => entry.key)).toContain('subscription');
     expect(notices.map((entry) => entry.key)).not.toContain('entitlementOverride');
     /**
-     * Three, not two. Creating a workspace records the DPA acceptance *and* the
-     * Terms of Service acceptance, each with its own audit row, so the
-     * organisation genuinely holds three audit records by the time this runs. The
-     * point of the assertion is that the inventory counts and discloses the ones
-     * that exist, not how many there are.
+     * Counted against the table, not a fixed number. Creating the workspace
+     * records the DPA and the Terms, and the seed's client and domain are now
+     * recorded too (CLIENT_CREATED, DOMAIN_CREATED). The point of the assertion
+     * is that the inventory counts and discloses the ones that exist.
      */
-    expect(inventory.counts.auditLog).toBe(3);
+    expect(inventory.counts.auditLog).toBe(await prisma.auditLog.count({ where: { organizationId } }));
+    expect(inventory.counts.auditLog).toBeGreaterThanOrEqual(3);
     expect(inventory.counts.entitlementOverride).toBe(1);
   });
 });
