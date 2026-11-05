@@ -43,9 +43,16 @@ export function Tabs({
 
   useEffect(() => {
     if (!syncHash) return;
-    const fromHash = window.location.hash.slice(1);
-    if (fromHash && tabs.some((t) => t.id === fromHash)) setActive(fromHash);
-    // Mount only: the hash is read once on arrival.
+    const read = () => {
+      const fromHash = window.location.hash.slice(1);
+      if (fromHash && tabs.some((t) => t.id === fromHash)) setActive(fromHash);
+    };
+    read();
+    // A link to another tab on this same page (`#tls`) changes only the hash,
+    // so the page does not remount: listen for it as well as reading on arrival.
+    window.addEventListener("hashchange", read);
+    return () => window.removeEventListener("hashchange", read);
+    // The tab list is fixed for the life of the page.
   }, []);
 
   function select(id: string, focus = false) {
