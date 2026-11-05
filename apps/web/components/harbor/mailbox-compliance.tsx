@@ -19,7 +19,8 @@ const STATUS: Record<MailboxCheckStatus, { tone: Tone; label: string }> = {
 
 const GROUPS: Array<{ id: MailboxCheck["group"]; heading: string }> = [
   { id: "every_sender", heading: "Required of every sender" },
-  { id: "bulk", heading: "Required at 5,000 a day" },
+  // Gmail and Microsoft draw the line at 5,000 messages a day; Yahoo names no figure.
+  { id: "bulk", heading: "Required of bulk senders" },
   { id: "recommended", heading: "Recommended" },
 ];
 

@@ -74,6 +74,8 @@ const PROVIDER_SELECTORS: Record<string, string[]> = {
   '_spf.sophos.com': ['sophos1', 'sophos2', 'sophos3'],
   // Fastmail
   'spf.fastmail.com': ['fm1', 'fm2', 'fm3'],
+  // Cloudflare Email Routing, which signs what it forwards
+  '_spf.mx.cloudflare.net': ['cf2024-1'],
   // Success.click
   '_spf.clicktime.net': ['ct1'],
 };

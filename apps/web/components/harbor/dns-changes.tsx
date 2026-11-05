@@ -130,7 +130,7 @@ export function DnsChangesPanel({
             ) : null}
           </h2>
           <p className="mt-1 max-w-[80ch] text-ui text-fg-2">
-            What changed between checks of {domainName}&rsquo;s DMARC, SPF, DKIM and MX records. INFO changes are
+            What changed between checks of {domainName}&rsquo;s DMARC, SPF, DKIM, MX, MTA-STS, TLS-RPT and BIMI records. INFO changes are
             history only; WARNING and CRITICAL changes can also notify the workspace.
           </p>
         </div>

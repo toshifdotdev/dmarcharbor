@@ -48,7 +48,14 @@ interface ScanResult {
     policy: "none" | "quarantine" | "reject" | "unknown";
     tags?: Record<string, string>;
   };
-  spf: { status: Lookup; record?: string; valid?: boolean; lookupCount?: number };
+  spf: {
+    status: Lookup;
+    record?: string;
+    valid?: boolean;
+    lookupCount?: number;
+    lookupLimitExceeded?: boolean;
+    voidLookupLimitExceeded?: boolean;
+  };
   dkim: { status: Lookup; selectors?: string[]; checkedSelectors?: string[] };
   mx?: { status: Lookup; records?: Array<{ exchange: string; priority: number }> };
   issues: ScanIssue[];
@@ -92,6 +99,11 @@ const EXAMPLE: Reading = {
   findings: [],
 };
 
+/** Over the 10-lookup limit, by the scan's own flag or, on older scans, the count. */
+function spfOverLimit(spf: ScanResult["spf"]): boolean {
+  return spf.lookupLimitExceeded ?? (typeof spf.lookupCount === "number" && spf.lookupCount > 10);
+}
+
 function read(r: ScanResult): Reading {
   const tags = r.dmarc.tags && Object.keys(r.dmarc.tags).length ? lower(r.dmarc.tags) : parseTags(r.dmarc.record);
   const selectors = r.dkim.selectors ?? [];
@@ -107,8 +119,18 @@ function read(r: ScanResult): Reading {
       r.spf.status === "found"
         ? {
             state: "found",
-            text: `${word("found")} · ${r.spf.valid ? "valid" : "invalid"}${typeof r.spf.lookupCount === "number" ? ` · ${r.spf.lookupCount} of 10 DNS lookups` : ""}`,
-            tone: r.spf.valid ? "ok" : "fail",
+            // Over 10 lookups is a permanent error at the receiver, so SPF
+            // fails however well formed the record is (RFC 7208 4.6.4).
+            text: `${word("found")} · ${
+              !r.spf.valid
+                ? "invalid"
+                : spfOverLimit(r.spf)
+                  ? "fails: over the 10-lookup limit"
+                  : r.spf.voidLookupLimitExceeded
+                    ? "fails: too many lookups find nothing"
+                    : "valid"
+            }${typeof r.spf.lookupCount === "number" ? ` · ${r.spf.lookupCount} of 10 DNS lookups` : ""}`,
+            tone: r.spf.valid && !spfOverLimit(r.spf) && !r.spf.voidLookupLimitExceeded ? "ok" : "fail",
           }
         : { state: r.spf.status, text: word(r.spf.status), tone: r.spf.status === "missing" ? "warn" : "void" },
     dkim:

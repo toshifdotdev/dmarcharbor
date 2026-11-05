@@ -148,7 +148,7 @@ export function ScanHistory({
             ? "The scan history could not be read."
             : rows.length === 0
               ? "This domain has never been scanned, so no DMARC policy is on record from DNS."
-              : `${rows.length} scan${rows.length === 1 ? "" : "s"} on record. A scan reads DMARC, SPF, DKIM and MX from public DNS and records what it saw.`}
+              : `${rows.length} scan${rows.length === 1 ? "" : "s"} on record. A scan reads DMARC, SPF, DKIM, MX, MTA-STS, TLS-RPT and BIMI from public DNS and records what it saw.`}
         </p>
         <Button
           variant="primary"
@@ -396,7 +396,7 @@ function TransportDetails({
       {tlsNote ? (
         <p className="text-meta text-warn">
           Without TLS-RPT, failed TLS deliveries are never reported to you.{" "}
-          <Link href={`/domains/${encodeURIComponent(domainId)}?tab=tls`} className="link font-semibold">
+          <Link href={`/domains/${encodeURIComponent(domainId)}#tls`} className="link font-semibold">
             Publish a TLS-RPT record to collect them here.
           </Link>
         </p>
@@ -482,7 +482,15 @@ function ScanDetail({
       "SPF",
       `${
         r.spf.status === "found"
-          ? `${r.spf.valid ? "valid" : "found but invalid"}, ${r.spf.lookupCount} of 10 lookups${
+          ? `${
+              !r.spf.valid
+                ? "found but invalid"
+                : (r.spf.lookupLimitExceeded ?? r.spf.lookupCount > 10)
+                  ? "fails: over the 10-lookup limit"
+                  : r.spf.voidLookupLimitExceeded
+                    ? "fails: too many lookups find nothing"
+                    : "valid"
+            }, ${r.spf.lookupCount} of 10 lookups${
               // Scans stored before includes were followed counted the top level only.
               r.spf.lookupTree === undefined ? " (top level only: this scan predates counting through includes; scan again for the full count)" : r.spf.lookupsComplete === false ? " (at least: some includes could not be read)" : ""
             }`

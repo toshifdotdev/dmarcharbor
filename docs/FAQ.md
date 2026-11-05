@@ -289,8 +289,9 @@ on Fairway; spoofing alerts also start on Fairway.
 **Does it watch DNS?**
 Yes, on every plan. Each verified domain is re-read about once a day, and every
 change to its DMARC, SPF, DKIM, MX, MTA-STS, TLS-RPT or BIMI records is kept in its
-history, where you can acknowledge it. Warnings about changes are sent on Fairway
-and above.
+history. A change marked warning or critical, such as a weaker policy or a removed
+record, can be acknowledged there; an informational one, such as a new DKIM
+selector, needs nothing. Warnings about changes are sent on Fairway and above.
 
 **Does it warn me before a domain registration expires?**
 The expiry date is read from the registry over RDAP and shown on every plan.

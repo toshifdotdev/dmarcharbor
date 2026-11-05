@@ -2204,6 +2204,8 @@ export interface ScanSpfDetail {
   lookupCount: number;
   voidLookupCount?: number;
   lookupLimitExceeded?: boolean;
+  /** More than two lookups found nothing (RFC 7208 section 4.6.4). */
+  voidLookupLimitExceeded?: boolean;
   lookupTree?: ScanSpfLookupNode[];
   lookupsComplete?: boolean;
   error?: string;

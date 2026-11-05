@@ -64,6 +64,33 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'The scan failed unexpectedly.';
 }
 
+/**
+ * DKIM selectors receivers saw signing as this domain in the last 90 days of
+ * aggregate reports.
+ *
+ * A selector is a label the sender picks, and DNS alone cannot list them, so
+ * a scan used to guess from SPF and conventions and report "no DKIM key" for a
+ * domain whose mail was signed with a selector it never guessed. The reports
+ * name the real ones, which is how dmarcian and EasyDMARC find them too.
+ * Only signatures by this exact domain count: a key on a sending subdomain
+ * lives under that subdomain, not here.
+ */
+async function reportedSelectors(domainId: string, domainName: string): Promise<string[]> {
+  const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+  const rows = await prisma.dmarcAuthResult.findMany({
+    where: {
+      type: 'DKIM',
+      domain: { equals: domainName, mode: 'insensitive' },
+      selector: { not: null },
+      record: { report: { domainId, receivedAt: { gte: since } } },
+    },
+    select: { selector: true },
+    distinct: ['selector'],
+    take: 10,
+  });
+  return rows.map((row) => row.selector!).filter(Boolean);
+}
+
 function knownSelectorsFrom(value: Prisma.JsonValue | null): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
 }
@@ -107,7 +134,7 @@ export async function runDomainScan(input: RunDomainScanInput): Promise<RunDomai
 
   try {
     const result = await scanDomain(domain.name, reader, {
-      knownSelectors: knownSelectorsFrom(domain.dkimSelectors),
+      knownSelectors: [...knownSelectorsFrom(domain.dkimSelectors), ...(await reportedSelectors(domain.id, domain.name).catch(() => []))],
       ...(input.https ? { https: input.https } : {}),
     });
 

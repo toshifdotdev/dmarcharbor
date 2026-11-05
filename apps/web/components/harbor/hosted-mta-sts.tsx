@@ -667,7 +667,7 @@ export function HostedMtaSts({
                           {blocker.code === "no_tls_reports" || blocker.code === "tls_failures" ? (
                             <>
                               {" "}
-                              <Link href={`/domains/${domainId}?tab=tls`} className="link">
+                              <Link href={`/domains/${domainId}#tls`} className="link">
                                 See the TLS reports
                               </Link>
                               .

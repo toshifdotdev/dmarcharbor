@@ -418,7 +418,7 @@ function buildIssues(dmarc: DmarcResult, spf: SpfResult, dkim: DkimResult, mx: M
       severity: 'warning',
       code: 'dkim_missing',
       title: 'No DKIM key found',
-      message: `No DKIM public key was found at any of the ${dkim.checkedSelectors.length} selectors checked, derived from the SPF record and standard provider conventions. A custom selector not named in SPF would not appear here.`,
+      message: `No DKIM public key was found at any of the ${dkim.checkedSelectors.length} selectors checked, derived from the SPF record, standard provider conventions and the selectors this domain's DMARC reports have shown. A custom selector would not appear here until a report names it, and a key on a sending subdomain (such as mail.<domain>) belongs to that subdomain.`,
       recommendation: 'Confirm each email provider has a DKIM selector and public key in DNS.',
     });
   } else if (dkim.status === 'error') {

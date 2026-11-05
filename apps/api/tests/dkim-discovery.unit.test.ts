@@ -79,6 +79,11 @@ describe('deriving candidates', () => {
     expect(candidates[0].selector).toBe('amazonses');
   });
 
+  it("probes Cloudflare Email Routing's selector when SPF includes it", () => {
+    const candidates = dkimCandidates('v=spf1 include:_spf.mx.cloudflare.net ~all');
+    expect(candidates[0]).toEqual({ selector: 'cf2024-1', source: 'spf:_spf.mx.cloudflare.net' });
+  });
+
   it('never spends a lookup on a label that cannot exist', () => {
     const candidates = dkimCandidates('v=spf1 include:_spf.google.com ~all');
 
