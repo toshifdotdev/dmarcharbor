@@ -173,10 +173,12 @@ export async function collectClientEvidence(input: {
   organizationId: string;
   asOf: Date;
   domainLimit: number;
+  /** Public pages pass this: a name nobody has proved is the client's is not listed. */
+  verifiedOnly?: boolean;
 }): Promise<ClientEvidence> {
   const { clientId, organizationId, asOf } = input;
   const windowStart = new Date(asOf.getTime() - evidenceWindowDays * dayMs);
-  const clientScope = { clientId, client: { organizationId } };
+  const clientScope = { clientId, client: { organizationId }, ...(input.verifiedOnly ? { status: 'VERIFIED' as const } : {}) };
 
   const [domainRows, domainCount] = await Promise.all([
     prisma.domain.findMany({

@@ -907,6 +907,40 @@ export async function buildExportPayload(input: {
     .filter(([, rows]) => rows.length >= exportTableLimit)
     .map(([label]) => label);
 
+  // People and access the workspace holds beyond its members: a client's
+  // portal contacts (their names and addresses are personal data), open and
+  // past invitations, and the API keys issued, by name and prefix only (the
+  // key itself is never stored, only its hash, which is not exported).
+  const workspaceWide = input.scope === 'ORGANIZATION';
+  const [portalContacts, invitations, apiKeys] = await Promise.all([
+    prisma.clientPortalAccess.findMany({
+      where: {
+        organizationId: org,
+        ...(input.scope === 'CLIENT' && input.targetId ? { clientId: input.targetId } : {}),
+        ...(input.scope === 'DOMAIN' ? { client: { domains: { some: domainFilter } } } : {}),
+      },
+      select: { id: true, clientId: true, email: true, displayName: true, createdAt: true, firstSeenAt: true, revokedAt: true },
+      orderBy: { createdAt: 'asc' },
+      take: exportTableLimit,
+    }),
+    workspaceWide
+      ? prisma.invitation.findMany({
+          where: { organizationId: org },
+          select: { id: true, email: true, role: true, status: true, createdAt: true, expiresAt: true, inviterId: true },
+          orderBy: { createdAt: 'asc' },
+          take: exportTableLimit,
+        })
+      : Promise.resolve([]),
+    workspaceWide
+      ? prisma.apiKey.findMany({
+          where: { organizationId: org },
+          select: { id: true, name: true, prefix: true, scopes: true, createdAt: true, expiresAt: true, revokedAt: true, lastUsedAt: true, createdById: true },
+          orderBy: { createdAt: 'asc' },
+          take: exportTableLimit,
+        })
+      : Promise.resolve([]),
+  ]);
+
   const meta: ExportPayload['meta'] = {
     product: 'DMARC Harbor',
     generatedAt: new Date().toISOString(),
@@ -916,7 +950,8 @@ export async function buildExportPayload(input: {
     notice:
       'This export contains the data held for this scope. Passwords, session tokens and OAuth tokens are never included, ' +
       'because they are credentials rather than data. Neither are the Slack and Microsoft Teams webhook addresses: each one ' +
-      'is the ability to post into that channel, so it is a credential in the same sense. ' +
+      'is the ability to post into that channel, so it is a credential in the same sense. API keys are listed by name, ' +
+      'prefix and scope; the key itself is never stored, so it cannot be exported. ' +
       'Security records are included by action and time, with identifying fields withheld.',
   };
 
@@ -949,6 +984,9 @@ export async function buildExportPayload(input: {
         linkedAccounts: user.accounts,
       })),
       members,
+      portalContacts,
+      invitations,
+      apiKeys,
       sessions: sessions.map((session) => ({
         id: session.id,
         userId: session.userId,

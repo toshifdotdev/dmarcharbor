@@ -378,6 +378,8 @@ export async function buildTrustCenter(slug: string): Promise<TrustCenterPayload
       organizationId: client.organizationId,
       asOf: generatedAt,
       domainLimit: 200,
+      // The public page: every section, not only the heading, lists verified domains only.
+      verifiedOnly: true,
     }),
     // Packs for this client only. Their references and digests are already
     // public through the verifier; listing them here is what makes the pack's

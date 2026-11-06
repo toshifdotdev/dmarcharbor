@@ -655,6 +655,15 @@ function Decision(props: RowProps & { action: Action; verb: string }) {
                     <li key={k}>− {planFeatureLabel(k)}</li>
                   ))}
                 </ul>
+                {/* What happens to what is already set up, as the FAQ states it. */}
+                <p className="mt-2 max-w-[60ch] text-meta text-fg-2" data-testid="downgrade-kept">
+                  Nothing is deleted, and upgrading again brings it all back. Hosted records keep being served but can no
+                  longer be changed. Alert rules, digests and a report mailbox are kept but stop running. Share links and
+                  Trust Center pages read as withdrawn until you upgrade.{" "}
+                  <a href="/faq#what-happens-to-features-when-i-downgrade" className="link">
+                    What happens to each feature
+                  </a>
+                </p>
               </div>
             ) : null}
             {!gains.length && !losses.length ? <p className="text-meta text-fg-2">The same features; only the limits and the price change.</p> : null}
