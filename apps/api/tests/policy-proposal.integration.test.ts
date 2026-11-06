@@ -205,7 +205,9 @@ describe('client-approved enforcement', () => {
     const email = await prisma.emailDelivery.findFirstOrThrow({ where: request_ });
     expect(email.subject).toContain('Northwind IT asks your approval');
     expect(email.text).toContain('Only 812 messages observed');
-    expect(email.text).toContain(`/portal/domain/${fixture.acme.domainId}?org=`);
+    // The address a contact sees: the domain's slug, never its database id.
+    const { slug } = await prisma.domain.findUniqueOrThrow({ where: { id: fixture.acme.domainId }, select: { slug: true } });
+    expect(email.text).toContain(`/portal/domain/${slug}?org=`);
 
     const open = await contact.agent.get('/api/portal/policy-proposals');
     expect(open.status).toBe(200);
