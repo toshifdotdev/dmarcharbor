@@ -23,11 +23,14 @@ export default async function SignUpPage({ searchParams }: { searchParams: Promi
   const brand = await readHostBrand();
   const portal = brand.state === "verified" ? { agency: brand.workspaceName } : null;
   // The portfolio sends anyone without a workspace on to /welcome itself.
-  if (await getSessionUserId()) redirect(portal ? "/portal" : "/");
+  // Invited to a client portal on our own address: the same reader as on an
+  // agency's domain, so no workspace setup route and the portal afterwards.
+  const forPortal = portal !== null || (next !== null && next.startsWith("/portal"));
+  if (await getSessionUserId()) redirect(next ?? (portal ? "/portal" : "/"));
 
   return (
     <AuthFrame
-      width={portal ? "narrow" : "route"}
+      width={forPortal ? "narrow" : "route"}
       aside={
         <>
           <span className="hidden text-fg-3 sm:inline">Have an account?</span>
@@ -37,7 +40,7 @@ export default async function SignUpPage({ searchParams }: { searchParams: Promi
         </>
       }
     >
-      <AuthPanel initialMode="sign-up" next={next} route={!portal} portal={portal} />
+      <AuthPanel initialMode="sign-up" next={next} route={!forPortal} portal={portal} />
     </AuthFrame>
   );
 }

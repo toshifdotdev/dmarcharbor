@@ -279,7 +279,7 @@ function LatestProposal({
 
       {proposal.state === "declined" ? (
         <p className="text-meta text-fg-2">
-          {proposal.decidedByEmail ?? "The client"} declined on {day(proposal.decidedAt ?? proposal.createdAt)}.
+          {proposal.decidedByName ?? proposal.decidedByEmail ?? "The client"} declined on {day(proposal.decidedAt ?? proposal.createdAt)}.
           {proposal.declineReason ? <> Their reason: &ldquo;{proposal.declineReason}&rdquo;</> : null} Nothing was changed.
         </p>
       ) : null}
@@ -287,7 +287,7 @@ function LatestProposal({
       {proposal.state === "approved" ? (
         <>
           <p className="text-meta text-fg-2">
-            Approved by {proposal.decidedByEmail ?? "the client"} on {day(proposal.decidedAt ?? proposal.createdAt)}.
+            Approved by {proposal.decidedByName ?? proposal.decidedByEmail ?? "the client"} on {day(proposal.decidedAt ?? proposal.createdAt)}.
           </p>
           {proposal.published ? (
             <p className="text-meta font-semibold text-ok">

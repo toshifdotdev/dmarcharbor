@@ -355,7 +355,8 @@ export async function buildTrustCenter(slug: string): Promise<TrustCenterPayload
   // Scoped to the client id, never the workspace.
   const [domains, grants, erasures, branding, evidence, packs] = await Promise.all([
     prisma.domain.findMany({
-      where: { clientId: client.id },
+      // Verified only: a public page must not list a name nobody has proved is the client's.
+      where: { clientId: client.id, status: 'VERIFIED' },
       select: { name: true },
       orderBy: { name: 'asc' },
       take: 200,

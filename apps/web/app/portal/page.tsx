@@ -226,7 +226,7 @@ export default async function PortalPage({
               {proposals.map((proposal) => (
                 <li key={proposal.id} className="border-b border-rule last:border-b-0">
                   <Link
-                    href={portalDomainHref(proposal.domain.id, org)}
+                    href={portalDomainHref(proposal.domain.slug ?? proposal.domain.id, org)}
                     className="group grid gap-x-6 gap-y-1 py-3.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
                   >
                     <span className="min-w-0">

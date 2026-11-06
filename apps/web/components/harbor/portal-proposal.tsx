@@ -206,9 +206,9 @@ export function PortalProposal({
           </p>
           <p className="text-[15px] leading-[1.55] text-fg-2" data-testid="portal-proposal-outcome">
             {current.state === "approved"
-              ? `Approved by ${current.decidedByEmail ?? "your team"} on ${day(current.decidedAt ?? current.createdAt)}. ${agency} has been told.`
+              ? `Approved by ${current.decidedByName ?? current.decidedByEmail ?? "your team"} on ${day(current.decidedAt ?? current.createdAt)}. ${agency} has been told.`
               : current.state === "declined"
-                ? `Declined by ${current.decidedByEmail ?? "your team"} on ${day(current.decidedAt ?? current.createdAt)}. Nothing was changed.`
+                ? `Declined by ${current.decidedByName ?? current.decidedByEmail ?? "your team"} on ${day(current.decidedAt ?? current.createdAt)}. Nothing was changed.`
                 : `This request expired on ${day(current.expiresAt)}. Nothing was changed.`}
           </p>
         </div>

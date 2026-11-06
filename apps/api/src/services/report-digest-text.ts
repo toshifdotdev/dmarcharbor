@@ -13,6 +13,11 @@ import type { DomainInsights, SourceAttribution } from './report-intelligence.se
  * database. The text is exactly what the service built before it moved.
  */
 
+/** A pass rate as people read it: "97.5%", or "not measured yet" with no messages. */
+function rate(value: number | null | undefined): string {
+  return typeof value === 'number' ? `${value}%` : 'not measured yet';
+}
+
 /** The figures a digest reports, as the service reads them: only the fields it prints. */
 export interface DigestFigures {
   domain: { name: string; score: number | null; dmarcPolicy: string | null; client: { name: string } };
@@ -44,9 +49,9 @@ export function digestLines(input: DigestFigures): string[] {
     '',
     `Messages observed: ${insights.aggregate.messageCount}`,
     `Failed DMARC: ${insights.aggregate.failedMessages}`,
-    `DMARC pass rate: ${insights.aggregate.dmarcPassRate ?? 'unknown'}%`,
-    `SPF pass rate: ${insights.aggregate.spfPassRate ?? 'unknown'}%`,
-    `DKIM pass rate: ${insights.aggregate.dkimPassRate ?? 'unknown'}%`,
+    `DMARC pass rate: ${rate(insights.aggregate.dmarcPassRate)}`,
+    `SPF pass rate: ${rate(insights.aggregate.spfPassRate)}`,
+    `DKIM pass rate: ${rate(insights.aggregate.dkimPassRate)}`,
     `Aggregate reports received: ${insights.aggregate.reportCount}`,
     `Last report: ${lastReportAt ?? 'none yet'}`,
     '',

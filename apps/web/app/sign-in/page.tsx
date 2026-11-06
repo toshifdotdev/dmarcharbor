@@ -42,7 +42,7 @@ export default async function SignInPage({
       aside={
         <>
           <span className="hidden text-fg-3 sm:inline">New here?</span>
-          <Link href="/sign-up" className="link font-semibold">
+          <Link href={next ? `/sign-up?next=${encodeURIComponent(next)}` : "/sign-up"} className="link font-semibold">
             Create an account
           </Link>
         </>

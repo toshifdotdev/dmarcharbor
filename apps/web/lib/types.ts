@@ -693,6 +693,7 @@ export interface PolicyProposalRow {
   expiresAt: string;
   decidedAt: string | null;
   decidedByEmail: string | null;
+  decidedByName?: string | null;
   declineReason: string | null;
   appliedAt: string | null;
   applyError: string | null;
@@ -712,7 +713,7 @@ export interface DomainPolicyProposals {
 export interface PortalPolicyProposal {
   id: string;
   state: PolicyProposalState;
-  domain: { id: string; name: string };
+  domain: { id: string; slug?: string; name: string };
   clientName: string;
   agencyName: string;
   words: { headline: string; effect: string; trial: string | null; risk: string; evidence: string | null };
@@ -723,6 +724,7 @@ export interface PortalPolicyProposal {
   expiresAt: string;
   decidedAt: string | null;
   decidedByEmail: string | null;
+  decidedByName?: string | null;
   declineReason: string | null;
 }
 

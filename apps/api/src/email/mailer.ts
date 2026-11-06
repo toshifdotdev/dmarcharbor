@@ -169,7 +169,7 @@ async function sendPolicyApprovalRequestedEmailImpl(input: { proposalId: string 
     openPoints: portal.blockers,
     expiresAt: portal.expiresAt,
     // Client facing: the agency's own domain when it has one.
-    url: `${clientOriginFor(brand)}/portal/domain/${portal.domain.id}?org=${encodeURIComponent(found.organizationId)}`,
+    url: `${clientOriginFor(brand)}/portal/domain/${portal.domain.slug}?org=${encodeURIComponent(found.organizationId)}`,
     contact: clientContact(brand),
   });
   const headers = clientEmailHeaders(brand);

@@ -184,7 +184,9 @@ export async function portalDomainController(request: Request, response: Respons
   }
 
   const domain = await prisma.domain.findFirst({
-    where: { client: { ...portalClientFilter(response), organizationId }, ...domainRef(domainId.data) },
+    // Verified only, as the portal list is: an unverified domain may not be
+    // the client's at all, and its address used to open it anyway.
+    where: { client: { ...portalClientFilter(response), organizationId }, status: 'VERIFIED', ...domainRef(domainId.data) },
     select: {
       id: true,
       name: true,

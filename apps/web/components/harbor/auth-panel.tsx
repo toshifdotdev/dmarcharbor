@@ -101,7 +101,7 @@ export function AuthPanel({
 
   const destination = next ?? (portal ? "/portal" : "/");
   /** Where an emailed verification link lands: the portal for a client, the next setup stop otherwise. */
-  const verifyReturn = portal ? "/portal" : undefined;
+  const verifyReturn = portal ? "/portal" : next?.startsWith("/portal") ? next : undefined;
 
   function go(m: Mode) {
     setMode(m);

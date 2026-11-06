@@ -68,6 +68,8 @@ export interface ProposalView {
   expiresAt: string;
   decidedAt: string | null;
   decidedByEmail: string | null;
+  /** The decider's name: the confirm dialog promises the decision is recorded under it. */
+  decidedByName: string | null;
   declineReason: string | null;
   appliedAt: string | null;
   applyError: string | null;
@@ -82,7 +84,7 @@ export interface ProposalView {
 export interface PortalProposalView {
   id: string;
   state: ProposalState;
-  domain: { id: string; name: string };
+  domain: { id: string; slug: string; name: string };
   clientName: string;
   agencyName: string;
   words: ProposalWords;
@@ -93,6 +95,7 @@ export interface PortalProposalView {
   expiresAt: string;
   decidedAt: string | null;
   decidedByEmail: string | null;
+  decidedByName: string | null;
   declineReason: string | null;
 }
 
@@ -150,7 +153,13 @@ function publishedPolicy(record: string | null): { policy: string; testing: bool
 const proposalInclude = {
   domain: { select: { id: true, slug: true, name: true, dmarcRecord: true, client: { select: { name: true } } } },
   createdBy: { select: { id: true, name: true, email: true } },
+  decidedBy: { select: { name: true } },
 } satisfies Prisma.PolicyProposalInclude;
+
+/** The decider's name, as their account has it, or null when they gave none or have left. */
+function deciderName(row: ProposalRow): string | null {
+  return row.decidedBy?.name?.trim() || null;
+}
 
 type ProposalRow = Prisma.PolicyProposalGetPayload<{ include: typeof proposalInclude }>;
 
@@ -181,6 +190,7 @@ function toView(row: ProposalRow, now = new Date()): ProposalView {
     expiresAt: row.expiresAt.toISOString(),
     decidedAt: row.decidedAt?.toISOString() ?? null,
     decidedByEmail: row.decidedByEmail,
+    decidedByName: deciderName(row),
     declineReason: row.declineReason,
     appliedAt: row.appliedAt?.toISOString() ?? null,
     applyError: row.applyError,
@@ -198,7 +208,7 @@ function toPortalView(row: ProposalRow, agencyName: string, now = new Date()): P
   return {
     id: row.id,
     state: stateOf(row, now),
-    domain: { id: row.domain.id, name: row.domain.name },
+    domain: { id: row.domain.id, slug: row.domain.slug, name: row.domain.name },
     clientName: row.domain.client.name,
     agencyName,
     words: describeProposal({
@@ -215,6 +225,7 @@ function toPortalView(row: ProposalRow, agencyName: string, now = new Date()): P
     expiresAt: row.expiresAt.toISOString(),
     decidedAt: row.decidedAt?.toISOString() ?? null,
     decidedByEmail: row.decidedByEmail,
+    decidedByName: deciderName(row),
     declineReason: row.declineReason,
   };
 }
@@ -673,7 +684,9 @@ export function agencyNotice(view: ProposalView): {
   title: string;
   body: string;
 } {
-  const who = view.decidedByEmail ?? 'The client';
+  const who = view.decidedByName
+    ? `${view.decidedByName}${view.decidedByEmail ? ` (${view.decidedByEmail})` : ''}`
+    : (view.decidedByEmail ?? 'The client');
   if (view.state === 'declined') {
     return {
       severity: 'WARNING',
