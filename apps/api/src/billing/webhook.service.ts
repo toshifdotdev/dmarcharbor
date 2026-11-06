@@ -146,10 +146,10 @@ export async function handleRazorpayWebhook(input: {
    */
   const eventId =
     input.eventId?.trim() ||
-    payload.payload?.entity?.id ||
+    (payload.payload?.entity?.id ??
     paymentEntity?.id ??
     subscriptionEntity?.id ??
-    `${eventName}:${subscriptionEntity?.id ?? paymentEntity?.id ?? 'unknown'}:${payload.created_at ?? payload.payload?.created_at ?? 'no-timestamp'}`;
+    `${eventName}:${subscriptionEntity?.id ?? paymentEntity?.id ?? 'unknown'}:${payload.created_at ?? payload.payload?.created_at ?? 'no-timestamp'}`);
 
   const organizationId = await resolveOrganizationId('RAZORPAY', {
     organizationId: subscriptionEntity?.notes?.organizationId,
