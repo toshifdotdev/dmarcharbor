@@ -47,11 +47,9 @@ count is Fleet's active domains: a domain counts if it sent a report in the last
 | 501 to 2,000 | $1.00 | ₹85 | 625 |
 | 2,001 to 5,000 | $0.75 | ₹64 | 2,667 |
 
-Annual billing is ten months of price for twelve months of service. These were
-raised from $19/$79/$249 and ₹1,599/₹6,599/₹20,999, and this table was not
-updated with them. That matters more than a stale document usually does: this is
-the operator reference for the layer that takes the money, and it understated
-Harbor by $70 a month and Admiralty by $150.
+Annual billing is ten months of price for twelve months of service. The figures
+above match `apps/api/src/services/entitlements/plan-catalog.ts`, which is the
+source of truth; change both together.
 
 ## Provider plans live in the database
 

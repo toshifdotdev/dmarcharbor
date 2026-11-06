@@ -29,7 +29,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return publicMetadata({
     title: "Pricing",
     description:
-      "Plans by the size of the client book: clients, active domains, members and workspaces, monthly or annual, with every feature compared.",
+      "Plans by the size of the client book: clients, active domains, members and workspaces, monthly or annual (Fleet is monthly, per domain), with every feature compared.",
     path: "/pricing",
   });
 }

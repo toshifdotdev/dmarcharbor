@@ -13,16 +13,17 @@ customer. After that we do not ordinarily refund, but we still refund in the cas
 listed under "Discretionary refunds", because those are the ones where not
 refunding would be wrong.
 
-Most purchases are made through an online reseller that handles refunds on our
-behalf. Where that applies, requests go to them rather than to us, and they hold
-the decision. We tell you which applies before you buy.
+Who handles a refund depends on the currency you paid in. Rupee payments go
+through Razorpay, our payment gateway, and refunds come to us. Dollar payments go
+through Paddle, an online reseller that is the seller of record and handles
+refunds for those orders. We tell you which applies before you buy.
 
 ## Who handles your refund
 
 | You paid in | Through | Requests go to |
 |---|---|---|
 | Indian rupees | Razorpay | **DMARC Harbor**, at `[SUPPORT EMAIL]` |
-| Other currencies | Paddle | **Paddle**, from your subscription or billing portal |
+| US dollars | Paddle | **Paddle**, from your subscription or billing portal |
 
 Paddle acts as merchant of record for payments made through them, which means
 they are the seller of record for that order and they authorise refunds. We cannot
@@ -56,13 +57,18 @@ access until the end of the period you have already paid for. We do not
 reimburse the remainder of a period that has not yet been used, because we have
 already provided the service for it.
 
-**Downgrades are not refunds.** If you move to a smaller plan, the change applies
-at the end of your current period. If we consider a refund of the difference, we
-will decide that case by case and say so.
+**Plan changes are not refunds.** When a change takes effect depends on how you
+pay, as the Terms of Service set out:
 
-**Upgrades are charged immediately.** When you upgrade, we bill the difference
-straight away so you have the new plan now. That charge is not refundable except
-under the 14-day guarantee above.
+- **Paid in rupees through Razorpay:** an upgrade or a downgrade takes effect at
+  the end of the period you have already paid for. Nothing is charged or
+  refunded mid-period.
+- **Paid in US dollars through Paddle:** a change applies at once, and Paddle
+  charges or credits the difference for the rest of the period. A charge for an
+  upgrade is not refundable except under the 14-day guarantee above.
+
+The billing page says which applies before you confirm. If we consider a refund
+of a difference in any other case, we will decide it case by case and say so.
 
 ## Discretionary refunds
 

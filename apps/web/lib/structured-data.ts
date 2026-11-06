@@ -104,7 +104,9 @@ export function softwareApplicationJsonLd(origin: string): Record<string, unknow
       "Compliance packs with a published SHA-256 fingerprint",
       "Public fingerprint verifier",
       "Revocable report share links",
-      "Client portal on a custom domain",
+      // The portal is Harbor and up; its own domain is Admiralty only, so the
+      // site-wide node beside the free offer does not claim the domain.
+      "Client portal in your own brand",
       "Email, Slack and Teams alerting rules",
     ],
     isAccessibleForFree: true,

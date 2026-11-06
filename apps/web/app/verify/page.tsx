@@ -26,7 +26,7 @@ export async function generateMetadata(): Promise<Metadata> {
     publicMetadata({
       title: "Document fingerprint verifier",
       description:
-        "Check that a compliance pack or monthly report you hold is the one that was issued. A SHA-256 digest of the exact bytes is published against the document reference, and a copy is genuine when its digest matches. No account needed.",
+        "Check that a compliance pack or monthly report you hold is the one issued, by its published SHA-256 fingerprint. No account needed.",
       path: "/verify",
     }),
     currentHostKind(),
