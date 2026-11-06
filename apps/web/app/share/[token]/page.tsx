@@ -58,7 +58,11 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
 
   const expires = new Date(report.expiresAt).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
   return (
-    <ArtefactFrame kind="Shared report" meta={<>Link valid until {expires}. Read-only; nothing on this page changes the domain.</>}>
+    <ArtefactFrame
+      kind="Shared report"
+      publisher={report.publishedBy}
+      meta={<>Link valid until {expires}. Read-only; nothing on this page changes the domain.</>}
+    >
       <ShareDocument report={report} today={new Date(report.generatedAt).toISOString().slice(0, 10)} />
     </ArtefactFrame>
   );

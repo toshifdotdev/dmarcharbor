@@ -11,7 +11,13 @@ import {
 } from '../services/branding.service.js';
 import { clientOrigin } from '../services/client-origin.js';
 import { EntitlementError, assertFeature } from '../services/entitlements/entitlement.service.js';
-import { LogoStorageError, createLogoUploadUrl, publicLogoUrl, uploadLogoDirect } from '../services/branding/logo-storage.service.js';
+import {
+  LogoStorageError,
+  createLogoUploadUrl,
+  logoStorageConfigured,
+  publicLogoUrl,
+  uploadLogoDirect,
+} from '../services/branding/logo-storage.service.js';
 import { zodMessage } from '../utils/zod-messages.js';
 import { updateBranding as updateBrandingSettings } from '../services/branding.service.js';
 import {
@@ -290,6 +296,9 @@ export async function getStoredBrandingController(_request: Request, response: R
     sendingDomainVerifiedAt: hasSendingDomain ? organization.sendingDomainVerifiedAt : null,
     sendingDomainCheckedAt: hasSendingDomain ? organization.sendingDomainCheckedAt : null,
     clientOrigin: origin,
+    // Whether this deployment can store a logo at all, so the settings page
+    // says so before an upload is tried rather than after it fails.
+    logoStorageConfigured: logoStorageConfigured(),
   });
 }
 

@@ -222,6 +222,7 @@ export function BrandingBoard({
   sending: savedSending = NO_SENDING,
   whitelabel,
   logoUpload,
+  logoStorage = true,
   customDomainFeature,
   canManage,
 }: {
@@ -240,6 +241,8 @@ export function BrandingBoard({
   sending?: SendingDomainState;
   whitelabel: FeatureStatus;
   logoUpload: FeatureStatus;
+  /** False when this deployment has no logo storage: upload is not offered. */
+  logoStorage?: boolean;
   /** Admiralty only. Absent from an older API: then the white label flag decides, as before. */
   customDomainFeature?: FeatureStatus;
   canManage: boolean;
@@ -610,6 +613,11 @@ export function BrandingBoard({
       <Panel id="wl-logo" title="Logo" why="SVG, PNG, JPEG or WebP, under 256 KB. A wide logo about 26 pixels high reads best in the header.">
         {logoUpload === false ? (
           <UpgradeNotice message="Logo upload is not included in this workspace's plan." feature="branding.logoUpload" />
+        ) : !logoStorage && !logoUrl ? (
+          <Notice testId="wl-logo-unavailable" title="Logo upload isn't available on this deployment.">
+            No file storage is set up for logos, so an upload would fail. Your name and colours still appear on everything
+            your clients see. Whoever runs this deployment can turn logo upload on.
+          </Notice>
         ) : (
           <div className="flex flex-wrap items-center gap-4">
             <span className="grid h-14 min-w-[140px] place-items-center rounded-ctl border border-rule bg-paper-2 px-3">

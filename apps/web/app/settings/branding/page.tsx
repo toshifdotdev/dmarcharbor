@@ -49,6 +49,7 @@ export default async function BrandingPage() {
           }}
           whitelabel={featureOf(entitlements, "branding.whitelabel")}
           logoUpload={featureOf(entitlements, "branding.logoUpload")}
+          logoStorage={branding.logoStorageConfigured !== false}
           customDomainFeature={featureOf(entitlements, "branding.customDomain")}
           canManage={ctx.role === null ? true : mayChange(ctx.role, "admin")}
         />

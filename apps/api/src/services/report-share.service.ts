@@ -8,6 +8,7 @@ import { assessPolicyReadiness } from './onboarding.service.js';
 import { recordAuditEvent } from './audit.service.js';
 import { clientOrigin } from './client-origin.js';
 import { resolveEntitlements } from './entitlements/entitlement.service.js';
+import { resolveBranding } from './branding.service.js';
 
 const defaultShareDays = 30;
 
@@ -220,6 +221,18 @@ export async function deleteAllRevokedReportShares(
 
 export interface PublicReportView {
   sharedFor: { organization: string; client: string; domain: string };
+  /**
+   * The workspace that shared the report, as the prospect report names it: the
+   * name always, the logo and colours only when the plan includes white label.
+   * The page heads its masthead with it on any host.
+   */
+  publishedBy: {
+    workspaceName: string;
+    logoUrl: string | null;
+    primaryColor: string | null;
+    accentColor: string | null;
+    branded: boolean;
+  };
   generatedAt: string;
   expiresAt: string;
   policy: { published: string | null; reportingConfigured: boolean; recommended: string };
@@ -281,6 +294,7 @@ export async function getPublicReport(token: string, now = new Date()): Promise<
   }
 
   const readiness = await assessPolicyReadiness(share.organizationId, share.domainId, insights);
+  const brand = await resolveBranding(share.organizationId);
 
   await prisma.reportShare.update({
     where: { id: share.id },
@@ -295,6 +309,13 @@ export async function getPublicReport(token: string, now = new Date()): Promise<
       organization: share.organization.name,
       client: share.client.name,
       domain: domain.name,
+    },
+    publishedBy: {
+      workspaceName: brand.workspaceName,
+      logoUrl: brand.logoUrl,
+      primaryColor: brand.primaryColor,
+      accentColor: brand.accentColor,
+      branded: brand.branded,
     },
     generatedAt: now.toISOString(),
     expiresAt: share.expiresAt.toISOString(),

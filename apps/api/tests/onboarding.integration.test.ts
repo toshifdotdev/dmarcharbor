@@ -469,6 +469,8 @@ describe('client-facing report share', () => {
       client: 'Acme Corp',
       domain: domainName,
     });
+    expect(publicView.body.publishedBy.workspaceName).toBe('Onboarding Agency');
+    expect(typeof publicView.body.publishedBy.branded).toBe('boolean');
     expect(publicView.body.health.score).toBe(82);
     expect(publicView.body.reporting.reportsReceived).toBe(1);
     expect(publicView.body.sources.length).toBeGreaterThan(0);

@@ -1306,6 +1306,15 @@ export interface IssuedPackHeaders {
  *  the share by the server; nothing in the UI may reach beyond it. */
 export interface PublicShareReport {
   sharedFor: { organization: string; client: string; domain: string };
+  /** The workspace that shared it; logo and colours only with white label.
+   *  Optional so the page still renders against an older API. */
+  publishedBy?: {
+    workspaceName: string;
+    logoUrl: string | null;
+    primaryColor: string | null;
+    accentColor: string | null;
+    branded: boolean;
+  };
   generatedAt: string;
   expiresAt: string;
   policy: { published: string | null; reportingConfigured: boolean; recommended: string };
@@ -1851,6 +1860,9 @@ export interface BrandingSettings {
   /** The absolute origin for client links: the verified custom domain when the
    *  plan serves it, else our own address. Absent from an older API. */
   clientOrigin?: string;
+  /** False when this deployment has no logo storage, so upload cannot work.
+   *  Absent from an older API: then upload is offered as before. */
+  logoStorageConfigured?: boolean;
 }
 
 /** One DNS record an agency publishes for its own sending domain. */
