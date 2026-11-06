@@ -183,6 +183,18 @@ export function createApp(): express.Express {
   // providers sign the exact bytes they sent. Re-serialising the parsed object
   // produces different bytes, so a signature verified against it fails
   // intermittently, which is the classic "webhook works sometimes" bug.
+  // Payment webhooks first, with room for a provider's full payload: a Paddle
+  // transaction with items, totals and payments runs past 10 KB, and a 413
+  // there is a payment the provider retries until it gives up.
+  app.use(
+    ['/api/webhooks/razorpay', '/api/webhooks/paddle'],
+    express.json({
+      limit: '1mb',
+      verify: (request, _response, buffer) => {
+        (request as unknown as { rawBody?: string }).rawBody = buffer.toString('utf8');
+      },
+    }),
+  );
   app.use(
     express.json({
       limit: '10kb',

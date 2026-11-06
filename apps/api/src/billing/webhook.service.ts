@@ -97,6 +97,8 @@ export async function handleRazorpayWebhook(input: {
   signature: string | undefined;
   secret: string | null;
   eventName: string;
+  /** X-Razorpay-Event-Id: unique per event, and the same on a redelivery. */
+  eventId?: string | undefined;
 }): Promise<WebhookOutcome> {
   // A missing secret means webhooks were never configured. Refusing every event
   // is the safe reading, because accepting them unsigned would let anyone grant
@@ -115,7 +117,9 @@ export async function handleRazorpayWebhook(input: {
   }
 
   const payload = parseJson(input.rawBody) as RazorpayPayload;
-  const type = razorpayEventMap[input.eventName];
+  // Razorpay names the event in the body; the header is a fallback only.
+  const eventName = payload.event ?? input.eventName;
+  const type = razorpayEventMap[eventName];
   if (!type) {
     // Acknowledged but ignored. A provider adding an event is not an outage,
     // and returning an error would make it retry forever.
@@ -141,10 +145,11 @@ export async function handleRazorpayWebhook(input: {
    * falling back to the payment rather than to a literal.
    */
   const eventId =
-    payload.payload?.entity?.id ??
+    input.eventId?.trim() ||
+    payload.payload?.entity?.id ||
     paymentEntity?.id ??
     subscriptionEntity?.id ??
-    `${input.eventName}:${subscriptionEntity?.id ?? paymentEntity?.id ?? 'unknown'}:${payload.payload?.created_at ?? 'no-timestamp'}`;
+    `${eventName}:${subscriptionEntity?.id ?? paymentEntity?.id ?? 'unknown'}:${payload.created_at ?? payload.payload?.created_at ?? 'no-timestamp'}`;
 
   const organizationId = await resolveOrganizationId('RAZORPAY', {
     organizationId: subscriptionEntity?.notes?.organizationId,
@@ -189,9 +194,7 @@ export async function handleRazorpayWebhook(input: {
      * anything: every webhook looked brand new even when it was a redelivery of
      * something from last week. Razorpay sends `created_at` in seconds.
      */
-    occurredAt: payload.payload?.created_at
-      ? new Date(payload.payload.created_at * 1000)
-      : new Date(),
+    occurredAt: razorpayCreatedAt(payload) ? new Date(razorpayCreatedAt(payload)! * 1000) : new Date(),
     raw: payload,
   };
 
@@ -236,7 +239,10 @@ export async function handlePaddleWebhook(input: {
   }
 
   try {
-    verifyPaddleSignature(input.rawBody, input.signature, input.secret);
+    // Awaited: the check is async, and without the await a bad signature was a
+    // rejected promise nobody caught, so the event was applied anyway (or the
+    // unhandled rejection stopped the process).
+    await verifyPaddleSignature(input.rawBody, input.signature, input.secret);
   } catch (error) {
     if (error instanceof SignatureVerificationError) {
       throw new WebhookRejectedError(error.message, 'BAD_SIGNATURE', 401);
@@ -259,9 +265,11 @@ export async function handlePaddleWebhook(input: {
     subscriptionId,
   });
 
-  const tier = data.price_id
-    ? ((await findStoredPlanByProviderPlanId('PADDLE', data.price_id))?.tier ?? null)
-    : null;
+  // Paddle Billing puts the price on the items: items[].price.id on a
+  // subscription, items[].price_id on a transaction. data.price_id does not
+  // exist, so reading only that left every real event without a plan.
+  const priceId = data.items?.[0]?.price?.id ?? data.items?.[0]?.price_id ?? data.price_id ?? null;
+  const tier = priceId ? ((await findStoredPlanByProviderPlanId('PADDLE', priceId))?.tier ?? null) : null;
 
   const event: BillingEvent = {
     // Paddle's event id is the deduplication key. Without one, a derived key is
@@ -279,7 +287,8 @@ export async function handlePaddleWebhook(input: {
     cancelAtPeriodEnd: data.scheduled_change?.action === 'cancel' || data.status === 'canceled',
     quantity: parseQuantity(data.items?.[0]?.quantity),
     nextAttemptAt: data.next_billed_at ? new Date(data.next_billed_at) : null,
-    occurredAt: payload.event_date ? new Date(payload.event_date) : new Date(),
+    // Paddle Billing sends occurred_at; event_date is kept as a fallback.
+    occurredAt: new Date(payload.occurred_at ?? payload.event_date ?? Date.now()),
     raw: payload,
   };
 
@@ -391,8 +400,15 @@ function parseJson(raw: string): unknown {
   }
 }
 
+/** Razorpay's event time in seconds: top level, with the old nested spot as a fallback. */
+function razorpayCreatedAt(payload: RazorpayPayload): number | null {
+  return payload.created_at ?? payload.payload?.created_at ?? null;
+}
+
 interface RazorpayPayload {
   event?: string;
+  /** Seconds. Razorpay stamps the event here, at the top level. */
+  created_at?: number;
   payload?: {
     entity?: { id?: string };
     /**
@@ -423,6 +439,7 @@ interface PaddlePayload {
   event_id?: string;
   event_type?: string;
   event_date?: string;
+  occurred_at?: string;
   data?: {
     id?: string;
     status?: string;
@@ -430,7 +447,7 @@ interface PaddlePayload {
     customer_id?: string;
     subscription_id?: string;
     custom_data?: Record<string, unknown>;
-    items?: Array<{ quantity?: number }>;
+    items?: Array<{ quantity?: number; price_id?: string; price?: { id?: string } }>;
     scheduled_change?: { action?: string } | null;
     current_billing_period?: { ends_at?: string } | null;
     next_billed_at?: string | null;

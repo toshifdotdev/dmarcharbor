@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { saveStoredPlan } from '../src/billing/plans.js';
-import { handleRazorpayWebhook } from '../src/billing/webhook.service.js';
+import { handlePaddleWebhook, handleRazorpayWebhook } from '../src/billing/webhook.service.js';
 import { runDunning } from '../src/billing/dunning.js';
 import { setOrganizationPlan } from '../src/services/entitlements/entitlement.service.js';
 import { planCatalog } from '../src/services/entitlements/plan-catalog.js';
@@ -184,6 +184,111 @@ describe('payment webhook end to end', () => {
     const outcome = await handleRazorpayWebhook(signedRazorpayEvent('settlement.on_account_updated', {}, 'evt_unknown', organizationId, 'u1'));
     expect(outcome.accepted).toBe(false);
     expect(outcome.detail).toContain('Unmapped');
+  });
+
+  it('reads a Razorpay delivery as Razorpay sends it: event in the body, id in the header, time at the top', async () => {
+    const { organizationId } = await setup();
+    const now = Math.floor(Date.now() / 1000);
+    const delivery = (event: string, status: string, createdAt: number, eventId: string) => {
+      // No payload.entity, as in a real delivery.
+      const body = JSON.stringify({
+        entity: 'event',
+        event,
+        created_at: createdAt,
+        payload: {
+          subscription: {
+            entity: {
+              id: 'sub_real_shape',
+              plan_id: 'plan_HARBOR_monthly',
+              customer_id: 'cust_real_shape',
+              status,
+              current_end: now + 30 * 24 * 60 * 60,
+              cancel_at_cycle_end: status === 'cancelled',
+              notes: { organizationId },
+            },
+          },
+        },
+      });
+      return {
+        rawBody: body,
+        signature: createHmac('sha256', webhookSecret).update(body).digest('hex'),
+        secret: webhookSecret,
+        // No X-Razorpay-Event header: Razorpay does not send one.
+        eventName: '',
+        eventId,
+      };
+    };
+
+    const activated = await handleRazorpayWebhook(delivery('subscription.activated', 'active', now - 60, 'evt_real_1'));
+    expect(activated.accepted).toBe(true);
+    expect((await prisma.organization.findUniqueOrThrow({ where: { id: organizationId } })).plan).toBe('HARBOR');
+
+    // A second event for the same subscription is its own event, not a duplicate of the first.
+    const cancelled = await handleRazorpayWebhook(delivery('subscription.cancelled', 'cancelled', now, 'evt_real_2'));
+    expect(cancelled.duplicate).toBe(false);
+    expect((await prisma.subscription.findUniqueOrThrow({ where: { organizationId } })).cancelAtPeriodEnd).toBe(true);
+
+    // An older event arriving late does not undo the cancellation.
+    const late = await handleRazorpayWebhook(delivery('subscription.activated', 'active', now - 30, 'evt_real_3'));
+    expect(late.duplicate).toBe(false);
+    expect((await prisma.subscription.findUniqueOrThrow({ where: { organizationId } })).cancelAtPeriodEnd).toBe(true);
+  });
+});
+
+describe('Paddle webhooks', () => {
+  const paddleSecret = 'pdl_ntfset_integration_test';
+  const sign = (body: string, at = Math.floor(Date.now() / 1000)) =>
+    `ts=${at};h1=${createHmac('sha256', paddleSecret).update(`${at}:${body}`).digest('hex')}`;
+
+  beforeAll(async () => {
+    await saveStoredPlan({
+      provider: 'PADDLE',
+      tier: 'HARBOR',
+      interval: 'monthly',
+      currency: 'USD',
+      priceMinor: planCatalog.HARBOR.prices.USD.monthlyMinor,
+      providerPlanId: 'pri_harbor_monthly',
+    });
+  });
+
+  function subscriptionEvent(organizationId: string, eventId: string) {
+    // Paddle Billing's shape: the price is on the items, the time is occurred_at.
+    return JSON.stringify({
+      event_id: eventId,
+      event_type: 'subscription.activated',
+      occurred_at: new Date().toISOString(),
+      data: {
+        id: `sub_${eventId}`,
+        status: 'active',
+        customer_id: `ctm_${eventId}`,
+        custom_data: { organizationId },
+        items: [{ quantity: 1, price: { id: 'pri_harbor_monthly' } }],
+        current_billing_period: { ends_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() },
+      },
+    });
+  }
+
+  it('grants the plan from the price on the items', async () => {
+    const { organizationId } = await setup();
+    const body = subscriptionEvent(organizationId, 'evt_pdl_1');
+
+    const outcome = await handlePaddleWebhook({ rawBody: body, signature: sign(body), secret: paddleSecret });
+
+    expect(outcome.accepted).toBe(true);
+    expect((await prisma.organization.findUniqueOrThrow({ where: { id: organizationId } })).plan).toBe('HARBOR');
+  });
+
+  it('refuses a bad or missing signature and changes nothing', async () => {
+    const { organizationId } = await setup();
+    const body = subscriptionEvent(organizationId, 'evt_pdl_forged');
+
+    await expect(
+      handlePaddleWebhook({ rawBody: body, signature: 'ts=1;h1=deadbeef', secret: paddleSecret }),
+    ).rejects.toMatchObject({ code: 'BAD_SIGNATURE' });
+    await expect(handlePaddleWebhook({ rawBody: body, signature: undefined, secret: paddleSecret })).rejects.toMatchObject({
+      code: 'BAD_SIGNATURE',
+    });
+    expect((await prisma.organization.findUniqueOrThrow({ where: { id: organizationId } })).plan).toBe('MOORING');
   });
 });
 

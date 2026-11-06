@@ -277,6 +277,7 @@ export async function razorpayWebhookController(request: Request, response: Resp
       signature: request.header('x-razorpay-signature'),
       secret: razorpayWebhookSecret(),
       eventName: request.header('x-razorpay-event') ?? '',
+      eventId: request.header('x-razorpay-event-id'),
     });
 
     // Always 200 once the signature is trusted, including for a duplicate or an

@@ -77,6 +77,9 @@ const statusMap: Record<string, ProviderSubscriptionStatus> = {
   trialing: 'trialing',
   past_due: 'past_due',
   paused: 'past_due',
+  // Paddle's own spelling. Only "cancelled" was mapped, so the reconciler read a
+  // cancelled subscription as active and kept the plan with no end.
+  canceled: 'cancelled',
   cancelled: 'cancelled',
   expired: 'expired',
 };
@@ -624,9 +627,12 @@ function toProviderSubscription(
      * the unattended reconciler hand the free tier to a paying subscriber.
      */
     plan: storedTier && recognisedCurrency ? storedTier : null,
-    status: statusMap[subscription.status] ?? 'active',
+    // An unknown status is never read as paid: past due keeps the plan while the
+    // period is paid and lets dunning decide after.
+    status: statusMap[subscription.status] ?? 'past_due',
     currentPeriodEnd: periodEnd ? new Date(periodEnd) : null,
-    cancelAtPeriodEnd: subscription.scheduledChange?.action === 'cancel' || subscription.status === 'cancelled',
+    cancelAtPeriodEnd:
+      subscription.scheduledChange?.action === 'cancel' || subscription.status === 'canceled' || subscription.status === 'cancelled',
     quantity: typeof subscription.items?.[0]?.quantity === 'number' ? subscription.items[0].quantity : null,
     nextAttemptAt: subscription.nextBilledAt ? new Date(subscription.nextBilledAt) : null,
   };

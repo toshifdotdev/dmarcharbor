@@ -288,6 +288,10 @@ export async function applyBillingEvent(event: BillingEvent): Promise<ApplyEvent
         cancelAtPeriodEnd,
         ...(eventQuantity === null ? {} : { quantity: eventQuantity }),
         lastEventAt: event.occurredAt,
+        // A payment that recovered ends dunning. Without this the row stayed
+        // WARNED or WITHDRAWN, and dunning (which only looks at NONE and
+        // WARNED) never acted on the next failed payment.
+        ...(status === 'ACTIVE' || status === 'TRIALING' ? { dunningStage: 'NONE' as const, graceEndsAt: null } : {}),
         ...(keepPending
           ? {}
           : { pendingPlan: null, pendingPlanInterval: null }),
