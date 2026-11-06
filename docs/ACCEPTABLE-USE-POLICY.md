@@ -86,8 +86,12 @@ Where we find a breach we will, depending on severity:
 - warn you and ask you to fix it,
 - suspend a specific domain or workspace,
 - suspend access pending investigation, or
-- terminate the subscription, with a refund of the unused period where the breach
-  was severe and repeated.
+- terminate the subscription, where the breach was severe or repeated.
+
+A subscription we end for a breach of this policy is not refunded for the unused
+period. If we end a subscription for any other reason, we refund the unused
+period. Ending a subscription does not change your right to export your data, as
+the Terms of Service set out.
 
 Where we suspend or terminate for a breach that is not a security research report,
 we will tell you which clause of this policy was breached.
