@@ -841,6 +841,7 @@ export const openApiDocument = {
         description: [
           'Aggregate results, the per sending service breakdown and any possible spoofing source, for a single domain.',
           'Forensic reports are deliberately absent. A client contact can see that mail failed and which service caused it, never who received it.',
+          'trends gives the daily points (no spikes), or null when no insights could be read; policyHistory lists each published policy change, oldest first, and is empty before the first report.',
         ].join(' '),
         parameters: [idParam('domainId', 'Domain identifier.')],
         responses: { 200: { description: 'Domain insights, senders and spoofing warnings.' }, ...standardErrors },
@@ -4163,6 +4164,10 @@ export const openApiDocument = {
           'Summary, source attribution, daily trends and spike detection across both report types.',
           'aggregate.failedMessages, trend failedMessages and source failedMessages count DMARC failures: messages where both aligned checks failed. dmarcPassRate is the share where either aligned check passed.',
           'aggregate.partiallyAlignedMessages and source partiallyAlignedMessages count messages that passed DMARC but failed one aligned check.',
+          'Each trend point also carries spfPassMessages and dkimPassMessages, the messages whose SPF or DKIM result passed that day.',
+          'reporters lists up to 8 receivers that sent aggregate reports (organization, reports, messages), largest by messages first; reporterCount is how many receivers reported in all.',
+          'dispositions counts messages by what receivers say they did with them: none, quarantine or reject.',
+          'policyHistory lists each change in the published policy as receivers saw it, oldest first: the policy and the UTC day the first report showing it was received.',
         ].join(' '),
         parameters: [
           orgParam,

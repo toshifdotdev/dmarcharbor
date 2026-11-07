@@ -44,6 +44,8 @@ const ink3 = '#6c717a';
 const rule = '#e7e9ed';
 const rule2 = '#c9cdd4';
 const red = '#d9342b';
+/** Links, as the app sets them (5.7:1 on white). */
+const accent = '#1f5fd6';
 const white = '#ffffff';
 
 /**
@@ -131,13 +133,15 @@ interface MailColours {
 }
 
 /**
- * Our own mail is ink: an ink pill with white text, and ink links. Client mail
+ * Our own mail is ink with the app's accent: an ink pill with white text, and
+ * links in the accent blue, as the app sets its links. Client mail
  * under white label takes the agency's primary colour for the pill, with the
  * agency's "text on the brand colour" when it set a valid one and otherwise ink
  * or white by contrast, as BrandApplier does on its pages. Links take the
  * primary only when it reads at 4.5:1 on white, the bar the white-label screen
  * measures under "Links on the white page"; a pale brand colour would make
- * every link in the message unreadable, so those stay ink.
+ * every link in the message unreadable, so those stay ink (not our accent: the
+ * message is the agency's).
  *
  * A text colour with no primary colour is ignored: it was chosen to sit on the
  * agency's colour, and on our ink it may not be readable at all.
@@ -145,7 +149,7 @@ interface MailColours {
 function mailColours(brand: BrandLook | null | undefined, whiteLabel: boolean): MailColours {
   const primary = whiteLabel ? safeColour(brand?.primaryColor, '') : '';
   if (!primary) {
-    return { button: ink, buttonText: white, link: ink };
+    return { button: ink, buttonText: white, link: accent };
   }
   const onPrimary = safeColour(brand?.accentColor, '') || contrastInk(primary);
   return {
@@ -300,7 +304,7 @@ function trimUrl(raw: string): string {
   return url;
 }
 
-/** Escapes a run of copy, and makes each http(s) address in it an ink, underlined link. */
+/** Escapes a run of copy, and makes each http(s) address in it an underlined link in the link colour. */
 function linkedText(value: string, linkColour: string): string {
   let html = '';
   let from = 0;

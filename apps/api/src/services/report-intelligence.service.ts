@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
 import { hasAggregateReporting, readDmarcRecord } from '../scanner/dmarc-tags.js';
 import { passesDmarc } from './alignment.service.js';
@@ -9,6 +10,8 @@ import { normaliseIpAddress } from './senders/ip-intel.service.js';
 const maxScannedRecords = 5_000;
 const defaultTrendDays = 30;
 const maximumTrendDays = 365;
+/** How far back the policy history reads. Older reports are usually past retention anyway. */
+const policyHistoryDays = 730;
 const spikeStandardDeviations = 2;
 
 export interface SourceAttribution {
@@ -33,6 +36,23 @@ export interface TrendPoint {
   messagesObserved: number;
   /** DMARC failures: both aligned checks failed. */
   failedMessages: number;
+  /** Messages whose aligned SPF passed, and whose aligned DKIM passed, that day. */
+  spfPassMessages: number;
+  dkimPassMessages: number;
+}
+
+/** One receiver that sends this domain reports, e.g. google.com or Microsoft. */
+export interface ReporterShare {
+  organization: string;
+  reports: number;
+  messages: number;
+}
+
+/** A change in the policy receivers saw published, from the reports themselves. */
+export interface PolicyStep {
+  /** UTC day the first report showing this policy was received. */
+  date: string;
+  policy: string;
 }
 
 export interface TrendSpike {
@@ -75,16 +95,14 @@ export interface DomainInsights {
   };
   sources: SourceAttribution[];
   trends: { days: number; points: TrendPoint[]; spikes: TrendSpike[] };
-}
-
-interface AggregateRecord {
-  sourceIp: string;
-  messageCount: number;
-  dkimResult: string | null;
-  spfResult: string | null;
-  receivedAt: Date;
-  headerFrom: string | null;
-  authResults: { type: string; domain: string | null; result: string }[];
+  /** Who sends the reports, by messages reported, largest first (top 8). */
+  reporters: ReporterShare[];
+  /** How many distinct receivers reported, including those beyond the top 8. */
+  reporterCount: number;
+  /** What receivers did with the mail, by the disposition each record reports. */
+  dispositions: { none: number; quarantine: number; reject: number };
+  /** Each change in the published policy as reporters saw it, oldest first. */
+  policyHistory: PolicyStep[];
 }
 
 function isPass(value: string | null): boolean {
@@ -102,10 +120,6 @@ function riskFor(failed: number, total: number): 'high' | 'medium' | 'low' {
   }
 
   return share >= 0.1 ? 'medium' : 'low';
-}
-
-function dayKey(value: Date): string {
-  return value.toISOString().slice(0, 10);
 }
 
 function roundPercent(value: number | null): number | null {
@@ -159,15 +173,6 @@ function latestIso(current: string | null, candidate: Date | null): string | nul
   return !current || value > current ? value : current;
 }
 
-function earliestIso(current: string | null, candidate: Date | null): string | null {
-  if (!candidate) {
-    return current;
-  }
-
-  const value = candidate.toISOString();
-  return !current || value < current ? value : current;
-}
-
 export async function getDomainInsights(
   organizationId: string,
   domainId: string,
@@ -200,8 +205,6 @@ export async function getDomainInsights(
       where: { domainId: domain.id },
       select: {
         receivedAt: true,
-        dateRangeBegin: true,
-        dateRangeEnd: true,
         records: {
           select: {
             sourceIp: true,
@@ -232,53 +235,38 @@ export async function getDomainInsights(
     buildSenderBreakdown(organizationId, domainId),
   ]);
 
+  // The domain's totals, its receivers and what they did with the mail are
+  // counted in SQL over every report held, so they agree with the daily chart
+  // however busy the domain is. The scan above (the latest 500 reports) feeds
+  // only the per-source attribution, which needs each record's auth results.
+  const [totals, reporterRows, dispositionRows] = await Promise.all([
+    aggregateTotals(domain.id),
+    reporterShares(domain.id),
+    dispositionCounts(domain.id),
+  ]);
+  const recordCount = totals.records;
+  const messageCount = totals.messages;
+  const failedMessages = totals.failed;
+  const partiallyAlignedMessages = totals.partial;
+  const spfPass = totals.spf;
+  const dkimPass = totals.dkim;
+  const lastReportAt = totals.lastReportAt;
+  const windowBegin = totals.windowBegin;
+  const windowEnd = totals.windowEnd;
+  const dispositions = { none: 0, quarantine: 0, reject: 0 };
+  for (const row of dispositionRows) {
+    if (row.disposition === 'reject') dispositions.reject += Number(row.messages);
+    else if (row.disposition === 'quarantine') dispositions.quarantine += Number(row.messages);
+    else dispositions.none += Number(row.messages);
+  }
+
   const sources = emptyMap();
   const ipSignals = new Map<string, Map<string, AuthSignal>>();
-  const buckets = new Map<string, TrendPoint>();
-  let recordCount = 0;
-  let messageCount = 0;
-  let failedMessages = 0;
-  let partiallyAlignedMessages = 0;
-  let spfPass = 0;
-  let dkimPass = 0;
-  let lastReportAt: string | null = null;
-  let windowBegin: string | null = null;
-  let windowEnd: string | null = null;
 
   for (const report of reports) {
-    recordCount += report.records.length;
-    lastReportAt = latestIso(lastReportAt, report.receivedAt);
-    windowBegin = earliestIso(windowBegin, report.dateRangeBegin);
-    windowEnd = latestIso(windowEnd, report.dateRangeEnd);
-
-    const bucket = buckets.get(dayKey(report.receivedAt)) ?? {
-      date: dayKey(report.receivedAt),
-      reportsReceived: 0,
-      messagesObserved: 0,
-      failedMessages: 0,
-    };
-    bucket.reportsReceived += 1;
-    buckets.set(bucket.date, bucket);
-
-    for (const record of report.records as AggregateRecord[]) {
-      messageCount += record.messageCount;
-      bucket.messagesObserved += record.messageCount;
-
+    for (const record of report.records) {
       const dmarcFailed = !passesDmarc(record);
       const partiallyAligned = !dmarcFailed && (!isPass(record.dkimResult) || !isPass(record.spfResult));
-      if (dmarcFailed) {
-        failedMessages += record.messageCount;
-        bucket.failedMessages += record.messageCount;
-      } else if (partiallyAligned) {
-        partiallyAlignedMessages += record.messageCount;
-      }
-
-      if (record.spfResult) {
-        spfPass += isPass(record.spfResult) ? record.messageCount : 0;
-      }
-      if (record.dkimResult) {
-        dkimPass += isPass(record.dkimResult) ? record.messageCount : 0;
-      }
 
       const sendingDomain =
         record.authResults.find((result) => result.domain)?.domain ?? record.headerFrom ?? null;
@@ -369,7 +357,11 @@ export async function getDomainInsights(
   }
 
   const days = Math.min(Math.max(trendDays, 1), maximumTrendDays);
-  const points = [...buckets.values()].sort((left, right) => left.date.localeCompare(right.date)).slice(-days);
+  // The daily points and the policy history are counted in SQL over the whole
+  // window, not from the capped scan above: a busy domain's latest 500 reports
+  // can cover less than 30 days, and the charts would then draw real days as
+  // "no report received".
+  const [points, policyHistory] = await Promise.all([dailyPoints(domain.id, days), policyHistoryOf(domain.id)]);
   const observed = points.map((point) => point.messagesObserved);
   const average = observed.length ? observed.reduce((total, value) => total + value, 0) / observed.length : 0;
   const deviation = standardDeviation(observed);
@@ -400,7 +392,7 @@ export async function getDomainInsights(
     },
     senders,
     aggregate: {
-      reportCount: reports.length,
+      reportCount: totals.reports,
       recordCount,
       messageCount,
       failedMessages,
@@ -422,5 +414,191 @@ export async function getDomainInsights(
       .sort((left, right) => right.failedMessages - left.failedMessages || right.totalMessages - left.totalMessages)
       .slice(0, 25),
     trends: { days, points, spikes },
+    reporters: reporterRows.slice(0, 8).map((row) => ({
+      organization: row.organization,
+      reports: Number(row.reports),
+      messages: Number(row.messages),
+    })),
+    reporterCount: reporterRows.length,
+    dispositions,
+    policyHistory,
   };
+}
+
+/** passesDmarc() in SQL: DKIM or SPF passed. */
+const DKIM_PASS = Prisma.sql`lower(trim(COALESCE(rec."dkimResult", ''))) = 'pass'`;
+const SPF_PASS = Prisma.sql`lower(trim(COALESCE(rec."spfResult", ''))) = 'pass'`;
+
+interface TotalsRow {
+  reports: bigint;
+  records: bigint;
+  messages: bigint;
+  failed: bigint;
+  partial: bigint;
+  spf: bigint;
+  dkim: bigint;
+  lastReceived: Date | null;
+  windowBegin: Date | null;
+  windowEnd: Date | null;
+}
+
+/** The domain's figures over every aggregate report held (retention bounds them). */
+async function aggregateTotals(domainId: string) {
+  const [row] = await prisma.$queryRaw<TotalsRow[]>`
+    SELECT COUNT(DISTINCT r.id)::bigint AS "reports",
+           COUNT(rec.id)::bigint AS "records",
+           COALESCE(SUM(rec."messageCount"), 0)::bigint AS "messages",
+           COALESCE(SUM(CASE WHEN rec.id IS NOT NULL AND NOT (${DKIM_PASS}) AND NOT (${SPF_PASS}) THEN rec."messageCount" ELSE 0 END), 0)::bigint AS "failed",
+           COALESCE(SUM(CASE WHEN (${DKIM_PASS} OR ${SPF_PASS}) AND NOT (${DKIM_PASS} AND ${SPF_PASS}) THEN rec."messageCount" ELSE 0 END), 0)::bigint AS "partial",
+           COALESCE(SUM(CASE WHEN ${SPF_PASS} THEN rec."messageCount" ELSE 0 END), 0)::bigint AS "spf",
+           COALESCE(SUM(CASE WHEN ${DKIM_PASS} THEN rec."messageCount" ELSE 0 END), 0)::bigint AS "dkim",
+           MAX(r."receivedAt") AS "lastReceived",
+           MIN(r."dateRangeBegin") AS "windowBegin",
+           MAX(r."dateRangeEnd") AS "windowEnd"
+    FROM "dmarc_report" r
+    LEFT JOIN "dmarc_report_record" rec ON rec."reportId" = r.id
+    WHERE r."domainId" = ${domainId}
+      AND r."reportType" = 'AGGREGATE'
+  `;
+  const iso = (value: Date | null | undefined) => (value ? new Date(value).toISOString() : null);
+  return {
+    reports: Number(row?.reports ?? 0),
+    records: Number(row?.records ?? 0),
+    messages: Number(row?.messages ?? 0),
+    failed: Number(row?.failed ?? 0),
+    partial: Number(row?.partial ?? 0),
+    spf: Number(row?.spf ?? 0),
+    dkim: Number(row?.dkim ?? 0),
+    lastReportAt: iso(row?.lastReceived),
+    windowBegin: iso(row?.windowBegin),
+    windowEnd: iso(row?.windowEnd),
+  };
+}
+
+interface ReporterRow {
+  organization: string;
+  reports: bigint;
+  messages: bigint;
+}
+
+/**
+ * Every receiver that reported, largest by messages first. The name is the
+ * receiver's own, as given; names that differ only in case are one receiver.
+ */
+async function reporterShares(domainId: string): Promise<ReporterRow[]> {
+  return prisma.$queryRaw<ReporterRow[]>`
+    SELECT MIN(COALESCE(NULLIF(trim(r."reportingOrganization"), ''), 'Not named')) AS "organization",
+           COUNT(DISTINCT r.id)::bigint AS "reports",
+           COALESCE(SUM(rec."messageCount"), 0)::bigint AS "messages"
+    FROM "dmarc_report" r
+    LEFT JOIN "dmarc_report_record" rec ON rec."reportId" = r.id
+    WHERE r."domainId" = ${domainId}
+      AND r."reportType" = 'AGGREGATE'
+    GROUP BY lower(COALESCE(NULLIF(trim(r."reportingOrganization"), ''), 'Not named'))
+    ORDER BY 3 DESC, 2 DESC, 1
+  `;
+}
+
+interface DispositionRow {
+  disposition: string;
+  messages: bigint;
+}
+
+async function dispositionCounts(domainId: string): Promise<DispositionRow[]> {
+  return prisma.$queryRaw<DispositionRow[]>`
+    SELECT lower(trim(COALESCE(rec."disposition", 'none'))) AS "disposition",
+           COALESCE(SUM(rec."messageCount"), 0)::bigint AS "messages"
+    FROM "dmarc_report_record" rec
+    JOIN "dmarc_report" r ON r.id = rec."reportId"
+    WHERE r."domainId" = ${domainId}
+      AND r."reportType" = 'AGGREGATE'
+    GROUP BY 1
+  `;
+}
+
+interface DailyRow {
+  day: string;
+  reports: bigint;
+  messages: bigint;
+  failed: bigint;
+  spf: bigint;
+  dkim: bigint;
+}
+
+/**
+ * One point per UTC day (by the day the report was received) that had an
+ * aggregate report, over the last `days` days. Counted in the database, so the
+ * cost does not grow with the number of records held in memory. DMARC passes
+ * as passesDmarc() decides it: DKIM or SPF passed.
+ */
+async function dailyPoints(domainId: string, days: number): Promise<TrendPoint[]> {
+  const now = new Date();
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const since = new Date(today - (days - 1) * 86_400_000);
+  const rows = await prisma.$queryRaw<DailyRow[]>`
+    SELECT to_char(r."receivedAt", 'YYYY-MM-DD') AS "day",
+           COUNT(DISTINCT r.id)::bigint AS "reports",
+           COALESCE(SUM(rec."messageCount"), 0)::bigint AS "messages",
+           COALESCE(SUM(CASE WHEN lower(trim(COALESCE(rec."dkimResult", ''))) <> 'pass'
+                              AND lower(trim(COALESCE(rec."spfResult", ''))) <> 'pass'
+                             THEN rec."messageCount" ELSE 0 END), 0)::bigint AS "failed",
+           COALESCE(SUM(CASE WHEN lower(trim(COALESCE(rec."spfResult", ''))) = 'pass' THEN rec."messageCount" ELSE 0 END), 0)::bigint AS "spf",
+           COALESCE(SUM(CASE WHEN lower(trim(COALESCE(rec."dkimResult", ''))) = 'pass' THEN rec."messageCount" ELSE 0 END), 0)::bigint AS "dkim"
+    FROM "dmarc_report" r
+    LEFT JOIN "dmarc_report_record" rec ON rec."reportId" = r.id
+    WHERE r."domainId" = ${domainId}
+      AND r."reportType" = 'AGGREGATE'
+      AND r."receivedAt" >= ${since}
+    GROUP BY 1
+    ORDER BY 1
+  `;
+  return rows.map((row) => ({
+    date: row.day,
+    reportsReceived: Number(row.reports),
+    messagesObserved: Number(row.messages),
+    failedMessages: Number(row.failed),
+    spfPassMessages: Number(row.spf),
+    dkimPassMessages: Number(row.dkim),
+  }));
+}
+
+interface PolicyDayRow {
+  day: string;
+  policy: string;
+  reports: bigint;
+}
+
+/**
+ * The published policy as reporters saw it, one step per change, oldest first.
+ *
+ * Each day takes the policy most of that day's reports carried, so a receiver
+ * still reporting from a cached DNS record on the day of a change does not
+ * draw the policy flapping back and forth. Read in SQL over two years, so a
+ * busy domain's history is not cut to its latest 500 reports.
+ */
+async function policyHistoryOf(domainId: string): Promise<PolicyStep[]> {
+  const since = new Date(Date.now() - policyHistoryDays * 86_400_000);
+  const rows = await prisma.$queryRaw<PolicyDayRow[]>`
+    SELECT to_char(r."receivedAt", 'YYYY-MM-DD') AS "day",
+           lower(trim(r."policyP")) AS "policy",
+           COUNT(*)::bigint AS "reports"
+    FROM "dmarc_report" r
+    WHERE r."domainId" = ${domainId}
+      AND r."reportType" = 'AGGREGATE'
+      AND r."receivedAt" >= ${since}
+      AND r."policyP" IS NOT NULL
+      AND trim(r."policyP") <> ''
+    GROUP BY 1, 2
+    ORDER BY 1, 3 DESC, 2
+  `;
+  const steps: PolicyStep[] = [];
+  let lastDay = '';
+  for (const row of rows) {
+    // Ordered by day, then by report count: the first row of a day is that day's policy.
+    if (row.day === lastDay) continue;
+    lastDay = row.day;
+    if (steps.length > 0 && steps[steps.length - 1]!.policy === row.policy) continue;
+    steps.push({ date: row.day, policy: row.policy });
+  }
+  return steps;
 }

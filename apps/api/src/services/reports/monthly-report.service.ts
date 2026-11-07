@@ -20,6 +20,7 @@ import {
 import {
   renderMonthlyReportPdf,
   type MonthlyChangeFacts,
+  type MonthlyDailyFacts,
   type MonthlyDomainFacts,
   type MonthlyFacts,
   type MonthlyReportBranding,
@@ -143,6 +144,12 @@ interface DomainMessageRow {
   dmarcPass: bigint;
   spfPass: bigint;
   dkimPass: bigint;
+}
+
+interface DailyRow {
+  day: string;
+  messages: bigint;
+  dmarcPass: bigint;
 }
 
 interface SourceRow {
@@ -332,6 +339,27 @@ export async function collectMonthlyFacts(input: FactsInput): Promise<MonthlyFac
       }),
     ]);
 
+  // The month day by day, for the summary's chart. A report belongs to the UTC
+  // day its reporting period begins, as it belongs to the month that way.
+  const dailyRows = await prisma.$queryRaw<DailyRow[]>`
+    SELECT to_char(r."dateRangeBegin", 'YYYY-MM-DD') AS "day",
+           COALESCE(SUM(rec."messageCount"), 0)::bigint AS "messages",
+           COALESCE(SUM(CASE WHEN lower(rec."dkimResult") = 'pass' OR lower(rec."spfResult") = 'pass' THEN rec."messageCount" ELSE 0 END), 0)::bigint AS "dmarcPass"
+    FROM "dmarc_report_record" rec
+    JOIN "dmarc_report" r ON r.id = rec."reportId"
+    JOIN "domain" d ON d.id = r."domainId"
+    JOIN "client" c ON c.id = d."clientId"
+    WHERE c.id = ${client.id} AND c."organizationId" = ${client.organizationId}
+      AND r."dateRangeBegin" >= ${start} AND r."dateRangeBegin" < ${end}
+    GROUP BY 1
+    ORDER BY 1
+  `;
+  const daily: MonthlyDailyFacts[] = dailyRows.map((row) => ({
+    date: row.day,
+    messages: toNumber(row.messages),
+    dmarcPass: toNumber(row.dmarcPass),
+  }));
+
   const reportByDomain = new Map(domainReports.map((row) => [row.domainId, row]));
   const messagesByDomain = new Map(domainMessages.map((row) => [row.domainId, row]));
   const endPolicies = policyAtPeriod(scansAtEnd, reportsAtEnd, domainIds);
@@ -463,6 +491,7 @@ export async function collectMonthlyFacts(input: FactsInput): Promise<MonthlyFac
     dmarcPass,
     spfPass,
     dkimPass,
+    daily,
     policyDistribution,
     policyMoved,
     domainsWithoutReports,

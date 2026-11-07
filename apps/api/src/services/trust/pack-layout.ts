@@ -41,6 +41,8 @@ export const C = {
   ok: '#0f7a3b',
   warn: '#9a5b00',
   warnMark: '#c58a14',
+  /** Progress and passed mail, as shapes in a chart. Never text: a word that says passed is `ok`. */
+  done: '#13a050',
   void: '#6c717a',
   white: '#ffffff',
 } as const;

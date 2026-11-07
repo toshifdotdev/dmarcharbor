@@ -423,7 +423,7 @@ describe('plain text as Routes HTML', () => {
     expect(rendered.html).toContain('>Something happened</h1>');
     expect(rendered.html).toContain('First line<br>second line.</p>');
     expect(rendered.html).toContain(
-      'See <a href="https://app.dmarcharbor.example/alerts" style="color:#15171b;text-decoration:underline;word-break:break-all;">https://app.dmarcharbor.example/alerts</a>. Thanks &amp; bye.',
+      'See <a href="https://app.dmarcharbor.example/alerts" style="color:#1f5fd6;text-decoration:underline;word-break:break-all;">https://app.dmarcharbor.example/alerts</a>. Thanks &amp; bye.',
     );
   });
 

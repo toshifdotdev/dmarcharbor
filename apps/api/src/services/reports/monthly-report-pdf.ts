@@ -1,6 +1,6 @@
 import PDFDocument from 'pdfkit';
 import type { CheckState } from '../trust/client-evidence.js';
-import { C } from '../trust/pack-layout.js';
+import { C, type TextStyle } from '../trust/pack-layout.js';
 import {
   CONTENT_WIDTH,
   PAGE_MARGIN,
@@ -39,6 +39,14 @@ export interface MonthlySourceFacts {
   service: string | null;
 }
 
+/** One UTC day of the month that has reported mail. Days without any are absent. */
+export interface MonthlyDailyFacts {
+  /** YYYY-MM-DD */
+  date: string;
+  messages: number;
+  dmarcPass: number;
+}
+
 export interface MonthlyFacts {
   clientName: string;
   agencyName: string;
@@ -52,6 +60,8 @@ export interface MonthlyFacts {
   dmarcPass: number;
   spfPass: number;
   dkimPass: number;
+  /** Sorted by date. Optional so a document issued before it existed still renders. */
+  daily?: MonthlyDailyFacts[];
   policyDistribution: Record<string, number>;
   policyMoved: number;
   domainsWithoutReports: number;
@@ -139,6 +149,177 @@ function literal(text: string): Cell {
 /** A rate with no messages under it is "no reports", set quietly; never 0%. */
 function rate(passed: number, total: number): Cell {
   return { text: percentageText(passed, total), color: total > 0 ? C.ink : C.ink3 };
+}
+
+// Figures. Drawn in the app's chart language: passed mail green, failed mail
+// red, a day with no report a short grey tick (never a zero), and every figure
+// also stated in words in the text around it.
+
+const r2 = (value: number) => Math.round(value * 100) / 100;
+const KEY: TextStyle = { face: 'sans', size: 7.4, color: C.ink3, tnum: true };
+const AXIS: TextStyle = { face: 'sans', size: 7.2, color: C.ink3, tnum: true };
+
+/** A key swatch and its word; returns the x after it. A null fill is a hollow, not-measured swatch. */
+function keyItem(page: ReportPage, x: number, y: number, fill: string | null, word: string): number {
+  const doc = page.doc;
+  if (fill) doc.rect(x, y + 1.7, 6, 6).fillColor(fill).fill();
+  else doc.rect(x + 0.4, y + 2.1, 5.2, 5.2).lineWidth(0.7).strokeColor(C.rule2).stroke();
+  page.pen.line(word, x + 9, y, KEY);
+  return x + 9 + page.pen.widthOf(word, KEY) + 14;
+}
+
+const DAY_CHART = 64;
+const DAY_FIGURE = DAY_CHART + 4 + 10 + 6 + 10;
+
+/** The month day by day: a column per UTC day, passed green with failed red at its base. */
+function dailyFigure(facts: MonthlyFacts): SectionBlock | null {
+  const daily = facts.daily ?? [];
+  if (facts.messages === 0 || daily.length === 0) return null;
+  const days = Math.max(1, Math.round((facts.period.end.getTime() - facts.period.start.getTime()) / 86_400_000));
+  const byDay = new Map(daily.map((d) => [d.date, d]));
+  const keys = Array.from({ length: days }, (_, i) => new Date(facts.period.start.getTime() + i * 86_400_000).toISOString().slice(0, 10));
+  const top = Math.max(1, ...daily.map((d) => d.messages));
+  const slot = CONTENT_WIDTH / days;
+  const bar = r2(Math.min(12, slot * 0.62));
+
+  return {
+    kind: 'figure',
+    height: DAY_FIGURE,
+    draw: (page, y) => {
+      const doc = page.doc;
+      const base = y + DAY_CHART;
+      keys.forEach((key, i) => {
+        const x = r2(PAGE_MARGIN + i * slot + (slot - bar) / 2);
+        const day = byDay.get(key);
+        if (!day || day.messages === 0) {
+          doc.rect(x, base - 1.6, bar, 1.6).fillColor(C.rule2).fill();
+          return;
+        }
+        const h = r2(Math.max(1.6, (day.messages / top) * (DAY_CHART - 2)));
+        const failed = day.messages - day.dmarcPass;
+        const f = failed > 0 ? r2(Math.max(1.2, (failed / top) * (DAY_CHART - 2))) : 0;
+        doc.rect(x, base - h, bar, h - f).fillColor(C.done).fill();
+        if (f > 0) doc.rect(x, base - f, bar, f).fillColor(C.red).fill();
+      });
+      page.pen.rule(base + 0.3, C.rule, 0.5);
+      const labelY = base + 4;
+      const label = (i: number) => String(Number(keys[i]!.slice(8, 10)));
+      page.pen.textAt(label(0), PAGE_MARGIN, labelY, { ...AXIS, width: slot, align: 'center' });
+      const mid = Math.floor(days / 2);
+      page.pen.textAt(label(mid), PAGE_MARGIN + mid * slot, labelY, { ...AXIS, width: slot, align: 'center' });
+      page.pen.textAt(label(days - 1), PAGE_MARGIN + (days - 1) * slot, labelY, { ...AXIS, width: slot, align: 'center' });
+      let x: number = PAGE_MARGIN;
+      const keyY = labelY + 16;
+      x = keyItem(page, x, keyY, C.done, 'Passed DMARC');
+      x = keyItem(page, x, keyY, C.red, 'Failed DMARC');
+      keyItem(page, x, keyY, C.rule2, 'No mail reported that day');
+    },
+  };
+}
+
+const RATE_ROW = 15;
+
+/** DMARC, SPF and DKIM pass rates as three meters. */
+function ratesFigure(facts: MonthlyFacts): SectionBlock | null {
+  if (facts.messages === 0) return null;
+  const rows: Array<[string, number]> = [
+    ['DMARC', facts.dmarcPass],
+    ['SPF', facts.spfPass],
+    ['DKIM', facts.dkimPass],
+  ];
+  const labelWidth = 48;
+  const trackWidth = 300;
+  return {
+    kind: 'figure',
+    height: rows.length * RATE_ROW,
+    draw: (page, y) => {
+      const doc = page.doc;
+      rows.forEach(([name, passed], i) => {
+        const rowY = y + i * RATE_ROW;
+        page.pen.line(name, PAGE_MARGIN, rowY, { face: 'medium', size: 8.4, color: C.ink });
+        const tx = PAGE_MARGIN + labelWidth;
+        doc.roundedRect(tx, rowY + 2.4, trackWidth, 5, 2.5).fillColor(C.rule).fill();
+        const w = r2((passed / facts.messages) * trackWidth);
+        if (w > 0) doc.roundedRect(tx, rowY + 2.4, Math.max(5, w), 5, 2.5).fillColor(C.done).fill();
+        page.pen.line(percentageText(passed, facts.messages), tx + trackWidth + 10, rowY, {
+          face: 'medium',
+          size: 8.4,
+          color: C.ink,
+          tnum: true,
+        });
+      });
+    },
+  };
+}
+
+/** How the stretch for each published policy is filled: green as far as reject, amber for no record. */
+const POLICY_FILL: Record<string, string | null> = {
+  reject: C.done,
+  quarantine: '#9cd7b5',
+  none: C.rule2,
+  testing: C.rule2,
+  'no record': C.warnMark,
+  'not known': null,
+};
+const POLICY_KEY: Record<string, string> = {
+  reject: 'at p=reject',
+  quarantine: 'at p=quarantine',
+  none: 'at p=none',
+  testing: 'testing',
+  'no record': 'with no record',
+  'not known': 'not known',
+};
+
+const KEY_LINE = 13;
+
+/**
+ * Where the client's domains stand on the road to p=reject, as one bar, with
+ * its key under it. The key wraps onto a second line rather than running off
+ * the page, and the figure's height is measured for that before it is drawn.
+ */
+function policyFigure(page: ReportPage, facts: MonthlyFacts): SectionBlock | null {
+  const parts = policyOrder
+    .map((key) => ({ key, count: facts.policyDistribution[key] ?? 0 }))
+    .filter((part) => part.count > 0);
+  const total = parts.reduce((sum, part) => sum + part.count, 0);
+  if (total === 0) return null;
+  const words = parts.map((part) => `${n(part.count)} ${POLICY_KEY[part.key] ?? part.key}`);
+  // Lay the key out once: each item is a swatch, its words and 14pt after.
+  const placed: Array<{ x: number; line: number }> = [];
+  let kx = 0;
+  let line = 0;
+  for (const word of words) {
+    const w = 9 + page.pen.widthOf(word, KEY) + 14;
+    if (kx > 0 && kx + w - 14 > CONTENT_WIDTH) {
+      kx = 0;
+      line += 1;
+    }
+    placed.push({ x: kx, line });
+    kx += w;
+  }
+  const keyLines = line + 1;
+  return {
+    kind: 'figure',
+    height: 10 + 8 + keyLines * KEY_LINE,
+    draw: (page, y) => {
+      const doc = page.doc;
+      const gap = 1.5;
+      const usable = CONTENT_WIDTH - gap * (parts.length - 1);
+      let x: number = PAGE_MARGIN;
+      for (const part of parts) {
+        // A share too small to see is still drawn, at least a point wide.
+        const w = r2(Math.max(1, (part.count / total) * usable));
+        const fill = POLICY_FILL[part.key] ?? null;
+        if (fill) doc.rect(x, y, w, 10).fillColor(fill).fill();
+        else doc.rect(x + 0.35, y + 0.35, w - 0.7, 9.3).lineWidth(0.7).strokeColor(C.rule2).stroke();
+        x += w + gap;
+      }
+      parts.forEach((part, i) => {
+        const at = placed[i]!;
+        keyItem(page, PAGE_MARGIN + at.x, y + 18 + at.line * KEY_LINE, POLICY_FILL[part.key] ?? null, words[i]!);
+      });
+    },
+  };
 }
 
 /**
@@ -240,6 +421,22 @@ export async function renderMonthlyReportPdf(
       text: 'No messages were observed in the period, so no pass rates are shown.',
     });
   }
+
+  const rates = ratesFigure(facts);
+  if (rates) summaryBlocks.push(rates);
+
+  const byDay = dailyFigure(facts);
+  if (byDay) {
+    const reported = facts.daily?.filter((day) => day.messages > 0).length ?? 0;
+    summaryBlocks.push({
+      kind: 'note',
+      text: `Mail by day. Each column is one UTC day of ${facts.period.label}, scaled to the busiest day; mail was reported on ${reported} of them.`,
+    });
+    summaryBlocks.push(byDay);
+  }
+
+  const policies = policyFigure(page, facts);
+  if (policies) summaryBlocks.push(policies);
 
   summaryBlocks.push({
     kind: 'table',

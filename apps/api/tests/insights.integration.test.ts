@@ -391,6 +391,14 @@ describe('domain insights', () => {
     expect(insights.body.sources[0].sourceIp).toBe('45.83.12.9');
 
     expect(insights.body.trends.points.length).toBeGreaterThan(0);
+    expect(typeof insights.body.trends.points[0].spfPassMessages).toBe('number');
+    expect(typeof insights.body.trends.points[0].dkimPassMessages).toBe('number');
+    expect(insights.body.reporters.length).toBeGreaterThan(0);
+    expect(insights.body.reporters[0].messages).toBeGreaterThan(0);
+    expect(insights.body.reporterCount).toBeGreaterThanOrEqual(insights.body.reporters.length);
+    const dispositions = insights.body.dispositions;
+    expect(dispositions.none + dispositions.quarantine + dispositions.reject).toBe(insights.body.aggregate.messageCount);
+    expect(Array.isArray(insights.body.policyHistory)).toBe(true);
     expect(insights.body.trends.days).toBe(30);
     expect(insights.body.retention.redactionVersion).toBe(1);
   });

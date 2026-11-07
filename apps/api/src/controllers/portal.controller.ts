@@ -219,6 +219,11 @@ export async function portalDomainController(request: Request, response: Respons
   response.json({
     domain,
     aggregate: insights?.aggregate ?? null,
+    // Daily counts and the policy steps only: no address, no source, nothing
+    // that names a person. The portal draws the client's own volume chart and
+    // their road to p=reject from them.
+    trends: insights ? { days: insights.trends.days, points: insights.trends.points } : null,
+    policyHistory: insights?.policyHistory ?? [],
     senders: publicSenders,
     // Same warnings the operator sees, but `detail` there is an instruction to
     // the operator ("Confirm with the domain owner, then enforce"), and the

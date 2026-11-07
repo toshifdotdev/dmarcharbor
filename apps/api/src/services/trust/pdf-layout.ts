@@ -121,7 +121,15 @@ export type SectionBlock =
   | { kind: 'body'; text: string }
   | { kind: 'note'; text: string }
   | { kind: 'facts'; rows: FactRow[] }
-  | { kind: 'table'; columns: Column[]; rows: Cell[][] };
+  | { kind: 'table'; columns: Column[]; rows: Cell[][] }
+  /**
+   * A drawing of a fixed height. `draw` is given the top it starts at and must
+   * stay inside `height`, so the section can be measured before it is drawn.
+   */
+  | { kind: 'figure'; height: number; draw: (page: ReportPage, top: number) => void };
+
+/** Space under a figure. */
+const FIGURE_GAP = 10;
 
 export interface Section {
   /** Set apart in ink-3 before the title, as the pack sets its section numbers. */
@@ -300,6 +308,8 @@ function blockHeight(page: ReportPage, block: SectionBlock): number {
       return factsHeight(factHeights(page, block.rows));
     case 'table':
       return tableHeight(tableLayout(page, block.columns, block.rows));
+    case 'figure':
+      return block.height + FIGURE_GAP;
   }
 }
 
@@ -331,6 +341,13 @@ export function section(page: ReportPage, spec: Section): void {
         break;
       case 'table':
         table(page, block.columns, block.rows);
+        break;
+      case 'figure':
+        page.ensure(block.height);
+        page.doc.save();
+        block.draw(page, page.y);
+        page.doc.restore();
+        page.y += block.height + FIGURE_GAP;
         break;
     }
   }
