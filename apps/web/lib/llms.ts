@@ -22,6 +22,7 @@
 import { PENDING_TOKEN } from "../components/harbor/legal-markdown";
 import { DEVELOPER_DOCS } from "./docs-registry";
 import { LEGAL_DOCS } from "./legal-docs";
+import { FREE_TOOLS } from "./tools";
 import type { PlanDefinition } from "./types";
 
 export const LLMS_NAME = "DMARC Harbor";
@@ -46,6 +47,11 @@ const DOCUMENTATION: Array<{ path: string; title: string; note: string }> = [
 const PRODUCT_PAGES: Array<{ path: string; title: string; note: string }> = [
   { path: "/pricing", title: "Pricing", note: "every plan's price in USD and INR, monthly and annual, its limits and its features" },
   { path: "/verify", title: "Document fingerprint verifier", note: "check that a compliance pack or monthly report is the one issued, by its SHA-256 fingerprint; no account needed" },
+  { path: "/tools", title: "Free DNS tools", note: "free DMARC, SPF, DKIM and BIMI lookups and a DMARC record generator; no account needed" },
+  ...FREE_TOOLS.map((t) => {
+    const note = t.description.replace(/ Free, no account\.$/, "").replace(/\.$/, "");
+    return { path: t.path, title: t.title, note: `${note.charAt(0).toLowerCase()}${note.slice(1)}; no account needed` };
+  }),
   { path: "/support", title: "Support and contact", note: "how to reach support" },
 ];
 

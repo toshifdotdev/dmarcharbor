@@ -151,12 +151,16 @@ async function scanDkim(
   spf: SpfResult,
   reader: DnsReader,
   knownSelectors: readonly string[] = [],
+  requestedSelectors: readonly string[] = [],
 ): Promise<DkimResult> {
-  const { selected, skipped } = buildDkimProbeList(spf.record, knownSelectors);
+  // A selector the person asked about is probed first, like a known one, and
+  // is labelled as asked for rather than as found by an earlier scan.
+  const requested = new Set(requestedSelectors.map((selector) => selector.trim().toLowerCase()));
+  const { selected, skipped } = buildDkimProbeList(spf.record, [...requested, ...knownSelectors]);
   const discoveredVia: Record<string, string> = {};
 
   for (const candidate of selected) {
-    discoveredVia[candidate.selector] = candidate.source;
+    discoveredVia[candidate.selector] = requested.has(candidate.selector) ? 'requested' : candidate.source;
   }
 
   const lookups = await Promise.all(
@@ -506,7 +510,7 @@ function errorResult(domain: string, message: string): ScanResult {
 export async function scanDomain(
   input: string,
   reader: DnsReader = systemDnsReader,
-  options: { knownSelectors?: string[]; https?: HttpsGetter } = {},
+  options: { knownSelectors?: string[]; requestedSelectors?: string[]; https?: HttpsGetter } = {},
 ): Promise<ScanResult> {
   const domain = normalizeDomain(input);
   const https = options.https ?? systemHttpsGetter;
@@ -541,7 +545,7 @@ export async function scanDomain(
     // probes in parallel: the two are independent.
     const [spf, dkim] = await Promise.all([
       withSpfLookups(domain, parsedSpf, reader),
-      scanDkim(domain, parsedSpf, reader, options.knownSelectors ?? []),
+      scanDkim(domain, parsedSpf, reader, options.knownSelectors ?? [], options.requestedSelectors ?? []),
     ]);
     const transport = await transportPromise;
 

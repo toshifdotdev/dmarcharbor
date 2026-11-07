@@ -61,7 +61,7 @@ interface ScanResult {
   issues: ScanIssue[];
 }
 
-type Tone = "ok" | "warn" | "fail" | "void" | "plain";
+export type Tone = "ok" | "warn" | "fail" | "void" | "plain";
 
 interface Reading {
   domain: string;
@@ -76,7 +76,7 @@ interface Reading {
   findings: ScanIssue[];
 }
 
-function parseTags(record: string | undefined): Record<string, string> {
+export function parseTags(record: string | undefined): Record<string, string> {
   const out: Record<string, string> = {};
   for (const part of (record ?? "").split(";")) {
     const eq = part.indexOf("=");
@@ -174,7 +174,7 @@ function lower(tags: Record<string, string>) {
  * What each tag makes a receiver do, and what it means when the tag is absent
  * (the RFC 9989 default). Order is the order an operator reads a record in.
  */
-const TAGS: Array<{
+export const TAGS: Array<{
   tag: string;
   label: string;
   present: (v: string) => [string, Tone];

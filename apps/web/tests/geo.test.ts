@@ -165,7 +165,7 @@ describe("llms.txt", () => {
   it("is an llmstxt.org index on the canonical origin", () => {
     const text = llmsTxt({ origin: SITE, plans: [plan({})] });
     expect(text.startsWith("# DMARC Harbor\n\n> DMARC Harbor is DMARC monitoring for MSPs and IT agencies.")).toBe(true);
-    for (const path of ["/guide", "/faq", "/docs/api", "/pricing", "/verify", "/terms", "/privacy", "/llms-full.txt"]) {
+    for (const path of ["/guide", "/faq", "/docs/api", "/pricing", "/verify", "/tools", "/tools/spf", "/terms", "/privacy", "/llms-full.txt"]) {
       expect(text).toContain(`](${SITE}${path})`);
     }
     for (const url of text.match(/\]\(([^)]+)\)/g) ?? []) expect(url.startsWith(`](${SITE}/`)).toBe(true);

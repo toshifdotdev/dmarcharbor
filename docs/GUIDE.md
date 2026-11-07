@@ -31,13 +31,18 @@ when your client book needs it.
 1. Open Clients and add a client: the company whose domains you look after.
 2. Add its domains one at a time, or paste a list. Each domain belongs to one
    workspace only; if another workspace already monitors it, you are told.
+   If the client's DNS is on Cloudflare and you have added a Cloudflare connection
+   (step 3), choose Import domains on the connection under
+   Settings, DNS publishing instead. It lists the zones the token can see, marks the
+   ones already monitored here or by another workspace, and adds the ones you tick
+   to the client you choose, with the same plan limit and checks as a pasted list.
 3. For each domain, publish the ownership record shown on its setup page:
 
 | Host | Type | Value |
 |---|---|---|
 | `_dmarc-harbor-verification.<domain>` | TXT | `dmarc-harbor-verification=<token>` |
 
-The record is on the setup page as soon as the domain is added. Publish it, then press\nCheck DNS now. DNS can take a few minutes to an hour to update; checking again
+The record is on the setup page as soon as the domain is added. Publish it, then press Check DNS now. DNS can take a few minutes to an hour to update; checking again
 is safe.
 
 ![The Clients page: each client with its report address and its domains, each domain with its ownership state and the policy it publishes](/docs-media/client-book.png "Clients. Each client lists its report address and domains; each domain shows whether ownership is verified and which DMARC policy it publishes. Sample data: invented clients on .example domains.")
@@ -112,12 +117,17 @@ counts the record's lookups and warns when it goes over 10.
   failure count, volume from one source, report silence or new unauthenticated
   sources. Alerts go to the people you choose by email.
 - **Slack and Teams** (Fairway and above): under Settings, connect one Slack
-  channel and one Teams channel, and every alert also posts there. After a
-  downgrade a connected channel can still be paused or removed.
+  channel and one Teams channel, and every alert also posts there. Send a test
+  message from either page to check the channel before a real alert depends on
+  it; the page shows what Slack or Teams answered. After a downgrade a connected
+  channel can still be paused or removed.
 - **PSA tickets** (Harbor and above): connect HaloPSA, ConnectWise Manage or
   Autotask, map each client to a PSA company, and alerts open, update and close
   tickets.
 - **Webhooks** (Fairway and above): send signed events to your own systems.
+  An endpoint can be limited to chosen clients, and its signing secret can be
+  rotated with a period in which the old and new secrets both sign. The details
+  are in the API documentation, under Webhooks.
 - **DNS and expiry:** every plan keeps each domain's DNS change history and its
   registration expiry date. Fairway and above send warnings about both.
 
@@ -228,5 +238,10 @@ own settings, then wait for the next day's reports.
 
 **An invitation is refused.** The workspace has reached its plan's team size. Remove
 someone, cancel an open invitation, or upgrade.
+
+**I want to read a domain's records as receivers see them.** The free tools (Free
+tools in the site header) read any domain's DMARC, SPF, DKIM and BIMI records from
+public DNS, count SPF lookups through every include, and write a DMARC record to
+publish. No account is needed.
 
 Still stuck? Email `[SUPPORT EMAIL]`.

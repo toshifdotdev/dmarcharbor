@@ -15,6 +15,9 @@ describe('isVendorRoute', () => {
     for (const path of [
       '/',
       '/pricing',
+      '/tools',
+      '/tools/dmarc',
+      '/tools/dmarc-generator',
       '/guide',
       '/faq',
       '/docs',

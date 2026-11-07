@@ -64,8 +64,9 @@ record that sends reports to both while you move over.
 **What if I use Cloudflare?**
 Add a Cloudflare connection with an API token that can edit DNS. You can then
 preview and publish the verification record and the DMARC record from the domain's
-page, and put a previous value back. A workspace can hold up to 5 Cloudflare
-connections. Starts on Fairway.
+page, and put a previous value back. Import domains on the connection lists the
+zones the token can see and adds the ones you choose to a client, so you do not
+type them. A workspace can hold up to 5 Cloudflare connections. Starts on Fairway.
 
 **My domain publishes reports to a web address instead of a mailbox. Do you collect those?**
 Not yet. A `rua=https://` address means reports go to a web endpoint we do not read,
@@ -117,7 +118,11 @@ type the name. To put a domain under another client, move it instead; its histor
 goes with it.
 
 **Can I check a domain without an account?**
-Yes. Enter it on the home page. That is one lookup at one moment, not monitoring.
+Yes. Enter it on the home page, or use the free tools under Free tools: a DMARC
+lookup that reads the record tag by tag, an SPF lookup that counts DNS lookups
+through every include, a DKIM lookup for a selector's key, a BIMI check of the logo
+record and file, and a DMARC record generator. None needs an account and nothing
+is stored about the domain. Each is one lookup at one moment, not monitoring.
 
 ## Plans and billing
 

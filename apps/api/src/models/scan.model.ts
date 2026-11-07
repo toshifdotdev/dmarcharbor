@@ -253,6 +253,17 @@ export interface DnsReader {
 
 export const scanRequestSchema = z.object({
   domain: z.string().trim().min(1).max(253),
+  /**
+   * A DKIM selector to probe first, as one DNS label (the part before
+   * ._domainkey). Optional: without it the scanner guesses from SPF and
+   * common conventions.
+   */
+  selector: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/)
+    .optional(),
 });
 
 export type ScanRequest = z.infer<typeof scanRequestSchema>;

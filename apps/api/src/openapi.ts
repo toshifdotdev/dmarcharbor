@@ -648,6 +648,19 @@ export const openApiDocument = {
         responses: { 204: { description: 'Deleted along with its delivery history.' }, ...standardErrors },
       },
     },
+    '/workspaces/{organizationId}/webhooks/{webhookId}/rotate-secret': {
+      post: {
+        tags: ['Webhooks'],
+        summary: 'Rotate an endpoint\'s signing secret',
+        description: [
+          'Body `{ "overlapHours": 0 | 1 | 24 | 168 }`. Returns the endpoint with the new `secret`, shown once.',
+          'During the overlap every delivery\'s x-dmarcharbor-signature lists two values separated by ", ": the new secret\'s first, then the old one\'s. Accept a delivery when any value matches. With 0 the old secret stops at once.',
+          '`previousSecretExpiresAt` on the endpoint says when the overlap ends.',
+        ].join(' '),
+        parameters: [orgParam, idParam('webhookId', 'Endpoint identifier.')],
+        responses: { 200: { description: 'The endpoint and its new secret.' }, 402: { description: 'The plan does not include webhooks.' }, ...standardErrors },
+      },
+    },
     '/workspaces/{organizationId}/webhooks/test': {
       post: {
         tags: ['Webhooks'],
@@ -1846,6 +1859,16 @@ export const openApiDocument = {
         responses: { 204: { description: 'Removed.' } },
       },
     },
+    '/workspaces/{organizationId}/slack-destination/test': {
+      post: {
+        tags: ['Integrations'],
+        summary: 'Post a test message to the Slack channel',
+        description:
+          'Posts one message naming the workspace through the saved webhook, at most five a minute per workspace. Answers `{ delivered, error? }`: a refusal from Slack is reported in words, not as an error status. 404 when no channel is connected, 409 when it is paused.',
+        parameters: [orgParam],
+        responses: { 200: { description: '{ delivered, error? }' }, 402: { description: 'The plan does not include alerts.' }, ...standardErrors },
+      },
+    },
     '/workspaces/{organizationId}/teams-destination/test': {
       post: {
         tags: ['Settings'],
@@ -1889,6 +1912,19 @@ export const openApiDocument = {
           402: { description: 'DNS automation is not included in this workspace plan.' },
           409: { description: 'The five-connection limit was reached.' },
         },
+      },
+    },
+    '/workspaces/{organizationId}/dns-connections/{connectionId}/zones': {
+      get: {
+        tags: ['DNS automation'],
+        summary: 'Zones a Cloudflare connection can see, to import as domains',
+        description: [
+          'Lists the active zones the connection\'s token can read, up to 1,000, with `truncated` true when the account has more.',
+          'Each zone has `state`: `available`, `here` (already a domain in this workspace; `clientName` says under which client) or `elsewhere` (monitored by another workspace, which is not named).',
+          'Nothing is changed. Add the chosen names with POST /workspaces/{organizationId}/clients/{clientId}/domains/bulk.',
+        ].join(' '),
+        parameters: [orgParam, idParam('connectionId', 'Connection identifier.')],
+        responses: { 200: { description: '{ zones, truncated }' }, ...standardErrors },
       },
     },
     '/workspaces/{organizationId}/dns-connections/{connectionId}': {
@@ -2603,7 +2639,15 @@ export const openApiDocument = {
               schema: {
                 type: 'object',
                 required: ['domain'],
-                properties: { domain: { type: 'string', minLength: 3, maxLength: 253 } },
+                properties: {
+                  domain: { type: 'string', minLength: 3, maxLength: 253 },
+                  selector: {
+                    type: 'string',
+                    pattern: '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$',
+                    description:
+                      'Optional DKIM selector, one DNS label. Probed first and reported in dkim.discoveredVia as "requested"; the usual guesses still run.',
+                  },
+                },
               },
             },
           },

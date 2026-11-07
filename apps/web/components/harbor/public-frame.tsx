@@ -29,11 +29,12 @@ export function brandName(brand: HostBrand): string {
   return brand.state === "verified" ? brand.workspaceName : "DMARC Harbor";
 }
 
-type Current = "pricing" | "how" | "guide" | "support" | "legal";
+type Current = "pricing" | "how" | "guide" | "tools" | "support" | "legal";
 
 const NAV: Array<{ href: string; label: string; key: Current }> = [
   { href: "/pricing", label: "Pricing", key: "pricing" },
   { href: "/guide", label: "Setup guide", key: "guide" },
+  { href: "/tools", label: "Free tools", key: "tools" },
   { href: "/support", label: "Support", key: "support" },
 ];
 
@@ -151,6 +152,8 @@ export function PublicFooter({ brand }: { brand: HostBrand }) {
           <div className="grid justify-items-start gap-2">
             {[
               ["/pricing", "Pricing"],
+              ["/tools", "Free DNS tools"],
+              ["/tools/dmarc-generator", "DMARC generator"],
               ["/verify", "Verify a pack"],
               ["/sign-in", "Sign in"],
               ["/sign-up", "Start free"],

@@ -7,7 +7,14 @@ export async function scanController(request: Request, response: Response): Prom
   const parsed = scanRequestSchema.safeParse(request.body);
 
   if (!parsed.success) {
-    response.status(400).json({ error: { message: 'Enter a valid domain to scan.' } });
+    const selectorWrong = parsed.error.issues.some((issue) => issue.path[0] === 'selector');
+    response.status(400).json({
+      error: {
+        message: selectorWrong
+          ? 'A DKIM selector is one DNS label: letters, digits and hyphens, such as selector1 or google.'
+          : 'Enter a valid domain to scan.',
+      },
+    });
     return;
   }
 

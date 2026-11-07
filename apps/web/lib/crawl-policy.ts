@@ -2,6 +2,7 @@ import type { Metadata, MetadataRoute } from "next";
 import { DEVELOPER_DOCS } from "./docs-registry";
 import { LEGAL_DOCS, LEGAL_EFFECTIVE_DATE, SECURITY_EMAIL } from "./legal-docs";
 import { ARTEFACT_PREFIXES, underPrefix, type HostKind } from "./site-host";
+import { TOOL_PATHS } from "./tools";
 
 /**
  * crawl-policy.ts — what a crawler may index, crawl and be told, as pure
@@ -26,6 +27,8 @@ export const INDEXABLE_ROUTES: string[] = [
   "/",
   "/pricing",
   "/verify",
+  // The free lookup tools and their index (lib/tools.ts).
+  ...TOOL_PATHS,
   // /support is its own route rather than a LEGAL_DOCS entry, because it is a
   // contact page and not a document with a version and an effective date.
   "/support",
@@ -42,6 +45,7 @@ export const LEGAL_ROUTE_PRIORITY: Record<string, number> = {
   "/": 1.0,
   "/pricing": 0.9,
   "/verify": 0.6,
+  "/tools": 0.8,
   "/support": 0.5,
   "/faq": 0.7,
   "/guide": 0.7,
