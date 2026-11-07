@@ -5,6 +5,7 @@ import {
   configureSlackDestination,
   deleteSlackDestination,
   getSlackDestination,
+  sendSlackTestMessage,
   setSlackDestinationEnabled,
 } from '../services/slack.service.js';
 
@@ -129,6 +130,15 @@ export async function deleteSlackDestinationController(request: Request, respons
     }
 
     response.status(204).send();
+  } catch (error) {
+    handle(error, response);
+  }
+}
+
+/** The test button. It really does post to Slack, which is the point. */
+export async function testSlackDestinationController(request: Request, response: Response) {
+  try {
+    response.json(await sendSlackTestMessage(organizationId(request)));
   } catch (error) {
     handle(error, response);
   }

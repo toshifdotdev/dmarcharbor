@@ -576,3 +576,18 @@ export const teamsTestRateLimiter = rateLimit({
     },
   },
 });
+
+/** The Slack test button: the same budget as Teams, for the same reason. */
+export const slackTestRateLimiter = rateLimit({
+  ...SHARED_LIMITER_OPTIONS,
+  windowMs: 60_000,
+  limit: 5,
+  store: rateLimitStoreFor('slack-test'),
+  keyGenerator: (request) => `org:${String(request.params.organizationId ?? clientKey(request))}`,
+  message: {
+    error: {
+      code: 'RATE_LIMITED',
+      message: 'That is five test messages in a minute. Wait a moment before sending another.',
+    },
+  },
+});

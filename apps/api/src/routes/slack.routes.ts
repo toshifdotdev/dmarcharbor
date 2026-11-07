@@ -4,8 +4,10 @@ import {
   deleteSlackDestinationController,
   getSlackDestinationController,
   setSlackDestinationEnabledController,
+  testSlackDestinationController,
 } from '../controllers/slack.controller.js';
 import { requireSession } from '../middleware/auth.middleware.js';
+import { slackTestRateLimiter } from '../middleware/rate-limit.middleware.js';
 import { onlyDisables, requireFeature, requireFeatureUnless } from '../middleware/entitlement.middleware.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
 
@@ -62,4 +64,14 @@ slackRouter.delete(
   requireSession,
   requireOrganizationPermission('organization', 'update'),
   deleteSlackDestinationController,
+);
+
+slackRouter.post(
+  '/workspaces/:organizationId/slack-destination/test',
+  requireSession,
+  requireOrganizationPermission('organization', 'update'),
+  // Before the limiter, so a refused test does not spend the five a minute.
+  requireFeature('alerts.email'),
+  slackTestRateLimiter,
+  testSlackDestinationController,
 );

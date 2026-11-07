@@ -21,14 +21,14 @@
  * plan carries it, and a kept destination stays listed as paused, with its
  * removal, because removing is allowed on every plan.
  *
- * Test hooks: slack-webhook, slack-label, slack-save, slack-masked, slack-error;
+ * Test hooks: slack-webhook, slack-label, slack-save, slack-masked, slack-error, slack-test, slack-test-result;
  * the plan gate is the UpgradeNotice carrying data-feature="alerts.email".
  */
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
-import { deleteSlackDestination, patchSlackDestinationEnabled, putSlackDestination } from "@/lib/ops-client";
+import { deleteSlackDestination, patchSlackDestinationEnabled, putSlackDestination, testSlackDestination } from "@/lib/ops-client";
 import type { FeatureStatus } from "@/lib/entitlements";
 import type { SlackDestination } from "@/lib/types";
 import { ActionRefusal, isPlanRefusal, type ActionError } from "@/components/harbor/plan-refusal";
@@ -80,7 +80,34 @@ export function SlackBoard({
   const [enabled, setEnabled] = useState(destination?.enabled ?? false);
   const [removeOpen, setRemoveOpen] = useState(false);
   const [removeBusy, setRemoveBusy] = useState(false);
+  const [testBusy, setTestBusy] = useState(false);
+  const [testResult, setTestResult] = useState<string | null>(null);
   const offPlan = alerting === false;
+
+  async function sendTest() {
+    setTestBusy(true);
+    setTestResult(null);
+    const res = await testSlackDestination(organizationId);
+    setTestBusy(false);
+    if (!res.ok) {
+      if (isPlanRefusal(res.error)) {
+        setPlanError(res.error);
+        return;
+      }
+      setTestResult(
+        res.error.message && !/^[A-Z_]+$/.test(res.error.message)
+          ? res.error.message
+          : "The test message could not be sent. Nothing else changed.",
+      );
+      return;
+    }
+    setTestResult(
+      res.data.delivered
+        ? "Sent. Check the channel: the message comes from the app the webhook belongs to."
+        : `Slack refused the message: ${res.data.error ?? "no reason given"}. The webhook may have been removed, or the channel archived.`,
+    );
+    router.refresh();
+  }
 
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -227,16 +254,25 @@ export function SlackBoard({
             resets the failure count.
           </Notice>
         ) : null}
-        {destination && !offPlan ? (
-          <p className="text-meta text-fg-3">
-            There is no test message. Raise one through an{" "}
-            <Link href="/alerts" className="link">
-              alert rule
-            </Link>
-            ; &ldquo;Last delivered&rdquo; shows when one got through.
-          </p>
-        ) : null}
         <ActionRefusal error={planError} />
+        {destination && canManage && !offPlan ? (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <Button variant="secondary" busy={testBusy} busyLabel="Sending a test message" onClick={sendTest} data-testid="slack-test">
+              Send test message
+            </Button>
+            <p className="min-w-0 flex-1 text-meta text-fg-3" data-testid="slack-test-result">
+              {testResult ?? (
+                <>
+                  A test is the only way to know the webhook works before a real{" "}
+                  <Link href="/alerts" className="link">
+                    alert
+                  </Link>{" "}
+                  depends on it.
+                </>
+              )}
+            </p>
+          </div>
+        ) : null}
         {error && offPlan ? (
           <p role="alert" data-testid="slack-error" className="text-ui font-medium text-fail">
             {error}

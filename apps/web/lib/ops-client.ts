@@ -942,6 +942,10 @@ export const deleteTeamsDestination = (orgId: string) =>
 export const testTeamsDestination = (orgId: string) =>
   call<TeamsTestResult>(wsPath(orgId, "/teams-destination/test"), { method: "POST" });
 
+/** The Slack test button: one real post to the channel's webhook. */
+export const testSlackDestination = (orgId: string) =>
+  call<TeamsTestResult>(wsPath(orgId, "/slack-destination/test"), { method: "POST" });
+
 // ─── settings: API keys (Phase 6) ────────────────────────────────────────────
 
 export const createApiKeyClient = (
@@ -1354,6 +1358,22 @@ export const createDnsConnection = (
 
 export const deleteDnsConnection = (orgId: string, connectionId: string) =>
   call<void>(wsPath(orgId, `/dns-connections/${connectionId}`), { method: "DELETE" });
+
+/**
+ * A zone in a connected Cloudflare account, marked by where it already stands:
+ * free to add, monitored here (under `clientName`), or monitored by another
+ * workspace, which is never named.
+ */
+export interface ImportableZone {
+  name: string;
+  accountName: string | null;
+  state: "available" | "here" | "elsewhere";
+  clientName: string | null;
+}
+
+/** GET /dns-connections/:id/zones — read only; adding goes through bulkCreateDomains. */
+export const listDnsConnectionZones = (orgId: string, connectionId: string) =>
+  call<{ zones: ImportableZone[]; truncated: boolean }>(wsPath(orgId, `/dns-connections/${connectionId}/zones`));
 
 export const previewDnsRecord = (
   orgId: string,

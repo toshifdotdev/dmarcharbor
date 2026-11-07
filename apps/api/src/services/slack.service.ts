@@ -24,6 +24,7 @@ export class SlackError extends Error {
     readonly code:
       | 'INVALID_WEBHOOK_URL'
       | 'NO_DESTINATION'
+      | 'DESTINATION_PAUSED'
       | 'DELIVERY_FAILED'
       | 'SLACK_ERROR',
     readonly status: number,
@@ -371,4 +372,34 @@ async function recordSlackFailure(destinationId: string, error: string): Promise
  */
 export function escapeSlack(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
+ * Posts a test message, so a setup mistake (a webhook for the wrong channel,
+ * an app that was uninstalled) shows up now rather than during an incident.
+ * It names the real workspace and channel, and goes through the same delivery
+ * as an alert, so it updates the failure counter the same way.
+ */
+export async function sendSlackTestMessage(organizationId: string): Promise<{ delivered: boolean; error?: string }> {
+  const destination = await prisma.slackDestination.findFirst({
+    where: { organizationId },
+    select: { enabled: true, channelLabel: true, organization: { select: { name: true } } },
+  });
+  if (!destination) {
+    throw new SlackError('No Slack destination is configured.', 'NO_DESTINATION', 404);
+  }
+  if (!destination.enabled) {
+    throw new SlackError('Slack alerts are paused. Turn them on, then send the test message.', 'DESTINATION_PAUSED', 409);
+  }
+  const workspace = destination.organization.name;
+  const where = destination.channelLabel ? `#${destination.channelLabel.replace(/^#/, '')}` : 'here';
+  return deliverSlackAlert({
+    organizationId,
+    message: {
+      subject: `Test message for ${workspace}`,
+      body: `This is a test, and needs no action. Alerts for ${workspace}'s domains will be posted ${where === 'here' ? 'here' : `to ${where}`}.`,
+      domainName: 'no domain, a test',
+      risk: 'low',
+    },
+  });
 }

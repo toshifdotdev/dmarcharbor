@@ -497,7 +497,7 @@ export async function sendTeamsTestMessage(
 ): Promise<{ delivered: boolean; error?: string }> {
   const destination = await prisma.teamsDestination.findFirst({
     where: { organizationId },
-    select: { id: true, enabled: true },
+    select: { id: true, enabled: true, organization: { select: { name: true } } },
   });
 
   if (!destination) {
@@ -514,13 +514,16 @@ export async function sendTeamsTestMessage(
     );
   }
 
+  // The real workspace, and no claim about "this channel": a Workflows flow can
+  // post to a channel, a group chat or the person who made it, privately.
+  const workspace = destination.organization.name;
   return deliverTeamsAlert({
     organizationId,
     message: {
       subject: 'DMARC Harbor test message',
-      body: 'This is a test. Alerts for your domains will appear in this channel.',
-      domainName: 'test',
-      workspaceName: 'test',
+      body: `This is a test, and needs no action. Alerts for ${workspace}'s domains will be posted where this message arrived.`,
+      domainName: 'None (a test)',
+      workspaceName: workspace,
       risk: 'low',
       linkPath: '',
     },
