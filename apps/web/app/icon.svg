@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
   <title>DMARC Harbor</title>
   <rect width="512" height="512" rx="72" fill="#15171b"/>
-  <rect x="120" y="88" width="84" height="336" rx="18" fill="#ffffff"/>
-  <rect x="308" y="88" width="84" height="336" rx="18" fill="#ffffff"/>
+  <rect x="120" y="88" width="84" height="336" rx="18" fill="#1f5fd6"/>
+  <rect x="308" y="88" width="84" height="336" rx="18" fill="#13a050"/>
   <path d="M162 252 C 196 206, 236 206, 256 252 C 276 298, 316 298, 350 252" fill="none" stroke="#ffffff" stroke-width="44" stroke-linecap="round"/>
 </svg>

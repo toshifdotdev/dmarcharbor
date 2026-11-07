@@ -7,14 +7,16 @@
  * tile, and two different off-whites for the mark (#e6e4dd in the SVG and the
  * .ico, #f2f2f0 in the PNGs). The 180px icon (iOS "Add to Home Screen") was a
  * plain black square with no mark at all. They are now one script, in the
- * Routes palette: the mark in white on an ink tile (#15171b, the ink of every
- * page). The tile stays dark on purpose: a white tile vanishes in a light
- * browser tab bar, and ink reads in light and dark ones.
+ * Routes palette: an ink tile (#15171b, the ink of every page), the two
+ * pilings in two of the map's line colours (blue #1f5fd6 and green #13a050),
+ * and the waterline in white. The tile stays dark on purpose: a white tile
+ * vanishes in a light browser tab bar, and ink reads in light and dark ones.
  *
  * Geometry is the Pier exactly as brand/pier.svg and components/mark.tsx draw
- * it. The browser tab icon keeps its rounded tile; the PNGs are full bleed,
- * because every launcher applies its own mask. The maskable icon carries the
- * mark at 0.655 about the centre, inside Android's round safe zone.
+ * it; on the white page the mark's waterline is ink instead of white. The
+ * browser tab icon keeps its rounded tile; the PNGs are full bleed, because
+ * every launcher applies its own mask. The maskable icon carries the mark at
+ * 0.655 about the centre, inside Android's round safe zone.
  *
  * Writes brand/icons/*, brand/favicon.ico, and the copies the web app serves:
  * apps/web/public/icons/*, apps/web/app/{icon.svg,favicon.ico,apple-icon.png}.
@@ -30,12 +32,14 @@ const sharp = require("sharp");
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const INK = "#15171b";
-const MARK = "#ffffff";
+const WATERLINE = "#ffffff";
+const LEFT_PILING = "#1f5fd6";
+const RIGHT_PILING = "#13a050";
 
 /** The Pier, in the 512 unit box. */
-const PIER = `<rect x="120" y="88" width="84" height="336" rx="18" fill="${MARK}"/>
-  <rect x="308" y="88" width="84" height="336" rx="18" fill="${MARK}"/>
-  <path d="M162 252 C 196 206, 236 206, 256 252 C 276 298, 316 298, 350 252" fill="none" stroke="${MARK}" stroke-width="44" stroke-linecap="round"/>`;
+const PIER = `<rect x="120" y="88" width="84" height="336" rx="18" fill="${LEFT_PILING}"/>
+  <rect x="308" y="88" width="84" height="336" rx="18" fill="${RIGHT_PILING}"/>
+  <path d="M162 252 C 196 206, 236 206, 256 252 C 276 298, 316 298, 350 252" fill="none" stroke="${WATERLINE}" stroke-width="44" stroke-linecap="round"/>`;
 
 function svg({ rounded, maskable }) {
   const tile = rounded
