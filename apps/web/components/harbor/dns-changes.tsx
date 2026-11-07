@@ -26,6 +26,67 @@ const SEVERITY: Record<DnsChangeSeverityName, { tone: Tone; label: string }> = {
   CRITICAL: { tone: "fail", label: "Critical" },
 };
 
+const TIMELINE_DAYS = 90;
+
+/**
+ * The changes on a 90-day line ending today, so a failure can be read against
+ * the record change just before it. Info is a small grey dot, a warning an
+ * amber ring, a critical change a red diamond: the same shapes as the state
+ * marks. Drawn from the rows loaded so far; `today` comes from the server.
+ */
+function ChangeTimeline({ rows, today }: { rows: DnsChangeView[]; today: string }) {
+  const end = Date.UTC(+today.slice(0, 4), +today.slice(5, 7) - 1, +today.slice(8, 10));
+  const start = end - (TIMELINE_DAYS - 1) * 86_400_000;
+  const inWindow = rows.filter((r) => {
+    const t = Date.parse(r.detectedAt);
+    return t >= start && t < end + 86_400_000;
+  });
+  const older = rows.length - inWindow.length;
+  const at = (iso: string) => {
+    const day = Math.floor((Date.parse(iso) - start) / 86_400_000);
+    const frac = (Math.min(TIMELINE_DAYS - 1, Math.max(0, day)) + 0.5) / TIMELINE_DAYS;
+    // Inset by 8px each side, so a mark on the first or last day stays whole.
+    return `calc(8px + (100% - 16px) * ${frac.toFixed(4)})`;
+  };
+  const counts = { INFO: 0, WARNING: 0, CRITICAL: 0 };
+  for (const r of inWindow) counts[r.severity] += 1;
+  const label = `Last ${TIMELINE_DAYS} days: ${counts.CRITICAL} critical, ${counts.WARNING} warning, ${counts.INFO} info changes.`;
+
+  return (
+    <figure className="m-0 flex flex-col gap-1.5" data-testid="dns-change-timeline">
+      <div role="img" aria-label={label} className="relative h-6">
+        <span aria-hidden className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-rule" />
+        {/* Info first, so a warning or a critical change on the same day sits on top. */}
+        {[...inWindow]
+          .sort((a, b) => ["INFO", "WARNING", "CRITICAL"].indexOf(a.severity) - ["INFO", "WARNING", "CRITICAL"].indexOf(b.severity))
+          .map((r) => (
+            <span
+              key={r.id}
+              aria-hidden
+              title={`${r.detectedLabel}: ${r.summary}`}
+              className={
+                r.severity === "CRITICAL"
+                  ? "absolute top-1/2 size-[11px] -translate-x-1/2 -translate-y-1/2 rotate-45 bg-fail"
+                  : r.severity === "WARNING"
+                    ? "absolute top-1/2 size-[12px] -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-warn-mark bg-paper"
+                    : "absolute top-1/2 size-[8px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-fg-4"
+              }
+              style={{ left: at(r.detectedAt) }}
+            />
+          ))}
+      </div>
+      <figcaption className="flex flex-wrap justify-between gap-x-4 text-meta text-fg-3">
+        <span>{TIMELINE_DAYS} days ago</span>
+        <span className="tnum">
+          {counts.CRITICAL} critical · {counts.WARNING} warning · {counts.INFO} info
+          {older > 0 ? ` · ${older} older below` : ""}
+        </span>
+        <span>today</span>
+      </figcaption>
+    </figure>
+  );
+}
+
 function valuesText(value: unknown): string {
   if (value === null || value === undefined) return "none";
   if (typeof value === "string") return value;
@@ -44,6 +105,7 @@ export function DnsChangesPanel({
   loadFailed,
   canAcknowledge,
   rescanIntervalMinutes,
+  today,
 }: {
   organizationId: string;
   domainId: string;
@@ -52,6 +114,8 @@ export function DnsChangesPanel({
   loadFailed: boolean;
   canAcknowledge: boolean;
   rescanIntervalMinutes: number | null;
+  /** The server's UTC day key; the timeline is drawn only when it is given. */
+  today?: string;
 }) {
   const [rows, setRows] = useState<DnsChangeView[]>(initial?.rows ?? []);
   const [cursor, setCursor] = useState(initial?.nextCursor ?? null);
@@ -164,6 +228,8 @@ export function DnsChangesPanel({
           </p>
         </section>
       ) : (
+        <>
+        {today && severity === "ALL" ? <ChangeTimeline rows={rows} today={today} /> : null}
         <Table caption={`DNS changes for ${domainName}`} minWidth={880}>
           <THead>
             <tr>
@@ -240,6 +306,7 @@ export function DnsChangesPanel({
             ))}
           </TBody>
         </Table>
+        </>
       )}
 
       {cursor ? (

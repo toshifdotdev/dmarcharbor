@@ -140,10 +140,21 @@ export function ProspectBoard({
         id="new-head"
         title="Check a prospect"
         meta={
-          <span data-testid="prospects-usage">
-            {usage.limit > 0
-              ? `${usage.used} of ${usage.limit} used this month; ${left} left until ${new Date(usage.resetsAt).toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" })}.`
-              : "Not on this workspace's plan."}
+          <span className="inline-flex flex-wrap items-center gap-x-2.5 gap-y-1">
+            {usage.limit > 0 ? (
+              // The month's allowance as a line filled to its share: green, amber from 80%.
+              <span aria-hidden className="block h-[5px] w-[96px] overflow-hidden rounded-full bg-rule">
+                <span
+                  className={`block h-full rounded-full ${usage.used / usage.limit >= 0.8 ? "bg-warn-mark" : "bg-done"}`}
+                  style={{ width: `${Math.max(usage.used > 0 ? 4 : 0, Math.min(100, (usage.used / usage.limit) * 100))}%` }}
+                />
+              </span>
+            ) : null}
+            <span data-testid="prospects-usage">
+              {usage.limit > 0
+                ? `${usage.used} of ${usage.limit} used this month; ${left} left until ${new Date(usage.resetsAt).toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" })}.`
+                : "Not on this workspace's plan."}
+            </span>
           </span>
         }
       >
@@ -310,7 +321,9 @@ export function ProspectBoard({
                         <p className="tnum mt-0.5 text-meta text-fg-3">Score {report.score}</p>
                       </Td>
                       <Td numeric>
-                        <p className={report.viewCount > 0 ? "font-semibold text-fg" : "text-fg-3"}>
+                        {/* Opened is the signal to call: the accent, with its dot. */}
+                        <p className={report.viewCount > 0 ? "inline-flex items-center gap-1.5 font-semibold text-act" : "text-fg-3"}>
+                          {report.viewCount > 0 ? <span aria-hidden className="block size-2 rounded-full bg-act" /> : null}
                           {report.viewCount > 0 ? `${report.viewCount} time${report.viewCount === 1 ? "" : "s"}` : "Not yet"}
                         </p>
                         {report.lastViewedAt ? (
@@ -319,7 +332,7 @@ export function ProspectBoard({
                       </Td>
                       <Td className="whitespace-nowrap">
                         <p className={live ? "inline-flex items-center gap-1.5 font-semibold text-fg" : "inline-flex items-center gap-1.5 text-fg-3"}>
-                          <span aria-hidden className={live ? "block size-2 rounded-full bg-fg" : "block size-2 rounded-full border-[1.5px] border-rule-2"} />
+                          <span aria-hidden className={live ? "block size-2 rounded-full bg-done" : "block size-2 rounded-full border-[1.5px] border-rule-2"} />
                           {STATE[report.state]}
                         </p>
                         {live ? <p className="tnum mt-0.5 text-meta text-fg-3">until {report.expiresLabel ?? report.expiresAt.slice(0, 10)}</p> : null}

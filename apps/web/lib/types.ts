@@ -64,6 +64,11 @@ export interface DomainSignals {
    * never been scanned still has a real, observed policy in its evidence.
    */
   reportedPolicy: string | null;
+  /** The domain's daily points over the insights window (30 days), as the
+   *  domain page's volume chart draws them. Sparse: only days with a report. */
+  trend?: TrendPoint[];
+  /** Each change in the published policy reporters saw, oldest first. */
+  policyHistory?: PolicyStep[];
 }
 
 // ─── domain detail (Phase 2) ──────────────────────────────────────────────────
@@ -481,6 +486,22 @@ export interface TrendPoint {
   messagesObserved: number;
   /** DMARC failures: both aligned checks failed. */
   failedMessages: number;
+  /** Messages whose aligned SPF passed, and whose aligned DKIM passed. Absent from an older API. */
+  spfPassMessages?: number;
+  dkimPassMessages?: number;
+}
+
+/** A receiver that sends this domain reports. */
+export interface ReporterShare {
+  organization: string;
+  reports: number;
+  messages: number;
+}
+
+/** A change in the published policy, as reporters saw it. */
+export interface PolicyStep {
+  date: string;
+  policy: string;
 }
 
 export interface TrendSpike {
@@ -539,6 +560,12 @@ export interface DomainInsights {
   };
   sources: SourceAttribution[];
   trends: { days: number; points: TrendPoint[]; spikes: TrendSpike[] };
+  /** Absent from an older API. */
+  reporters?: ReporterShare[];
+  /** How many receivers reported in all; `reporters` is only the top 8. */
+  reporterCount?: number;
+  dispositions?: { none: number; quarantine: number; reject: number };
+  policyHistory?: PolicyStep[];
 }
 
 export interface PolicyReadiness {
@@ -2128,6 +2155,10 @@ export interface PortalDomainDetail {
     service: { id: string; name: string; category: string } | null;
     confidence: "confirmed" | "likely" | "network" | "own" | "unknown";
   }>;
+  /** Daily counts for the client's own chart. Absent from an older API. */
+  trends?: { days: number; points: TrendPoint[] } | null;
+  /** Each change in the published policy, as receivers saw it. */
+  policyHistory?: PolicyStep[];
   possibleSpoofingSources: Array<{
     senderKey: string;
     senderDomain: string | null;

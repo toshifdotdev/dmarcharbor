@@ -38,6 +38,8 @@ import { domainHref } from "@/lib/route-hrefs";
 import { PostureBadge, PostureMark } from "@/components/ui/badge";
 import { Segmented, SearchInput } from "@/components/ui/field";
 import { Nil, Table, TBody, Td, TEmptyRow, Th, THead, Tr } from "@/components/ui/table";
+import type { PolicyStep, TrendPoint } from "@/lib/types";
+import { MiniTrend } from "./mini-trend";
 import { PolicyStrip, policyStage } from "./policy-strip";
 
 export interface BoardRow {
@@ -56,6 +58,10 @@ export interface BoardRow {
   policy: string | null;
   lastReportAgeDays: number | null;
   lastReportLabel: string | null;
+  /** Daily points for the last 30 days; null when the measurement read failed. */
+  trend: TrendPoint[] | null;
+  /** Each change in the policy receivers saw, oldest first. */
+  policyHistory?: PolicyStep[];
 }
 
 /** The filter groups, in the order the work is done. */
@@ -100,7 +106,15 @@ function sortValue(r: BoardRow, key: SortKey): number | string {
   }
 }
 
-export function PortfolioBoard({ rows }: { rows: BoardRow[]; clientCount?: number }) {
+export function PortfolioBoard({
+  rows,
+  today,
+}: {
+  rows: BoardRow[];
+  clientCount?: number;
+  /** The server's UTC day key, so each row's 30 days end on the same day in HTML and browser. */
+  today: string;
+}) {
   const router = useRouter();
   const [filter, setFilter] = useState<Posture | "all">("all");
   const [query, setQuery] = useState("");
@@ -205,7 +219,7 @@ export function PortfolioBoard({ rows }: { rows: BoardRow[]; clientCount?: numbe
         </div>
       </div>
 
-      <Table caption="Domains in this workspace with their measured posture" minWidth={1040}>
+      <Table caption="Domains in this workspace with their measured posture" minWidth={1180}>
         <THead>
           <tr>
             <Th className="w-[124px]" sort={{ dir: dir("posture"), onToggle: () => toggle("posture") }}>
@@ -218,6 +232,7 @@ export function PortfolioBoard({ rows }: { rows: BoardRow[]; clientCount?: numbe
             <Th className="w-[140px]" sort={{ dir: dir("policy"), onToggle: () => toggle("policy") }}>
               Policy
             </Th>
+            <Th className="w-[140px]">Last 30 days</Th>
             <Th numeric className="w-[96px]" sort={{ dir: dir("messages"), onToggle: () => toggle("messages") }}>
               Messages
             </Th>
@@ -294,6 +309,7 @@ export function PortfolioBoard({ rows }: { rows: BoardRow[]; clientCount?: numbe
                     }
                   />
                 </Td>
+                <Td>{r.trend ? <MiniTrend points={r.trend} today={today} /> : <Nil label="measurement unavailable" />}</Td>
                 <Td numeric>{has && r.messages !== null ? fmt(r.messages) : <Nil label="no messages reported" />}</Td>
                 <Td numeric>
                   {!has || r.failed === null ? (
@@ -335,7 +351,7 @@ export function PortfolioBoard({ rows }: { rows: BoardRow[]; clientCount?: numbe
             );
           })}
           {shown.length === 0 ? (
-            <TEmptyRow colSpan={10}>
+            <TEmptyRow colSpan={11}>
               No domain matches {query ? <>&ldquo;{query}&rdquo;</> : "this filter"}
               {filter !== "all" ? <> with posture {POSTURE_META[filter].label}</> : null}.{" "}
               <button
@@ -356,7 +372,7 @@ export function PortfolioBoard({ rows }: { rows: BoardRow[]; clientCount?: numbe
       <p className="max-w-[110ch] text-meta text-fg-3">
         Figures are each measured over that domain&rsquo;s own report window. Failed DMARC counts messages where both SPF
         and DKIM failed alignment; SPF and DKIM are pass rates. The policy line runs from p=none through p=quarantine to
-        p=reject, inked as far as the domain has gone; a dotted line means no policy could be read. No report for more
+        p=reject, green as far as the domain has gone; a dotted line means no policy could be read. No report for more
         than 5 days reads as Stale; a domain with no reported messages reads as Not measured and shows no figures. Neither
         is ever counted as aligned.
       </p>
@@ -387,7 +403,7 @@ function FilterChip({
       title={title}
       className={clsx(
         "inline-flex h-8 items-center gap-2 rounded-full border-[1.5px] px-3 text-ui transition-colors duration-150",
-        on ? "border-fg text-fg" : "border-transparent text-fg hover:bg-paper-3",
+        on ? "border-act text-fg" : "border-transparent text-fg hover:bg-paper-3",
       )}
     >
       {mark}

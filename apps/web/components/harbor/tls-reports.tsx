@@ -156,18 +156,19 @@ export function TlsReports({
         </p>
       ) : (
         <>
+          <div className="flex flex-col gap-3">
           <dl data-testid="tls-summary" className="grid gap-4 border-y border-rule-2 py-3 sm:grid-cols-4">
             <div>
               <dt className="legend">Sessions in {summary.days} days</dt>
-              <dd className="data mt-1 text-body font-semibold text-fg">{number(totalSessions)}</dd>
+              <dd className="tnum mt-1 text-body font-semibold text-fg">{number(totalSessions)}</dd>
             </div>
             <div>
               <dt className="legend">Failed sessions</dt>
-              <dd className="data mt-1 text-body font-semibold text-fail">{number(summary.failedSessions)}</dd>
+              <dd className="tnum mt-1 text-body font-semibold text-fail">{number(summary.failedSessions)}</dd>
             </div>
             <div>
               <dt className="legend">Failure share</dt>
-              <dd className="data mt-1 text-body font-semibold text-fg">
+              <dd className="tnum mt-1 text-body font-semibold text-fg">
                 {summary.failureSharePercent === null ? "—" : `${summary.failureSharePercent.toFixed(2)}%`}
               </dd>
             </div>
@@ -178,6 +179,8 @@ export function TlsReports({
               </dd>
             </div>
           </dl>
+          {totalSessions > 0 ? <SessionSplit ok={summary.successfulSessions} failed={summary.failedSessions} /> : null}
+          </div>
 
           <div className="grid gap-8 lg:grid-cols-2">
             <div data-testid="tls-by-result">
@@ -295,6 +298,35 @@ export function TlsReports({
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * Successful and failed TLS sessions as one bar: green for delivered over TLS,
+ * red for failed. A failed share too small to see still shows as a sliver, so
+ * "some failed" never draws as "none failed".
+ */
+function SessionSplit({ ok, failed }: { ok: number; failed: number }) {
+  const total = ok + failed;
+  const failedPct = failed > 0 ? Math.max(0.6, (failed / total) * 100) : 0;
+  const label = `${number(ok)} of ${number(total)} sessions succeeded over TLS, ${number(failed)} failed.`;
+  return (
+    <div data-testid="tls-split" className="flex max-w-[44rem] flex-col gap-1.5">
+      <span role="img" aria-label={label} title={label} className="flex h-[10px] gap-[2px] overflow-hidden rounded-full">
+        {ok > 0 ? <span className="block h-full flex-1 bg-done" /> : null}
+        {failed > 0 ? <span className="block h-full shrink-0 bg-fail" style={{ width: `${failedPct}%` }} /> : null}
+      </span>
+      <span className="flex flex-wrap gap-x-4 text-meta text-fg-3">
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden className="inline-block size-2.5 rounded-[2px] bg-done" />
+          <span className="tnum font-semibold text-fg-2">{number(ok)}</span> succeeded
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden className="inline-block size-2.5 rounded-[2px] bg-fail" />
+          <span className="tnum font-semibold text-fg-2">{number(failed)}</span> failed
+        </span>
+      </span>
+    </div>
   );
 }
 

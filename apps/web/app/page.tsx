@@ -12,6 +12,7 @@ import { AppShell } from "@/components/harbor/app-shell";
 import { Landing } from "@/components/harbor/landing";
 import { PageHeader } from "@/components/harbor/page-header";
 import { PortfolioBoard, type BoardRow } from "@/components/harbor/portfolio-board";
+import { PortfolioOverview } from "@/components/harbor/portfolio-overview";
 import { RefreshButton } from "@/components/harbor/refresh-button";
 import { FirstDomain } from "@/components/harbor/first-domain";
 import { InvitationsForYou } from "@/components/harbor/invitations";
@@ -88,6 +89,8 @@ export default async function RootPage() {
 
 async function PortfolioData({ organizationId, workspaceName }: { organizationId: string; workspaceName: string }) {
   let rows: BoardRow[];
+  /** The UTC day key every chart on the page ends on, set with the board's one clock read. */
+  let today: string;
   let clientCount: number;
   let clientList: Array<{ id: string; name: string }>;
 
@@ -101,6 +104,7 @@ async function PortfolioData({ organizationId, workspaceName }: { organizationId
     );
     // One clock read, on the server, for every age on the board.
     const now = Date.now();
+    today = new Date(now).toISOString().slice(0, 10);
 
     rows = clients.flatMap((client) =>
       client.domains.map((domain): BoardRow => {
@@ -124,6 +128,8 @@ async function PortfolioData({ organizationId, workspaceName }: { organizationId
           policy: policy === "not observed" ? null : policy,
           lastReportAgeDays: daysSinceReport(s?.lastReportAt ?? null, now),
           lastReportLabel: s?.lastReportAt ? instantLabel(s.lastReportAt) : null,
+          trend: s ? (s.trend ?? []) : null,
+          policyHistory: s?.policyHistory ?? [],
         };
       }),
     );
@@ -174,7 +180,8 @@ async function PortfolioData({ organizationId, workspaceName }: { organizationId
   return (
     <div className="flex flex-col gap-7">
       <Summary rows={rows} clientCount={clientCount} />
-      <PortfolioBoard rows={rows} clientCount={clientCount} />
+      <PortfolioOverview rows={rows} today={today} />
+      <PortfolioBoard rows={rows} clientCount={clientCount} today={today} />
     </div>
   );
 }

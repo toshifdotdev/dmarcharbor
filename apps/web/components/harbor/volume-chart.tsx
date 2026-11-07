@@ -24,9 +24,10 @@
  * and formatted without the runtime locale, so server and browser agree.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { clsx } from "clsx";
 import { STALE_AFTER_DAYS } from "@/lib/posture";
+import { DrawOnView } from "./draw-on-view";
 import type { TrendPoint, TrendSpike } from "@/lib/types";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -43,16 +44,26 @@ function addDays(key: string, n: number) {
   return new Date(t).toISOString().slice(0, 10);
 }
 
+/** The axis top: the next round number above the peak, close enough that a 65k peak tops out at 80k, not 100k. */
+const STEPS = [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10];
 function niceCeil(v: number) {
   if (v <= 0) return 1;
   const mag = 10 ** Math.floor(Math.log10(v));
   const n = v / mag;
-  const step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10;
-  return step * mag;
+  const step = STEPS.find((s) => n <= s + 1e-9) ?? 10;
+  return Math.round(step * mag);
 }
 
 const fmt = (n: number) => n.toLocaleString("en-GB");
-const compact = (n: number) => (n >= 10_000 ? `${Math.round(n / 1000)}k` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+/** Axis labels: 950, 1.5k, 25k, 1.3M, 25M. A busy portfolio reaches millions a day. */
+const compact = (n: number) => {
+  const trim = (v: number) => v.toFixed(1).replace(/\.0$/, "");
+  if (n >= 10_000_000) return `${Math.round(n / 1_000_000)}M`;
+  if (n >= 1_000_000) return `${trim(n / 1_000_000)}M`;
+  if (n >= 10_000) return `${Math.round(n / 1000)}k`;
+  if (n >= 1000) return `${trim(n / 1000)}k`;
+  return String(n);
+};
 
 export function VolumeChart({
   points,
@@ -94,7 +105,7 @@ export function VolumeChart({
     const byDay = new Map(points.map((p) => [p.date.slice(0, 10), p]));
     return Array.from({ length: days }, (_, i) => {
       const key = addDays(today, i - (days - 1));
-      return byDay.get(key) ?? { date: key, reportsReceived: 0, messagesObserved: 0, failedMessages: 0 };
+      return byDay.get(key) ?? { date: key, reportsReceived: 0, messagesObserved: 0, failedMessages: 0, spfPassMessages: 0, dkimPassMessages: 0 };
     }).map((p) => ({ ...p, date: p.date.slice(0, 10) }));
   }, [points, days, today]);
 
@@ -121,7 +132,8 @@ export function VolumeChart({
   const hovered = hover !== null ? series[hover] : null;
 
   return (
-    <figure className="m-0 flex flex-col gap-2">
+    <figure className="m-0 flex flex-col gap-2" data-draw>
+      <DrawOnView />
       {/* Readout: totals at rest, the hovered day on hover. It is also the legend. */}
       <div className="flex min-h-[20px] flex-wrap items-baseline gap-x-5 gap-y-1 text-meta" aria-hidden>
         {hovered ? (
@@ -133,7 +145,7 @@ export function VolumeChart({
               <>
                 {showFailures ? (
                   <>
-                    <Key swatch="bg-fg-2" label="passed" value={fmt(hovered.messagesObserved - hovered.failedMessages)} />
+                    <Key swatch="bg-done" label="passed" value={fmt(hovered.messagesObserved - hovered.failedMessages)} />
                     <Key swatch="bg-fail" label="failed DMARC" value={fmt(hovered.failedMessages)} strong={hovered.failedMessages > 0} />
                   </>
                 ) : (
@@ -149,7 +161,7 @@ export function VolumeChart({
           <>
             {showFailures ? (
               <>
-                <Key swatch="bg-fg-2" label="passed" value={fmt(totals.m - totals.f)} />
+                <Key swatch="bg-done" label="passed" value={fmt(totals.m - totals.f)} />
                 <Key swatch="bg-fail" label="failed DMARC" value={fmt(totals.f)} strong={totals.f > 0} />
               </>
             ) : (
@@ -199,8 +211,21 @@ export function VolumeChart({
             }
             const failH = (p.failedMessages / top) * innerH;
             return (
-              <g key={p.date} opacity={hover === null || hover === i ? 1 : 0.55}>
-                <rect x={x(i)} y={y(p.messagesObserved)} width={barW} height={y(0) - y(p.messagesObserved)} fill="var(--color-fg-2)" />
+              <g
+                key={p.date}
+                opacity={hover === null || hover === i ? 1 : 0.55}
+                className="hb-grow-y"
+                style={{ "--i": i } as CSSProperties}
+              >
+                {/* Passed mail is green and failed mail red, the state colours,
+                    whenever the chart splits them; a plain count stays ink. */}
+                <rect
+                  x={x(i)}
+                  y={y(p.messagesObserved)}
+                  width={barW}
+                  height={y(0) - y(p.messagesObserved)}
+                  fill={showFailures ? "var(--color-done)" : "var(--color-fg-2)"}
+                />
                 {p.failedMessages > 0 ? (
                   <rect x={x(i)} y={y(0) - Math.max(1.5, failH)} width={barW} height={Math.max(1.5, failH)} fill="var(--color-fail)" />
                 ) : null}
@@ -231,7 +256,11 @@ export function VolumeChart({
             <text
               x={x(series.indexOf(peakPoint)) + barW / 2}
               y={y(peakPoint.messagesObserved) - 6}
-              textAnchor="middle"
+              // A peak on the first or last days is anchored inwards, so a
+              // seven-figure label is never cut by the chart's edge.
+              textAnchor={
+                series.indexOf(peakPoint) < 3 ? "start" : series.indexOf(peakPoint) > days - 4 ? "end" : "middle"
+              }
               fill="var(--color-fg)"
               stroke="var(--color-paper)"
               strokeWidth={4}
@@ -292,7 +321,15 @@ export function VolumeChart({
             (days - 1 - i) % labelEvery === 0 ? (
               <g key={`x-${p.date}`}>
                 <line x1={x(i) + barW / 2} x2={x(i) + barW / 2} y1={y(0)} y2={y(0) + 4} stroke="var(--color-fg)" />
-                <text x={x(i) + barW / 2} y={H - 8} textAnchor={i === days - 1 ? "end" : "middle"} fill="var(--color-fg-3)" style={{ fontSize: 12.5 }} className="tnum">
+                <text
+                  // Anchored inwards near either edge, so a label is never cut on a phone.
+                  x={x(i) + barW / 2 < 30 ? x(i) : i === days - 1 ? x(i) + barW : x(i) + barW / 2}
+                  y={H - 8}
+                  textAnchor={x(i) + barW / 2 < 30 ? "start" : i === days - 1 ? "end" : "middle"}
+                  fill="var(--color-fg-3)"
+                  style={{ fontSize: 12.5 }}
+                  className="tnum"
+                >
                   {i === days - 1 ? "today" : dayLabel(p.date)}
                 </text>
               </g>

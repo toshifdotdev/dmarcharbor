@@ -59,6 +59,7 @@ import type {
 } from "@/lib/types";
 import { AppShell } from "@/components/harbor/app-shell";
 import { DnsChangesPanel } from "@/components/harbor/dns-changes";
+import { SenderShare } from "@/components/harbor/sender-share";
 import { DomainSwitchPanel } from "@/components/harbor/domain-switch";
 import { HostedBimi } from "@/components/harbor/hosted-bimi";
 import { HostedDmarc } from "@/components/harbor/hosted-dmarc";
@@ -79,6 +80,9 @@ import { VolumeChart } from "@/components/harbor/volume-chart";
 import { DomainRouteMap, type RouteMode } from "@/components/harbor/domain-route-map";
 import { passPercent, routeLines } from "@/components/harbor/domain-routes";
 import { StationList, StationStrip, type SegmentState } from "@/components/harbor/station-strip";
+import { Donut } from "@/components/harbor/donut";
+import { PassRateChart } from "@/components/harbor/pass-rate-chart";
+import { PolicyTimeline } from "@/components/harbor/policy-timeline";
 import { Badge, PostureBadge, PostureMark, type Tone } from "@/components/ui/badge";
 import { ButtonLink } from "@/components/ui/button";
 import { Readout, ReadoutStrip } from "@/components/ui/readout";
@@ -321,6 +325,7 @@ export default async function DomainPage({
       loadFailed={dnsChanges.failed}
       canAcknowledge={canAcknowledgeDnsChanges}
       rescanIntervalMinutes={serviceMeta?.monitoring?.rescanIntervalMinutes ?? null}
+      today={today}
     />
   );
 
@@ -445,6 +450,7 @@ export default async function DomainPage({
                   policy={observedPolicy}
                   testing={testing}
                 />
+                {routeMode === "unmeasured" ? null : <SenderShare lines={routes.lines} />}
                 <figcaption className="max-w-[86ch] text-meta text-fg-3">
                   {routeMode === "unmeasured"
                     ? "Lines appear here once receivers send aggregate reports, usually 24 to 48 hours after a DMARC record with a rua= address is published. Until then every station is closed: not measured, not passing."
@@ -469,6 +475,13 @@ export default async function DomainPage({
                 domainName={insights.domain.name}
               />
             </section>
+            {agg.messageCount > 0 ? (
+              <section aria-labelledby="rates-head" className="min-w-0">
+                <SectionHead id="rates-head" title="Pass rates" aside="by day, to today" className="mb-3 border-b border-rule" />
+                <PassRateChart points={insights.trends.points} days={insights.trends.days} today={today} subject={insights.domain.name} />
+              </section>
+            ) : null}
+            {agg.messageCount > 0 ? <ReceiverFigures insights={insights} /> : null}
           </div>
           <PolicyPanel onboarding={onboarding} observedPolicy={observedPolicy} testing={testing}>
             <PolicyProposals
@@ -1159,4 +1172,78 @@ function windowLabel(w: { begin: string | null; end: string | null }): string {
 
 function capitalise(s: string) {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+/**
+ * The receivers' side of the evidence, as two rings and a road:
+ *   Who reports          the share of reported mail each receiver accounted
+ *                        for, in shades of the accent (receivers are not
+ *                        senders, so they never take a sender's line colour)
+ *   What receivers did   delivered, sent to spam, refused: green, amber, red
+ *   Policy over time     each change in the published policy, with its date
+ */
+function ReceiverFigures({ insights }: { insights: DomainInsights }) {
+  const reporters = insights.reporters ?? [];
+  const d = insights.dispositions;
+  const steps = insights.policyHistory ?? [];
+  const SHADES = [
+    "var(--color-accent)",
+    "color-mix(in oklab, var(--color-accent) 70%, white)",
+    "color-mix(in oklab, var(--color-accent) 46%, white)",
+    "color-mix(in oklab, var(--color-accent) 28%, white)",
+  ];
+  // The API names the top 8; the count and the message total cover them all,
+  // so "N more" is every other receiver, not just the ones it listed.
+  const receiverCount = Math.max(insights.reporterCount ?? reporters.length, reporters.length);
+  const top = reporters.slice(0, 4);
+  const named = top.reduce((n, r) => n + r.messages, 0);
+  const rest = Math.max(0, insights.aggregate.messageCount - named);
+  const reporterParts = [
+    ...top.map((r, i) => ({ key: r.organization, label: r.organization, value: r.messages, colour: SHADES[i]!, mono: /\.[a-z]{2,}$/i.test(r.organization) })),
+    ...(rest > 0 && receiverCount > top.length
+      ? [{ key: "rest", label: `${receiverCount - top.length} more`, value: rest, colour: "var(--color-rule-2)" }]
+      : []),
+  ];
+  const dTotal = d ? d.none + d.quarantine + d.reject : 0;
+
+  if (reporterParts.length === 0 && dTotal === 0 && steps.length === 0) return null;
+  return (
+    <section aria-label="Receivers" className="flex min-w-0 flex-col gap-8">
+      <div className="grid gap-x-12 gap-y-8 md:grid-cols-2">
+        {reporterParts.length > 0 ? (
+          <Donut
+            title="Who reports"
+            kind="share of the mail each receiver reported"
+            parts={reporterParts}
+            centre={String(receiverCount)}
+            centreKind={receiverCount === 1 ? "receiver" : "receivers"}
+            testId="reporters-donut"
+          />
+        ) : null}
+        {d && dTotal > 0 ? (
+          <Donut
+            title="What receivers did"
+            kind="with the mail, as each report says"
+            parts={[
+              { key: "none", label: "Delivered as normal", value: d.none, colour: "var(--color-done)" },
+              { key: "quarantine", label: "Sent to spam (quarantine)", value: d.quarantine, colour: "var(--color-warn-mark)" },
+              { key: "reject", label: "Refused (reject)", value: d.reject, colour: "var(--color-fail)" },
+            ]}
+            centre={`${Math.round((d.none / dTotal) * 1000) / 10}%`}
+            centreKind="delivered"
+            testId="dispositions-donut"
+          />
+        ) : null}
+      </div>
+      {steps.length > 0 ? (
+        <figure className="m-0 flex flex-col gap-3" data-testid="policy-timeline">
+          <p className="border-b border-rule pb-2 text-ui">
+            <span className="font-bold text-fg">Policy over time</span>{" "}
+            <span className="text-fg-3">as receivers saw it published, from the reports</span>
+          </p>
+          <PolicyTimeline steps={steps} />
+        </figure>
+      ) : null}
+    </section>
+  );
 }

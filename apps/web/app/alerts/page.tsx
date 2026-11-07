@@ -7,6 +7,7 @@ import { featureOf, includedFrom } from "@/lib/entitlements";
 import { instantLabel } from "@/lib/instant";
 import { resolveActiveWorkspace } from "@/lib/session";
 import type { AlertEventRow, AlertRuleRow, WorkspaceMemberRow } from "@/lib/types";
+import { AlertActivity } from "@/components/harbor/alert-activity";
 import { AlertEvents, type EventView } from "@/components/harbor/alert-events";
 import { AlertRuleForm, type MemberChoice } from "@/components/harbor/alert-rule-form";
 import { AlertRules, type RuleView } from "@/components/harbor/alert-rules";
@@ -107,6 +108,7 @@ export default async function AlertsPage() {
     cooldownLabel: minutesLabel(r.cooldownMinutes),
   }));
 
+  const today = new Date().toISOString().slice(0, 10);
   const open = eventViews.filter((e) => e.state === "open").length;
   const enabled = ruleViews.filter((r) => r.enabled).length;
   const domainGroups = (clients ?? [])
@@ -158,12 +160,21 @@ export default async function AlertsPage() {
           {events === null ? (
             <ErrorState what="the alert events" detail="This is a connection or API problem, not a quiet workspace." />
           ) : (
-            <AlertEvents
+            <>
+              {events.items.length > 0 ? (
+                <AlertActivity
+                  today={today}
+                  truncated={events.hasMore}
+                  events={events.items.map((e) => ({ triggeredAt: e.triggeredAt, handled: Boolean(e.acknowledgedAt || e.resolvedAt) }))}
+                />
+              ) : null}
+              <AlertEvents
               organizationId={active.id}
               events={eventViews}
               truncated={events.hasMore}
               watching={enabled > 0}
-            />
+              />
+            </>
           )}
         </OpsSection>
 

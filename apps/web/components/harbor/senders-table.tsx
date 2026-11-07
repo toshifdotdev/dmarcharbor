@@ -295,6 +295,7 @@ export function SendersTable({
                         disabled={busy === row.senderKey}
                         aria-label={`Review ${serviceLabel(row)}`}
                         data-testid={`sender-review-${row.senderKey}`}
+                        className="min-w-[8.75rem]"
                       >
                         <option value="UNREVIEWED">Unreviewed</option>
                         <option value="APPROVED">Approved</option>
@@ -315,6 +316,7 @@ export function SendersTable({
                         disabled={busy === row.senderKey}
                         aria-label={`Owner for ${serviceLabel(row)}`}
                         data-testid={`sender-owner-${row.senderKey}`}
+                        className="min-w-[9.5rem]"
                       >
                         <option value="">Unassigned</option>
                         {owners.map((owner) => (

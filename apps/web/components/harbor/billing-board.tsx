@@ -6,14 +6,15 @@
  *
  *   Usage       each allowance as a figure against its limit, with a word for
  *               what that leaves ("room for 19 more", "at the limit", "2 over").
- *               No bars: a count and its limit are the whole fact. Members and
+ *               A thin meter under each figure: green, amber from 80%, red
+ *               when over. The count and its limit stay the fact. Members and
  *               workspaces are exact. Clients are exact unless the owner holds
  *               several workspaces (the limit counts across all of them).
  *               Active domains are an upper bound when the API's own count is
  *               missing: a domain only counts while reports arrive for it, or
  *               for a while after it was added.
  *   Plans       every plan from GET /api/plans, as rows on one line: the plan
- *               ladder drawn as a strip map, built (ink) up to the plan this
+ *               ladder drawn as a strip map, built (accent) up to the plan this
  *               workspace is on, unbuilt (grey) past it, so "everything in the
  *               plan before, plus" reads as distance along the line. Choosing
  *               a plan opens, inside its row, exactly what would change: what
@@ -35,6 +36,7 @@
 import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 import { clsx } from "clsx";
+import { DrawOnView } from "@/components/harbor/draw-on-view";
 import { formatMinor } from "@/lib/money";
 import { fleetBill, fleetIsMonthlyOnly, fleetMinimumQuantity, fleetMinimumTotalMinor, fleetUnitMinor } from "@/lib/fleet-pricing";
 import {
@@ -298,12 +300,29 @@ function usageLine(u: UsageCount | null, limit: number, l: (typeof LIMITS)[numbe
   };
 }
 
+/**
+ * How much of an allowance is used, as a line filled to its share. Green with
+ * room to spare, amber from 80% so the limit is seen before it refuses
+ * anything, red only when over. The figure above stays the fact; the meter
+ * is how it reads at a glance.
+ */
+function UsageMeter({ used, limit }: { used: number; limit: number }) {
+  const share = used / limit;
+  const fill = share > 1 ? "bg-fail" : share >= 0.8 ? "bg-warn-mark" : "bg-done";
+  return (
+    <span aria-hidden className="mt-1 block h-[5px] w-full max-w-[220px] overflow-hidden rounded-full bg-rule">
+      <span className={clsx("hb-grow-x block h-full rounded-full", fill)} style={{ width: `${Math.max(used > 0 ? 3 : 0, Math.min(100, share * 100))}%` }} />
+    </span>
+  );
+}
+
 function UsagePanel({ plan, usage }: { plan: PlanDefinition; usage: Usage }) {
   return (
-    <section aria-labelledby="usage-head" className="flex flex-col gap-3">
+    <section aria-labelledby="usage-head" className="flex flex-col gap-3" data-draw>
       <h2 id="usage-head" className="text-h2 font-bold tracking-[-0.02em] text-fg">
         What {plan.label} allows, and what is used
       </h2>
+      <DrawOnView />
       <dl className="grid border-t border-rule sm:grid-cols-2 xl:grid-cols-4 xl:border-b [&>div]:border-b [&>div]:border-rule [&>div]:py-4 xl:[&>div]:border-b-0 sm:max-xl:[&>div:nth-child(even)]:border-l sm:max-xl:[&>div:nth-child(even)]:pl-5 xl:[&>div+div]:border-l xl:[&>div+div]:pl-5">
         {LIMITS.map((l) => {
           const limit = planLimit(plan[l.key]);
@@ -325,6 +344,7 @@ function UsagePanel({ plan, usage }: { plan: PlanDefinition; usage: Usage }) {
                     <span className="text-ui font-medium text-fg-3">Limit {limitLabel(limit).toLowerCase()}</span>
                   )}
                 </span>
+                {u && Number.isFinite(limit) && limit > 0 ? <UsageMeter used={u.used} limit={limit} /> : null}
                 <span className={clsx("text-meta", line.over ? "font-semibold text-fail" : line.near ? "font-semibold text-warn" : "text-fg-3")}>{line.text}</span>
               </dd>
             </div>
@@ -410,14 +430,14 @@ function PlanRow(props: RowProps) {
       {ladder.above ? (
         <span
           aria-hidden
-          className={clsx("absolute left-[9px] top-0 w-[5px] sm:left-[13px]", ladder.above === "built" ? "bg-fg" : "bg-rule")}
+          className={clsx("absolute left-[9px] top-0 w-[5px] sm:left-[13px]", ladder.above === "built" ? "bg-act" : "bg-rule")}
           style={{ height: STATION_Y }}
         />
       ) : null}
       {ladder.below ? (
         <span
           aria-hidden
-          className={clsx("absolute bottom-0 left-[9px] w-[5px] sm:left-[13px]", ladder.below === "built" ? "bg-fg" : "bg-rule")}
+          className={clsx("absolute bottom-0 left-[9px] w-[5px] sm:left-[13px]", ladder.below === "built" ? "bg-act" : "bg-rule")}
           style={{ top: STATION_Y }}
         />
       ) : null}
@@ -425,7 +445,7 @@ function PlanRow(props: RowProps) {
         aria-hidden
         className={clsx(
           "absolute -translate-y-1/2 rounded-full bg-paper",
-          ladder.station === "here" ? "left-[1px] size-[21px] border-[4px] border-fg sm:left-[5px]" : "left-[3.5px] size-4 border-[3px] sm:left-[7.5px]",
+          ladder.station === "here" ? "left-[1px] size-[21px] border-[4px] border-act sm:left-[5px]" : "left-[3.5px] size-4 border-[3px] sm:left-[7.5px]",
           ladder.station === "passed" && "border-fg",
           ladder.station === "ahead" && "border-rule-2",
         )}
@@ -444,7 +464,7 @@ function PlanRow(props: RowProps) {
               {plan.label}
             </h3>
             {isCurrent ? (
-              <span className="text-meta font-bold text-fg">Your plan</span>
+              <span className="text-meta font-bold text-act">Your plan</span>
             ) : isPending ? (
               <span className="text-meta font-bold text-fg">Scheduled</span>
             ) : null}
@@ -466,7 +486,7 @@ function PlanRow(props: RowProps) {
               <ul className="mt-1.5 grid gap-x-6 gap-y-1 text-ui text-fg sm:grid-cols-2">
                 {added.map((k) => (
                   <li key={k} className="grid grid-cols-[16px_minmax(0,1fr)] gap-1.5">
-                    <Check size={13} className="mt-[3px] text-fg" />
+                    <Check size={13} className="mt-[3px] text-done" />
                     <span>{planFeatureLabel(k)}</span>
                   </li>
                 ))}

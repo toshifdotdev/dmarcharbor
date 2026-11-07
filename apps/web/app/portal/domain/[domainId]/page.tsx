@@ -10,6 +10,9 @@ import { ForwardReport } from "@/components/harbor/portal-client";
 import { PortalProposal } from "@/components/harbor/portal-proposal";
 import { PortalFrame, PortalNotice, PortalPaused } from "@/components/harbor/portal-frame";
 import { VerdictWord } from "@/components/harbor/portal-verdict-word";
+import { PolicyTimeline } from "@/components/harbor/policy-timeline";
+import { VolumeChart } from "@/components/harbor/volume-chart";
+import { daysSinceReport } from "@/lib/posture";
 import {
   LineKey,
   MailRoute,
@@ -102,7 +105,9 @@ export default async function PortalDomainPage({
 
   const detail: PortalDomainDetail = detailResult.d;
   const agency = brand?.workspaceName ?? "Your provider";
-  const verdict = verdictFor(detail, agency, Date.now());
+  const now = Date.now();
+  const today = new Date(now).toISOString().slice(0, 10);
+  const verdict = verdictFor(detail, agency, now);
   const agg = detail.aggregate;
   const measured = Boolean(agg && agg.messageCount > 0);
   const passed = agg ? agg.messageCount - agg.failedMessages : 0;
@@ -240,6 +245,24 @@ export default async function PortalDomainPage({
                   }
                 />
               ) : null}
+              {detail.trends && detail.trends.points.length > 0 ? (
+                // The client's own month in one picture: how much mail, and how much of it was refused or failed.
+                <div className="flex flex-col gap-3">
+                  <p className="border-b border-rule pb-2 text-[15px]">
+                    <span className="font-bold text-fg">Your email, day by day</span>{" "}
+                    <span className="text-fg-4">the last {detail.trends.days} days</span>
+                  </p>
+                  <VolumeChart
+                    points={detail.trends.points}
+                    spikes={[]}
+                    days={detail.trends.days}
+                    today={today}
+                    lastReportAt={agg?.lastReportAt ?? null}
+                    daysWithoutReport={daysSinceReport(agg?.lastReportAt ?? null, now)}
+                    domainName={detail.domain.name}
+                  />
+                </div>
+              ) : null}
             </>
           ) : (
             <p className="max-w-[64ch] border-y border-rule py-5 text-[15.5px] leading-[1.55] text-fg-2">
@@ -331,6 +354,13 @@ export default async function PortalDomainPage({
             ) : null}
             {detail.domain.lastScanAt ? (
               <p className="mt-1.5 text-[14px] text-fg-4">Read from your domain on {dayLabel(detail.domain.lastScanAt)}.</p>
+            ) : null}
+            {detail.policyHistory && detail.policyHistory.length > 0 ? (
+              <div className="mt-6 flex flex-col gap-3" data-testid="portal-policy-timeline">
+                <p className="text-[15px] font-bold text-fg">Your road to full protection</p>
+                <PolicyTimeline steps={detail.policyHistory} className="max-w-[30rem]" />
+                <p className="text-[14px] text-fg-4">Each step is the setting mail servers saw your domain publish, and when.</p>
+              </div>
             ) : null}
           </div>
           <div className="min-w-0">

@@ -175,8 +175,9 @@ function YearLine({
                 className="absolute left-1/2 top-[10px] h-[5px] w-full"
                 style={
                   i === ordered.length - 1
-                    ? { backgroundImage: "repeating-linear-gradient(to right, var(--color-fg) 0 6px, transparent 6px 11px)" }
-                    : { background: "var(--color-fg)" }
+                    ? { backgroundImage: "repeating-linear-gradient(to right, var(--color-fg-4) 0 6px, transparent 6px 11px)" }
+                    : // Green between two months that were both reported: an unbroken record.
+                      { background: on && issued.has(ordered[i + 1]?.value ?? "") ? "var(--color-done)" : "var(--color-rule-2)" }
                 }
               />
               <span aria-hidden className="relative z-[1] flex h-[25px] items-center">
@@ -184,10 +185,10 @@ function YearLine({
                   className={clsx(
                     "relative block rounded-full border-[3px] bg-paper",
                     here ? "h-[25px] w-[19px]" : "size-[19px]",
-                    on ? "border-fg" : "border-rule-2",
+                    here ? "border-act" : on ? "border-done" : "border-rule-2",
                   )}
                 >
-                  {on ? <span className="absolute inset-[3px] rounded-full bg-fg" /> : null}
+                  {on ? <span className="absolute inset-[3px] rounded-full bg-done" /> : null}
                 </span>
               </span>
               <span className={clsx("mt-1.5 text-meta", on ? "font-semibold text-fg" : "text-fg-3", here && "underline decoration-2 underline-offset-4")}>
@@ -212,8 +213,8 @@ function YearLine({
       </ol>
       <figcaption className="flex flex-wrap items-center gap-x-5 gap-y-1 text-meta text-fg-3">
         <span className="inline-flex items-center gap-1.5">
-          <span aria-hidden className="relative block size-3 rounded-full border-2 border-fg bg-paper">
-            <span className="absolute inset-[2px] rounded-full bg-fg" />
+          <span aria-hidden className="relative block size-3 rounded-full border-2 border-done bg-paper">
+            <span className="absolute inset-[2px] rounded-full bg-done" />
           </span>
           Report issued
         </span>
@@ -221,7 +222,10 @@ function YearLine({
           <span aria-hidden className="block size-3 rounded-full border-2 border-rule-2 bg-paper" />
           Not issued
         </span>
-        <span>The month to issue is underlined.</span>
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden className="block h-3 w-[10px] rounded-full border-2 border-act bg-paper" />
+          The month to issue, underlined
+        </span>
       </figcaption>
     </figure>
   );

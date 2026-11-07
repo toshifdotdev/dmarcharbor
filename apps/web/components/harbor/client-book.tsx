@@ -64,6 +64,7 @@ import { Nil } from "@/components/ui/table";
 import { AddClient, AddDomains } from "./client-forms";
 import { MoveDomainDialog, movedLine } from "./domain-move";
 import { UsageLine } from "./plan-refusal";
+import { EnforcementBar } from "./enforcement-bar";
 import { PolicyStrip } from "./policy-strip";
 
 export interface DomainView {
@@ -96,6 +97,18 @@ const summarise = (s: DeletionSummary) => summariseDeletion(s);
 
 /* The client line's geometry, in px from the cell's left edge. */
 const LINE = "left-[14.5px] w-[3px]";
+
+/**
+ * Each client is its own line in the book, so each gets a line colour, chosen
+ * from its id so it stays the same when the list is filtered or re-sorted.
+ * Red is never a client's line: it means forged or failed.
+ */
+const CLIENT_LINES = ["bg-route-blue", "bg-route-purple", "bg-route-orange", "bg-route-green", "bg-route-yellow"] as const;
+function clientLine(id: string): string {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return CLIENT_LINES[h % CLIENT_LINES.length]!;
+}
 
 export function ClientBook({
   organizationId,
@@ -399,12 +412,13 @@ function ClientGroup({
   canMove: boolean;
 }) {
   const hasRows = c.domains.length > 0;
+  const line = clientLine(c.id);
   return (
     <tbody data-client-id={c.id}>
       <tr>
         <th scope="rowgroup" colSpan={5} className="relative px-2.5 pb-1.5 pl-9 pt-6 text-left align-top font-normal">
           {/* The client's line runs down from its origin to the last domain. */}
-          <span aria-hidden className={clsx("absolute bottom-[-1px] top-[33px]", LINE, hasRows ? "bg-fg" : "border-l-[3px] border-dashed border-fg-4")} />
+          <span aria-hidden className={clsx("absolute bottom-[-1px] top-[33px]", LINE, hasRows ? line : "border-l-[3px] border-dashed border-fg-4")} />
           <span aria-hidden className="absolute left-[9px] top-[27px] size-[14px] rounded-full border-[3px] border-fg bg-paper" />
           <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2">
             <div className="min-w-0">
@@ -413,6 +427,16 @@ function ClientGroup({
                 <span className="tnum text-meta text-fg-3">
                   {total} domain{total === 1 ? "" : "s"}
                 </span>
+                {c.domains.length > 0 ? (
+                  // Where this client is up to, before a client call: its
+                  // domains by policy, and how many are at reject.
+                  <span className="inline-flex items-center gap-2 self-center" data-testid={`client-enforcement-${c.id}`}>
+                    <EnforcementBar policies={c.domains.map((d) => d.policy)} thin className="w-[72px]" />
+                    <span className="tnum text-meta text-fg-3">
+                      {c.domains.filter((d) => d.policy?.toLowerCase() === "reject").length} of {c.domains.length} at reject
+                    </span>
+                  </span>
+                ) : null}
                 {c.trustSlug ? (
                   <a
                     href={`/trust/${c.trustSlug}`}
@@ -482,6 +506,7 @@ function ClientGroup({
           <DomainRow
             key={d.id}
             domain={d}
+            line={line}
             last={i === c.domains.length - 1}
             onMove={canMove ? () => onMove(d) : null}
           />
@@ -504,10 +529,13 @@ function ClientGroup({
 
 function DomainRow({
   domain: d,
+  line,
   last,
   onMove,
 }: {
   domain: DomainView;
+  /** The client's line colour, a bg-route-* class. */
+  line: string;
   last: boolean;
   /** Null while there is no other client to move it to. */
   onMove: (() => void) | null;
@@ -517,7 +545,7 @@ function DomainRow({
   return (
     <tr data-domain-id={d.id} className="border-b border-rule align-baseline">
       <td className="relative py-2 pl-9 pr-2.5">
-        <span aria-hidden className={clsx("absolute top-[-1px] bg-fg", LINE, last ? "h-[19px]" : "bottom-[-1px]")} />
+        <span aria-hidden className={clsx("absolute top-[-1px]", line, LINE, last ? "h-[19px]" : "bottom-[-1px]")} />
         <span
           aria-hidden
           className={clsx(

@@ -221,6 +221,9 @@ export function deriveSignals(
     dkimPassRate: a.dkimPassRate,
     lastReportAt: a.lastReportAt,
     reportedPolicy,
+    // Already in the response; the portfolio draws it as each row's 30 days.
+    trend: insights.trends.points,
+    policyHistory: insights.policyHistory ?? [],
   };
 }
 
