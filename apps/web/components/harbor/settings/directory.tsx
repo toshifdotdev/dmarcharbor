@@ -18,6 +18,7 @@ import { mayChange, SETTINGS_GROUPS, type SettingsSection, type Who } from "@/li
 import { SearchInput } from "@/components/ui/field";
 import { ArrowRight } from "@/components/ui/icons";
 import { PermanentMark, StateMark } from "./parts";
+import { SETTINGS_LINE } from "./rail";
 
 const WHO_LABEL: Record<Who, string> = {
   anyone: "Every member",
@@ -100,7 +101,10 @@ export function SettingsDirectory({ role }: { role: string | null }) {
                   return (
                     <li key={s.key} className="relative">
                       {i < g.hits.length - 1 ? (
-                        <span aria-hidden className="absolute -bottom-[24px] left-[9px] top-[23px] w-[5px] bg-fg" />
+                        <span
+                          aria-hidden
+                          className={`absolute -bottom-[24px] left-[10.5px] top-[23px] w-[5px] ${SETTINGS_LINE[g.id] ?? "bg-fg"}`}
+                        />
                       ) : null}
                       <Link
                         href={s.href}
@@ -109,7 +113,7 @@ export function SettingsDirectory({ role }: { role: string | null }) {
                       >
                         <span
                           aria-hidden
-                          className="absolute left-[3px] top-[15px] z-[1] block size-[17px] rounded-full border-[3px] border-fg bg-paper transition-[width,left] duration-150 group-hover/entry:-left-[1.5px] group-hover/entry:w-[26px]"
+                          className="absolute left-[4.5px] top-[15px] z-[1] block size-[17px] rounded-full border-[3px] border-fg bg-paper transition-[width,left] duration-150 group-hover/entry:left-0 group-hover/entry:w-[26px]"
                         />
                         <span className="min-w-0">
                           <span className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">

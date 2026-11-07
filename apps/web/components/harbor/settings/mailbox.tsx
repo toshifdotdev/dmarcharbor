@@ -51,22 +51,22 @@ function RouteRow({ stop, last, name, kind }: { stop: Stop; last?: boolean; name
       {/* The trunk: down from the origin, through the station, to the last branch. */}
       <span
         aria-hidden
-        className={clsx("absolute left-[8px] w-[3px] bg-fg", stop === "origin" ? "top-[19px] bottom-0" : last ? "top-0 h-[19px]" : "inset-y-0")}
+        className={clsx("absolute left-[11px] w-[3px] bg-fg", stop === "origin" ? "top-[19px] bottom-0" : last ? "top-0 h-[19px]" : "inset-y-0")}
       />
       {stop === "origin" ? (
-        <span aria-hidden className="absolute left-0 top-[10px] size-[19px] rounded-full border-[3px] border-fg bg-paper" />
+        <span aria-hidden className="absolute left-[3px] top-[10px] size-[19px] rounded-full border-[3px] border-fg bg-paper" />
       ) : null}
       {stop === "station" ? (
-        <span aria-hidden className="absolute left-[-3px] top-[12px] h-[15px] w-[25px] rounded-full border-[3px] border-fg bg-paper" />
+        <span aria-hidden className="absolute left-0 top-[12px] h-[15px] w-[25px] rounded-full border-[3px] border-fg bg-paper" />
       ) : null}
       {branch ? (
         <>
           <span
             aria-hidden
             className={clsx(
-              "absolute left-[9px] top-[18px] w-[38px] border-t-[3px]",
-              stop === "built" && "border-solid border-fg",
-              stop === "planned" && "border-dashed border-fg",
+              "absolute left-[12px] top-[18px] w-[35px] border-t-[3px]",
+              stop === "built" && "border-solid border-done",
+              stop === "planned" && "border-dashed border-act",
               stop === "closed" && "border-dotted border-rule-2",
             )}
           />

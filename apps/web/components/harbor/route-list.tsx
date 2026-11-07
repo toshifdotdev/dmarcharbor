@@ -2,9 +2,9 @@
  * route-list.tsx — a short process drawn as one vertical line of stations,
  * for the side of a setup screen (the first domain, a provider switch).
  *
- *   reached   stations before `here`: ink, joined by a solid ink line
- *   here      the station the reader is at: ink, drawn larger
- *   ahead     stations after it, joined by a planned segment (dashed ink),
+ *   reached   stations before `here`: green, joined by a solid green line
+ *   here      the station the reader is at: the accent, drawn larger
+ *   ahead     stations after it, joined by a planned segment (dashed grey),
  *             because each step is ready and not yet taken
  *   terminus  the last station, a capsule, where the process delivers
  *
@@ -36,8 +36,8 @@ export function RouteList({
               <span
                 aria-hidden
                 className={clsx(
-                  "absolute bottom-[-4px] left-[11.5px] top-[14px] border-l-[3px] border-fg",
-                  travelled ? "border-solid" : "border-dashed",
+                  "absolute bottom-[-4px] left-[11.5px] top-[14px] border-l-[3px]",
+                  travelled ? "border-solid border-done" : "border-dashed border-fg-4",
                 )}
               />
             ) : null}
@@ -45,8 +45,14 @@ export function RouteList({
               <span
                 className={clsx(
                   // Every mark is centred on the line, 13px in.
-                  "block border-fg",
-                  travelled ? "bg-fg" : "bg-paper",
+                  "block",
+                  travelled
+                    ? "border-done bg-done"
+                    : isHere
+                      ? "border-act bg-paper"
+                      : terminus
+                        ? "border-fg bg-paper"
+                        : "border-fg-4 bg-paper",
                   terminus
                     ? "h-[14px] w-[26px] rounded-full border-[3px]"
                     : isHere

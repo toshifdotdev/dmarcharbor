@@ -317,14 +317,15 @@
   left: 11px;
   width: calc((100% - 22px) * var(--at));
   border-radius: 3px;
-  background: var(--color-fg);
+  background: var(--color-done);
 }
 
-/* Ready but not taken: dashed, the way a map draws a line being built. */
+/* Ready but not taken: dashed, the way a map draws a line being built, in the
+   accent because it is the next step on offer. */
 .plan {
   left: calc(11px + (100% - 22px) * var(--at));
   width: calc((100% - 22px) * (var(--to) - var(--at)));
-  background: repeating-linear-gradient(90deg, var(--color-fg) 0 8px, transparent 8px 14px);
+  background: repeating-linear-gradient(90deg, var(--color-accent) 0 8px, transparent 8px 14px);
 }
 
 .pStop {
@@ -339,8 +340,10 @@
   background: var(--color-paper);
 }
 
+/* Passed on the way: filled green. Where the domain is now: the accent. */
 .pStop[data-reached] {
-  border-color: var(--color-fg);
+  border-color: var(--color-done);
+  background: var(--color-done);
 }
 
 .pStop[data-here] {
@@ -348,6 +351,8 @@
   height: 22px;
   margin: -11px 0 0 -11px;
   border-width: 4px;
+  border-color: var(--color-accent);
+  background: var(--color-paper);
 }
 
 .pScale {
@@ -431,6 +436,7 @@
   .travel,
   .plan,
   .bar,
+  .pStop,
   .policy::before {
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
@@ -441,8 +447,9 @@
 
 /*
  * A list of things to do is a line not built yet: each step a station, the
- * segments between them dashed (the map's line under construction). Things
- * already in place are the travelled line, solid ink.
+ * segments between them dashed grey (the map's line under construction, the
+ * way ahead). Things already in place are the travelled line: solid green,
+ * with their stations filled green, as every progress line on the site.
  */
 .steps {
   margin: 0;
@@ -470,12 +477,17 @@
   bottom: -4px;
   left: 11.5px;
   width: 5px;
-  background: repeating-linear-gradient(180deg, var(--color-fg) 0 8px, transparent 8px 14px);
+  background: repeating-linear-gradient(180deg, var(--color-fg-4) 0 8px, transparent 8px 14px);
 }
 
 .steps[data-done] .step::before {
   border-radius: 3px;
-  background: var(--color-fg);
+  background: var(--color-done);
+}
+
+.steps[data-done] .stepCap {
+  border-color: var(--color-done);
+  background: var(--color-done);
 }
 
 .step:last-child::before {
@@ -499,7 +511,8 @@
     break-inside: avoid;
   }
 
-  .step::before {
+  .step::before,
+  .stepCap {
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }

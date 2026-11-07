@@ -3,8 +3,10 @@
  * as the steering file's strip map: a 5px line with three small stations at
  * fixed positions, p=none, p=quarantine and p=reject.
  *
- *   travelled     ink, from p=none up to the policy the domain publishes
- *   here          the station it is at, drawn larger, with the literal tag
+ *   travelled     green, from p=none up to the policy the domain publishes
+ *   passed        stations filled green
+ *   here          the station it is at, drawn larger and ringed in the
+ *                 accent, with the literal tag
  *                 set under it the way a map labels a station
  *   ahead         the line in rule grey, its stations hollow
  *   no policy     the line dotted and every station closed: nothing observed
@@ -89,7 +91,7 @@ export function PolicyStrip({
           <>
             <line x1={STATIONS[0]} y1={Y} x2={STATIONS[2]} y2={Y} stroke="var(--color-rule)" strokeWidth={5} strokeLinecap="round" />
             {stage > 0 ? (
-              <line x1={STATIONS[0]} y1={Y} x2={STATIONS[stage]} y2={Y} stroke="var(--color-fg)" strokeWidth={5} strokeLinecap="round" />
+              <line x1={STATIONS[0]} y1={Y} x2={STATIONS[stage]} y2={Y} stroke="var(--color-done)" strokeWidth={5} strokeLinecap="round" />
             ) : null}
           </>
         )}
@@ -102,8 +104,8 @@ export function PolicyStrip({
               cx={x}
               cy={Y}
               r={here ? 5.5 : 3.75}
-              fill="var(--color-paper)"
-              stroke={reached ? "var(--color-fg)" : "var(--color-rule-2)"}
+              fill={!here && reached ? "var(--color-done)" : "var(--color-paper)"}
+              stroke={here ? "var(--color-act)" : reached ? "var(--color-done)" : "var(--color-rule-2)"}
               strokeWidth={here ? 3 : 2.5}
             />
           );

@@ -378,7 +378,7 @@ export function TrustDocument({ payload: input, platformName = null }: { payload
                   </TBody>
                 </Table>
                 <Caption>
-                  The line runs in ink as far as the published policy: monitor (p=none), spam (p=quarantine), block
+                  The line runs green as far as the published policy: monitor (p=none), spam (p=quarantine), block
                   (p=reject). A dashed segment is a stronger policy proposed to {client} and not yet approved.
                 </Caption>
 

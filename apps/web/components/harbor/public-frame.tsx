@@ -22,7 +22,7 @@ import Link from "next/link";
 import { clsx } from "clsx";
 import type { HostBrand } from "@/lib/host-brand";
 import { LEGAL_FOOTER_LINKS } from "@/lib/site-links";
-import { PierMark } from "@/components/mark";
+import { PierMark, Wordmark } from "@/components/mark";
 import { HostUnverifiedBanner } from "./shell-banners";
 
 export function brandName(brand: HostBrand): string {
@@ -58,7 +58,7 @@ export function PublicHeader({ brand, current }: { brand: HostBrand; current?: C
             aria-label={`${name} home`}
           >
             <HostMark brand={brand} size={22} />
-            <span className="whitespace-nowrap text-[17px] font-bold tracking-[-0.01em] max-[380px]:hidden">{name}</span>
+            <Wordmark name={name} className="whitespace-nowrap text-[17px] font-bold tracking-[-0.01em] max-[380px]:hidden" />
           </Link>
           {agency ? null : (
             <nav aria-label="Site" className="hidden items-center gap-[30px] min-[900px]:flex">
@@ -68,8 +68,12 @@ export function PublicHeader({ brand, current }: { brand: HostBrand; current?: C
                   href={item.href}
                   aria-current={current === item.key ? "page" : undefined}
                   className={clsx(
-                    "text-[15.5px] font-medium transition-colors duration-100",
-                    current === item.key ? "text-fg" : "text-fg-2 hover:text-fg",
+                    "relative text-[15.5px] font-medium transition-colors duration-100",
+                    // The page you are on: a short length of line under it,
+                    // in the accent, as the app's section bar marks one.
+                    current === item.key
+                      ? "text-fg after:absolute after:inset-x-0 after:-bottom-[7px] after:h-[3px] after:rounded-full after:bg-act"
+                      : "text-fg-2 hover:text-fg",
                   )}
                 >
                   {item.label}
@@ -135,7 +139,7 @@ export function PublicFooter({ brand }: { brand: HostBrand }) {
         <div>
           <Link href="/" className="inline-flex items-center gap-2.5 text-[17px] font-bold tracking-[-0.01em] text-fg">
             <PierMark size={20} />
-            <span>{name}</span>
+            <Wordmark name={name} />
           </Link>
           <p className="mt-3.5 max-w-[26rem] text-[14.5px] leading-[1.5] text-fg-4">
             DMARC monitoring for MSPs and agencies. It reads reports, never sends mail as anyone, and changes DNS only

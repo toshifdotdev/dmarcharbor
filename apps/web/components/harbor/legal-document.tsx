@@ -210,7 +210,7 @@ function DocumentIndex({ active, rail }: { active: string; rail?: boolean }) {
               aria-current={slug === active ? "page" : undefined}
               className={
                 slug === active
-                  ? "text-[14px] font-semibold text-fg underline decoration-fg decoration-[3px] underline-offset-[6px]"
+                  ? "text-[14px] font-semibold text-fg underline decoration-act decoration-[3px] underline-offset-[6px]"
                   : "text-[14px] text-fg-4 transition-colors duration-150 hover:text-fg"
               }
             >
@@ -247,7 +247,7 @@ function DeveloperIndex({
               aria-current={href === active ? "page" : undefined}
               className={
                 href === active
-                  ? "text-[14px] font-semibold text-fg underline decoration-fg decoration-[3px] underline-offset-[6px]"
+                  ? "text-[14px] font-semibold text-fg underline decoration-act decoration-[3px] underline-offset-[6px]"
                   : "text-[14px] text-fg-4 transition-colors duration-150 hover:text-fg"
               }
             >

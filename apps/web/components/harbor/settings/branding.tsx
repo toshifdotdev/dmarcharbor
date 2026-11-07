@@ -20,7 +20,7 @@
  * an unverified domain can be issued a fresh record instead of a dead end.
  *
  * The custom domain is drawn as three stations (choose the hostname, publish
- * the TXT record, client pages open on it), travelled in ink up to where the
+ * the TXT record, client pages open on it), travelled green up to where the
  * domain is, planned beyond, so "verified" and "not verified yet" are a place
  * on a line as well as a word.
  *
@@ -506,7 +506,7 @@ export function BrandingBoard({
             role="img"
           >
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-rule px-5 py-3">
-              <span className="flex items-center gap-2.5 text-act">
+              <span className={`flex items-center gap-2.5 ${p ? "text-act" : "text-fg"}`}>
                 {logoUrl ? <img src={logoUrl} alt="" className="h-[26px] w-auto" /> : p ? null : <PierMark size={22} />}
                 <span className="text-body font-bold text-fg">{workspaceName}</span>
               </span>
@@ -549,7 +549,7 @@ export function BrandingBoard({
           {!p ? (
             <span className="inline-flex items-center gap-2 text-meta text-fg-3">
               <StateMark shape="closed" size={9} />
-              No brand colour set: clients see the default ink.
+              No brand colour set: clients see the default blue links and ink buttons.
             </span>
           ) : null}
         </div>

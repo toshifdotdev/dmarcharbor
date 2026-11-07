@@ -16,9 +16,11 @@
   list-style: none;
 }
 
+/* Every stop sits inside the item's own box (nothing at a negative offset),
+   so a scrolling or clipping parent never cuts the larger "here" stop. */
 .item {
   position: relative;
-  padding: 0 0 12px 26px;
+  padding: 0 0 12px 28px;
 }
 
 .item:last-child {
@@ -31,7 +33,7 @@
 .item::after {
   content: "";
   position: absolute;
-  left: 5.5px;
+  left: 7.5px;
   width: 3px;
   background: var(--color-rule);
 }
@@ -54,14 +56,14 @@
 .item[data-state="past"]::before,
 .item[data-state="past"]::after,
 .item[data-state="here"]::before {
-  background: var(--color-fg);
+  background: var(--color-accent);
 }
 
 .stop {
   position: absolute;
   z-index: 1;
   top: 3px;
-  left: 1px;
+  left: 3px;
   width: 12px;
   height: 12px;
   border: 2.5px solid var(--color-rule-2);
@@ -70,16 +72,16 @@
 }
 
 .item[data-state="past"] .stop {
-  border-color: var(--color-fg);
+  border-color: var(--color-accent);
 }
 
 .item[data-state="here"] .stop {
   top: 1px;
-  left: -1px;
+  left: 1px;
   width: 16px;
   height: 16px;
   border-width: 3.5px;
-  border-color: var(--color-fg);
+  border-color: var(--color-accent);
 }
 
 .link {

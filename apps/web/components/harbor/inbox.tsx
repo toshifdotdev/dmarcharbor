@@ -226,7 +226,7 @@ export function Inbox() {
                         </span>
                         <span aria-hidden className="mt-[5px] grid size-3 place-items-center">
                           {isUnread ? (
-                            <span className={clsx("block size-2", sev === "CRITICAL" ? "rotate-45 bg-fail" : "rounded-full bg-fg")} />
+                            <span className={clsx("block size-2", sev === "CRITICAL" ? "rotate-45 bg-fail" : "rounded-full bg-act")} />
                           ) : (
                             <span className="block size-2 rounded-full border-[1.5px] border-fg-4" />
                           )}
@@ -319,7 +319,8 @@ function QuietDay({ start, end, off }: { start: string | null; end: string | nul
     <div className="pt-1">
       <svg viewBox="0 0 298 34" className="block h-auto w-full" role="img" aria-label={words}>
         {sent.map(([a, b]) => (
-          <line key={`s${a}`} x1={x(a)} y1={Y} x2={x(b)} y2={Y} stroke="var(--color-fg)" strokeWidth={5} strokeLinecap="round" />
+          // The hours alert emails go out: green, a line in service. Quiet hours stay dotted grey.
+          <line key={`s${a}`} x1={x(a)} y1={Y} x2={x(b)} y2={Y} stroke="var(--color-done)" strokeWidth={5} strokeLinecap="round" />
         ))}
         {quiet.map(([a, b]) => (
           <line

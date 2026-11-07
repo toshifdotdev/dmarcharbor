@@ -38,7 +38,7 @@ import { getSessionUser } from "@/lib/api";
 import { getDpaAcceptance, getMySecurity } from "@/lib/api-ops";
 import { readHostBrand, type HostBrand } from "@/lib/host-brand";
 import { LEGAL_FOOTER_LINKS } from "@/lib/site-links";
-import { PierMark } from "@/components/mark";
+import { PierMark, Wordmark } from "@/components/mark";
 import { ToastProvider } from "@/components/ui/toast";
 import { AccountMenu } from "./account-menu";
 import { AssistantWidget } from "./assistant/assistant-widget";
@@ -236,13 +236,13 @@ function Brand({ brand }: { brand: HostBrand }) {
   const branded = brand.state === "verified";
   const name = branded ? brand.workspaceName : "DMARC Harbor";
   return (
-    <Link href="/" className="flex shrink-0 items-center gap-2.5 rounded-full text-act" aria-label={`${name}, portfolio`}>
+    <Link href="/" className={`flex shrink-0 items-center gap-2.5 rounded-full ${branded ? "text-act" : "text-fg"}`} aria-label={`${name}, portfolio`}>
       {branded && brand.logoUrl ? (
         <img src={brand.logoUrl} alt="" height={24} className="h-6 w-auto" />
       ) : (
         <PierMark size={22} />
       )}
-      <span className="hidden text-lead font-bold tracking-[-0.01em] text-fg xl:block">{name}</span>
+      <Wordmark name={name} className="hidden text-lead font-bold tracking-[-0.01em] text-fg xl:block" />
     </Link>
   );
 }

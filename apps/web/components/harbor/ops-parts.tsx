@@ -10,7 +10,8 @@
  *                   nothing to show).
  *   EscalationLine  an alert's reminder ladder as a strip map: the first
  *                   notice and each reminder are stations, the workspace
- *                   owner is the terminus. Travelled in ink, still to come
+ *                   owner is the terminus. Climbed in amber while open (green
+ *                   once handled), still to come
  *                   dashed (a step that is ready but not taken), and closed
  *                   in grey once someone has acknowledged it.
  *   RouteList       a vertical route with stations beside their labels: how
@@ -155,6 +156,9 @@ export function EscalationLine({
   const c = at - 1;
   const ink = "var(--color-fg)";
   const closed = "var(--color-rule-2)";
+  // The line climbed so far: amber while the alert is still open and climbing,
+  // green once someone has acknowledged or resolved it.
+  const climbed = open ? "var(--color-warn-mark)" : "var(--color-done)";
 
   return (
     <svg width={W} height={24} viewBox={`0 0 ${W} 24`} aria-hidden className="block shrink-0">
@@ -169,7 +173,7 @@ export function EscalationLine({
             y1={Y}
             x2={x2}
             y2={Y}
-            stroke={travelled ? ink : open ? ink : "var(--color-rule)"}
+            stroke={travelled ? climbed : open ? "var(--color-fg-4)" : "var(--color-rule)"}
             strokeWidth={5}
             strokeLinecap={travelled ? "round" : "butt"}
             strokeDasharray={!travelled && open ? "6 5" : undefined}
@@ -217,9 +221,9 @@ export function StepLine({ steps, className }: { steps: Array<{ title: string; b
           key={s.title}
           className={clsx(
             "relative border-t-[3px] pr-6 pt-4",
-            i === 0 ? "border-fg" : "border-rule-2",
+            i === 0 ? "border-act" : "border-rule-2",
             "before:absolute before:-top-[8.5px] before:left-0 before:size-[14px] before:rounded-full before:border-[3px] before:bg-paper before:content-['']",
-            i === 0 ? "before:border-fg" : "before:border-rule-2",
+            i === 0 ? "before:border-act" : "before:border-rule-2",
           )}
         >
           <p className="text-ui font-bold text-fg">{s.title}</p>
@@ -255,8 +259,8 @@ export function RouteList({ stops, className, label }: { stops: RouteStop[]; cla
           ? next.closed
             ? { background: "var(--color-rule)" }
             : next.planned
-              ? { backgroundImage: "repeating-linear-gradient(to bottom, var(--color-fg) 0 6px, transparent 6px 11px)" }
-              : { background: "var(--color-fg)" }
+              ? { backgroundImage: "repeating-linear-gradient(to bottom, var(--color-fg-4) 0 6px, transparent 6px 11px)" }
+              : { background: "var(--color-done)" }
           : undefined;
         return (
           <li key={s.key} className={clsx("relative min-h-[26px] pl-8", next && "pb-3.5")}>

@@ -27,8 +27,8 @@
  *                  action that cannot be undone. Ink, not red: it is for
  *                  finding, not warning.
  *   StepLine       a short line of stations for something set up in steps
- *                  (a custom domain, two-step verification): travelled in ink,
- *                  the current stop a capsule, the rest a dashed planned
+ *                  (a custom domain, two-step verification): travelled green,
+ *                  the current stop an accent capsule, the rest a dashed planned
  *                  segment, the transit convention for a line not yet built.
  *   RouteColumn    a vertical route with labelled stops, for the figures that
  *                  explain who gets in or what a client sees.
@@ -251,10 +251,10 @@ export function PermanentMark({ size = 9, className, label }: { size?: number; c
 /* ── Lines ─────────────────────────────────────────────────────────────── */
 
 const PLANNED: CSSProperties = {
-  backgroundImage: "repeating-linear-gradient(to right, var(--color-fg) 0 6px, transparent 6px 11px)",
+  backgroundImage: "repeating-linear-gradient(to right, var(--color-fg-4) 0 6px, transparent 6px 11px)",
 };
 const PLANNED_DOWN: CSSProperties = {
-  backgroundImage: "repeating-linear-gradient(to bottom, var(--color-fg) 0 6px, transparent 6px 11px)",
+  backgroundImage: "repeating-linear-gradient(to bottom, var(--color-fg-4) 0 6px, transparent 6px 11px)",
 };
 const CLOSED_DOWN: CSSProperties = {
   backgroundImage: "repeating-linear-gradient(to bottom, var(--color-rule-2) 0 2px, transparent 2px 6px)",
@@ -267,8 +267,9 @@ export type StepState = "done" | "current" | "planned";
 
 /**
  * Stations for something set up in steps. The segment into a station is
- * travelled (ink) once that station is reached; beyond the current stop the
- * line is planned (dashed).
+ * travelled (green) once that station is reached; a done station is filled
+ * green, the current one is a capsule in the accent, and beyond it the line
+ * is planned (grey dashed).
  */
 export function StepLine({
   steps,
@@ -294,7 +295,7 @@ export function StepLine({
             {next ? (
               <span
                 aria-hidden
-                className={clsx("absolute left-[7px] top-[5px] h-[5px] w-full", next.state === "planned" ? "" : "bg-fg")}
+                className={clsx("absolute left-[7px] top-[5px] h-[5px] w-full", next.state === "planned" ? "" : "bg-done")}
                 style={next.state === "planned" ? PLANNED : undefined}
               />
             ) : null}
@@ -302,9 +303,9 @@ export function StepLine({
               aria-hidden
               className={clsx(
                 "absolute left-0 z-[1] block rounded-full",
-                s.state === "done" && "top-0 size-[15px] border-[3px] border-fg bg-fg",
-                s.state === "current" && "-top-[4.5px] h-[24px] w-[15px] border-[3px] border-fg bg-paper",
-                s.state === "planned" && "top-0 size-[15px] border-[2.5px] border-fg-4 bg-paper",
+                s.state === "done" && "top-0 size-[15px] border-[3px] border-done bg-done",
+                s.state === "current" && "-top-[4.5px] h-[24px] w-[15px] border-[3px] border-act bg-paper",
+                s.state === "planned" && "top-0 size-[15px] border-[2.5px] border-rule-2 bg-paper",
               )}
             />
             <p className={clsx("text-ui leading-[1.3]", s.state === "planned" ? "font-medium text-fg-3" : "font-semibold text-fg")}>
@@ -356,7 +357,7 @@ export function RouteColumn({ stops, label, className }: { stops: RouteStop[]; l
             {next ? (
               <span
                 aria-hidden
-                className={clsx("absolute bottom-0 left-[8px] top-[14px] w-[5px]", into === "travelled" && "bg-fg")}
+                className={clsx("absolute bottom-0 left-[12px] top-[14px] w-[5px]", into === "travelled" && "bg-done")}
                 style={lineStyle}
               />
             ) : null}
@@ -364,7 +365,7 @@ export function RouteColumn({ stops, label, className }: { stops: RouteStop[]; l
               aria-hidden
               className={clsx(
                 "absolute top-[1px] z-[1] block h-[21px] rounded-full bg-paper",
-                big ? "-left-[4px] w-[29px]" : "left-0 w-[21px]",
+                big ? "left-0 w-[29px]" : "left-[4px] w-[21px]",
                 s.closed ? "border-[2.5px] border-rule-2" : "border-[3px] border-fg",
               )}
             />
@@ -374,7 +375,7 @@ export function RouteColumn({ stops, label, className }: { stops: RouteStop[]; l
             </p>
             {s.refused ? (
               <div className="relative mt-2 flex items-center gap-2.5">
-                <span aria-hidden className="-ml-[26px] h-[5px] w-[42px] shrink-0" style={FORGED_ACROSS} />
+                <span aria-hidden className="-ml-[22px] h-[5px] w-[38px] shrink-0" style={FORGED_ACROSS} />
                 <span aria-hidden className="h-[18px] w-[5px] shrink-0 rounded-full bg-fail" />
                 <p className="min-w-0 text-ui leading-[1.35]">
                   <span className="font-semibold text-fail">{s.refused.name}</span>

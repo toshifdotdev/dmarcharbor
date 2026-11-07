@@ -10,7 +10,7 @@ Reference: the live home page (`apps/web/components/harbor/landing*.tsx`, `landi
 
 ## The idea, in one line
 
-White page, near-black type, and colour only in the lines, the way a transit map keeps it.
+White page, near-black type, and colour wherever it carries meaning, the way a transit map keeps it: the lines, the line you have travelled, where you are now, and state. Never as decoration.
 
 ## Palette
 
@@ -25,9 +25,16 @@ White page, near-black type, and colour only in the lines, the way a transit map
 | rule-2 | `#c9cdd4` | closed stations, dotted "not measured" lines, field borders |
 | red | `#d9342b` | forged, failed, refused. Nothing else (4.7:1 as text) |
 
-In code (`apps/web/app/globals.css`) the tokens keep their older names, so no screen needs class renames: ground = `paper` (`paper-3` #f3f4f6 is the one recessed well, for code, hover and disabled), ink = `fg`, ink-2 = `fg-2`, app meta = `fg-3`, ink-3 = `fg-4`, rule = `rule` and `rule-2`, red = `fail`. Line colours are `route-blue`, `route-orange`, `route-green`, `route-yellow`, `route-purple`, `route-red`. State: `ok`, `warn`, `warn-mark` (shapes only, never text), `fail`, `crit`, `void`, and their `*-wash` fills, used only behind a state notice. `act` is the accent for links, focus and selected states; `cta` is the primary button. Both are ink until a verified tenant domain recolours them.
+In code (`apps/web/app/globals.css`) the tokens keep their older names, so no screen needs class renames: ground = `paper` (`paper-3` #f3f4f6 is the one recessed well, for code, hover and disabled), ink = `fg`, ink-2 = `fg-2`, app meta = `fg-3`, ink-3 = `fg-4`, rule = `rule` and `rule-2`, red = `fail`. Line colours are `route-blue`, `route-orange`, `route-green`, `route-yellow`, `route-purple`, `route-red`. State: `ok`, `warn`, `warn-mark` (shapes only, never text), `fail`, `crit`, `void`, and their `*-wash` fills, used only behind a state notice. `act` is the accent: blue `#1f5fd6` (5.7:1) for links, focus, selected tabs, segmented choices, switches, the section-nav underline, the current station ("you are here"), the Ask launcher and the avatar. `cta` is the primary button and stays ink. On a verified tenant domain both take the tenant's colour. `done` (`#13a050`, with `done-wash`) is progress: a line travelled, a step done, a feature included, mail that passed. Shapes and lines only; a word that says done or passed uses `ok`.
 
-Line colours, for senders on maps and nothing else: blue `#1f5fd6`, orange `#f07c1b`, green `#13a050`, yellow `#f2b705`, purple `#8a3fd1`, and red `#d9342b` dashed for the unknown sender. A colour names a line; it never decorates a heading, button, icon, background or chart.
+Colour meanings, everywhere:
+
+- **Blue (accent):** you can act here, or you are here.
+- **Green (done):** travelled, done, included, passed. Ahead is a grey dashed line (`fg-4`).
+- **Amber (warn-mark):** waiting on a person, e.g. an alert still climbing its reminder ladder.
+- **Red:** forged, failed, refused. Nothing else.
+
+Line colours: blue `#1f5fd6`, orange `#f07c1b`, green `#13a050`, yellow `#f2b705`, purple `#8a3fd1`, and red `#d9342b` dashed for the unknown sender. A colour names a line: a sender on a mail map (one colour, one service), a client's line in the client book (chosen from its id, never red), and the four settings groups (people blue, clients purple, integrations orange, records green). It never decorates a heading, button, icon or background.
 
 State text, when a word must carry state: ok `#0f7a3b`, warn `#9a5b00`, fail = red, not measured = ink-3 with a hollow or hatched mark. State always travels with a word, never colour alone.
 
@@ -52,7 +59,8 @@ White label: primary buttons are ink for our own brand and the tenant's primary 
 - **Station:** a white capsule with a 3px ink stroke across every line that stops there. Label above or beside: bold name, lighter kind.
 - **Terminus:** a larger capsule where mail is delivered; a short red bar where it is refused.
 - **Message:** a white dot with a 2.5px stroke in its line's colour, riding the line.
-- **Planned segment:** a dashed ink line, for a step that is ready but not taken (the transit convention for a line under construction).
+- **Progress line:** in setup steps, routes and ladders the travelled part is green and done stations are filled green; the station you are at is a capsule in the accent; ahead is a grey dashed line. The policy strip is green up to the published policy.
+- **Planned segment:** a dashed line for a step that is ready but not taken (the transit convention for a line under construction): grey in a progress line, the accent where it is the next action offered.
 - **Closed station:** hollow and grey, for something absent or not measured.
 - **Strip map:** for lists (portfolio rows), a thin version: 5px line, small stations at fixed positions for p=none, p=quarantine, p=reject.
 
@@ -86,15 +94,16 @@ White label: primary buttons are ink for our own brand and the tenant's primary 
 
 The signed-in app is the same language at working density: white, hairlines, ink type, state words with their marks, no cards and no shadows on the page. Build screens from the shared parts and do not restyle them locally.
 
-- **Frames.** Public pages: `PublicHeader` and `PublicFooter` (`components/harbor/public-frame.tsx`). Signed-in app: `AppShell` with `PageHeader` (a white sticky bar, the section nav marked by a 3px rounded line under the current section). Sign-in, sign-up and first setup: `AuthFrame`. Documents that leave the product: `ArtefactFrame`. Client portal: `PortalFrame`.
+- **Frames.** Public pages: `PublicHeader` and `PublicFooter` (`components/harbor/public-frame.tsx`). Signed-in app: `AppShell` with `PageHeader` (a white sticky bar, the section nav marked by a 3px rounded accent line under the current section; the public header marks its current page the same way). Sign-in, sign-up and first setup: `AuthFrame`. Documents that leave the product: `ArtefactFrame`. Client portal: `PortalFrame`.
 - **Buttons** (`components/ui/button.tsx`) are pills: `sm` 30px for tables and toolbars, `md` 36px by default, `lg` 44px for a form's submit. `primary` is ink (or the tenant colour), one per region; `secondary` is white on a hairline; `ghost` is text that takes a pill on hover; `danger` is red and only behind a confirmation.
-- **Inputs** (`field.tsx`, `choice.tsx`) are 30, 36 or 44px with an 8px radius and a `rule-2` border; focus is an ink border and a soft ring. `SearchInput` is a pill. `Segmented` is a pill track with the chosen option filled ink. A setting that applies at once is a `Switch`; one that waits for Save is a `Checkbox`.
+- **Inputs** (`field.tsx`, `choice.tsx`) are 30, 36 or 44px with an 8px radius and a `rule-2` border; focus is an accent border and a soft ring. `SearchInput` is a pill. `Segmented` is a pill track with the chosen option filled in the accent. A setting that applies at once is a `Switch`; one that waits for Save is a `Checkbox`.
 - **Tables** (`table.tsx`) read like a timetable: sentence-case column labels, hairlines between rows, no vertical rules, no zebra, no card. Figures right-aligned in tabular numerals; a missing value is `Nil`, never a zero. Below its minimum width a table scrolls inside itself; the page never scrolls sideways.
 - **State** (`badge.tsx`): a word in its state colour with its shape. Filled square aligned, diamond blocking, ring unverified, half-filled square stale, hatched square not measured. Never a filled pill in a table column.
 - **Other states** (`states.tsx`, `notice.tsx`): `LoadingState`, `EmptyState` (its steps are stations on one line), `ErrorState`, `PermissionState`, `UpgradeNotice`, `PartialNotice` and `Notice`. A failed request is never shown as empty.
 - **Waiting** is the riding mark (`TideMark` in `tide.tsx`): a message riding from an origin to a terminus. No spinners and no shimmer. Inside a button, `busy` shows three dots and keeps the button's width.
 - **Overlays** (menus, toasts, dialogs) are the only things that cast a shadow (`shadow-float`). Panels and dialogs use `rounded-sheet` (14px) and a hairline.
-- **Focus** stays visible: buttons and links get a 2px outline in the accent, inputs the ink border and ring.
+- **Focus** stays visible: buttons and links get a 2px outline in the accent, inputs the accent border and ring.
+- **Charts** split passed and failed mail in the state colours (passed green, failed red); a plain count stays ink. Not measured stays hatched grey.
 
 ## Working on a screen
 
@@ -105,6 +114,7 @@ The signed-in app is the same language at working density: white, hairlines, ink
 
 - Let white space separate things.
 - Use the five sender colours with the same meaning everywhere: one colour, one service.
+- Give every screen colour that means something: the accent where a person can act or is now, green for what is done or passing, and the line colours for lines.
 - Keep red for forged and failed mail only.
 - Write plainly for MSPs and agencies: clients, client domains, tickets, approvals, your brand.
 

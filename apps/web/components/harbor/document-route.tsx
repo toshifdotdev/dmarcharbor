@@ -9,8 +9,9 @@
  *                published policy sends it: a red bar (refused), the spam
  *                folder, or the inbox anyway when nothing stops it.
  *   PolicyStrip  where a domain stands on the way to blocking forgeries:
- *                monitor, spam, block. A step that is asked for but not taken
- *                (an open approval) is drawn dashed.
+ *                monitor, spam, block. Travelled green, the current station
+ *                in the accent; a step that is asked for but not taken (an
+ *                open approval) is drawn dashed in the accent.
  *   StateMark    the shape that travels with every state word, so nothing is
  *                said in colour alone.
  *

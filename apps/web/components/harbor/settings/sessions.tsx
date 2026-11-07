@@ -54,8 +54,8 @@ function Row({ s, onRevoke }: { s: SessionView; onRevoke?: () => void }) {
         aria-hidden
         className={
           s.current
-            ? "absolute -left-[3px] top-[18px] block h-[15px] w-[21px] rounded-full border-[3px] border-fg bg-paper"
-            : "absolute left-[2px] top-[19px] block size-[11px] rounded-full border-2 border-fg-4 bg-paper"
+            ? "absolute left-0 top-[18px] block h-[15px] w-[21px] rounded-full border-[3px] border-fg bg-paper"
+            : "absolute left-[5px] top-[19px] block size-[11px] rounded-full border-2 border-fg-4 bg-paper"
         }
       />
       <div className="min-w-0">

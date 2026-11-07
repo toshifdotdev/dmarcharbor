@@ -120,9 +120,9 @@ export function EmptyState({
               key={s.title}
               className={clsx(
                 "relative border-t-[3px] pr-6 pt-4",
-                i === 0 ? "border-fg" : "border-rule-2",
+                i === 0 ? "border-act" : "border-rule-2",
                 "before:absolute before:-top-[8.5px] before:left-0 before:size-[14px] before:rounded-full before:border-[3px] before:bg-paper before:content-['']",
-                i === 0 ? "before:border-fg" : "before:border-rule-2",
+                i === 0 ? "before:border-act" : "before:border-rule-2",
               )}
             >
               <p className="text-ui font-bold text-fg">{s.title}</p>

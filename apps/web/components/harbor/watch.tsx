@@ -129,13 +129,17 @@ function WatchItem({
           // An open alert waits for a person: the warning ring, not red.
           <span className="block size-2.5 rounded-full border-2 border-warn-mark" />
         ) : live ? (
-          <span className="block size-2 rounded-full bg-fg" />
+          // Something new for you: the accent dot.
+          <span className="block size-2 rounded-full bg-act" />
         ) : mark === "alert" ? (
-          // At rest each reading keeps its own shape, so "0" beside a diamond
-          // and "0" beside a ring cannot be confused on a phone.
-          <span className="block size-[7px] rotate-45 border border-fg-4" />
+          // At rest each reading keeps its own shape, so "0" beside a square
+          // and "0" beside a ring cannot be confused on a phone. Nothing open
+          // is a good state, so it is green.
+          <span className={clsx("block size-2", reading.state === "ok" ? "bg-done" : "border border-fg-4")} />
         ) : (
-          <span className="block size-2 rounded-full border border-fg-4" />
+          <span
+            className={clsx("block size-2 rounded-full", reading.state === "ok" ? "border-[1.5px] border-done" : "border border-fg-4")}
+          />
         )}
       </span>
       {/* Narrow screens keep the number and drop the words; the accessible

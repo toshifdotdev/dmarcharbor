@@ -5,8 +5,8 @@
  *
  *   ConnectionLine  one integration drawn as a line from where events start to
  *                   where they arrive, with the state said in a word above it.
- *                     live      solid ink to an open terminus
- *                     paused    a planned segment (dashed ink): ready, not used
+ *                     live      solid green to an open terminus
+ *                     paused    a planned segment (dashed grey): ready, not used
  *                     failing   solid ink up to a short red bar: refused there
  *                     none      a planned segment to a closed (grey) terminus
  *                     unknown   a dotted grey line, every station closed
@@ -131,9 +131,9 @@ export function ConnectionLine({
           className="absolute top-0 block overflow-visible"
           style={{ left: 9, width: "calc(100% - 24px)" }}
         >
-          {state === "live" ? <line x1="0" x2="100%" y1="11" y2="11" stroke="var(--color-fg)" strokeWidth="5" strokeLinecap="round" /> : null}
+          {state === "live" ? <line x1="0" x2="100%" y1="11" y2="11" stroke="var(--color-done)" strokeWidth="5" strokeLinecap="round" /> : null}
           {state === "paused" || state === "none" ? (
-            <line x1="0" x2="100%" y1="11" y2="11" stroke="var(--color-fg)" strokeWidth="5" strokeDasharray="9 7" />
+            <line x1="0" x2="100%" y1="11" y2="11" stroke="var(--color-fg-4)" strokeWidth="5" strokeDasharray="9 7" />
           ) : null}
           {state === "failing" ? (
             <>
@@ -209,7 +209,7 @@ export function SetupSteps({
               {!terminus ? (
                 <span
                   aria-hidden
-                  className={clsx("absolute bottom-[-2px] left-[9.5px] top-[15px] border-l-[3px] border-fg", done ? "border-solid" : "border-dashed")}
+                  className={clsx("absolute bottom-[-2px] left-[9.5px] top-[15px] border-l-[3px]", done ? "border-solid border-done" : "border-dashed border-fg-4")}
                 />
               ) : null}
               <span aria-hidden className="relative flex h-[18px] items-center">
@@ -233,8 +233,8 @@ export function SetupSteps({
 }
 
 /**
- * A short lifecycle on one horizontal line. Each gap is `built` (ink),
- * `planned` (dashed ink: it will happen unless stopped) or `unbuilt` (grey).
+ * A short lifecycle on one horizontal line. Each gap is `built` (green),
+ * `planned` (dashed accent: it will happen unless stopped) or `unbuilt` (grey).
  * A stop can be the terminus (a capsule) or `closed` (grey, not reached).
  */
 export function StopLine({
@@ -261,7 +261,7 @@ export function StopLine({
               x2={cx(i + 1)}
               y1="10"
               y2="10"
-              stroke={s === "unbuilt" ? "var(--color-rule)" : "var(--color-fg)"}
+              stroke={s === "unbuilt" ? "var(--color-rule)" : s === "planned" ? "var(--color-act)" : "var(--color-done)"}
               strokeWidth="5"
               strokeLinecap={s === "planned" ? "butt" : "round"}
               strokeDasharray={s === "planned" ? "8 6" : undefined}

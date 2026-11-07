@@ -1,8 +1,8 @@
 /*
  * setup-rail.module.css — the setup route, drawn as one line with stations.
  *
- * Built line: solid accent (ink, or the tenant colour on a verified domain).
- * Planned segment, a step that is ready but not taken: dashed ink, always.
+ * Built line and done stations: green. The station you are at: the accent.
+ * Planned segment, a step that is ready but not taken: dashed grey.
  * Unbuilt line: the rule colour. Stations are white with a 3px stroke; a
  * closed station (not reached) is grey. The station you are at carries the
  * message dot. The server HTML is this final picture; the draw below plays
@@ -26,7 +26,8 @@
 
 /* A station the line has reached: filled, so done reads at a glance. */
 .done {
-  background: var(--color-accent);
+  border-color: var(--color-done);
+  background: var(--color-done);
 }
 
 .here {
@@ -85,16 +86,16 @@
 }
 
 .built {
-  background: var(--color-accent);
+  background: var(--color-done);
 }
 
 /* A step ready but not taken: dashed ink, the map's line under construction. */
 .planned {
-  background-image: repeating-linear-gradient(90deg, var(--color-fg) 0 7px, transparent 7px 12px);
+  background-image: repeating-linear-gradient(90deg, var(--color-fg-4) 0 7px, transparent 7px 12px);
 }
 
 .segV.planned {
-  background-image: repeating-linear-gradient(180deg, var(--color-fg) 0 7px, transparent 7px 12px);
+  background-image: repeating-linear-gradient(180deg, var(--color-fg-4) 0 7px, transparent 7px 12px);
 }
 
 .unbuilt {

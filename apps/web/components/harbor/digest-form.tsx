@@ -123,7 +123,55 @@ export function ScheduleFields({ value, onChange }: { value: ScheduleValue; onCh
           <span className="font-semibold text-fg">{scheduleLabel(value)}.</span> {mounted ? nextLine(value) : null}
         </p>
       </div>
+      {mounted ? <NextSends value={value} /> : null}
     </div>
+  );
+}
+
+/** The next four sends, worked out by the scheduler's own rule, one after another. */
+function nextSends(value: ScheduleValue, count = 4): Date[] {
+  const out: Date[] = [];
+  let now = new Date();
+  let lastSentAt: string | null = null;
+  for (let i = 0; i < count; i++) {
+    const next = nextDigestDue({ ...value, lastSentAt }, now);
+    const at = next === "now" ? now : next;
+    if (Number.isNaN(at.getTime())) break;
+    out.push(at);
+    lastSentAt = at.toISOString();
+    now = new Date(at.getTime() + 3_600_000);
+  }
+  return out;
+}
+
+/**
+ * The schedule as departures on a line: the next send is the station in the
+ * accent, the three after it hollow stops, so "every Monday" or "the 28th"
+ * reads as dates before it is saved. Rendered after mount only: it reads the clock.
+ */
+function NextSends({ value }: { value: ScheduleValue }) {
+  const sends = nextSends(value);
+  if (sends.length === 0) return null;
+  const label = (d: Date) => d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+  return (
+    <ol aria-label="The next sends" className="grid" style={{ gridTemplateColumns: `repeat(${sends.length}, minmax(0, 1fr))` }} data-testid="digest-next-sends">
+      {sends.map((d, i) => (
+        <li key={d.toISOString()} className="relative flex min-w-0 flex-col items-start">
+          {i < sends.length - 1 ? (
+            <span aria-hidden className="absolute left-[7px] top-[6px] h-[3px] w-full rounded-full bg-rule-2" />
+          ) : null}
+          <span
+            aria-hidden
+            className={
+              i === 0
+                ? "relative z-[1] block h-[15px] w-[15px] rounded-full border-[3px] border-act bg-paper"
+                : "relative z-[1] mt-[1.5px] block size-3 rounded-full border-[2.5px] border-fg-4 bg-paper"
+            }
+          />
+          <span className={`mt-1.5 text-meta tnum ${i === 0 ? "font-semibold text-act" : "text-fg-3"}`}>{label(d)}</span>
+        </li>
+      ))}
+    </ol>
   );
 }
 

@@ -35,7 +35,7 @@ export function AccountMenu({ name, email }: { name: string | null; email: strin
     <MenuRoot modal={false}>
       <MenuTrigger
         aria-label={`Account: ${email ?? "signed in"}`}
-        className="grid size-9 shrink-0 place-items-center rounded-full border border-rule-2 bg-paper text-meta font-bold text-fg-2 hover:border-fg-3 hover:text-fg data-[state=open]:border-fg-3"
+        className="grid size-9 shrink-0 place-items-center rounded-full border-2 border-act bg-paper text-meta font-bold text-act hover:bg-act hover:text-act-ink data-[state=open]:bg-act data-[state=open]:text-act-ink"
       >
         {initials(name, email)}
       </MenuTrigger>

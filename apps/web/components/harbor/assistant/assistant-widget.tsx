@@ -150,7 +150,7 @@ export function AssistantWidget({ organizationId, brand }: { organizationId: str
         onKeyDown={onKeyDown}
         data-testid="assistant-window"
         className={clsx(
-          "fixed z-40 flex-col overflow-hidden rounded-sheet border border-rule bg-paper text-fg shadow-float",
+          "fixed z-40 flex-col overflow-hidden rounded-sheet border border-rule border-t-[3px] border-t-act bg-paper text-fg shadow-float",
           open ? "flex" : "hidden",
           // Phones: the width of the screen less 8px a side, above the launcher.
           "inset-x-2 bottom-[70px] h-[min(560px,calc(100dvh-140px))]",
@@ -248,7 +248,8 @@ export function AssistantWidget({ organizationId, brand }: { organizationId: str
         className={clsx(
           "fixed bottom-4 right-4 z-40 inline-flex h-11 items-center gap-2 rounded-full pl-3.5 pr-4 text-ui font-semibold",
           "sm:bottom-6 sm:right-6",
-          "bg-cta text-cta-ink transition-colors duration-150 hover:bg-cta-hover active:bg-cta-press",
+          // The launcher is the help line: drawn in the accent, so it reads as a way in, not as a page action.
+          "bg-act text-act-ink transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--color-act)_86%,black)] active:bg-[color-mix(in_oklab,var(--color-act)_74%,black)]",
           "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-act",
         )}
       >
@@ -444,9 +445,14 @@ function QuestionButton({ question, onAsk, disabled }: { question: string; onAsk
       type="button"
       disabled={disabled}
       onClick={() => onAsk(question)}
-      className="-mx-2 w-[calc(100%+16px)] rounded-ctl px-2 py-1 text-left text-ui text-fg-2 transition-colors duration-150 hover:bg-paper-3 hover:text-fg disabled:cursor-not-allowed disabled:text-fg-4"
+      className="group -mx-2 flex w-[calc(100%+16px)] items-baseline gap-2 rounded-ctl px-2 py-1 text-left text-ui text-fg-2 transition-colors duration-150 hover:bg-paper-3 hover:text-fg disabled:cursor-not-allowed disabled:text-fg-4"
     >
-      {question}
+      {/* A stop you can take: a hollow ring in the accent, filled on hover. */}
+      <span
+        aria-hidden
+        className="relative top-[1px] size-[9px] shrink-0 rounded-full border-2 border-act bg-paper transition-colors duration-150 group-hover:bg-act group-disabled:border-rule-2 group-disabled:bg-paper"
+      />
+      <span className="min-w-0">{question}</span>
     </button>
   );
 }
@@ -551,7 +557,7 @@ function SourceLink({ source }: { source: AssistantSource }) {
         data-testid="assistant-source"
         className="group inline-flex max-w-full items-baseline gap-1.5 rounded text-ui hover:text-fg"
       >
-        <span className="shrink-0 font-semibold text-fg group-hover:underline">{source.page}</span>
+        <span className="shrink-0 font-semibold text-act group-hover:underline">{source.page}</span>
         {source.section ? <span className="min-w-0 truncate text-fg-3">{source.section}</span> : null}
         <External size={12} className="shrink-0 self-center text-fg-4" />
         <span className="sr-only">(opens in a new tab)</span>

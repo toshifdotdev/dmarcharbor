@@ -25,7 +25,7 @@ import type { ReactNode } from "react";
 import { agencyContact } from "@/lib/agency-contact";
 import { readHostBrand } from "@/lib/host-brand";
 import { LEGAL_FOOTER_LINKS } from "@/lib/site-links";
-import { PierMark } from "@/components/mark";
+import { PierMark, Wordmark } from "@/components/mark";
 import { AgencyContactLine } from "./agency-contact";
 import { brandName } from "./public-frame";
 import { HostUnverifiedBanner } from "./shell-banners";
@@ -71,9 +71,10 @@ export async function AuthFrame({
             ) : (
               <PierMark size={22} />
             )}
-            <span className="whitespace-nowrap text-[17px] font-bold tracking-[-0.01em] text-fg max-[380px]:hidden">
-              {brandName(brand)}
-            </span>
+            <Wordmark
+              name={brandName(brand)}
+              className="whitespace-nowrap text-[17px] font-bold tracking-[-0.01em] text-fg max-[380px]:hidden"
+            />
           </Link>
           <div className="ml-auto flex items-center gap-2 text-ui">{aside}</div>
         </div>

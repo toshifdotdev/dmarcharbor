@@ -24,7 +24,7 @@ import Link from "next/link";
 import { unstable_rethrow } from "next/navigation";
 import type { ReactNode } from "react";
 import { ButtonLink } from "@/components/ui/button";
-import { PierMark } from "@/components/mark";
+import { PierMark, Wordmark } from "@/components/mark";
 import { getSessionUser } from "@/lib/api";
 import { readHostBrand, type HostBrand } from "@/lib/host-brand";
 import { resolveActiveWorkspace } from "@/lib/session";
@@ -128,7 +128,7 @@ export async function NotFoundView({
           ) : verified ? null : (
             <PierMark size={22} />
           )}
-          <span className="text-[17px] font-bold tracking-[-0.01em]">{name}</span>
+          <Wordmark name={name} className="text-[17px] font-bold tracking-[-0.01em]" />
         </Link>
       </header>
 
@@ -173,7 +173,7 @@ function ClosedStation({ name, className }: { name: string; className?: string }
       aria-label="A line that runs out at a closed station"
     >
       {/* The line the reader followed. */}
-      <path d="M24 80 H300" fill="none" stroke="var(--color-fg)" strokeWidth="7" strokeLinecap="round" />
+      <path d="M24 80 H300" fill="none" stroke="var(--color-act)" strokeWidth="7" strokeLinecap="round" />
       {/* Where it should have gone: not built, so dotted grey. */}
       <path d="M318 80 H470" fill="none" stroke="var(--color-rule-2)" strokeWidth="7" strokeLinecap="round" strokeDasharray="0.1 16" />
       <circle cx="24" cy="80" r="9" fill="var(--color-paper)" stroke="var(--color-fg)" strokeWidth="3" />

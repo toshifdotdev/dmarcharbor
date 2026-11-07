@@ -17,8 +17,8 @@
  *   domain's DMARC policy sends it. It is read from public DNS, not measured
  *   mail, and its caption says so.
  * - What to fix: each finding a station on a line not built yet (dashed, the
- *   map's line under construction), worst first. What is already in place is
- *   the travelled line, in solid ink.
+ *   map's line under construction, in grey), worst first. What is already in
+ *   place is the travelled line, in solid green.
  */
 
 import type { ReactNode } from "react";

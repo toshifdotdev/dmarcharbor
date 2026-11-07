@@ -4,8 +4,9 @@
    DMARC HARBOR — Routes (.kiro/steering/design-system.md)
 
    The site is drawn as a transit map: a white ground, near-black type,
-   hairline rules, and colour only where it carries meaning, which is a
-   sender's line on a map or a state word. Nothing decorates.
+   hairline rules, and colour wherever it carries meaning: a sender's line,
+   a state word, the line you have travelled, where you are now. Nothing
+   decorates: no gradients, glows, tinted bands or coloured headings.
 
    NAMES. The token and utility names are the ones every screen already uses
    (paper, fg, rule, act, cta, legend, display, data), so moving a screen to
@@ -14,10 +15,13 @@
    components/brand-applier.tsx writes them, and `--hb-primary*`, for a
    verified tenant domain.
 
-   ACCENT. Links, focus, selected and active states, and primary buttons are
-   ink for our own brand and the tenant's colour on their verified domain. Data
-   is never drawn in the accent, so a tenant's colour is never mistaken for a
-   measurement.
+   ACCENT. Links, focus, selected and active states and "you are here" are
+   blue (#1f5fd6) for our own brand; primary buttons stay ink. On a tenant's
+   verified domain both take the tenant's colour. Data is never drawn in the
+   accent, so a tenant's colour is never mistaken for a measurement.
+
+   PROGRESS. A line travelled and a step done are green (--color-done), the
+   transit convention for a line in service. Ahead is a grey dashed line.
 
    STATE. ok / warn / fail / crit / void are for state only, and every state
    colour travels with a shape and a word. Red is forged, failed or refused.
@@ -44,9 +48,14 @@
   --color-fg-3: #5f646c; /* 6.0:1 labels and meta in dense screens */
   --color-fg-4: #6c717a; /* 4.9:1 captions, placeholders, empty cells */
 
-  /* The default accent, before any tenant colour. */
-  --color-accent: #15171b;
+  /* The default accent, before any tenant colour: 5.7:1 on white. */
+  --color-accent: #1f5fd6;
   --color-accent-ink: #ffffff;
+
+  /* Progress: a step done, a line travelled. Shapes and lines, never text
+     (text that says "done" uses --color-ok). Never the tenant's colour. */
+  --color-done: #13a050;
+  --color-done-wash: #e7f6ed;
 
   /* Rules. Hairlines carry structure; shadows only lift overlays. */
   --color-rule: #e7e9ed;
@@ -144,10 +153,12 @@ body {
    a dark tenant colour lightens, a light one darkens. Darkening ink, which is
    what the earlier rule did, changes nothing a person can see. */
 [data-harbor] {
-  --color-accent: #15171b;
+  --color-accent: #1f5fd6;
   --color-accent-ink: #ffffff;
-  --hb-primary: var(--color-accent);
-  --hb-primary-ink: var(--color-accent-ink);
+  /* Primary buttons are ink for our brand, not the accent; a tenant's
+     colour sets both (lib/brand-vars, BrandApplier). */
+  --hb-primary: #15171b;
+  --hb-primary-ink: #ffffff;
   --hb-primary-hover: color-mix(in oklab, var(--hb-primary) 84%, var(--hb-primary-ink));
   --hb-primary-press: color-mix(in oklab, var(--hb-primary) 72%, var(--hb-primary-ink));
   --color-act: var(--color-accent);
@@ -461,4 +472,81 @@ dialog.hb-sheet {
 }
 dialog.hb-sheet[open] {
   animation: hb-slide-in 200ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+/* ── Charts drawing in ──────────────────────────────────────────────────
+   The server HTML is the finished chart. After mount, and only without
+   reduced motion, draw-on-view.tsx sets [data-play] on the nearest
+   [data-draw] each time the chart comes into view, and it plays forward
+   once: columns rise from the baseline, bars and meters extend from the
+   left, lines and rings draw along their length. Under 0.8s, ease out,
+   never backwards, never tied to the scroll position. */
+@keyframes hb-grow-y {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes hb-grow-x {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes hb-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+[data-draw][data-play] .hb-grow-y {
+  transform-box: fill-box;
+  transform-origin: center bottom;
+  animation: hb-grow-y 520ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 10ms);
+}
+
+[data-draw][data-play] .hb-grow-x {
+  transform-origin: left center;
+  animation: hb-grow-x 560ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 60ms);
+}
+
+/* A line or ring drawn with pathLength="1" and stroke-dasharray="1". */
+[data-draw][data-play] .hb-draw {
+  animation: hb-draw 760ms cubic-bezier(0.3, 0.6, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 90ms);
+}
+
+/* A ring's arcs arrive one after another, in their order round the ring. */
+@keyframes hb-arc {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+[data-draw][data-play] .hb-donut {
+  animation: hb-arc 420ms ease-out both;
+  animation-delay: calc(var(--i, 0) * 110ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-draw][data-play] .hb-grow-y,
+  [data-draw][data-play] .hb-grow-x,
+  [data-draw][data-play] .hb-draw,
+  [data-draw][data-play] .hb-donut {
+    animation: none;
+  }
 }

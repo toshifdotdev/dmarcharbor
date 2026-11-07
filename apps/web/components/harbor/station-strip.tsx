@@ -2,14 +2,15 @@
  * station-strip.tsx — a short sequence drawn as stations on one line: the
  * steering file's strip map, at the size of a side panel.
  *
- *   built      ink: the steps already taken
- *   planned    dashed ink: the next step, ready but not taken (the transit
+ *   built      green: the steps already taken
+ *   planned    dashed accent: the next step, ready but not taken (the transit
  *              convention for a line under construction)
  *   unbuilt    rule grey: steps ahead that the evidence does not support yet
  *   unobserved the whole line dotted and every station closed: nothing was
  *              observed, which is never drawn as being at the first station
  *
- * The station you are at is drawn larger and named in bold. Coordinates are
+ * Stations passed are filled green; the station you are at is drawn larger,
+ * ringed in the accent and named in bold. Coordinates are
  * percentages of the strip's width, so the drawing keeps its proportions at
  * any width without scaling its strokes. No hooks: the domain page renders it
  * on the server, and the switch panel inside its client component.
@@ -53,7 +54,7 @@ export function StationStrip({
               x2={cx(i + 1)}
               y1={Y}
               y2={Y}
-              stroke={segment === "unbuilt" ? "var(--color-rule)" : "var(--color-fg)"}
+              stroke={segment === "unbuilt" ? "var(--color-rule)" : segment === "planned" ? "var(--color-act)" : "var(--color-done)"}
               strokeWidth={5}
               strokeLinecap={segment === "planned" ? "butt" : "round"}
               strokeDasharray={segment === "planned" ? "7 5" : undefined}
@@ -69,8 +70,8 @@ export function StationStrip({
               cx={cx(i)}
               cy={Y}
               r={here ? 7.5 : 5}
-              fill="var(--color-paper)"
-              stroke={reached ? "var(--color-fg)" : "var(--color-rule-2)"}
+              fill={!here && reached ? "var(--color-done)" : "var(--color-paper)"}
+              stroke={here ? "var(--color-act)" : reached ? "var(--color-done)" : "var(--color-rule-2)"}
               strokeWidth={3}
             />
           );
@@ -103,7 +104,7 @@ const STOP_WORD: Record<StopState, { label: string; className: string }> = {
 };
 
 /**
- * Steps as stations down a vertical line: the line is built (ink) below each
+ * Steps as stations down a vertical line: the line is built (green) below each
  * step that is done, unbuilt (grey) below the rest. A blocked step's station
  * is red, an optional one dashed. The state also travels as a word.
  */
@@ -125,14 +126,14 @@ export function StationList({
             {!last ? (
               <span
                 aria-hidden
-                className={clsx("absolute bottom-0 left-[8px] top-[12px] w-[3px]", stop.state === "done" ? "bg-fg" : "bg-rule")}
+                className={clsx("absolute bottom-0 left-[8px] top-[12px] w-[3px]", stop.state === "done" ? "bg-done" : "bg-rule")}
               />
             ) : null}
             <span
               aria-hidden
               className={clsx(
                 "absolute left-[2px] top-[2px] size-[15px] rounded-full border-[3px] bg-paper",
-                stop.state === "done" && "border-fg",
+                stop.state === "done" && "border-done bg-done",
                 stop.state === "pending" && "border-rule-2",
                 stop.state === "blocked" && "border-fail",
                 stop.state === "optional" && "border-dashed border-rule-2",

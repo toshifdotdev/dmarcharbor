@@ -4,9 +4,9 @@
  * rail.tsx — the settings sections beside every section, drawn as four short
  * lines of stops.
  *
- * Each group is a line and each section a station on it. The line is a quiet
- * grey; the section you are on is an ink capsule with its name in bold, the
- * way a line diagram marks "you are here". Sections that hold an action nobody
+ * Each group is a line and each section a station on it. Each line has its
+ * own colour; the section you are on is an ink capsule with its name in bold,
+ * the way a line diagram marks "you are here". Sections that hold an action nobody
  * can take back carry the hollow diamond, so the person can see before they
  * open one that something there is permanent. The diamond is ink, not red: the
  * rail is for finding, not warning.
@@ -21,6 +21,18 @@ import { SETTINGS_GROUPS, type SettingsKey } from "@/lib/settings-map";
 import { ChevronDown } from "@/components/ui/icons";
 import { PermanentMark } from "./parts";
 
+/**
+ * Each group is its own line on the diagram, so each has its own colour, the
+ * way a transit map tells its lines apart. Red is never a line here: it means
+ * forged or failed everywhere else.
+ */
+export const SETTINGS_LINE: Record<string, string> = {
+  people: "bg-route-blue",
+  clients: "bg-route-purple",
+  connections: "bg-route-orange",
+  records: "bg-route-green",
+};
+
 function Links({ current, className }: { current: SettingsKey; className?: string }) {
   return (
     <div className={clsx("flex flex-col gap-6", className)}>
@@ -28,7 +40,10 @@ function Links({ current, className }: { current: SettingsKey; className?: strin
         <div key={g.id}>
           <p className="pb-1.5 text-meta font-bold text-fg">{g.title}</p>
           <div className="relative">
-            <span aria-hidden className="absolute bottom-[15px] left-[6px] top-[15px] w-[3px] rounded-full bg-rule-2" />
+            <span
+              aria-hidden
+              className={clsx("absolute bottom-[15px] left-[9.5px] top-[15px] w-[4px] rounded-full", SETTINGS_LINE[g.id] ?? "bg-rule-2")}
+            />
             <ul>
               {g.sections.map((s) => {
                 const on = s.key === current;
@@ -38,7 +53,7 @@ function Links({ current, className }: { current: SettingsKey; className?: strin
                       href={s.href}
                       aria-current={on ? "page" : undefined}
                       className={clsx(
-                        "group/stop relative flex min-h-[30px] items-center gap-2 py-1 pl-6 pr-1 text-ui transition-colors duration-100",
+                        "group/stop relative flex min-h-[30px] items-center gap-2 py-1 pl-7 pr-1 text-ui transition-colors duration-100",
                         on ? "font-semibold text-fg" : "font-medium text-fg-2 hover:text-fg",
                       )}
                     >
@@ -47,8 +62,8 @@ function Links({ current, className }: { current: SettingsKey; className?: strin
                         className={clsx(
                           "absolute top-1/2 z-[1] block -translate-y-1/2 rounded-full bg-paper",
                           on
-                            ? "-left-[3.5px] h-[14px] w-[22px] border-[3px] border-fg"
-                            : "left-[2.5px] size-[10px] border-2 border-fg-4 transition-colors duration-100 group-hover/stop:border-fg",
+                            ? "left-[0.5px] h-[14px] w-[22px] border-[3px] border-fg"
+                            : "left-[6.5px] size-[10px] border-2 border-fg-3 transition-colors duration-100 group-hover/stop:border-fg",
                         )}
                       />
                       <span className="min-w-0 flex-1 truncate group-hover/stop:underline group-hover/stop:decoration-rule-2 group-hover/stop:underline-offset-[3px]">
