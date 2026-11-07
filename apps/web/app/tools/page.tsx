@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { publicMetadata } from "@/lib/seo";
-import { FREE_TOOLS } from "@/lib/tools";
+import { FREE_TOOLS, TOOLS_INDEX } from "@/lib/tools";
 import { ToolFrame } from "@/components/harbor/tools/tool-frame";
 
 /**
@@ -10,12 +10,7 @@ import { ToolFrame } from "@/components/harbor/tools/tool-frame";
  * portal (lib/white-label.ts VENDOR_ROUTES).
  */
 export async function generateMetadata(): Promise<Metadata> {
-  return publicMetadata({
-    title: "Free DMARC, SPF, DKIM and BIMI tools",
-    description:
-      "Free lookups for email authentication: read a DMARC record tag by tag, count SPF lookups through every include, check a DKIM key or a BIMI logo, and write a DMARC record. No account.",
-    path: "/tools",
-  });
+  return publicMetadata({ title: TOOLS_INDEX.title, description: TOOLS_INDEX.description, path: "/tools" });
 }
 
 export default function ToolsPage() {

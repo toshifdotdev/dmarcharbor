@@ -12,7 +12,10 @@ import Link from "next/link";
 import { clsx } from "clsx";
 import type { ReactNode } from "react";
 import { readHostBrand } from "@/lib/host-brand";
-import { FREE_TOOLS, type FreeTool } from "@/lib/tools";
+import { canonicalOrigin } from "@/lib/site-origin";
+import { toolJsonLd, toolsIndexJsonLd } from "@/lib/structured-data";
+import { FREE_TOOLS, TOOLS_INDEX, toolBySlug, type FreeTool } from "@/lib/tools";
+import { StructuredData } from "@/components/structured-data-view";
 import { PublicFooter, PublicHeader, brandName } from "@/components/harbor/public-frame";
 
 export async function ToolFrame({
@@ -26,10 +29,13 @@ export async function ToolFrame({
   lead: ReactNode;
   children: ReactNode;
 }) {
-  const brand = await readHostBrand();
+  const [brand, origin] = await Promise.all([readHostBrand(), canonicalOrigin()]);
   const name = brandName(brand);
+  // Each tool is a free WebApplication under Free tools; the index lists them.
+  const data = slug ? toolJsonLd(origin, toolBySlug(slug)) : toolsIndexJsonLd(origin, { ...TOOLS_INDEX, tools: FREE_TOOLS });
   return (
     <div data-harbor data-host-brand={brand.state}>
+      <StructuredData data={data} />
       <PublicHeader brand={brand} current="tools" />
       <main id="main" className="page-wrap pb-24 sm:pb-32">
         <header className="max-w-[46rem] pt-10 sm:pt-16">

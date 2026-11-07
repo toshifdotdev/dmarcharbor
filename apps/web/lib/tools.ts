@@ -68,6 +68,13 @@ export const FREE_TOOLS: FreeTool[] = [
   },
 ];
 
+/** The index page's title and search description. */
+export const TOOLS_INDEX = {
+  title: "Free DMARC, SPF, DKIM and BIMI tools",
+  description:
+    "Free lookups for email authentication: read a DMARC record tag by tag, count SPF lookups through every include, check a DKIM key or a BIMI logo, and write a DMARC record. No account.",
+};
+
 /** The index page, then each tool. */
 export const TOOL_PATHS: string[] = ["/tools", ...FREE_TOOLS.map((t) => t.path)];
 

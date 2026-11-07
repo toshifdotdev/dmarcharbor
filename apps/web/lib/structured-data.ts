@@ -108,6 +108,7 @@ export function softwareApplicationJsonLd(origin: string): Record<string, unknow
       // site-wide node beside the free offer does not claim the domain.
       "Client portal in your own brand",
       "Email, Slack and Teams alerting rules",
+      "Free DMARC, SPF, DKIM and BIMI lookups and a DMARC record generator, with no account",
     ],
     isAccessibleForFree: true,
     publisher: { "@id": nodeId(origin, "organization") },
@@ -239,6 +240,72 @@ export function techArticleJsonLd(
     about: { "@id": nodeId(origin, "software") },
     publisher: { "@id": nodeId(origin, "organization") },
   };
+}
+
+/** What a free tool page needs said about it: the fields lib/tools.ts holds. */
+export interface StructuredToolInput {
+  path: string;
+  title: string;
+  description: string;
+}
+
+/**
+ * One free tool as a WebApplication: a free, browser-based utility published
+ * by the company, with its trail under Free tools. Its own node (`#tool`),
+ * not the product's, because the tool is free and needs no account while the
+ * product is the monitoring service.
+ */
+export function toolJsonLd(origin: string, tool: StructuredToolInput): Record<string, unknown> {
+  const page = new URL(tool.path, origin).toString();
+  return graph([
+    {
+      "@type": "WebApplication",
+      "@id": `${page}#tool`,
+      name: tool.title,
+      description: tool.description,
+      url: page,
+      applicationCategory: "DeveloperApplication",
+      operatingSystem: "Web",
+      browserRequirements: "Requires JavaScript.",
+      isAccessibleForFree: true,
+      offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+      inLanguage: "en",
+      isPartOf: { "@id": nodeId(origin, "website") },
+      publisher: { "@id": nodeId(origin, "organization") },
+    },
+    breadcrumbJsonLd(origin, [
+      { name: "Free tools", path: "/tools" },
+      { name: tool.title, path: tool.path },
+    ]),
+  ]);
+}
+
+/** The tools index as a CollectionPage listing each tool by its @id. */
+export function toolsIndexJsonLd(
+  origin: string,
+  input: { title: string; description: string; tools: StructuredToolInput[] },
+): Record<string, unknown> {
+  const page = new URL("/tools", origin).toString();
+  return graph([
+    {
+      "@type": "CollectionPage",
+      "@id": `${page}#page`,
+      name: input.title,
+      description: input.description,
+      url: page,
+      inLanguage: "en",
+      isPartOf: { "@id": nodeId(origin, "website") },
+      publisher: { "@id": nodeId(origin, "organization") },
+      mainEntity: {
+        "@type": "ItemList",
+        itemListElement: input.tools.map((tool, index) => {
+          const url = new URL(tool.path, origin).toString();
+          return { "@type": "ListItem", position: index + 1, name: tool.title, url, item: { "@id": `${url}#tool` } };
+        }),
+      },
+    },
+    breadcrumbJsonLd(origin, [{ name: "Free tools", path: "/tools" }]),
+  ]);
 }
 
 /** A set of nodes in one block. */

@@ -35,6 +35,7 @@ const LLMS_DETAIL = [
   "It measures and proves. It never sends mail as anyone, and it changes DNS only when you ask, through a Cloudflare connection you add or a record it hosts for you.",
   "Each client domain reads as exactly one of pass, block, unverified, stale or unmeasured, from report data; a domain that has never reported is never called passing.",
   "Agencies can hand clients compliance packs with a published SHA-256 fingerprint that anyone can check on the verify page, revocable report share links, and a client portal in the agency's own brand.",
+  "Free tools at /tools read any domain's DMARC, SPF, DKIM and BIMI records from public DNS with no account: the DMARC record tag by tag, SPF lookups counted through every include against the limit of 10, a DKIM selector's key with its size, the BIMI record and logo rules, and a DMARC record generator.",
 ].join(" ");
 
 /** The documents an answer engine is most likely to need, with what each answers. */
