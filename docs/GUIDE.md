@@ -69,7 +69,20 @@ unmeasured.
 
 ![A domain's setup page: ownership verified, the DMARC record to publish with its host and value ready to copy, and the setup steps beside it](/docs-media/setup-records.png "A setup page after ownership is verified. The record to publish is on the left with copy buttons, and the steps on the right say what the platform is waiting for. Sample data.")
 
+Once reports arrive, the Portfolio adds every domain together: how far your clients
+have moved towards `p=reject`, the pass rates weighted by mail, and each day's mail,
+passed and failed. A day with no report is hatched, never drawn as zero.
+
+![The Portfolio: the enforcement bar for every domain, DMARC, SPF and DKIM pass rates, and the portfolio's mail and pass rates by day](/docs-media/portfolio.png "The Portfolio. The bar on the left is every domain by the policy it publishes; the charts on the right add every domain's mail together by day, passed in green and failed in red. Sample data: invented clients on .example domains.")
+
 ## 4. Review who sends as the domain
+
+The domain page draws its mail as lines, one per sender, through the SPF and DKIM
+checks to the inbox. Mail that failed both checks is the dashed red line, and it
+ends where the published policy sends it. Below are each sender's share of the mail,
+the mail by day and the pass rates by day.
+
+![A domain page: each sender as a line through SPF and DKIM to the inbox, the failed mail as a dashed red line refused at p=reject, each sender's share, and the mail by day](/docs-media/domain-page.png "A domain page. One line per sender; the dashed red line is mail that failed DMARC, ending where the policy sends it. The volume chart below splits each day's mail into passed and failed. Sample data.")
 
 1. Open the domain and its Senders tab. Each row is a service or server that sent
    mail as the domain, with how much of its mail failed.
