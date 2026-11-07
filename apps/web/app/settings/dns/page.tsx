@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { getDnsConnections, getPlanCatalog, getWorkspaceEntitlements, OpsError } from "@/lib/api-ops";
+import { listClients } from "@/lib/api";
 import { featureOf } from "@/lib/entitlements";
 import { settingsContext } from "@/lib/settings-context";
 import { mayChange } from "@/lib/settings-map";
@@ -10,7 +11,8 @@ import { ErrorState, PermissionState } from "@/components/ui/states";
 export const metadata: Metadata = { title: "DNS publishing" };
 
 /**
- * /settings/dns — the Cloudflare credential, and nothing else.
+ * /settings/dns — the Cloudflare credential, and importing the zones it can see
+ * as client domains.
  *
  * Listing and removing a connection are available on every plan so a downgrade
  * never strands a stored token. Creating one is the paid feature; the board
@@ -18,14 +20,17 @@ export const metadata: Metadata = { title: "DNS publishing" };
  */
 export default async function DnsSettingsPage() {
   const ctx = await settingsContext();
-  const [listed, entitlements, catalog] = await Promise.all([
+  const [listed, entitlements, catalog, clientRows] = await Promise.all([
     getDnsConnections(ctx.active.id).catch((error: unknown) => {
       if (error instanceof OpsError && error.status === 403) return "forbidden" as const;
       return null;
     }),
     getWorkspaceEntitlements(ctx.active.id).catch(() => null),
     getPlanCatalog().catch(() => null),
+    // For the zone import: which client the chosen zones go under.
+    listClients(ctx.active.id).catch(() => null),
   ]);
+  const clients = clientRows ? clientRows.map((c) => ({ id: c.id, name: c.name })).sort((a, b) => a.name.localeCompare(b.name)) : null;
 
   const feature = featureOf(entitlements, "dns.automation");
   const planLabel =
@@ -50,6 +55,7 @@ export default async function DnsSettingsPage() {
           canManage={ctx.role === null ? true : mayChange(ctx.role, "admin")}
           feature={feature}
           planLabel={planLabel}
+          clients={clients}
         />
       )}
     </SettingsFrame>

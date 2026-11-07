@@ -64,6 +64,8 @@ export interface CloudflareCustomHostname {
 export interface CloudflareClient {
   verifyToken(): Promise<{ status: string }>;
   findZone(domainName: string): Promise<CloudflareZone>;
+  /** The active zones this token can see, a page of up to 50 at a time. */
+  listZones(page: number): Promise<{ zones: CloudflareZone[]; totalPages: number }>;
   listTxtRecords(zoneId: string, name: string): Promise<CloudflareTxtRecord[]>;
   findCname(zoneId: string, name: string): Promise<boolean>;
   createTxtRecord(
@@ -362,6 +364,20 @@ export function createCloudflareClient(input: {
         'ZONE_NOT_FOUND',
         404,
       );
+    },
+
+    async listZones(page) {
+      const envelope = await requestEnvelope<RawZone[]>(
+        `/zones?status=active&per_page=50&order=name&page=${encodeURIComponent(String(page))}`,
+        { method: 'GET' },
+      );
+      const zones = (Array.isArray(envelope.result) ? envelope.result : []).flatMap((zone) => {
+        const id = stringValue(zone?.id);
+        const name = stringValue(zone?.name);
+        return id && name ? [{ id, name: name.toLowerCase(), accountName: stringValue(zone?.account?.name) }] : [];
+      });
+      const total = numberValue(envelope.result_info?.total_pages);
+      return { zones, totalPages: total !== null && total > 0 ? total : 1 };
     },
 
     async listTxtRecords(zoneId, name) {

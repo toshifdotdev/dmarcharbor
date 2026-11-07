@@ -15,6 +15,7 @@ import {
   publishDnsRecord,
   restoreDnsPublication,
 } from '../services/dns-automation/publish.service.js';
+import { listImportableZones } from '../services/dns-automation/zone-import.service.js';
 
 const recordSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('verification') }),
@@ -222,6 +223,20 @@ export async function restoreDnsController(request: Request, response: Response)
         actorUserId: response.locals.session?.user?.id,
       }),
     );
+  } catch (error) {
+    sendError(response, error);
+  }
+}
+
+/** GET /dns-connections/:connectionId/zones — the zones the token can see, and where each stands here. */
+export async function listConnectionZonesController(request: Request, response: Response): Promise<void> {
+  const connectionId = resourceIdSchema.safeParse(request.params.connectionId);
+  if (!connectionId.success) {
+    response.status(400).json({ error: { code: 'INVALID_REQUEST', message: 'A valid connection identifier is required.' } });
+    return;
+  }
+  try {
+    response.json(await listImportableZones({ organizationId: organizationId(request), connectionId: connectionId.data }));
   } catch (error) {
     sendError(response, error);
   }

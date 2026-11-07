@@ -16,7 +16,8 @@
  * dead token is refused here rather than failing on the first publish.
  *
  * Test hooks: dns-no-connections, dns-connection-list, dns-token, dns-label,
- * dns-connect; the plan refusal carries data-feature="dns.automation".
+ * dns-connect, dns-import (per connection, opening ZoneImport); the plan refusal
+ * carries data-feature="dns.automation".
  */
 
 import Link from "next/link";
@@ -32,6 +33,7 @@ import { KeyValue, Notice } from "@/components/ui/notice";
 import { UpgradeNotice } from "@/components/ui/states";
 import { useToast } from "@/components/ui/toast";
 import { ConnectionLine, LineStateWord, SetupSteps, type LineState } from "./lines";
+import { ZoneImport, type ImportClient } from "./dns-zone-import";
 import { Panel } from "./parts";
 
 function connectionName(connection: DnsConnectionRow): string {
@@ -44,12 +46,15 @@ export function DnsConnectionsBoard({
   canManage,
   feature,
   planLabel,
+  clients,
 }: {
   organizationId: string;
   connections: DnsConnectionRow[];
   canManage: boolean;
   feature: boolean | null;
   planLabel: string;
+  /** For the zone import's client choice; null when the list could not be read. */
+  clients: ImportClient[] | null;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -60,6 +65,7 @@ export function DnsConnectionsBoard({
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<DnsConnectionRow | null>(null);
   const [removeBusy, setRemoveBusy] = useState(false);
+  const [importing, setImporting] = useState<string | null>(null);
 
   const unavailable = feature === false;
 
@@ -159,6 +165,11 @@ export function DnsConnectionsBoard({
                       {rowState === "failing" ? "Last call failed" : rowState === "paused" ? "Paused" : "Connected"}
                     </LineStateWord>
                     <span className="flex-1" />
+                    {canManage && !unavailable && !connection.paused && importing !== connection.id ? (
+                      <Button size="sm" variant="secondary" onClick={() => setImporting(connection.id)} data-testid="dns-import">
+                        Import domains
+                      </Button>
+                    ) : null}
                     {canManage ? (
                       <Button size="sm" variant="danger-quiet" onClick={() => setRemoving(connection)}>
                         Remove
@@ -175,6 +186,14 @@ export function DnsConnectionsBoard({
                       connection.lastError ? ["Last error", <span key="e" className="text-fail">{connection.lastError}</span>] : null,
                     ]}
                   />
+                  {importing === connection.id ? (
+                    <ZoneImport
+                      organizationId={organizationId}
+                      connectionId={connection.id}
+                      clients={clients}
+                      onClose={() => setImporting(null)}
+                    />
+                  ) : null}
                 </li>
               );
             })}

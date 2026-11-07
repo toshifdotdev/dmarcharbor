@@ -202,7 +202,7 @@ function parseList(raw: string): { names: string[]; invalid: string[]; duplicate
 }
 
 /** The most rows one import takes: apps/api bulkLimits.maxDomains, the same on every plan. */
-const BULK_DOMAIN_MAX = 500;
+export const BULK_DOMAIN_MAX = 500;
 
 type Outcome =
   | { kind: "single"; clientName: string; name: string; slug: string; already: boolean }
@@ -483,7 +483,7 @@ export const AddDomains = forwardRef<
   );
 });
 
-function BulkResult({ clientName, result }: { clientName: string; result: BulkDomainResult }) {
+export function BulkResult({ clientName, result }: { clientName: string; result: BulkDomainResult }) {
   const records = result.domains.map((d) => ({ purpose: d.name, host: d.verificationHost, value: d.verificationValue }));
   const zone = zoneLines(records);
   const body = [

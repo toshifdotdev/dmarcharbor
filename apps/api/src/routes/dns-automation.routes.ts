@@ -2,6 +2,7 @@ import express, { Router } from 'express';
 import {
   createDnsConnectionController,
   deleteDnsConnectionController,
+  listConnectionZonesController,
   listDnsConnectionsController,
   previewDnsController,
   publishDnsController,
@@ -41,6 +42,15 @@ dnsAutomationRouter.post(
   createDnsConnectionController,
 );
 
+// Listing zones to import reads the account and changes nothing; adding the
+// chosen ones is the ordinary bulk domain import, with its own permission.
+dnsAutomationRouter.get(
+  '/workspaces/:organizationId/dns-connections/:connectionId/zones',
+  requireSession,
+  requireOrganizationPermission('domain', 'create'),
+  requireFeature('dns.automation'),
+  listConnectionZonesController,
+);
 dnsAutomationRouter.delete(
   '/workspaces/:organizationId/dns-connections/:connectionId',
   requireSession,
