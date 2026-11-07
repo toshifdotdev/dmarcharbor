@@ -583,3 +583,99 @@ describe('webhook endpoints', () => {
     expect(events[0].detail).toMatchObject({ name: 'Audited' });
   });
 });
+
+describe('webhook secret rotation and client filters', () => {
+  beforeAll(async () => {
+    await startReceiver();
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => receiver.close(() => resolve()));
+  });
+
+  async function clientWithDomain(organizationId: string, name: string) {
+    const client = await prisma.client.create({ data: { organizationId, name, slug: `${name.toLowerCase()}-${Date.now()}` } });
+    const domain = await prisma.domain.create({
+      data: { clientId: client.id, name: `${name.toLowerCase()}-${Date.now()}.example`, slug: `${name.toLowerCase()}-${Date.now()}` },
+    });
+    return { client, domain };
+  }
+
+  it('signs with both secrets during the overlap, then with the new one only', async () => {
+    const { agent, organizationId } = await setup();
+    const endpoint = await registerEndpoint(agent, organizationId, ['domain.verified']);
+
+    const rotated = await agent
+      .post(`/api/workspaces/${organizationId}/webhooks/${endpoint.id}/rotate-secret`)
+      .send({ overlapHours: 24 });
+    expect(rotated.status).toBe(200);
+    expect(rotated.body.secret).toBeTruthy();
+    expect(rotated.body.secret).not.toBe(endpoint.secret);
+    expect(rotated.body.previousSecretExpiresAt).toBeTruthy();
+
+    received = [];
+    nextStatus = 200;
+    await emitEvent(organizationId, 'domain.verified', { test: true, domainId: 'test', domainName: 'example.com' });
+    await deliverDueWebhooks();
+    const first = received[0]!;
+    const at = Number(first.headers['x-dmarcharbor-timestamp']);
+    const values = String(first.headers['x-dmarcharbor-signature']).split(', ');
+    expect(values).toEqual([signPayload(rotated.body.secret, first.body, at), signPayload(endpoint.secret, first.body, at)]);
+
+    // Once the overlap is over, only the new secret signs.
+    await prisma.webhookEndpoint.update({ where: { id: endpoint.id }, data: { previousSecretExpiresAt: new Date(Date.now() - 1000) } });
+    received = [];
+    await emitEvent(organizationId, 'domain.verified', { test: true, domainId: 'test', domainName: 'example.com' });
+    await deliverDueWebhooks();
+    const second = received[0]!;
+    expect(second.headers['x-dmarcharbor-signature']).toBe(
+      signPayload(rotated.body.secret, second.body, Number(second.headers['x-dmarcharbor-timestamp'])),
+    );
+
+    const audit = await prisma.auditLog.findMany({ where: { organizationId, action: 'WEBHOOK_SECRET_ROTATED' } });
+    expect(audit).toHaveLength(1);
+  });
+
+  it('stops the old secret at once when rotated with no overlap', async () => {
+    const { agent, organizationId } = await setup();
+    const endpoint = await registerEndpoint(agent, organizationId, ['domain.verified']);
+    const rotated = await agent
+      .post(`/api/workspaces/${organizationId}/webhooks/${endpoint.id}/rotate-secret`)
+      .send({ overlapHours: 0 });
+    expect(rotated.status).toBe(200);
+    expect(rotated.body.previousSecretExpiresAt).toBeNull();
+
+    received = [];
+    await emitEvent(organizationId, 'domain.verified', { test: true, domainId: 'test', domainName: 'example.com' });
+    await deliverDueWebhooks();
+    const delivery = received[0]!;
+    expect(String(delivery.headers['x-dmarcharbor-signature']).split(', ')).toHaveLength(1);
+
+    expect(
+      (await agent.post(`/api/workspaces/${organizationId}/webhooks/${endpoint.id}/rotate-secret`).send({ overlapHours: 5 })).status,
+    ).toBe(400);
+  });
+
+  it('sends an endpoint limited to clients only those clients\' events', async () => {
+    const { agent, organizationId } = await setup();
+    const a = await clientWithDomain(organizationId, 'Alpha');
+    const b = await clientWithDomain(organizationId, 'Bravo');
+    const endpoint = await registerEndpoint(agent, organizationId, ['domain.verified', 'entitlement.exceeded']);
+    const limited = await agent.patch(`/api/workspaces/${organizationId}/webhooks/${endpoint.id}`).send({ clientIds: [a.client.id] });
+    expect(limited.status).toBe(200);
+    expect(limited.body.clientIds).toEqual([a.client.id]);
+
+    expect(await emitEvent(organizationId, 'domain.verified', { domainId: a.domain.id, domainName: a.domain.name })).toBe(1);
+    expect(await emitEvent(organizationId, 'domain.verified', { domainId: b.domain.id, domainName: b.domain.name })).toBe(0);
+    // A domain that no longer resolves is never sent to a client-limited endpoint.
+    expect(await emitEvent(organizationId, 'domain.verified', { domainId: 'gone', domainName: 'gone.example' })).toBe(0);
+    // Workspace events have no client and reach every endpoint.
+    expect(await emitEvent(organizationId, 'entitlement.exceeded', { quota: 'client' })).toBe(1);
+
+    // A client from another workspace is refused.
+    const other = await setup();
+    const foreign = await clientWithDomain(other.organizationId, 'Charlie');
+    const refused = await agent.patch(`/api/workspaces/${organizationId}/webhooks/${endpoint.id}`).send({ clientIds: [foreign.client.id] });
+    expect(refused.status).toBe(400);
+  });
+});

@@ -1287,7 +1287,13 @@ model WebhookEndpoint {
   name           String
   url            String
   secret         String
+  /// The secret before the last rotation, still signed with until
+  /// previousSecretExpiresAt, so a receiver can switch without a gap.
+  previousSecret          String?
+  previousSecretExpiresAt DateTime?
   events         String[]
+  /// Clients whose events this endpoint receives. Empty means every client.
+  clientIds      String[]          @default([])
   active         Boolean           @default(true)
   suspendedAt    DateTime?
   failureCount   Int               @default(0)
@@ -2582,6 +2588,8 @@ enum AuditAction {
   WEBHOOK_ENDPOINT_DELETED
   WEBHOOK_ENDPOINT_SUSPENDED
   WEBHOOK_ENDPOINT_PROBED
+  /// A signing secret was replaced, with or without an overlap for the old one.
+  WEBHOOK_SECRET_ROTATED
   PORTAL_ACCESS_GRANTED
   PORTAL_ACCESS_REVOKED
   PORTAL_ACCESS_DELETED

@@ -1141,6 +1141,10 @@ export interface WebhookEndpointRow {
   name: string;
   url: string;
   events: WebhookEventName[];
+  /** Clients whose events it receives; empty means every client. Absent from an older API. */
+  clientIds?: string[];
+  /** Until when deliveries also carry a signature with the secret before the last rotation. */
+  previousSecretExpiresAt?: string | null;
   active: boolean;
   /** Set when the endpoint was auto-suspended after too many failures. */
   suspendedAt: string | null;

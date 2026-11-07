@@ -1519,13 +1519,14 @@ Endpoints are managed in the app under Settings, Webhooks, in Add an endpoint:
 1. Give it a name after the system it feeds, for example "HaloPSA production".
 2. Enter the URL. It must be public https. Local, loopback and private addresses are refused, and the check is repeated on every delivery against the address the name resolves to. Redirects are not followed, so register the final URL.
 3. Choose the events under Send it when. `domain.verified` and `alert.triggered` are chosen by default; the others are off because they can be frequent.
-4. Choose Add endpoint and copy the signing secret it shows. It is shown once and stored encrypted. Put it in your receiver's secret store.
+4. Under For which clients, keep Every client (which includes clients added later) or choose Chosen clients and tick the clients this endpoint is for. An endpoint limited to clients receives only events about those clients' domains. Events that belong to no client, such as `entitlement.exceeded`, and test events still go to every endpoint. Clients… on an endpoint changes the choice later.
+5. Choose Add endpoint and copy the signing secret it shows. It is shown once and stored encrypted. Put it in your receiver's secret store.
 
 ![Settings, Webhooks: no endpoint yet, the Add an endpoint form with its event choices, and the headers to check a signature against](/docs-media/webhooks.png "Settings, Webhooks before any endpoint is added. The right-hand column lists the headers your receiver checks. Sample data.")
 
 Send a test event posts a test `domain.verified` event to every endpoint subscribed to `domain.verified`. Check the delivery log for the result.
 
-The secret cannot be changed in place. To rotate it, add a second endpoint with the same URL, let your receiver accept both secrets, then remove the old endpoint.
+To rotate the secret, choose Rotate secret on the endpoint and pick how long the old secret keeps signing beside the new one: 1 hour, 1 day, 7 days, or none. The new secret is shown once. During the overlap every delivery carries two signatures, the new one first (see Verifying the signature), so a receiver that accepts any listed value keeps working while you switch it to the new secret. With None the old secret stops at once, and deliveries fail at a receiver that still holds it. A rotation is recorded in the audit trail.
 
 The webhook settings use the app's own routes, which are not part of the API contract. Manage endpoints in the app rather than by script.
 
@@ -1571,6 +1572,14 @@ x-dmarcharbor-signature: sha256=5b0e2f4c1a9d8e7f6a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d
 
 The signature is an HMAC-SHA256 of the timestamp, a full stop and the raw request body, keyed with the endpoint's signing secret (the secret as text, exactly as it was shown), written as `sha256=` and lowercase hex.
 
+While a rotated secret is in its overlap, the header holds two values separated by a comma and a space, the new secret's first:
+
+```http
+x-dmarcharbor-signature: sha256=<signed with the new secret>, sha256=<signed with the old secret>
+```
+
+Accept the delivery when any listed value matches. A receiver that compares the whole header with one expected value refuses every delivery during an overlap.
+
 ```text
 x-dmarcharbor-signature = "sha256=" + hex(HMAC-SHA256(secret, timestamp + "." + rawBody))
 ```
@@ -1589,7 +1598,8 @@ const secret = process.env.DMH_WEBHOOK_SECRET; // the signing secret, as shown o
 // express.raw keeps the body as the exact bytes that were signed.
 app.post('/hooks/dmarc', express.raw({ type: 'application/json' }), (req, res) => {
   const timestamp = req.get('x-dmarcharbor-timestamp') ?? '';
-  const signature = req.get('x-dmarcharbor-signature') ?? '';
+  // One value, or two during a secret rotation's overlap: accept any that matches.
+  const signatures = (req.get('x-dmarcharbor-signature') ?? '').split(',').map((v) => v.trim());
   const body = req.body.toString('utf8');
 
   // Refuse anything signed more than five minutes ago, so a captured request cannot be replayed.
@@ -1598,8 +1608,11 @@ app.post('/hooks/dmarc', express.raw({ type: 'application/json' }), (req, res) =
 
   const expected = 'sha256=' + crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
   const a = Buffer.from(expected);
-  const b = Buffer.from(signature);
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return res.status(401).end();
+  const ok = signatures.some((value) => {
+    const b = Buffer.from(value);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  });
+  if (!ok) return res.status(401).end();
 
   const event = JSON.parse(body);
   // Acknowledge first, then do the work: the sender waits at most 10 seconds.
@@ -1627,7 +1640,8 @@ SECRET = os.environ["DMH_WEBHOOK_SECRET"].encode("utf-8")  # the signing secret,
 @app.post("/hooks/dmarc")
 def receive():
     timestamp = request.headers.get("x-dmarcharbor-timestamp", "")
-    signature = request.headers.get("x-dmarcharbor-signature", "")
+    # One value, or two during a secret rotation's overlap: accept any that matches.
+    signatures = [v.strip() for v in request.headers.get("x-dmarcharbor-signature", "").split(",")]
     body = request.get_data()  # the raw bytes, exactly as signed
 
     # Refuse anything signed more than five minutes ago.
@@ -1640,7 +1654,7 @@ def receive():
 
     signed = timestamp.encode("utf-8") + b"." + body
     expected = "sha256=" + hmac.new(SECRET, signed, hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(expected, signature):
+    if not any(hmac.compare_digest(expected, value) for value in signatures):
         abort(401)
 
     event = request.get_json()

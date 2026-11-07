@@ -32,14 +32,14 @@ const wsPath = (orgId: string, tail: string) =>
 
 /** POST /webhooks — registers an endpoint and returns the signing secret ONCE.
  *
- * The contract: name 2-80, url 1-500, events 1-4. `events` is optional and the
+ * The contract: name 2-80, url 1-500, events 1-8. `events` is optional and the
  * API substitutes its own default set when it is omitted, so it is only sent
  * when the form has a deliberate selection. The URL must be public https: the
  * API refuses anything else, and the error message it returns explains why.
  */
 export const createWebhookEndpoint = (
   orgId: string,
-  body: { name: string; url: string; events?: WebhookEventName[] },
+  body: { name: string; url: string; events?: WebhookEventName[]; clientIds?: string[] },
 ): Promise<OpsResult<RegisteredWebhook>> =>
   opsCall<RegisteredWebhook>(wsPath(orgId, "/webhooks"), {
     method: "POST",
@@ -59,12 +59,27 @@ export const patchWebhookEndpoint = (
     name?: string;
     url?: string;
     events?: WebhookEventName[];
+    /** Empty means every client. */
+    clientIds?: string[];
     active?: boolean;
   },
 ): Promise<OpsResult<WebhookEndpointRow>> =>
   opsCall<WebhookEndpointRow>(wsPath(orgId, `/webhooks/${endpointId}`), {
     method: "PATCH",
     body: JSON.stringify(body),
+  });
+
+/** POST /webhooks/:id/rotate-secret — a new signing secret, returned ONCE.
+ *  With an overlap (1, 24 or 168 hours) the old secret signs alongside it
+ *  until the overlap ends; 0 stops the old one at once. */
+export const rotateWebhookSecret = (
+  orgId: string,
+  endpointId: string,
+  overlapHours: 0 | 1 | 24 | 168,
+): Promise<OpsResult<RegisteredWebhook>> =>
+  opsCall<RegisteredWebhook>(wsPath(orgId, `/webhooks/${endpointId}/rotate-secret`), {
+    method: "POST",
+    body: JSON.stringify({ overlapHours }),
   });
 
 /** DELETE /webhooks/:id — irreversible, and it takes the delivery history with

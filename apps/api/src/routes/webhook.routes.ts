@@ -5,6 +5,7 @@ import {
   listWebhookDeliveriesController,
   listWebhooksController,
   replayWebhookDeliveryController,
+  rotateWebhookSecretController,
   testWebhookController,
   updateWebhookController,
 } from '../controllers/webhook.controller.js';
@@ -38,6 +39,13 @@ webhookRouter.delete(
   requireSession,
   requireOrganizationPermission('organization', 'update'),
   deleteWebhookController,
+);
+webhookRouter.post(
+  '/workspaces/:organizationId/webhooks/:webhookId/rotate-secret',
+  requireSession,
+  requireOrganizationPermission('organization', 'update'),
+  requireFeature('integrations.webhooks'),
+  rotateWebhookSecretController,
 );
 webhookRouter.post(
   '/workspaces/:organizationId/webhooks/test',

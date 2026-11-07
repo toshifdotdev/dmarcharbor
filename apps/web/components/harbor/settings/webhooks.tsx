@@ -26,6 +26,7 @@ import {
   patchWebhookEndpoint,
   queueWebhookTest,
   replayWebhookDelivery,
+  rotateWebhookSecret,
 } from "@/lib/webhooks-client";
 import type { RegisteredWebhook, WebhookDeliveryStatus, WebhookEventName } from "@/lib/types";
 import type { FeatureStatus } from "@/lib/entitlements";
@@ -35,13 +36,14 @@ import { Badge, type Tone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/choice";
 import { ConfirmDialog } from "@/components/ui/dialog";
-import { Field, Input } from "@/components/ui/field";
+import { Field, Input, Segmented } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { Readout, ReadoutStrip } from "@/components/ui/readout";
 import { Nil, Table, TBody, Td, TEmptyRow, Th, THead, Tr } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
 import { ConnectionLine, type LineState } from "./lines";
 import { OnceSecret, Panel } from "./parts";
+import { ClientScope, OVERLAPS, RotationLine, type ClientChoice, type OverlapValue } from "./webhook-parts";
 
 const EVENT_WORDS: Record<WebhookEventName, string> = {
   "domain.verified": "A domain's ownership is verified",
@@ -67,6 +69,10 @@ export interface EndpointView {
   name: string;
   url: string;
   events: WebhookEventName[];
+  /** Empty means every client. */
+  clientIds: string[];
+  /** Set while a rotated-out secret still signs beside the new one. */
+  overlapUntilLabel: string | null;
   active: boolean;
   suspendedUntilLabel: string | null;
   failureCount: number;
@@ -99,6 +105,7 @@ export function WebhooksBoard({
   deliveries,
   events,
   defaultEvents,
+  clients,
   canManage,
   webhookFeature,
   webhooksPlanLabel,
@@ -108,6 +115,8 @@ export function WebhooksBoard({
   deliveries: DeliveryView[] | null;
   events: WebhookEventName[];
   defaultEvents: WebhookEventName[];
+  /** For naming and choosing clients; null when the list could not be read. */
+  clients: ClientChoice[] | null;
   canManage: boolean;
   webhookFeature: FeatureStatus;
   webhooksPlanLabel: string;
@@ -125,15 +134,72 @@ export function WebhooksBoard({
   const [rowError, setRowError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<EndpointView | null>(null);
   const [testNotice, setTestNotice] = useState<string | null>(null);
+  const [scope, setScope] = useState<"all" | "some">("all");
+  const [chosenClients, setChosenClients] = useState<string[]>([]);
+  // Changing an endpoint's clients, and rotating its secret.
+  const [scoping, setScoping] = useState<EndpointView | null>(null);
+  const [draftScope, setDraftScope] = useState<"all" | "some">("all");
+  const [draftClients, setDraftClients] = useState<string[]>([]);
+  const [rotating, setRotating] = useState<EndpointView | null>(null);
+  const [overlap, setOverlap] = useState<OverlapValue>("24");
+  const [dialogError, setDialogError] = useState<string | null>(null);
 
   const webhooksUnavailable = webhookFeature === false;
+  const clientName = new Map((clients ?? []).map((c) => [c.id, c.name]));
+  const clientsWords = (ids: string[]) =>
+    ids.length === 0 ? "Every client" : ids.map((id) => clientName.get(id) ?? "a removed client").join(" · ");
+
+  function openScope(ep: EndpointView) {
+    setScoping(ep);
+    setDraftScope(ep.clientIds.length > 0 ? "some" : "all");
+    setDraftClients(ep.clientIds);
+    setDialogError(null);
+  }
+
+  async function saveScope() {
+    if (!scoping) return;
+    if (draftScope === "some" && draftClients.length === 0) {
+      setDialogError("Choose at least one client, or send for every client.");
+      return;
+    }
+    setRowBusy(scoping.id);
+    const res = await patchWebhookEndpoint(organizationId, scoping.id, { clientIds: draftScope === "all" ? [] : draftClients });
+    setRowBusy(null);
+    if (!res.ok) {
+      setDialogError(res.error.message ?? "The change did not go through.");
+      return;
+    }
+    toast({ title: `${scoping.name}: clients updated`, tone: "ok" });
+    setScoping(null);
+    router.refresh();
+  }
+
+  async function rotate() {
+    if (!rotating) return;
+    setRowBusy(rotating.id);
+    const res = await rotateWebhookSecret(organizationId, rotating.id, Number(overlap) as 0 | 1 | 24 | 168);
+    setRowBusy(null);
+    if (!res.ok) {
+      setDialogError(res.error.message ?? "The secret could not be rotated. The current one still works.");
+      return;
+    }
+    setRotating(null);
+    setCreated(res.data);
+    router.refresh();
+  }
 
   async function add(e: FormEvent) {
     e.preventDefault();
     if (busy || chosen.length === 0 || webhooksUnavailable) return;
     setBusy(true);
     setError(null);
-    const res = await createWebhookEndpoint(organizationId, { name: name.trim(), url: url.trim(), events: chosen });
+    if (scope === "some" && chosenClients.length === 0) return;
+    const res = await createWebhookEndpoint(organizationId, {
+      name: name.trim(),
+      url: url.trim(),
+      events: chosen,
+      clientIds: scope === "some" ? chosenClients : [],
+    });
     setBusy(false);
     if (!res.ok) {
       setError(res.error);
@@ -143,6 +209,8 @@ export function WebhooksBoard({
     setName("");
     setUrl("");
     setChosen(defaultEvents);
+    setScope("all");
+    setChosenClients([]);
     router.refresh();
   }
 
@@ -315,13 +383,35 @@ export function WebhooksBoard({
                               Resume
                             </Button>
                           )}
+                          {webhooksUnavailable ? null : (
+                            <>
+                              <Button size="sm" variant="ghost" onClick={() => openScope(ep)} data-testid={`webhook-clients-${ep.id}`}>
+                                Clients…
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  setRotating(ep);
+                                  setOverlap("24");
+                                  setDialogError(null);
+                                }}
+                                data-testid={`webhook-rotate-${ep.id}`}
+                              >
+                                Rotate secret
+                              </Button>
+                            </>
+                          )}
                           <Button size="sm" variant="danger-quiet" onClick={() => setRemoving(ep)}>
                             Remove
                           </Button>
                         </>
                       ) : null
                     }
-                    from={{ name: "This workspace", kind: `${ep.events.length} event${ep.events.length === 1 ? "" : "s"}, signed` }}
+                    from={{
+                      name: ep.clientIds.length > 0 ? `${ep.clientIds.length} client${ep.clientIds.length === 1 ? "" : "s"}` : "This workspace",
+                      kind: `${ep.events.length} event${ep.events.length === 1 ? "" : "s"}, signed`,
+                    }}
                     to={{ name: ep.name, kind: hostOf(ep.url) }}
                   />
                   <dl className="grid gap-x-4 gap-y-1 text-meta sm:grid-cols-[96px_minmax(0,1fr)]">
@@ -331,6 +421,19 @@ export function WebhooksBoard({
                     </dd>
                     <dt className="font-semibold text-fg-3">Sends when</dt>
                     <dd className="min-w-0 text-fg-2">{ep.events.map((e) => EVENT_WORDS[e] ?? e).join(" · ")}</dd>
+                    <dt className="font-semibold text-fg-3">For</dt>
+                    <dd className="min-w-0 text-fg-2" data-testid={`webhook-for-${ep.id}`}>
+                      {clientsWords(ep.clientIds)}
+                    </dd>
+                    {ep.overlapUntilLabel ? (
+                      <>
+                        <dt className="font-semibold text-fg-3">Signing</dt>
+                        <dd className="min-w-0 text-warn" data-testid={`webhook-overlap-${ep.id}`}>
+                          Two signatures until {ep.overlapUntilLabel}: the new secret and the one before it. Switch your
+                          receiver to the new secret before then.
+                        </dd>
+                      </>
+                    ) : null}
                   </dl>
                 </li>
               );
@@ -435,9 +538,23 @@ export function WebhooksBoard({
                 ))}
                 {chosen.length === 0 ? <p className="text-meta font-medium text-fail">Choose at least one.</p> : null}
               </fieldset>
+              <ClientScope
+                clients={clients}
+                scope={scope}
+                onScope={setScope}
+                chosen={chosenClients}
+                onChosen={setChosenClients}
+                disabled={webhooksUnavailable}
+              />
               <ActionRefusal error={error} />
               <div>
-                <Button type="submit" variant="primary" busy={busy} busyLabel="Adding the endpoint" disabled={chosen.length === 0 || webhooksUnavailable}>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  busy={busy}
+                  busyLabel="Adding the endpoint"
+                  disabled={chosen.length === 0 || webhooksUnavailable || (scope === "some" && chosenClients.length === 0)}
+                >
                   Add endpoint
                 </Button>
               </div>
@@ -458,13 +575,19 @@ export function WebhooksBoard({
               <code className="data text-fg">x-dmarcharbor-attempt</code>
             </li>
             <li>A delivery may arrive more than once: use the delivery id to ignore repeats.</li>
+            <li>
+              After a secret is rotated, the signature header lists two values, separated by a comma, until the overlap ends.
+              Accept the delivery if any value matches.
+            </li>
           </ul>
           <pre className="data overflow-x-auto rounded-ctl bg-paper-3 px-3 py-2.5 text-meta leading-[1.6] text-fg">
 {`const expected = "sha256=" + crypto
   .createHmac("sha256", secret)
   .update(\`\${timestamp}.\${rawBody}\`)
   .digest("hex");
-// compare with timingSafeEqual`}
+const ok = header.split(",")
+  .some((v) => safeEqual(v.trim(), expected));
+// safeEqual: timingSafeEqual on equal lengths`}
           </pre>
         </Panel>
       </div>
@@ -485,6 +608,51 @@ export function WebhooksBoard({
         confirmLabel="Remove endpoint"
         busy={rowBusy === removing?.id}
         danger
+      />
+
+      <ConfirmDialog
+        open={scoping !== null}
+        onClose={() => setScoping(null)}
+        onConfirm={saveScope}
+        title={scoping ? `Which clients ${scoping.name} hears about` : "Which clients"}
+        body={
+          <div className="flex flex-col gap-3">
+            <ClientScope
+              clients={clients}
+              scope={draftScope}
+              onScope={setDraftScope}
+              chosen={draftClients}
+              onChosen={setDraftClients}
+            />
+            {dialogError ? <p className="text-meta font-medium text-fail">{dialogError}</p> : null}
+          </div>
+        }
+        confirmLabel="Save clients"
+        busy={rowBusy === scoping?.id}
+      />
+
+      <ConfirmDialog
+        open={rotating !== null}
+        onClose={() => setRotating(null)}
+        onConfirm={rotate}
+        title={rotating ? `Rotate ${rotating.name}'s signing secret?` : "Rotate the signing secret?"}
+        body={
+          <div className="flex flex-col gap-4" data-testid="webhook-rotate-dialog">
+            <p>
+              A new secret is shown once. Make sure your receiver accepts any of the values in the signature header (the
+              recipe on this page) before you rotate, then switch it to the new secret.
+            </p>
+            <div className="flex flex-col gap-2">
+              <p className="text-meta font-semibold text-fg-2">Keep the old secret signing for</p>
+              <div className="flex"><Segmented label="Keep the old secret signing for" size="sm" value={overlap} onChange={setOverlap} options={[...OVERLAPS]} /></div>
+            </div>
+            <RotationLine overlap={overlap} />
+            {dialogError ? <p className="text-meta font-medium text-fail">{dialogError}</p> : null}
+          </div>
+        }
+        confirmLabel="Rotate secret"
+        busy={rowBusy === rotating?.id}
+        danger={overlap === "0"}
       />
     </div>
   );

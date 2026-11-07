@@ -213,11 +213,28 @@ export interface RegisteredEndpoint {
   name: string;
   url: string;
   events: WebhookEvent[];
+  /** Clients whose events it receives; empty means every client. */
+  clientIds: string[];
+  /** Until when deliveries are also signed with the secret before the last rotation. */
+  previousSecretExpiresAt: string | null;
   active: boolean;
   suspendedAt: string | null;
   failureCount: number;
   lastDeliveryAt: string | null;
   createdAt: string;
+}
+
+/** The overlaps offered when rotating: none, an hour, a day, a week. */
+export const rotationOverlapHours = [0, 1, 24, 168] as const;
+
+/**
+ * The signature header's value: one `sha256=` per secret in use, the current
+ * secret first, separated by ", ". After a rotation the previous secret signs
+ * too until its overlap ends, so a receiver that accepts any listed value can
+ * switch secrets with no delivery refused.
+ */
+export function signatureValue(secrets: string[], body: string, timestamp: number): string {
+  return secrets.map((secret) => signPayload(secret, body, timestamp)).join(', ');
 }
 
 export function validateEndpointUrl(raw: string): { url: string } | { error: string } {
@@ -248,6 +265,7 @@ export async function createEndpoint(input: {
   name: string;
   url: string;
   events: WebhookEvent[];
+  clientIds?: string[];
   createdById?: string | null;
 }): Promise<{ endpoint: RegisteredEndpoint; secret: string }> {
   const secret = randomBytes(32).toString('base64url');
@@ -259,6 +277,7 @@ export async function createEndpoint(input: {
       url: input.url,
       secret: encryptSensitive(secret),
       events: input.events,
+      clientIds: input.clientIds ?? [],
       createdById: input.createdById ?? null,
     },
   });
@@ -269,10 +288,55 @@ export async function createEndpoint(input: {
     action: 'WEBHOOK_ENDPOINT_CREATED',
     targetType: 'webhook_endpoint',
     targetId: row.id,
-    detail: { name: row.name, url: row.url, events: input.events },
+    detail: { name: row.name, url: row.url, events: input.events, clientIds: input.clientIds ?? [] },
   });
 
   return { endpoint: toRegistered(row), secret };
+}
+
+/**
+ * Replaces an endpoint's signing secret and returns the new one, once.
+ *
+ * With an overlap, the old secret keeps signing alongside the new one until
+ * the overlap ends, so the receiver can be switched at its own pace. With no
+ * overlap the old secret stops at once, for a secret that has leaked. A second
+ * rotation inside an overlap drops the oldest secret: two are signed with at
+ * most.
+ */
+export async function rotateEndpointSecret(input: {
+  organizationId: string;
+  endpointId: string;
+  overlapHours: (typeof rotationOverlapHours)[number];
+  actorUserId?: string | null;
+  now?: Date;
+}): Promise<{ endpoint: RegisteredEndpoint; secret: string } | null> {
+  const now = input.now ?? new Date();
+  const existing = await prisma.webhookEndpoint.findFirst({
+    where: { id: input.endpointId, organizationId: input.organizationId },
+    select: { id: true, secret: true },
+  });
+  if (!existing) return null;
+
+  const secret = randomBytes(32).toString('base64url');
+  const row = await prisma.webhookEndpoint.update({
+    where: { id: existing.id },
+    data: {
+      secret: encryptSensitive(secret),
+      previousSecret: input.overlapHours > 0 ? existing.secret : null,
+      previousSecretExpiresAt: input.overlapHours > 0 ? new Date(now.getTime() + input.overlapHours * 3_600_000) : null,
+    },
+  });
+
+  await recordAuditEvent({
+    organizationId: input.organizationId,
+    actorUserId: input.actorUserId ?? undefined,
+    action: 'WEBHOOK_SECRET_ROTATED',
+    targetType: 'webhook_endpoint',
+    targetId: row.id,
+    detail: { name: row.name, overlapHours: input.overlapHours },
+  });
+
+  return { endpoint: toRegistered(row, now), secret };
 }
 
 export async function listEndpoints(organizationId: string): Promise<RegisteredEndpoint[]> {
@@ -280,13 +344,14 @@ export async function listEndpoints(organizationId: string): Promise<RegisteredE
     where: { organizationId },
     orderBy: { createdAt: 'desc' },
   });
-  return rows.map(toRegistered);
+  return rows.map((row) => toRegistered(row));
 }
 
 export async function updateEndpoint(
   organizationId: string,
   endpointId: string,
-  data: { name?: string; url?: string; events?: WebhookEvent[]; active?: boolean },
+  data: { name?: string; url?: string; events?: WebhookEvent[]; clientIds?: string[]; active?: boolean },
+  actorUserId?: string | null,
 ): Promise<RegisteredEndpoint | null> {
   const existing = await prisma.webhookEndpoint.findFirst({ where: { id: endpointId, organizationId } });
   if (!existing) {
@@ -299,6 +364,7 @@ export async function updateEndpoint(
       ...(data.name !== undefined ? { name: data.name } : {}),
       ...(data.url !== undefined ? { url: data.url } : {}),
       ...(data.events !== undefined ? { events: data.events } : {}),
+      ...(data.clientIds !== undefined ? { clientIds: data.clientIds } : {}),
       // Pausing leaves the queue as it is: the worker skips an inactive
       // endpoint's deliveries, so resuming sends them without another step.
       ...(data.active !== undefined ? { active: data.active, suspendedAt: data.active ? null : new Date() } : {}),
@@ -307,6 +373,7 @@ export async function updateEndpoint(
 
   await recordAuditEvent({
     organizationId,
+    actorUserId: actorUserId ?? undefined,
     action: 'WEBHOOK_ENDPOINT_UPDATED',
     targetType: 'webhook_endpoint',
     targetId: endpointId,
@@ -335,22 +402,30 @@ export async function deleteEndpoint(organizationId: string, endpointId: string)
   return true;
 }
 
-function toRegistered(row: {
-  id: string;
-  name: string;
-  url: string;
-  events: string[];
-  active: boolean;
-  suspendedAt: Date | null;
-  failureCount: number;
-  lastDeliveryAt: Date | null;
-  createdAt: Date;
-}): RegisteredEndpoint {
+function toRegistered(
+  row: {
+    id: string;
+    name: string;
+    url: string;
+    events: string[];
+    clientIds: string[];
+    previousSecretExpiresAt: Date | null;
+    active: boolean;
+    suspendedAt: Date | null;
+    failureCount: number;
+    lastDeliveryAt: Date | null;
+    createdAt: Date;
+  },
+  now = new Date(),
+): RegisteredEndpoint {
   return {
     id: row.id,
     name: row.name,
     url: row.url,
     events: row.events as WebhookEvent[],
+    clientIds: row.clientIds ?? [],
+    previousSecretExpiresAt:
+      row.previousSecretExpiresAt && row.previousSecretExpiresAt > now ? row.previousSecretExpiresAt.toISOString() : null,
     active: row.active && row.suspendedAt === null,
     suspendedAt: row.suspendedAt?.toISOString() ?? null,
     failureCount: row.failureCount,
@@ -376,10 +451,11 @@ export async function emitEvent(
 ): Promise<number> {
   const endpoints = await prisma.webhookEndpoint.findMany({
     where: { organizationId, active: true, suspendedAt: null },
-    select: { id: true, events: true },
+    select: { id: true, events: true, clientIds: true },
   });
 
-  const subscribed = endpoints.filter((endpoint) => (endpoint.events as string[]).includes(event));
+  const wanted = endpoints.filter((endpoint) => (endpoint.events as string[]).includes(event));
+  const subscribed = await forClient(organizationId, wanted, data);
   if (subscribed.length === 0) {
     return 0;
   }
@@ -421,6 +497,39 @@ export async function emitEvent(
   });
 
   return subscribed.length;
+}
+
+/**
+ * Drops the endpoints limited to other clients.
+ *
+ * The client is read at emit time from the event's domain, because a domain
+ * can move between clients. An event about no domain (entitlement.exceeded,
+ * the test event) is about the workspace, and goes to every endpoint. An event
+ * naming a domain that no longer resolves goes only to endpoints for every
+ * client: an endpoint limited to one client is often that client's own
+ * system, and must never receive another client's domain.
+ */
+async function forClient<T extends { clientIds: string[] }>(
+  organizationId: string,
+  endpoints: T[],
+  data: Record<string, unknown>,
+): Promise<T[]> {
+  if (endpoints.every((endpoint) => endpoint.clientIds.length === 0)) return endpoints;
+  if (data.test === true) return endpoints;
+
+  let clientId: string | null = typeof data.clientId === 'string' ? data.clientId : null;
+  const domainId = typeof data.domainId === 'string' ? data.domainId : null;
+  if (!clientId && !domainId) return endpoints;
+  if (!clientId && domainId) {
+    const domain = await prisma.domain.findFirst({
+      where: { id: domainId, client: { organizationId } },
+      select: { clientId: true },
+    });
+    clientId = domain?.clientId ?? null;
+  }
+  return endpoints.filter(
+    (endpoint) => endpoint.clientIds.length === 0 || (clientId !== null && endpoint.clientIds.includes(clientId)),
+  );
 }
 
 export interface DeliveryOutcome {
@@ -468,7 +577,14 @@ type ClaimableDelivery = {
   event: string;
   payload: unknown;
   attempts: number;
-  endpoint: { id: string; url: string; secret: string | null; failureCount: number };
+  endpoint: {
+    id: string;
+    url: string;
+    secret: string | null;
+    previousSecret: string | null;
+    previousSecretExpiresAt: Date | null;
+    failureCount: number;
+  };
 };
 
 async function claimDueDeliveries(now: Date): Promise<ClaimableDelivery[]> {
@@ -527,7 +643,9 @@ async function claimDueDeliveries(now: Date): Promise<ClaimableDelivery[]> {
       event: true,
       payload: true,
       attempts: true,
-      endpoint: { select: { id: true, url: true, secret: true, failureCount: true } },
+      endpoint: {
+        select: { id: true, url: true, secret: true, previousSecret: true, previousSecretExpiresAt: true, failureCount: true },
+      },
     },
   });
 }
@@ -541,6 +659,14 @@ export async function deliverDueWebhooks(now = new Date()): Promise<DeliveryOutc
     const attempt = delivery.attempts + 1;
     const body = JSON.stringify(delivery.payload);
     const secret = decryptSensitive(delivery.endpoint.secret) ?? '';
+    // Inside a rotation's overlap the previous secret signs as well, after the current one.
+    const previous =
+      delivery.endpoint.previousSecret &&
+      delivery.endpoint.previousSecretExpiresAt &&
+      delivery.endpoint.previousSecretExpiresAt > now
+        ? decryptSensitive(delivery.endpoint.previousSecret)
+        : null;
+    const secrets = previous ? [secret, previous] : [secret];
     const timestamp = Math.floor(now.getTime() / 1000);
 
     let responseCode: number | undefined;
@@ -570,7 +696,7 @@ export async function deliverDueWebhooks(now = new Date()): Promise<DeliveryOutc
         method: 'POST',
         policy: 'webhook',
         headers: {
-          [signatureHeader]: signPayload(secret, body, timestamp),
+          [signatureHeader]: signatureValue(secrets, body, timestamp),
           [timestampHeader]: String(timestamp),
           [eventHeader]: delivery.event,
           [deliveryHeader]: delivery.id,

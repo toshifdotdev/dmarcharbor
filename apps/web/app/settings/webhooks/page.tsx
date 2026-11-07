@@ -6,6 +6,7 @@ import {
   listWebhookEndpoints,
   OpsError,
 } from "@/lib/api-ops";
+import { listClients } from "@/lib/api";
 import { featureOf } from "@/lib/entitlements";
 import { instantLabel } from "@/lib/instant";
 import { settingsContext } from "@/lib/settings-context";
@@ -24,12 +25,15 @@ export const metadata: Metadata = { title: "Webhooks" };
  */
 export default async function WebhooksPage() {
   const ctx = await settingsContext();
-  const [listed, log, entitlements, catalog] = await Promise.all([
+  const [listed, log, entitlements, catalog, clientRows] = await Promise.all([
     listWebhookEndpoints(ctx.active.id).catch((e: unknown) => (e instanceof OpsError && e.status === 403 ? ("forbidden" as const) : null)),
     listWebhookDeliveries(ctx.active.id).catch(() => null),
     getWorkspaceEntitlements(ctx.active.id).catch(() => null),
     getPlanCatalog().catch(() => null),
+    // For naming each endpoint's clients and offering them in the form.
+    listClients(ctx.active.id).catch(() => null),
   ]);
+  const clients = clientRows ? clientRows.map((c) => ({ id: c.id, name: c.name })).sort((a, b) => a.name.localeCompare(b.name)) : null;
 
   const webhookFeature = featureOf(entitlements, "integrations.webhooks");
   const webhooksPlanLabel =
@@ -45,6 +49,8 @@ export default async function WebhooksPage() {
           name: e.name,
           url: e.url,
           events: e.events,
+          clientIds: e.clientIds ?? [],
+          overlapUntilLabel: e.previousSecretExpiresAt ? instantLabel(e.previousSecretExpiresAt) : null,
           active: e.active,
           suspendedUntilLabel: e.suspendedAt && new Date(e.suspendedAt).getTime() > now ? instantLabel(e.suspendedAt) : null,
           failureCount: e.failureCount,
@@ -83,6 +89,7 @@ export default async function WebhooksPage() {
           deliveries={deliveries}
           events={listed.events}
           defaultEvents={listed.defaultEvents}
+          clients={clients}
           canManage={ctx.role === null ? true : mayChange(ctx.role, "admin")}
           webhookFeature={webhookFeature}
           webhooksPlanLabel={webhooksPlanLabel}
