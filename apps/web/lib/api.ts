@@ -7,12 +7,9 @@
  * lib/types.ts. Treat a typecheck failure here as a contract change to review,
  * not to cast away.
  *
- * N+1 NOTE (known API gap, bulk endpoint coming): GET
- * /api/workspaces/:id/domains?include=signals will return domains with their
- * measurement state in ONE call. Until it lands, per-domain signals come from
- * getDomainSignals below with bounded concurrency. New screens must not fan
- * out per-domain calls for bulk state — mark the site and use
- * getAllDomainSignals as the single place to collapse when the endpoint lands.
+ * BULK STATE: every domain's measurement comes from ONE call,
+ * GET /api/workspaces/:id/domain-signals, through getAllDomainSignals. New
+ * screens must not fan out per-domain calls for bulk state.
  */
 
 import { cache } from "react";
@@ -228,56 +225,26 @@ export function deriveSignals(
 }
 
 /**
- * Measurement signals for one domain.
+ * Signals for every domain in one request: GET /domain-signals counts them in
+ * the database in a fixed number of queries, whatever the number of domains.
+ * Nothing else should grow its own per-domain fan-out for portfolio state.
  *
- * N+1 NOTE: the reports fetch here is the same collapse site as the insights
- * fetch — both fold into the single GET
- * /api/workspaces/:id/domains?include=signals when it lands. The reports call
- * exists because the domain row's dmarcPolicy is written ONLY by a DNS scan
- * (domain-scan.service.ts), so an unscanned domain would otherwise assert
- * "no record" while its reports carry the policy their reporters actually
- * observed (policy_published → policyP).
- */
-export async function getDomainSignals(
-  organizationId: string,
-  domainId: string,
-  domainName: string,
-): Promise<DomainSignals> {
-  const [insights, reports] = await Promise.all([
-    getDomainInsights(organizationId, domainId),
-    listDomainReports(organizationId, domainId, 3),
-  ]);
-  return deriveSignals(insights, domainName, reports.items[0]?.policyP ?? null);
-}
-
-/**
- * Signals for every domain, fetched with bounded concurrency.
- *
- * N+1 NOTE: this is the site to collapse when GET
- * /api/workspaces/:id/domains?include=signals lands. Nothing else should
- * grow its own per-domain fan-out for portfolio state.
+ * A domain the response does not name (added between the two reads) stays
+ * "signals unavailable": it is never resolved into a posture. Rule Zero. A
+ * failed request throws, and the page says the portfolio could not be read.
  */
 export async function getAllDomainSignals(
   organizationId: string,
   domains: Pick<DomainRow, "id" | "name">[],
-  concurrency = 6,
 ): Promise<Map<string, DomainSignals | null>> {
-  const out = new Map<string, DomainSignals | null>();
-  const queue = [...domains];
-
-  async function worker(): Promise<void> {
-    for (let job = queue.shift(); job; job = queue.shift()) {
-      try {
-        out.set(job.id, await getDomainSignals(organizationId, job.id, job.name));
-      } catch {
-        // A row whose signals cannot load stays "signals unavailable": it is
-        // never resolved into a posture. Rule Zero.
-        out.set(job.id, null);
-      }
-    }
+  const out = new Map<string, DomainSignals | null>(domains.map((d) => [d.id, null]));
+  if (domains.length === 0) return out;
+  const body = await apiFetch<{ days: number; domains: Array<DomainSignals & { domainId: string }> }>(
+    `/api/workspaces/${organizationId}/domain-signals`,
+  );
+  for (const { domainId, ...signals } of body.domains) {
+    if (out.has(domainId)) out.set(domainId, signals);
   }
-
-  await Promise.all(Array.from({ length: concurrency }, worker));
   return out;
 }
 

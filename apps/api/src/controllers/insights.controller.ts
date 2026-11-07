@@ -3,6 +3,7 @@ import { resourceIdSchema } from '../models/client.model.js';
 import { insightsQuerySchema } from '../models/forensic.model.js';
 import { getDomain } from '../services/client.service.js';
 import { forensicRetentionSummary } from '../services/forensic-report.service.js';
+import { workspaceSignals } from '../services/report-aggregates.service.js';
 import { getDomainInsights } from '../services/report-intelligence.service.js';
 
 function parseId(value: string | string[] | undefined): string | null {
@@ -33,4 +34,11 @@ export async function domainInsightsController(request: Request, response: Respo
   }
 
   response.json({ ...insights, retention: forensicRetentionSummary() });
+}
+
+/** GET /workspaces/:organizationId/domain-signals — every domain's portfolio figures at once. */
+export async function workspaceSignalsController(request: Request, response: Response): Promise<void> {
+  const query = insightsQuerySchema.safeParse(request.query);
+  const days = Math.min(Math.max(query.success && query.data.days ? query.data.days : 30, 1), 90);
+  response.json(await workspaceSignals(response.locals.organizationId, days));
 }

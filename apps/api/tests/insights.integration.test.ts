@@ -401,6 +401,18 @@ describe('domain insights', () => {
     expect(Array.isArray(insights.body.policyHistory)).toBe(true);
     expect(insights.body.trends.days).toBe(30);
     expect(insights.body.retention.redactionVersion).toBe(1);
+
+    // The portfolio's batched figures are the domain page's figures.
+    const batch = await agent.get(`/api/workspaces/${organizationId}/domain-signals`);
+    expect(batch.status).toBe(200);
+    const row = batch.body.domains.find((d: { domainId: string }) => d.domainId === domainId);
+    expect(row.messageCount).toBe(insights.body.aggregate.messageCount);
+    expect(row.failedMessages).toBe(insights.body.aggregate.failedMessages);
+    expect(row.reportCount).toBe(2);
+    expect(row.spfPassRate).toBe(insights.body.aggregate.spfPassRate);
+    expect(row.trend.reduce((n: number, p: { messagesObserved: number }) => n + p.messagesObserved, 0)).toBe(1055);
+    // 50 messages from 45.83.12.9 authenticated as spammer.test, not as the domain.
+    expect(row.unattributedMessages).toBeGreaterThanOrEqual(50);
   });
 
   it('counts a DKIM-passing SPF-failing sender as DMARC passed', async () => {

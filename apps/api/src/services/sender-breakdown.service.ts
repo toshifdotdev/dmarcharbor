@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
 import { classifyNewSenderRisk, newSenderWindowDays, type NewSenderRisk } from './dmarc-rollout.service.js';
 import {
@@ -54,8 +55,29 @@ export interface SenderBreakdownRow {
   owner: { id: string; name: string } | null;
 }
 
-function isPass(value: string | null): boolean {
-  return (value ?? '').trim().toLowerCase() === 'pass';
+/** isPass() in SQL. */
+const DKIM_PASS = Prisma.sql`lower(trim(COALESCE(rec."dkimResult", ''))) = 'pass'`;
+const SPF_PASS = Prisma.sql`lower(trim(COALESCE(rec."spfResult", ''))) = 'pass'`;
+
+interface SenderSourceRow {
+  key: string;
+  ip: string;
+  senderDomain: string | null;
+  total: bigint;
+  failed: bigint;
+  dmarcFailed: bigint;
+  dkimPass: bigint;
+  spfPass: bigint;
+  firstSeen: Date;
+  lastSeen: Date;
+}
+
+interface SenderSignalRow {
+  key: string;
+  type: string;
+  domain: string | null;
+  result: string;
+  messages: bigint;
 }
 
 export function classifySender(totalMessages: number, dmarcFailedMessages: number): SenderBreakdownRow['status'] {
@@ -83,24 +105,42 @@ export async function buildSenderBreakdown(
     return [];
   }
 
-  const records = await prisma.dmarcReportRecord.findMany({
-    where: { report: { domainId, domain: { client: { organizationId } } } },
-    select: {
-      sourceIp: true,
-      messageCount: true,
-      dkimResult: true,
-      spfResult: true,
-      senderKey: true,
-      senderDomain: true,
-      authResults: { select: { type: true, domain: true, result: true } },
-      report: { select: { receivedAt: true } },
-    },
-    // Beyond 50,000 records the subset must be the newest evidence, not an
-    // arbitrary slice. The aggregate count is bounded; the order makes what it
-    // leaves out predictable.
-    orderBy: { report: { receivedAt: 'desc' } },
-    take: 50_000,
-  });
+  /**
+   * Counted in the database over every record held, grouped by sender and
+   * source address. This used to load the newest 50,000 records with their
+   * auth results into memory, so a busy domain's table covered recent mail
+   * only and every page load moved the whole set across the wire.
+   */
+  const [rows, signalRows] = await Promise.all([
+    prisma.$queryRaw<SenderSourceRow[]>`
+      SELECT COALESCE(rec."senderKey", rec."sourceIp" || '|unknown') AS "key",
+             rec."sourceIp" AS "ip",
+             (array_agg(rec."senderDomain" ORDER BY r."receivedAt" DESC))[1] AS "senderDomain",
+             COALESCE(SUM(rec."messageCount"), 0)::bigint AS "total",
+             COALESCE(SUM(CASE WHEN NOT (${DKIM_PASS} AND ${SPF_PASS}) THEN rec."messageCount" ELSE 0 END), 0)::bigint AS "failed",
+             COALESCE(SUM(CASE WHEN NOT (${DKIM_PASS}) AND NOT (${SPF_PASS}) THEN rec."messageCount" ELSE 0 END), 0)::bigint AS "dmarcFailed",
+             COALESCE(SUM(CASE WHEN ${DKIM_PASS} THEN rec."messageCount" ELSE 0 END), 0)::bigint AS "dkimPass",
+             COALESCE(SUM(CASE WHEN ${SPF_PASS} THEN rec."messageCount" ELSE 0 END), 0)::bigint AS "spfPass",
+             MIN(r."receivedAt") AS "firstSeen",
+             MAX(r."receivedAt") AS "lastSeen"
+      FROM "dmarc_report_record" rec
+      JOIN "dmarc_report" r ON r.id = rec."reportId"
+      WHERE r."domainId" = ${domainId}
+      GROUP BY 1, 2
+    `,
+    prisma.$queryRaw<SenderSignalRow[]>`
+      SELECT COALESCE(rec."senderKey", rec."sourceIp" || '|unknown') AS "key",
+             a."type"::text AS "type",
+             a."domain" AS "domain",
+             a."result" AS "result",
+             COALESCE(SUM(rec."messageCount"), 0)::bigint AS "messages"
+      FROM "dmarc_auth_result" a
+      JOIN "dmarc_report_record" rec ON rec.id = a."recordId"
+      JOIN "dmarc_report" r ON r.id = rec."reportId"
+      WHERE r."domainId" = ${domainId}
+      GROUP BY 1, 2, 3, 4
+    `,
+  ]);
 
   const senders = new Map<
     string,
@@ -122,11 +162,14 @@ export async function buildSenderBreakdown(
 
   const windowStart = new Date(Date.now() - newSenderWindowDays * 24 * 60 * 60 * 1000);
 
-  for (const record of records) {
-    const key = record.senderKey ?? `${record.sourceIp}|unknown`;
-    const reportedAt = record.report.receivedAt;
-    const existing = senders.get(key) ?? {
-      senderDomain: record.senderDomain,
+  // The newest senderDomain wins, as the newest record's did when records were read in order.
+  const domainSeenAt = new Map<string, Date>();
+
+  for (const row of rows) {
+    const firstSeen = new Date(row.firstSeen);
+    const lastSeen = new Date(row.lastSeen);
+    const existing = senders.get(row.key) ?? {
+      senderDomain: row.senderDomain,
       sourceIps: new Set<string>(),
       failingSourceIps: new Set<string>(),
       totalMessages: 0,
@@ -134,54 +177,51 @@ export async function buildSenderBreakdown(
       dmarcFailedMessages: 0,
       dkimPassMessages: 0,
       spfPassMessages: 0,
-      firstSeenAt: reportedAt,
-      lastSeenAt: reportedAt,
+      firstSeenAt: firstSeen,
+      lastSeenAt: lastSeen,
       signals: new Map(),
       ipMessages: new Map(),
     };
+    if (lastSeen >= (domainSeenAt.get(row.key) ?? new Date(0))) {
+      existing.senderDomain = row.senderDomain;
+      domainSeenAt.set(row.key, lastSeen);
+    }
 
-    const dkimPass = isPass(record.dkimResult);
-    const spfPass = isPass(record.spfResult);
-    const failed = !dkimPass || !spfPass;
-    const dmarcFailed = !dkimPass && !spfPass;
-
-    const sourceIp = normaliseIpAddress(record.sourceIp) ?? record.sourceIp.trim().toLowerCase();
+    const total = Number(row.total);
+    const dmarcFailed = Number(row.dmarcFailed);
+    const sourceIp = normaliseIpAddress(row.ip) ?? row.ip.trim().toLowerCase();
     existing.sourceIps.add(sourceIp);
-    existing.ipMessages.set(sourceIp, (existing.ipMessages.get(sourceIp) ?? 0) + record.messageCount);
-    existing.totalMessages += record.messageCount;
-
-    for (const auth of record.authResults) {
-      const key = `${auth.type}|${auth.domain ?? ''}|${auth.result}`;
-      const signal = existing.signals.get(key) ?? {
-        type: auth.type,
-        domain: auth.domain,
-        result: auth.result,
-        messageCount: 0,
-      };
-      signal.messageCount += record.messageCount;
-      existing.signals.set(key, signal);
-    }
-    if (dkimPass) {
-      existing.dkimPassMessages += record.messageCount;
-    }
-    if (spfPass) {
-      existing.spfPassMessages += record.messageCount;
-    }
-    if (failed) {
-      existing.failedMessages += record.messageCount;
-    }
-    if (dmarcFailed) {
-      existing.dmarcFailedMessages += record.messageCount;
+    existing.ipMessages.set(sourceIp, (existing.ipMessages.get(sourceIp) ?? 0) + total);
+    existing.totalMessages += total;
+    existing.dkimPassMessages += Number(row.dkimPass);
+    existing.spfPassMessages += Number(row.spfPass);
+    existing.failedMessages += Number(row.failed);
+    existing.dmarcFailedMessages += dmarcFailed;
+    if (dmarcFailed > 0) {
       existing.failingSourceIps.add(sourceIp);
     }
-    if (reportedAt < existing.firstSeenAt) {
-      existing.firstSeenAt = reportedAt;
+    if (firstSeen < existing.firstSeenAt) {
+      existing.firstSeenAt = firstSeen;
     }
-    if (reportedAt > existing.lastSeenAt) {
-      existing.lastSeenAt = reportedAt;
+    if (lastSeen > existing.lastSeenAt) {
+      existing.lastSeenAt = lastSeen;
     }
 
-    senders.set(key, existing);
+    senders.set(row.key, existing);
+  }
+
+  for (const row of signalRows) {
+    const entry = senders.get(row.key);
+    if (!entry) continue;
+    const signalKey = `${row.type}|${row.domain ?? ''}|${row.result}`;
+    const signal = entry.signals.get(signalKey) ?? {
+      type: row.type as AuthSignal['type'],
+      domain: row.domain,
+      result: row.result,
+      messageCount: 0,
+    };
+    signal.messageCount += Number(row.messages);
+    entry.signals.set(signalKey, signal);
   }
 
   const allIps = [...new Set([...senders.values()].flatMap((entry) => [...entry.sourceIps]))];

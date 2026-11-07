@@ -4156,6 +4156,18 @@ export const openApiDocument = {
         responses: { 200: { description: 'Readiness plus human readable blockers.' }, ...standardErrors },
       },
     },
+    '/workspaces/{organizationId}/domain-signals': {
+      get: {
+        tags: ['Reports'],
+        summary: 'Every domain\'s portfolio figures',
+        description: [
+          'One entry per domain in the workspace, counted in the database with the same queries as the domain insights, in a fixed number of queries whatever the number of domains.',
+          'Each entry has reportCount, messageCount, failedMessages (both aligned checks failed), unattributedMessages (senders authenticating as another domain), spfPassRate and dkimPassRate (percent, null with no messages), lastReportAt, reportedPolicy (the policy in the newest report), trend (daily points over `days`, default 30, at most 90) and policyHistory (each published policy change, oldest first).',
+        ].join(' '),
+        parameters: [orgParam, { name: 'days', in: 'query', required: false, schema: { type: 'integer', minimum: 1, maximum: 90 } }],
+        responses: { 200: { description: '{ days, domains: [...] }' }, ...standardErrors },
+      },
+    },
     '/workspaces/{organizationId}/domains/{domainId}/insights': {
       get: {
         tags: ['Reports'],

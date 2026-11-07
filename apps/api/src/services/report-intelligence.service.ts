@@ -1,17 +1,22 @@
-import { Prisma } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
 import { hasAggregateReporting, readDmarcRecord } from '../scanner/dmarc-tags.js';
-import { passesDmarc } from './alignment.service.js';
 import { domainRef } from './domain-ref.js';
+import {
+  DKIM_PASS,
+  SPF_PASS,
+  dailyPointsByDomain,
+  emptyTotals,
+  policyHistoryByDomain,
+  totalsByDomain,
+} from './report-aggregates.service.js';
 import { buildSenderBreakdown, type SenderBreakdownRow } from './sender-breakdown.service.js';
 import { attributeSourceIp, type AuthSignal, type CachedIntel, type SenderConfidence, type SenderService } from './senders/attribution.js';
 import { normaliseIpAddress } from './senders/ip-intel.service.js';
 
-const maxScannedRecords = 5_000;
+/** How many sources the insights list, largest problem first. */
+const listedSources = 25;
 const defaultTrendDays = 30;
 const maximumTrendDays = 365;
-/** How far back the policy history reads. Older reports are usually past retention anyway. */
-const policyHistoryDays = 730;
 const spikeStandardDeviations = 2;
 
 export interface SourceAttribution {
@@ -105,10 +110,6 @@ export interface DomainInsights {
   policyHistory: PolicyStep[];
 }
 
-function isPass(value: string | null): boolean {
-  return (value ?? '').trim().toLowerCase() === 'pass';
-}
-
 function riskFor(failed: number, total: number): 'high' | 'medium' | 'low' {
   if (failed === 0) {
     return 'low';
@@ -200,49 +201,18 @@ export async function getDomainInsights(
     return null;
   }
 
-  const [reports, forensics, senders] = await Promise.all([
-    prisma.dmarcReport.findMany({
-      where: { domainId: domain.id },
-      select: {
-        receivedAt: true,
-        records: {
-          select: {
-            sourceIp: true,
-            messageCount: true,
-            dkimResult: true,
-            spfResult: true,
-            headerFrom: true,
-            authResults: { select: { type: true, domain: true, result: true } },
-          },
-          take: maxScannedRecords,
-        },
-      },
-      orderBy: { receivedAt: 'desc' },
-      take: 500,
-    }),
-    prisma.dmarcForensicReport.findMany({
-      where: { domainId: domain.id },
-      select: {
-        sourceIp: true,
-        disposition: true,
-        arrivedAt: true,
-        receivedAt: true,
-        piiRetained: true,
-        recipientPseudonyms: true,
-      },
-      take: maxScannedRecords,
-    }),
-    buildSenderBreakdown(organizationId, domainId),
-  ]);
-
-  // The domain's totals, its receivers and what they did with the mail are
-  // counted in SQL over every report held, so they agree with the daily chart
-  // however busy the domain is. The scan above (the latest 500 reports) feeds
-  // only the per-source attribution, which needs each record's auth results.
-  const [totals, reporterRows, dispositionRows] = await Promise.all([
-    aggregateTotals(domain.id),
+  // Every figure here is counted in the database over every report held, so a
+  // busy domain's totals, sources, receivers and charts agree with each other.
+  // Nothing loads raw records into memory any more: the old scan read the
+  // latest 500 reports, which a domain with 25 receivers passes in three weeks.
+  const [senders, totals, reporterRows, dispositionRows, sourceRows, forensicTotals, forensicByIp] = await Promise.all([
+    buildSenderBreakdown(organizationId, domain.id),
+    totalsByDomain([domain.id]).then((all) => all.get(domain.id) ?? emptyTotals()),
     reporterShares(domain.id),
     dispositionCounts(domain.id),
+    sourceTotals(domain.id),
+    forensicSummary(domain.id),
+    forensicSources(domain.id),
   ]);
   const recordCount = totals.records;
   const messageCount = totals.messages;
@@ -261,76 +231,54 @@ export async function getDomainInsights(
   }
 
   const sources = emptyMap();
-  const ipSignals = new Map<string, Map<string, AuthSignal>>();
-
-  for (const report of reports) {
-    for (const record of report.records) {
-      const dmarcFailed = !passesDmarc(record);
-      const partiallyAligned = !dmarcFailed && (!isPass(record.dkimResult) || !isPass(record.spfResult));
-
-      const sendingDomain =
-        record.authResults.find((result) => result.domain)?.domain ?? record.headerFrom ?? null;
-      const sourceIp = normaliseIpAddress(record.sourceIp) ?? record.sourceIp;
-
-      const signals = ipSignals.get(sourceIp) ?? new Map<string, AuthSignal>();
-      for (const auth of record.authResults) {
-        const key = `${auth.type}|${auth.domain ?? ''}|${auth.result}`;
-        const signal = signals.get(key) ?? {
-          type: auth.type,
-          domain: auth.domain,
-          result: auth.result,
-          messageCount: 0,
-        };
-        signal.messageCount += record.messageCount;
-        signals.set(key, signal);
-      }
-      ipSignals.set(sourceIp, signals);
-
-      touchSource(sources, sourceIp, (entry) => {
-        entry.totalMessages += record.messageCount;
-        entry.reportCount += 1;
-        entry.lastSeenAt = latestIso(entry.lastSeenAt, report.receivedAt);
-        if (dmarcFailed) {
-          entry.failedMessages += record.messageCount;
-        } else if (partiallyAligned) {
-          entry.partiallyAlignedMessages += record.messageCount;
-        }
-        if (sendingDomain && !entry.topSendingDomain) {
-          entry.topSendingDomain = sendingDomain;
-        }
-      });
-    }
+  for (const row of sourceRows) {
+    const sourceIp = normaliseIpAddress(row.ip) ?? row.ip;
+    touchSource(sources, sourceIp, (entry) => {
+      entry.totalMessages += Number(row.messages);
+      entry.reportCount += Number(row.reports);
+      entry.failedMessages += Number(row.failed);
+      entry.partiallyAlignedMessages += Number(row.partial);
+      entry.lastSeenAt = latestIso(entry.lastSeenAt, row.lastSeen ? new Date(row.lastSeen) : null);
+      entry.topSendingDomain ??= row.headerFrom;
+    });
   }
-
-  const recipientPseudonyms = new Set<string>();
-  let rejectedMessages = 0;
-  let retainedIdentities = 0;
-  let lastForensicAt: string | null = null;
-
-  for (const forensic of forensics) {
-    lastForensicAt = latestIso(lastForensicAt, forensic.arrivedAt ?? forensic.receivedAt);
-    if (forensic.disposition === 'reject' || forensic.disposition === 'quarantine') {
-      rejectedMessages += 1;
-    }
-    if (forensic.piiRetained) {
-      retainedIdentities += 1;
-    }
-    if (Array.isArray(forensic.recipientPseudonyms)) {
-      for (const value of forensic.recipientPseudonyms) {
-        if (typeof value === 'string' && value) {
-          recipientPseudonyms.add(value);
-        }
-      }
-    }
-
-    const forensicIp = normaliseIpAddress(forensic.sourceIp) ?? forensic.sourceIp;
-    touchSource(sources, forensicIp, (entry) => {
-      entry.forensicMessages += 1;
-      entry.lastSeenAt = latestIso(entry.lastSeenAt, forensic.arrivedAt ?? forensic.receivedAt);
+  for (const row of forensicByIp) {
+    const sourceIp = normaliseIpAddress(row.ip) ?? row.ip;
+    touchSource(sources, sourceIp, (entry) => {
+      entry.forensicMessages += Number(row.reports);
+      entry.lastSeenAt = latestIso(entry.lastSeenAt, row.lastSeen ? new Date(row.lastSeen) : null);
     });
   }
 
-  const sourceIps = [...sources.keys()];
+  // Only the sources that will be listed are attributed: sorted as the list
+  // is, then cut. A domain can have thousands of sending addresses.
+  const listed = [...sources.values()]
+    .sort((left, right) => right.failedMessages - left.failedMessages || right.totalMessages - left.totalMessages)
+    .slice(0, listedSources);
+  const signalRows = await sourceSignals(
+    domain.id,
+    sourceRows.map((row) => row.ip).filter((ip) => listed.some((s) => s.sourceIp === (normaliseIpAddress(ip) ?? ip))),
+  );
+  const ipSignals = new Map<string, Map<string, AuthSignal>>();
+  for (const row of signalRows) {
+    const sourceIp = normaliseIpAddress(row.ip) ?? row.ip;
+    const signals = ipSignals.get(sourceIp) ?? new Map<string, AuthSignal>();
+    const key = `${row.type}|${row.domain ?? ''}|${row.result}`;
+    const signal = signals.get(key) ?? { type: row.type, domain: row.domain, result: row.result, messageCount: 0 };
+    signal.messageCount += Number(row.messages);
+    signals.set(key, signal);
+    ipSignals.set(sourceIp, signals);
+  }
+  // The domain the most mail from a source authenticated as names it, ahead of
+  // the From header the query fell back on.
+  for (const source of listed) {
+    const best = [...(ipSignals.get(source.sourceIp)?.values() ?? [])]
+      .filter((signal) => signal.domain)
+      .sort((a, b) => b.messageCount - a.messageCount)[0];
+    if (best?.domain) source.topSendingDomain = best.domain;
+  }
+
+  const sourceIps = listed.map((source) => source.sourceIp);
   const intelRows = sourceIps.length
     ? await prisma.sourceIpIntel.findMany({
         where: { ip: { in: sourceIps } },
@@ -344,7 +292,7 @@ export async function getDomainInsights(
     ]),
   );
 
-  for (const source of sources.values()) {
+  for (const source of listed) {
     const attributed = attributeSourceIp({
       reportedDomain: domain.name,
       ip: source.sourceIp,
@@ -361,7 +309,10 @@ export async function getDomainInsights(
   // window, not from the capped scan above: a busy domain's latest 500 reports
   // can cover less than 30 days, and the charts would then draw real days as
   // "no report received".
-  const [points, policyHistory] = await Promise.all([dailyPoints(domain.id, days), policyHistoryOf(domain.id)]);
+  const [points, policyHistory] = await Promise.all([
+    dailyPointsByDomain([domain.id], days).then((all) => all.get(domain.id) ?? []),
+    policyHistoryByDomain([domain.id]).then((all) => all.get(domain.id) ?? []),
+  ]);
   const observed = points.map((point) => point.messagesObserved);
   const average = observed.length ? observed.reduce((total, value) => total + value, 0) / observed.length : 0;
   const deviation = standardDeviation(observed);
@@ -403,16 +354,8 @@ export async function getDomainInsights(
       lastReportAt,
       messageWindow: { begin: windowBegin, end: windowEnd },
     },
-    forensic: {
-      count: forensics.length,
-      rejectedMessages,
-      affectedRecipients: recipientPseudonyms.size,
-      retainedIdentities,
-      lastReportAt: lastForensicAt,
-    },
-    sources: [...sources.values()]
-      .sort((left, right) => right.failedMessages - left.failedMessages || right.totalMessages - left.totalMessages)
-      .slice(0, 25),
+    forensic: forensicTotals,
+    sources: listed,
     trends: { days, points, spikes },
     reporters: reporterRows.slice(0, 8).map((row) => ({
       organization: row.organization,
@@ -425,54 +368,109 @@ export async function getDomainInsights(
   };
 }
 
-/** passesDmarc() in SQL: DKIM or SPF passed. */
-const DKIM_PASS = Prisma.sql`lower(trim(COALESCE(rec."dkimResult", ''))) = 'pass'`;
-const SPF_PASS = Prisma.sql`lower(trim(COALESCE(rec."spfResult", ''))) = 'pass'`;
-
-interface TotalsRow {
+interface SourceRow {
+  ip: string;
   reports: bigint;
-  records: bigint;
   messages: bigint;
   failed: bigint;
   partial: bigint;
-  spf: bigint;
-  dkim: bigint;
-  lastReceived: Date | null;
-  windowBegin: Date | null;
-  windowEnd: Date | null;
+  lastSeen: Date | null;
+  headerFrom: string | null;
 }
 
-/** The domain's figures over every aggregate report held (retention bounds them). */
-async function aggregateTotals(domainId: string) {
-  const [row] = await prisma.$queryRaw<TotalsRow[]>`
-    SELECT COUNT(DISTINCT r.id)::bigint AS "reports",
-           COUNT(rec.id)::bigint AS "records",
+/** Each sending address over every aggregate record held. */
+async function sourceTotals(domainId: string): Promise<SourceRow[]> {
+  return prisma.$queryRaw<SourceRow[]>`
+    SELECT rec."sourceIp" AS "ip",
+           COUNT(DISTINCT r.id)::bigint AS "reports",
            COALESCE(SUM(rec."messageCount"), 0)::bigint AS "messages",
-           COALESCE(SUM(CASE WHEN rec.id IS NOT NULL AND NOT (${DKIM_PASS}) AND NOT (${SPF_PASS}) THEN rec."messageCount" ELSE 0 END), 0)::bigint AS "failed",
+           COALESCE(SUM(CASE WHEN NOT (${DKIM_PASS}) AND NOT (${SPF_PASS}) THEN rec."messageCount" ELSE 0 END), 0)::bigint AS "failed",
            COALESCE(SUM(CASE WHEN (${DKIM_PASS} OR ${SPF_PASS}) AND NOT (${DKIM_PASS} AND ${SPF_PASS}) THEN rec."messageCount" ELSE 0 END), 0)::bigint AS "partial",
-           COALESCE(SUM(CASE WHEN ${SPF_PASS} THEN rec."messageCount" ELSE 0 END), 0)::bigint AS "spf",
-           COALESCE(SUM(CASE WHEN ${DKIM_PASS} THEN rec."messageCount" ELSE 0 END), 0)::bigint AS "dkim",
-           MAX(r."receivedAt") AS "lastReceived",
-           MIN(r."dateRangeBegin") AS "windowBegin",
-           MAX(r."dateRangeEnd") AS "windowEnd"
-    FROM "dmarc_report" r
-    LEFT JOIN "dmarc_report_record" rec ON rec."reportId" = r.id
+           MAX(r."receivedAt") AS "lastSeen",
+           mode() WITHIN GROUP (ORDER BY NULLIF(rec."headerFrom", '')) AS "headerFrom"
+    FROM "dmarc_report_record" rec
+    JOIN "dmarc_report" r ON r.id = rec."reportId"
     WHERE r."domainId" = ${domainId}
       AND r."reportType" = 'AGGREGATE'
+    GROUP BY rec."sourceIp"
   `;
-  const iso = (value: Date | null | undefined) => (value ? new Date(value).toISOString() : null);
+}
+
+interface SourceSignalRow {
+  ip: string;
+  type: string;
+  domain: string | null;
+  result: string;
+  messages: bigint;
+}
+
+/** The auth results behind the listed sources, which attribution reads. */
+async function sourceSignals(domainId: string, ips: string[]): Promise<SourceSignalRow[]> {
+  if (ips.length === 0) return [];
+  return prisma.$queryRaw<SourceSignalRow[]>`
+    SELECT rec."sourceIp" AS "ip",
+           a."type"::text AS "type",
+           a."domain" AS "domain",
+           a."result" AS "result",
+           COALESCE(SUM(rec."messageCount"), 0)::bigint AS "messages"
+    FROM "dmarc_auth_result" a
+    JOIN "dmarc_report_record" rec ON rec.id = a."recordId"
+    JOIN "dmarc_report" r ON r.id = rec."reportId"
+    WHERE r."domainId" = ${domainId}
+      AND r."reportType" = 'AGGREGATE'
+      AND rec."sourceIp" = ANY(${ips}::text[])
+    GROUP BY 1, 2, 3, 4
+  `;
+}
+
+interface ForensicSummaryRow {
+  count: bigint;
+  rejected: bigint;
+  retained: bigint;
+  lastAt: Date | null;
+  recipients: bigint;
+}
+
+/** The forensic figures over every report held, not the latest 5,000. */
+async function forensicSummary(domainId: string): Promise<DomainInsights['forensic']> {
+  const [row] = await prisma.$queryRaw<ForensicSummaryRow[]>`
+    SELECT COUNT(*)::bigint AS "count",
+           COUNT(*) FILTER (WHERE f."disposition" IN ('reject', 'quarantine'))::bigint AS "rejected",
+           COUNT(*) FILTER (WHERE f."piiRetained")::bigint AS "retained",
+           MAX(COALESCE(f."arrivedAt", f."receivedAt")) AS "lastAt",
+           (SELECT COUNT(DISTINCT v)
+              FROM "dmarc_forensic_report" g,
+                   jsonb_array_elements_text(
+                     CASE WHEN jsonb_typeof(g."recipientPseudonyms"::jsonb) = 'array' THEN g."recipientPseudonyms"::jsonb ELSE '[]'::jsonb END
+                   ) AS v
+             WHERE g."domainId" = ${domainId} AND v <> '')::bigint AS "recipients"
+    FROM "dmarc_forensic_report" f
+    WHERE f."domainId" = ${domainId}
+  `;
   return {
-    reports: Number(row?.reports ?? 0),
-    records: Number(row?.records ?? 0),
-    messages: Number(row?.messages ?? 0),
-    failed: Number(row?.failed ?? 0),
-    partial: Number(row?.partial ?? 0),
-    spf: Number(row?.spf ?? 0),
-    dkim: Number(row?.dkim ?? 0),
-    lastReportAt: iso(row?.lastReceived),
-    windowBegin: iso(row?.windowBegin),
-    windowEnd: iso(row?.windowEnd),
+    count: Number(row?.count ?? 0),
+    rejectedMessages: Number(row?.rejected ?? 0),
+    affectedRecipients: Number(row?.recipients ?? 0),
+    retainedIdentities: Number(row?.retained ?? 0),
+    lastReportAt: row?.lastAt ? new Date(row.lastAt).toISOString() : null,
   };
+}
+
+interface ForensicSourceRow {
+  ip: string;
+  reports: bigint;
+  lastSeen: Date | null;
+}
+
+async function forensicSources(domainId: string): Promise<ForensicSourceRow[]> {
+  return prisma.$queryRaw<ForensicSourceRow[]>`
+    SELECT f."sourceIp" AS "ip",
+           COUNT(*)::bigint AS "reports",
+           MAX(COALESCE(f."arrivedAt", f."receivedAt")) AS "lastSeen"
+    FROM "dmarc_forensic_report" f
+    WHERE f."domainId" = ${domainId}
+    GROUP BY f."sourceIp"
+  `;
 }
 
 interface ReporterRow {
@@ -514,91 +512,4 @@ async function dispositionCounts(domainId: string): Promise<DispositionRow[]> {
       AND r."reportType" = 'AGGREGATE'
     GROUP BY 1
   `;
-}
-
-interface DailyRow {
-  day: string;
-  reports: bigint;
-  messages: bigint;
-  failed: bigint;
-  spf: bigint;
-  dkim: bigint;
-}
-
-/**
- * One point per UTC day (by the day the report was received) that had an
- * aggregate report, over the last `days` days. Counted in the database, so the
- * cost does not grow with the number of records held in memory. DMARC passes
- * as passesDmarc() decides it: DKIM or SPF passed.
- */
-async function dailyPoints(domainId: string, days: number): Promise<TrendPoint[]> {
-  const now = new Date();
-  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  const since = new Date(today - (days - 1) * 86_400_000);
-  const rows = await prisma.$queryRaw<DailyRow[]>`
-    SELECT to_char(r."receivedAt", 'YYYY-MM-DD') AS "day",
-           COUNT(DISTINCT r.id)::bigint AS "reports",
-           COALESCE(SUM(rec."messageCount"), 0)::bigint AS "messages",
-           COALESCE(SUM(CASE WHEN lower(trim(COALESCE(rec."dkimResult", ''))) <> 'pass'
-                              AND lower(trim(COALESCE(rec."spfResult", ''))) <> 'pass'
-                             THEN rec."messageCount" ELSE 0 END), 0)::bigint AS "failed",
-           COALESCE(SUM(CASE WHEN lower(trim(COALESCE(rec."spfResult", ''))) = 'pass' THEN rec."messageCount" ELSE 0 END), 0)::bigint AS "spf",
-           COALESCE(SUM(CASE WHEN lower(trim(COALESCE(rec."dkimResult", ''))) = 'pass' THEN rec."messageCount" ELSE 0 END), 0)::bigint AS "dkim"
-    FROM "dmarc_report" r
-    LEFT JOIN "dmarc_report_record" rec ON rec."reportId" = r.id
-    WHERE r."domainId" = ${domainId}
-      AND r."reportType" = 'AGGREGATE'
-      AND r."receivedAt" >= ${since}
-    GROUP BY 1
-    ORDER BY 1
-  `;
-  return rows.map((row) => ({
-    date: row.day,
-    reportsReceived: Number(row.reports),
-    messagesObserved: Number(row.messages),
-    failedMessages: Number(row.failed),
-    spfPassMessages: Number(row.spf),
-    dkimPassMessages: Number(row.dkim),
-  }));
-}
-
-interface PolicyDayRow {
-  day: string;
-  policy: string;
-  reports: bigint;
-}
-
-/**
- * The published policy as reporters saw it, one step per change, oldest first.
- *
- * Each day takes the policy most of that day's reports carried, so a receiver
- * still reporting from a cached DNS record on the day of a change does not
- * draw the policy flapping back and forth. Read in SQL over two years, so a
- * busy domain's history is not cut to its latest 500 reports.
- */
-async function policyHistoryOf(domainId: string): Promise<PolicyStep[]> {
-  const since = new Date(Date.now() - policyHistoryDays * 86_400_000);
-  const rows = await prisma.$queryRaw<PolicyDayRow[]>`
-    SELECT to_char(r."receivedAt", 'YYYY-MM-DD') AS "day",
-           lower(trim(r."policyP")) AS "policy",
-           COUNT(*)::bigint AS "reports"
-    FROM "dmarc_report" r
-    WHERE r."domainId" = ${domainId}
-      AND r."reportType" = 'AGGREGATE'
-      AND r."receivedAt" >= ${since}
-      AND r."policyP" IS NOT NULL
-      AND trim(r."policyP") <> ''
-    GROUP BY 1, 2
-    ORDER BY 1, 3 DESC, 2
-  `;
-  const steps: PolicyStep[] = [];
-  let lastDay = '';
-  for (const row of rows) {
-    // Ordered by day, then by report count: the first row of a day is that day's policy.
-    if (row.day === lastDay) continue;
-    lastDay = row.day;
-    if (steps.length > 0 && steps[steps.length - 1]!.policy === row.policy) continue;
-    steps.push({ date: row.day, policy: row.policy });
-  }
-  return steps;
 }

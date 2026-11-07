@@ -8,7 +8,7 @@ import {
   setForensicCollectionController,
   setForensicIdentityController,
 } from '../controllers/forensic.controller.js';
-import { domainInsightsController } from '../controllers/insights.controller.js';
+import { domainInsightsController, workspaceSignalsController } from '../controllers/insights.controller.js';
 import { requireSession } from '../middleware/auth.middleware.js';
 import { requireFeature } from '../middleware/entitlement.middleware.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
@@ -23,6 +23,14 @@ forensicRouter.get(
   requireSession,
   requireOrganizationPermission('report', 'read'),
   domainInsightsController,
+);
+// Every domain's portfolio figures in one request, the batched twin of the
+// insights above. Named apart from /domains/:domainId so no id can shadow it.
+forensicRouter.get(
+  '/workspaces/:organizationId/domain-signals',
+  requireSession,
+  requireOrganizationPermission('report', 'read'),
+  workspaceSignalsController,
 );
 forensicRouter.patch(
   '/workspaces/:organizationId/domains/:domainId/forensics/identities',
