@@ -256,7 +256,7 @@ export function BimiTool() {
                 </StateWord>
               ) : (
                 <StateWord shape="ring" tone="void" className="text-[16px]! whitespace-normal">
-                  No logo shows yet
+                  {bimi?.status === "found" && bimi.declined ? "No logo: the domain declines BIMI" : "No logo shows yet"}
                 </StateWord>
               )}
             </div>

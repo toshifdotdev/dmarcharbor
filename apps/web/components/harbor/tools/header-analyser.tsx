@@ -178,7 +178,21 @@ export function HeaderAnalyser() {
           <div data-testid="header-checks" data-dmarc={shown.computed.dmarc}>
             <FigureHead
               name="How it was checked"
-              meta={shown.authServer ? <>by <span className="data">{shown.authServer}</span></> : reading ? "no Authentication-Results header" : "sample data"}
+              meta={
+                shown.authServer ? (
+                  <>
+                    by <span className="data">{shown.authServer}</span>
+                  </>
+                ) : !reading ? (
+                  "sample data"
+                ) : shown.checks.length > 0 ? (
+                  // Outlook writes Authentication-Results without naming the
+                  // server; the header is there and was read.
+                  "by the receiver, which does not name itself"
+                ) : (
+                  "no Authentication-Results header"
+                )
+              }
               className="mb-6"
             />
             <StationList label="SPF, DKIM and DMARC for this message" items={checkItems} />

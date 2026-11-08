@@ -31,6 +31,8 @@ import { FigureHead, LookupLine, LookupStatus } from "./lookup-line";
 import { lookupDomain, useScan, type SpfNode, type ToolScan } from "./scan";
 
 const LIMIT = 10;
+/** A term in the tree wraps after a dot or colon, never inside a label (session 18, 390 px). */
+const NAME_BREAKS = /(?<=[.:])/;
 const VOID_LIMIT = 2;
 
 /** One colour per service line, never red (red is the forged sender). */
@@ -222,12 +224,18 @@ export function SpfTool() {
               <Findings
                 issues={[
                   ...issuesFor("spf_", shown.scan.issues),
-                  ...shown.problems.map((message, i) => ({
-                    severity: "error" as const,
-                    code: `problem-${i}`,
-                    title: "A fault in the include chain",
-                    message,
-                  })),
+                  // The scanner turns each include problem into its own finding
+                  // (a ptr is a warning, a broken include an error). Listing the
+                  // problem again here showed a ptr twice, once as "Fix". Only a
+                  // problem no finding carries is added.
+                  ...shown.problems
+                    .filter((message) => !(shown.scan?.issues ?? []).some((issue) => issue.message === message))
+                    .map((message, i) => ({
+                      severity: "error" as const,
+                      code: `problem-${i}`,
+                      title: "A fault in the include chain",
+                      message,
+                    })),
                 ]}
                 none="The scanner raised nothing about this record."
               />
@@ -310,7 +318,9 @@ function SpfTree({ nodes, domain }: { nodes: SpfNode[]; domain: string }) {
     <div data-testid="tool-spf-tree">
       <p className="flex items-center gap-3 pb-3">
         <span aria-hidden className="size-[19px] shrink-0 rounded-full border-[3px] border-fg bg-paper" />
-        <span className="data min-w-0 break-all text-[15px] font-bold text-fg">{domain}</span>
+        <span className="data min-w-0 [overflow-wrap:anywhere] text-[15px] font-bold text-fg">
+          <Breakable text={domain} at={NAME_BREAKS} />
+        </span>
       </p>
       <ol className="m-0 list-none p-0">
         {nodes.map((node, i) => {
@@ -352,7 +362,9 @@ function TreeRow({
       )}
       <span aria-hidden className={clsx("absolute left-[1px] top-[2px] size-[17px] rounded-full border-[3px] bg-paper", ring)} />
       <p className="flex min-w-0 items-baseline justify-between gap-3 leading-[21px]">
-        <span className={clsx("data min-w-0 break-all text-[14.5px]", depth === 0 ? "font-semibold text-fg" : "text-fg")}>{node.term}</span>
+        <span className={clsx("data min-w-0 [overflow-wrap:anywhere] text-[14.5px]", depth === 0 ? "font-semibold text-fg" : "text-fg")}>
+          <Breakable text={node.term} at={NAME_BREAKS} />
+        </span>
         <span className="tnum shrink-0 whitespace-nowrap text-[13.5px] text-fg-4">
           {node.lookups} lookup{node.lookups === 1 ? "" : "s"}
         </span>

@@ -44,7 +44,7 @@ export const FREE_TOOLS: FreeTool[] = [
     kind: "a policy, read tag by tag",
     title: "DMARC checker: free DMARC record lookup",
     description:
-      "Check any domain's DMARC record from public DNS, tag by tag: the policy, where reports go, alignment and testing mode, with what each makes a receiving server do. Free, no account.",
+      "Check any domain's DMARC record tag by tag: the policy, where reports go, alignment and testing, and what each makes receivers do. Free, no account.",
     topic: "DMARC records",
     faq: [
       {
@@ -116,7 +116,7 @@ export const FREE_TOOLS: FreeTool[] = [
     kind: "a selector's public key",
     title: "DKIM checker: DKIM record lookup",
     description:
-      "Check a DKIM selector's public key, or let the checker find the selectors a domain's mail services use. Shows key type, size and revoked keys. Free, no account.",
+      "Check a DKIM selector's key, or find the selectors a domain's mail services use, with key type, size and revoked keys. Free, no account.",
     topic: "DKIM records",
     faq: [
       {
@@ -152,7 +152,7 @@ export const FREE_TOOLS: FreeTool[] = [
     kind: "the logo record and its checks",
     title: "BIMI checker: BIMI record and logo lookup",
     description:
-      "Check a domain's BIMI record, its logo file against the SVG Tiny PS rules, its certificate link, and whether its DMARC policy lets the logo show. Free, no account.",
+      "Check a BIMI record, its logo against the SVG Tiny PS rules, its certificate, and whether the DMARC policy lets the logo show. Free, no account.",
     topic: "BIMI",
     faq: [
       {
@@ -182,7 +182,7 @@ export const FREE_TOOLS: FreeTool[] = [
     kind: "a record to publish",
     title: "DMARC generator: create a DMARC record",
     description:
-      "Create a DMARC record to publish: choose the policy, report addresses, alignment and testing mode, and copy the TXT record with what each tag will do. Free, no account.",
+      "Create a DMARC record: choose the policy, report addresses, alignment and testing, then copy the TXT record with what each tag does. Free.",
     topic: "creating a DMARC record",
     faq: [
       {
@@ -218,7 +218,7 @@ export const FREE_TOOLS: FreeTool[] = [
     kind: "an aggregate report, read",
     title: "DMARC report analyser: read XML reports",
     description:
-      "Read a DMARC aggregate report as a table and a map of who sent as the domain: drop the XML, .zip or .xml.gz and see every source, its SPF and DKIM results and what the receiver did. Read in your browser, never uploaded. Free, no account.",
+      "Read a DMARC aggregate report (XML, .zip or .xml.gz): every source, its SPF and DKIM results and what the receiver did. Never uploaded. Free.",
     topic: "DMARC reports",
     faq: [
       {
@@ -254,7 +254,7 @@ export const FREE_TOOLS: FreeTool[] = [
     kind: "one message, checked",
     title: "Email header analyser: SPF, DKIM, DMARC",
     description:
-      "Paste a message's headers to check whether SPF, DKIM and DMARC passed and aligned with the From domain, and every server it passed through with the time each hop took. Read in your browser. Free, no account.",
+      "Paste a message's headers to see if SPF, DKIM and DMARC passed and aligned, and every server it passed through. Read in your browser. Free.",
     topic: "email headers",
     faq: [
       {
@@ -288,7 +288,7 @@ export const FREE_TOOLS: FreeTool[] = [
 export const TOOLS_INDEX = {
   title: "Free DMARC, SPF, DKIM and BIMI checkers",
   description:
-    "Free email authentication checkers: a DMARC checker that reads the record tag by tag, an SPF checker that counts lookups through every include, DKIM and BIMI checkers, and a DMARC record generator. No account.",
+    "Free DMARC, SPF, DKIM and BIMI checkers, a DMARC record generator, a report reader and an email header analyser. No account needed.",
 };
 
 /** The index page, then each tool. */

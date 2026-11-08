@@ -104,7 +104,7 @@ What the state column means:
   in the fast pass only.
 - **not run** and **new**: never run. Run in full, then final.
 
-**Order from here.** Session 8 is done; next the sessions never run (18, 19, 20,
+**Order from here.** Sessions 8 and 18 are done; next the sessions never run (19, 20,
 then 4 and 5 once reports arrive, then 10 and 14), then the re-runs (7, 9, 12,
 13, 16, 17). Billing (11) is last, once the Razorpay keys exist. Then one
 fast pass over every session not marked final.
@@ -128,7 +128,7 @@ fast pass over every session not marked final.
 | 15* | Prospect reports, switch kit, usage export, API keys and the API | nothing | fast pass; the webhook API is in 8 |
 | 16* | Data export, erasure, audit trail, plan limits on every plan | nothing | **re-run** (Gemini) |
 | 17 | Ask, public site, docs and SEO, one end-to-end run as a new MSP | an Anthropic API key | **re-run** (Gemini) |
-| 18* | Free tools, glossary and setup guides | nothing | **new** |
+| 18* | Free tools, glossary and setup guides | nothing | **final** (8 November 2026); the agency-host check is repeated live in 14 |
 | 19 | Routed Slack and Teams channels | 2 Slack and 2 Teams test channels | **new** |
 | 20 | Cloudflare zone import | a Cloudflare token that can read several zones | **new** |
 
@@ -294,6 +294,7 @@ critical DNS changes were recorded as the monitor records them.
 - A role changed directly in the database took effect only after signing in again. Check in session 2 that a role changed under Members applies at once.
 - A receiver's 429 counts as a failure and its Retry-After is not honoured (the PSA queue honours it).
 - ConnectWise and Autotask are early access until run against a live account (launch checklist).
+
 ## Session 18: free tools, glossary and setup guides
 
 Signed out, on the public site. Every page at 1440 and 390 wide, with no
@@ -325,6 +326,48 @@ sideways scroll, and its search title, description and structured data.
 9. **Rate limit.** More than 20 lookups a minute from one address pauses with
    the time to wait.
 10. **On an agency's domain** every one of these pages goes to the portal.
+
+### Session 18 results (8 November 2026): final
+
+Signed out against real domains through the public scanner, with the dev API
+and web servers. Files for the report reader and header analyser are in
+`.shots/s18/`.
+
+| # | Item | Result |
+|---|---|---|
+| 1 | DMARC lookup | **Pass** after fixes. python.org, github.com, migadu.com (no record), webhook.site (`pct=10`, shown retired), uriports.com (`np=reject`). The policy line stops at the published policy. |
+| 2 | SPF lookup | **Pass** after fixes. github.com 10 of 10, salesforce.com 4, oracle.com 10, migadu.com 5, yahoo.com with `ptr`. Each include on its own line. |
+| 3 | DKIM lookup | **Pass** after a fix. github.com `google` (2048 bits), gmail.com `20230601` (revoked), mailchimp.com `k1` (1024 bits through a CNAME), a wrong selector, no selector (6 keys found), an invalid selector refused before any request. |
+| 4 | BIMI lookup | **Pass** after a copy fix. paypal.com (logo and certificate), uriports.com (no certificate), proton.me (declines BIMI), github.com (no record), fastmail.com (`p=none`, too weak). |
+| 5 | DMARC generator | **Pass.** Every choice changes the record; the external-address note shows; Copy says Copied; `t=y` dropped at `p=none`. |
+| 6 | Report reader | **Pass** after a copy fix. The zip, the gz and pasted XML give 1,274 messages, 1,210 passing, 64 failing, 95%. DOCTYPE, not XML, XML that is not a report and a file over 50 MB are refused. No network request. |
+| 7 | Header analyser | **Pass** after a copy fix. Passing Gmail, a failing spoof and a forwarded Outlook message with ARC read right; hop times match. No network request. |
+| 8 | Glossary and guides | **Pass.** 189 links from the tools, glossary and guides, none broken. The Microsoft 365, Google Workspace and Mailchimp guides match the providers' pages today (the 2025 `dkim.mail.microsoft` CNAME format, Authenticate email › Generate New Record, k2 and k3). Setup guide shows beside Microsoft 365 and Google Workspace on pellowyn-clinic.example's Senders tab. |
+| 9 | Rate limit | **Pass.** The 21st lookup in a minute answers 429 with Retry-After; the tool says "Too many lookups from this network just now. Wait a minute, then try again." |
+| 10 | Agency domain | **Pass** with a Host header and a verified custom domain set on Wistholm IT for the test (removed after): `/tools`, all seven tools, `/glossary`, `/guides` and a guide answer 307 to `/portal`. See the open item. |
+
+Every page has its title, description, canonical and JSON-LD (FAQPage on the
+tools, HowTo on the guides). No sideways scroll at 390, 768 or 1440, at rest or
+with results.
+
+**Broken, fixed**
+
+- A DNS timeout on a large TXT answer read as "SPF record missing" (oracle.com, pfizer.com, cisco.com). TXT lookups now get two tries of 4 seconds; a lookup that fails reads "could not be read" (`dmarc_lookup_failed`, `spf_lookup_failed`), and a monitored scan with one is stored as failed, so it never becomes the baseline the next scan is compared with.
+- The DMARC reading did not know `np`, and showed `fo` as raw values.
+- The SPF tool listed an include-chain problem twice, once from the tree and once from the scanner's finding.
+- A domain whose only key is revoked said "No DKIM key found" beside "publishes a revoked key".
+
+**Gap, fixed**
+
+- BIMI with an empty `l=` said the logo was missing rather than that the domain declines BIMI.
+- A refused file in the report reader did not say the previous report was still shown.
+- An Authentication-Results header with no server id read as from a blank receiver.
+- Tool descriptions ran past the length search results show; now 131 to 148 characters.
+- In the SPF tree on a phone, long names broke inside a label ("oracle.co / m"); they now wrap after a dot.
+
+**Open, for later sessions**
+
+- The agency-host lookup times out after 1.5 seconds and then serves our own pages for 30 seconds. On the first request for the test host, `/tools` answered 200 instead of going to the portal. Check in session 14, on a real custom domain, whether a slow lookup can show our pages on an agency's domain.
 
 ## Session 19: routed Slack and Teams channels
 

@@ -38,7 +38,7 @@ export default function ToolsPage() {
                 </Link>{" "}
                 <span className="font-normal text-fg-4">{tool.kind}</span>
               </h2>
-              <p className="mt-2 max-w-[40rem] text-[16px] leading-[1.5] text-fg-2">{tool.description.replace(/ Free, no account\.$/, "")}</p>
+              <p className="mt-2 max-w-[40rem] text-[16px] leading-[1.5] text-fg-2">{tool.description.replace(/ (Free, no account|Free|No account needed)\.$/, "")}</p>
             </li>
           );
         })}

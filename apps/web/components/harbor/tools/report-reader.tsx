@@ -152,8 +152,12 @@ export function ReportReader() {
 
       <div aria-live="polite" className="min-h-[40px] pt-3 text-[13.5px] leading-[18px]">
         {error ? (
-          <p role="alert" className="font-semibold text-fail">
-            {error}
+          <p role="alert">
+            <span className="font-semibold text-fail">{error}</span>{" "}
+            {/* The figures below are the last report read, not the refused file. */}
+            <span className="text-fg-4">
+              Still showing {loaded.kind === "sample" ? "the sample report" : <span className="data text-fg-2">{loaded.name}</span>}.
+            </span>
           </p>
         ) : loaded.kind === "sample" ? (
           <p className="text-fg-4">Showing a sample report. Drop one of your own to read it.</p>

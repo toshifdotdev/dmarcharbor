@@ -146,8 +146,17 @@ export async function runDomainScan(input: RunDomainScanInput): Promise<RunDomai
      * are findings, not failures: a domain with no DMARC record is exactly what
      * a scan exists to report.
      */
-    if (result.status === 'error') {
+    /**
+     * A DMARC or SPF lookup that timed out fails the scan too. Stored as
+     * COMPLETED it would become the baseline, so a record that went from found
+     * to not-read to missing would never be reported as removed.
+     */
+    const lookupFailure = result.issues.find(
+      (issue) => issue.code === 'dmarc_lookup_failed' || issue.code === 'spf_lookup_failed',
+    );
+    if (result.status === 'error' || lookupFailure) {
       const reason =
+        lookupFailure?.message ||
         (result.issues.length > 0 && result.issues[0].message) ||
         'The lookups did not return an answer.';
 

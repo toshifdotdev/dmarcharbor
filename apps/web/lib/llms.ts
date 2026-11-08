@@ -53,7 +53,7 @@ const PRODUCT_PAGES: Array<{ path: string; title: string; note: string }> = [
   { path: "/verify", title: "Document fingerprint verifier", note: "check that a compliance pack or monthly report is the one issued, by its SHA-256 fingerprint; no account needed" },
   { path: "/tools", title: "Free DNS tools", note: "free DMARC, SPF, DKIM and BIMI checkers, a DMARC record generator, a report reader and a header analyser; no account needed" },
   ...FREE_TOOLS.map((t) => {
-    const note = t.description.replace(/ Free, no account\.$/, "").replace(/\.$/, "");
+    const note = t.description.replace(/ (Free, no account|Free|No account needed)\.$/, "").replace(/\.$/, "");
     return { path: t.path, title: t.title, note: `${note.charAt(0).toLowerCase()}${note.slice(1)}; no account needed` };
   }),
   { path: GLOSSARY_PAGE.path, title: GLOSSARY_PAGE.title, note: "every email authentication term an MSP meets, in plain words, with an example each" },

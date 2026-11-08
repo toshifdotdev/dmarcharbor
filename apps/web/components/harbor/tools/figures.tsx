@@ -185,9 +185,12 @@ export function issuesFor(prefix: string, ...lists: Array<ToolIssue[] | undefine
  * A record set large, allowed to wrap after each ";" and space rather than
  * inside a tag, so "aspf=s" never splits as "aspf / =s". A single term longer
  * than the line still wraps (overflow-wrap: anywhere on the caller).
+ *
+ * `at` changes where it may wrap: a domain name wraps after its dots, so
+ * "oracle.com" never splits as "oracle.co / m".
  */
-export function Breakable({ text }: { text: string }) {
-  const parts = text.split(/(?<=[;\s,])/);
+export function Breakable({ text, at = /(?<=[;\s,])/ }: { text: string; at?: RegExp }) {
+  const parts = text.split(at);
   return (
     <>
       {parts.map((part, i) => (

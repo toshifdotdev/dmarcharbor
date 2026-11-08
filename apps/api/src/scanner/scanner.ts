@@ -341,6 +341,14 @@ function buildIssues(dmarc: DmarcResult, spf: SpfResult, dkim: DkimResult, mx: M
       message: 'Receiving servers do not have your domain policy for failed authentication.',
       recommendation: 'Publish a DMARC record with p=none while you collect reports.',
     });
+  } else if (dmarc.status === 'error' && !dmarc.record && dmarc.error) {
+    addIssue(issues, {
+      severity: 'warning',
+      code: 'dmarc_lookup_failed',
+      title: 'The DMARC record could not be read',
+      message: `DNS did not answer for _dmarc in time (${dmarc.error}), so nothing is concluded about the record.`,
+      recommendation: 'Check again in a minute.',
+    });
   } else if (dmarc.status === 'error') {
     addIssue(issues, {
       severity: 'error',
@@ -405,6 +413,14 @@ function buildIssues(dmarc: DmarcResult, spf: SpfResult, dkim: DkimResult, mx: M
       message: 'The domain does not publish a list of authorized sending servers.',
       recommendation: 'Review the services that send email and publish one SPF record.',
     });
+  } else if (spf.status === 'error' && !spf.record && spf.error) {
+    addIssue(issues, {
+      severity: 'warning',
+      code: 'spf_lookup_failed',
+      title: 'The SPF record could not be read',
+      message: `DNS did not answer for the domain's TXT records in time (${spf.error}), so nothing is concluded about SPF.`,
+      recommendation: 'Check again in a minute.',
+    });
   } else if (spf.status === 'error') {
     addIssue(issues, {
       severity: 'error',
@@ -417,7 +433,19 @@ function buildIssues(dmarc: DmarcResult, spf: SpfResult, dkim: DkimResult, mx: M
     addSpfLookupIssues(issues, spf);
   }
 
-  if (dkim.status === 'missing') {
+  if (dkim.status === 'missing' && (dkim.revokedSelectors?.length ?? 0) > 0) {
+    // "No key found" beside "it publishes a revoked key" read as a
+    // contradiction (session 18, gmail.com 20230601). A revoked key is found;
+    // it is not usable, and the finding says which.
+    const revoked = dkim.revokedSelectors ?? [];
+    addIssue(issues, {
+      severity: 'warning',
+      code: 'dkim_missing',
+      title: 'No working DKIM key found',
+      message: `${revoked.join(', ')} ${revoked.length === 1 ? 'publishes a revoked key' : 'publish revoked keys'} (an empty p=), and no other of the ${dkim.checkedSelectors.length} selectors checked answered with a key. The domain's current selector is in the s= tag of a recent message's DKIM-Signature header.`,
+      recommendation: 'Look up the selector from a recent message. If the domain signs nothing, turn DKIM on in each sending service.',
+    });
+  } else if (dkim.status === 'missing') {
     addIssue(issues, {
       severity: 'warning',
       code: 'dkim_missing',
@@ -523,7 +551,20 @@ export async function scanDomain(
       reader.resolveCname ? reader.resolveCname(`_dmarc.${domain}`) : Promise.resolve(null),
     ]);
 
-    const parsedDmarc = parseDmarcRecords(dmarcLookup.value ?? []);
+    /**
+     * A lookup that failed is not a record that is missing.
+     *
+     * Parsing an empty answer said "no record", so a DNS timeout (a large TXT
+     * answer falling back to TCP, a slow authority) told the customer their
+     * SPF or DMARC record was missing and to publish one. Seen in session 18:
+     * oracle.com read as "SPF record missing" on one scan and as 10 lookups on
+     * the next. The record is reported as not read, and nothing about it is
+     * concluded.
+     */
+    const parsedDmarc =
+      dmarcLookup.status === 'error'
+        ? { ...parseDmarcRecords([]), status: 'error' as const, error: dmarcLookup.error ?? 'The DNS lookup failed.' }
+        : parseDmarcRecords(dmarcLookup.value ?? []);
     const dmarc: DmarcResult = reader.resolveCname
       ? {
           ...parsedDmarc,
@@ -531,7 +572,10 @@ export async function scanDomain(
             cnameLookup?.status === 'found' ? cnameLookup.value?.[0] ?? null : null,
         }
       : parsedDmarc;
-    const parsedSpf = parseSpfRecords(spfLookup.value ?? []);
+    const parsedSpf: SpfResult =
+      spfLookup.status === 'error'
+        ? { status: 'error', valid: false, lookupCount: 0, error: spfLookup.error ?? 'The DNS lookup failed.' }
+        : parseSpfRecords(spfLookup.value ?? []);
     const mx: MxResult = mxLookup.status === 'found'
       ? { status: 'found', records: mxLookup.value ?? [] }
       : { status: mxLookup.status, records: [], error: mxLookup.error };

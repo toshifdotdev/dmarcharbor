@@ -170,6 +170,22 @@ function lower(tags: Record<string, string>) {
   return Object.fromEntries(Object.entries(tags).map(([k, v]) => [k.toLowerCase(), v]));
 }
 
+/** fo's options, colon-separated (RFC 9989): 0, 1, d and s, said in words. */
+function foWords(value: string): string {
+  const words: Record<string, string> = {
+    "0": "every check fails",
+    "1": "any check fails",
+    d: "DKIM fails",
+    s: "SPF fails",
+  };
+  const said = value
+    .split(":")
+    .map((option) => words[option.trim().toLowerCase()])
+    .filter((word): word is string => Boolean(word));
+  if (said.length === 0) return `${value} (not a value receivers know)`;
+  return said.length === 1 ? said[0]! : `${said.slice(0, -1).join(", ")} or ${said[said.length - 1]}`;
+}
+
 /**
  * What each tag makes a receiver do, and what it means when the tag is absent
  * (the RFC 9989 default). Order is the order an operator reads a record in.
@@ -204,6 +220,14 @@ export const TAGS: Array<{
     label: "Subdomains",
     present: (v) => [`Subdomains use p=${v}.`, "plain"],
     absent: ["Not set: subdomains inherit p.", "plain"],
+  },
+  {
+    // RFC 9989 adds np: the policy for subdomains that do not exist in DNS,
+    // the names a forger invents. Unset, they follow sp, then p.
+    tag: "np",
+    label: "Made-up names",
+    present: (v) => [`Subdomains that do not exist use p=${v}.`, "plain"],
+    absent: (tags) => [`Not set: subdomains that do not exist use ${tags.sp ? `sp=${tags.sp}` : "p"}.`, "plain"],
   },
   {
     // RFC 9989 replaced pct with t. pct is retired: newer receivers ignore it
@@ -245,7 +269,7 @@ export const TAGS: Array<{
   {
     tag: "fo",
     label: "Sample rule",
-    present: (v) => [`Failure samples on: ${v === "1" ? "any check failing" : v === "0" ? "all checks failing" : v}.`, "plain"],
+    present: (v) => [`Samples when ${foWords(v)}.`, "plain"],
     absent: ["Not set: samples only when every check fails.", "plain"],
   },
 ];
@@ -385,7 +409,9 @@ export function RecordReading() {
 
         {/* Tag by tag: what the record makes a receiver do. */}
         <ol className={s.tags} aria-label={`What ${shown.domain}'s record makes receivers do`}>
-          {TAGS.map(({ tag, label, present, absent }) => {
+          {/* Eight here: the grid is 4 by 2 (2 by 4 on phones). np is read on the
+              DMARC checker, which lists every tag. */}
+          {TAGS.filter(({ tag }) => tag !== "np").map(({ tag, label, present, absent }) => {
             const value = shown.tags[tag];
             const has = value !== undefined && value !== "";
             const [meaning, tone] = !shown.record

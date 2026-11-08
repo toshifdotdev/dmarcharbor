@@ -73,10 +73,20 @@ export async function resolveTxtFresh(name: string, zoneHint: string): Promise<L
   return systemDnsReader.resolveTxt(name);
 }
 
+/**
+ * TXT answers get longer and a second try.
+ *
+ * A domain with dozens of verification records (pfizer.com has 77, cisco.com
+ * 89) answers too large for UDP, so the resolver falls back to TCP, and one
+ * try of 2.5 seconds ran out first. The scanner then said "SPF record missing"
+ * for a domain that has one (session 18). Other record types stay small.
+ */
+const txtResolver = new Resolver({ tries: 2, timeout: 4000 });
+
 export const systemDnsReader: DnsReader = {
   async resolveTxt(name: string): Promise<LookupResult<string[][]>> {
     try {
-      return { status: 'found', value: await resolver.resolveTxt(name) };
+      return { status: 'found', value: await txtResolver.resolveTxt(name) };
     } catch (error) {
       return {
         status: isMissingError(error) ? 'missing' : 'error',

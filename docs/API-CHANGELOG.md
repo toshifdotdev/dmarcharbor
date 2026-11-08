@@ -254,6 +254,28 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-12-13 — A DNS lookup that timed out is no longer read as a missing record
+
+Found while testing the free tools against real domains: a large TXT answer
+(pfizer.com, cisco.com, oracle.com) could time out, and the scanner then said
+the domain's SPF or DMARC record was missing.
+
+- **TXT lookups get two tries of 4 seconds** instead of one of 2.5.
+- **A failed lookup is reported as not read.** `dmarc.status` or `spf.status`
+  is `error` (an existing value) with the reason in `error`, and the finding is
+  `dmarc_lookup_failed` or `spf_lookup_failed` (warning, new codes) instead of
+  `dmarc_missing` or `spf_missing`. `POST /api/scan` (the public checker) shows
+  this.
+- **A domain scan with such a lookup is `FAILED`.** `POST /api/v1/domains/{domain}/scans`
+  answers 202 with `status` `FAILED` and the reason in `error`, as for any scan
+  that could not finish: it records no DNS changes and leaves the domain as the
+  previous scan left it. Before, the timeout read as a removal and was caught
+  only by the removal re-check.
+- **A domain whose only DKIM key is revoked** gets the title "No working DKIM
+  key found" on `dkim_missing`; the code is unchanged.
+
+---
+
 ## 2026-12-12 — PSA fixes from a live HaloPSA, and acknowledged alerts that resolve
 
 Found by running PSA ticketing against a real HaloPSA trial. Browser routes
