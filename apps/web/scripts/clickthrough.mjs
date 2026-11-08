@@ -3331,7 +3331,8 @@ check(
     geo.llmsPlans >= 4 &&
     geo.llmsForeign.length === 0 &&
     geo.fullStatus === 200 &&
-    geo.fullDocs === 3 &&
+    // The guide, FAQ and API reference, plus the glossary and setup guides.
+    geo.fullDocs >= 3 &&
     !geo.fullPending &&
     geo.faqAnchor &&
     geo.faqQuestions > 40 &&

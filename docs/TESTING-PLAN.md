@@ -104,7 +104,7 @@ What the state column means:
   in the fast pass only.
 - **not run** and **new**: never run. Run in full, then final.
 
-**Order from here.** Session 8 now, then the sessions never run (18, 19, 20,
+**Order from here.** Session 8 is done; next the sessions never run (18, 19, 20,
 then 4 and 5 once reports arrive, then 10 and 14), then the re-runs (7, 9, 12,
 13, 16, 17). Billing (11) is last, once the Razorpay keys exist. Then one
 fast pass over every session not marked final.
@@ -118,7 +118,7 @@ fast pass over every session not marked final.
 | 5* | Domain posture, senders (with setup-guide links), subdomains, readiness, the portfolio and domain page figures | real reports from session 4 | **not run** |
 | 6* | DNS monitoring, change history, expiry, Gmail, Yahoo and Microsoft checks, the home-page checker | nothing | fast pass |
 | 7 | Alerts by email, Slack and Teams (single channel) | Slack and Teams test channels | **re-run** (Gemini); routing is in 19 |
-| 8 | PSA tickets and every webhook feature: endpoints, deliveries, retries, suspension, replay, rotation, client limits, `/api/v1` | a HaloPSA trial, a webhook receiver, an API key | **in progress** (re-run of Gemini's) |
+| 8 | PSA tickets and every webhook feature: endpoints, deliveries, retries, suspension, replay, rotation, client limits, `/api/v1` | a HaloPSA trial, a webhook receiver, an API key | **final** (8 November 2026); ConnectWise and Autotask wait for a live account |
 | 9 | Publishing DNS: Cloudflare connection, hosted DMARC, managed SPF | a Cloudflare token | **re-run** (Gemini); zone import is in 20 |
 | 10 | Hosted BIMI, MTA-STS, TLS reports | a BIMI origin and Cloudflare for SaaS | **not run** |
 | 11 | Billing: checkout, upgrade, downgrade, failed payment, refund | Razorpay test keys, Paddle sandbox, a tunnel | **not run**: last |
@@ -228,36 +228,72 @@ For each: what the FAQ, `docs/API.md` (Webhooks, Webhook endpoints, the PSA
 recipes) and the screen say, compared with how dmarcian and EasyDMARC
 document their webhooks and PSA links.
 
-### Session 8 results so far (8 November 2026)
+### Session 8 results (8 November 2026): final
 
-Webhooks, against webhook.site receivers:
+Webhooks against webhook.site receivers (and httpbin.org for a 301); PSA against
+a HaloPSA trial (`dmarcharbor.trial.usehalo.com`) with two companies, Pellowyn
+Dental and Corriwick Café. Real alerts came from failing aggregate reports on
+`pellowyn-clinic.example` (mapped) and `haskerley-law.example` (not mapped);
+critical DNS changes were recorded as the monitor records them.
 
-- **Pass:**
-  - 11 add: https only; localhost, 10/8, 169.254.169.254 and `::1` are refused; the secret is shown once.
-  - 12 test event: all five headers; the signature checks with the page's recipe.
-  - 14 delivery log.
-  - 16 send again: refused on a paused endpoint with its sentence.
-  - 18 pause and resume.
-  - 19 rotation: with a 1-hour overlap there are two values, new first, each matching its secret; with None, only the new one, behind a red confirmation.
-  - 20 client limits: another client's domain event is not sent; a workspace event is.
-  - 22 `/api/v1`: a read key lists only; a write key does everything; another workspace's endpoint and delivery are 404.
-- **Broken, fixed:**
-  - Resuming a suspended endpoint left its failure count at 20 and its deliveries held, so one more failure suspended it again. Resume now clears both, and the held deliveries are sent.
-  - The rest of a batch kept sending to an endpoint after it was suspended, which wrote one audit row per delivery.
-  - The screen said "Until <time>, then probed", but the probe comes 6 hours later. It now gives the trial time, from the new `suspended` and `probeAt` fields.
-- **Gap, fixed:**
-  - Nobody was told about a suspension. Owners and admins now get a `WEBHOOK` notice.
-  - The `http://` refusal read "a signing secret derived event".
-  - The secret notice said the same thing twice.
-- **Not yet run:**
-  - 13 real events from a real alert, DNS change and policy change (with the PSA part).
-  - 15 the retry timings and a 301 (webhook.site's free URL started answering 429 after about 100 requests).
-  - 17 the 30-hour probe.
-  - 21 remove from the screen.
-  - 23 roles and plan.
-  - The PSA items 1 to 10, which wait on a HaloPSA trial.
-- **Noted:** a receiver's 429 counts as a failure and its Retry-After is not honoured; the PSA queue honours it.
+**PSA**
 
+| # | Item | Result |
+|---|---|---|
+| 1 | Connect | **Pass** after fixes. Three providers listed, ConnectWise disabled with its sentence; a wrong secret refused in Halo's words (`invalid_client`), nothing stored; the hint shows the host and the client ID's last four characters only. |
+| 2 | Mapping | **Pass.** Search waits for two characters, "No company matched" for nonsense; map, change, remove. |
+| 3 | Ticket settings | **Pass** after a fix. Teams, types and statuses read from Halo; saved; a stale save refused with "Someone else changed this connection". Priority offers only the default (Halo sends none). |
+| 4 | Alert opens a ticket | **Pass.** Ticket 2907 under Pellowyn Dental, team 1st Line Support, type Alert, status New, title ending `[DH-…]`, body naming workspace, client, domain, rule and the link back. |
+| 5 | Notes and close | **Pass** after a fix. Reminder, acknowledgement and resolve notes are internal Halo actions; resolve closed tickets 2907 and 2908 (status Closed). |
+| 6 | Unmapped client | **Pass.** Haskerley Law's alert opened no ticket; the log, the readout and the warning name it; mapping clears the warning, unmapping brings it back. |
+| 7 | DNS-change tickets | **Pass.** Ticket 2909 listed both changes; each acknowledgement noted it; the last closed it. With the switch off, no ticket. |
+| 8 | Failure and pause | **Pass** after a fix. A revoked secret paused ticketing at once, the owner got "PSA ticketing paused" in the bell, the screen said why with Resume; after replacing the credentials the queued ticket was filed once (2910), no duplicate. |
+| 9 | Pause, replace, disconnect | **Pass** for pause, resume and replace. Disconnect not pressed, to keep the trial connected for the fast pass. |
+| 10 | Roles and plan | **Pass** after a copy fix. Analyst and viewer are refused (403) and see "No access"; on Fairway connect, test, options and mapping answer 402 naming Harbor, pausing still works. |
+
+**Webhooks**
+
+| # | Item | Result |
+|---|---|---|
+| 11 | Add | **Pass** after a copy fix. `http://`, localhost, 10/8, 169.254.169.254, `::1` refused; the secret shown once. |
+| 12 | Test event | **Pass.** All five headers and the user agent; the signature checks with the page's recipe. |
+| 13 | Real events | **Pass.** `alert.triggered`, `dns.changed` and `policy.changed` (reject to none) each arrived once, signed. |
+| 14 | Delivery log | **Pass.** |
+| 15 | Retries | **Pass.** Waits of 1, 5, 30 and 120 minutes, then gave up after five; a 301 recorded as "Redirects are not followed; register the final URL". |
+| 16 | Send again | **Pass.** Same event id, fresh signature; refused on a paused endpoint. |
+| 17 | Suspension | **Pass** after fixes. Suspended at 20 failures; the trial delivery comes 30 hours after the suspension began, as `docs/API.md` says; Resume now sends what was held. |
+| 18 | Pause and resume | **Pass.** |
+| 19 | Rotation | **Pass.** One-hour overlap: two values, new first, each matching; None: only the new one, behind a red confirmation. |
+| 20 | Client limits | **Pass.** |
+| 21 | Remove | **Pass.** The endpoint and its deliveries are gone. |
+| 22 | `/api/v1` | **Pass.** A read key lists only; a write key does everything; another workspace's endpoint and delivery are 404. |
+| 23 | Roles and plan | **Pass.** On Mooring, add, test, rotate, replay and edits answer 402 naming Fairway; pause and remove work; no event is queued. |
+
+**Broken, fixed**
+
+- An acknowledged alert never resolved, so its PSA ticket never closed although the setting says it closes when the alert resolves.
+- Halo's API page shows the resource server as `…/api`; we refused it.
+- Our setup steps omitted `read:customers`, without which connecting cannot work.
+- After adding a permission in Halo, the cached token kept the old permissions for up to an hour.
+- Halo sends no closed flag, so both status pickers listed every status, sales orders included, and "Closed" was offered as the open status.
+- Resuming a suspended webhook endpoint left its failure count at 20 and its deliveries held.
+- The rest of a delivery batch kept going to an endpoint after it was suspended, one audit row per delivery.
+- The suspended line gave the wrong trial time.
+
+**Gap, fixed**
+
+- Nobody was told about a webhook suspension: owners and admins now get a `WEBHOOK` notice.
+- Recent activity did not say which client or domain a row was about.
+- "Connected" beside "No successful call yet" straight after connecting.
+- The pause sentence said the credentials were refused twice; reminder notes said "nobody has acknowledged" twice; the secret notice repeated itself; the `http://` refusal was garbled.
+- The settings header said "read-only for you" above a "No access" panel.
+- Pausing PSA ticketing drops what happens during the pause; the screen now says so.
+
+**Open, for later sessions**
+
+- A role changed directly in the database took effect only after signing in again. Check in session 2 that a role changed under Members applies at once.
+- A receiver's 429 counts as a failure and its Retry-After is not honoured (the PSA queue honours it).
+- ConnectWise and Autotask are early access until run against a live account (launch checklist).
 ## Session 18: free tools, glossary and setup guides
 
 Signed out, on the public site. Every page at 1440 and 390 wide, with no
