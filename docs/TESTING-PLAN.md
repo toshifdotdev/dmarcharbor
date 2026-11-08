@@ -367,7 +367,7 @@ with results.
 
 **Open, for later sessions**
 
-- The agency-host lookup times out after 1.5 seconds and then serves our own pages for 30 seconds. On the first request for the test host, `/tools` answered 200 instead of going to the portal. Check in session 14, on a real custom domain, whether a slow lookup can show our pages on an agency's domain.
+- The agency-host lookup times out after 1.5 seconds and then served our own pages for 30 seconds: on the first request for the test host, `/tools` answered 200 instead of going to the portal. **Fixed (9 November):** a failed lookup now fails closed. On a host that is not ours, the pages about us go to `/portal` (307) while the lookup cannot answer, client links still load, and the failure is remembered for 5 seconds instead of 30. Checked with the API stopped (`/tools` and `/pricing` 307, `/share/…` and `/sign-in` 200) and running (an unknown host still 200). Repeat on a real custom domain in session 14.
 
 ## Session 19: routed Slack and Teams channels
 

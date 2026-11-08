@@ -77,11 +77,18 @@ type CacheEntry = {
     supportUrl: string | null;
   } | null;
   expires: number;
+  /** The lookup failed (timeout, API down): nothing is known about the host. */
+  failed?: boolean;
 };
 
 const TTL_VERIFIED_MS = 10 * 60 * 1000;
 const TTL_UNVERIFIED_MS = 2 * 60 * 1000;
-const TTL_MISS_MS = 30 * 1000;
+/**
+ * A failed lookup is remembered for 5 seconds, not 30. It says nothing about
+ * the host, so the next request should ask again soon (session 18: a slow
+ * first lookup served our /tools page on an agency's domain).
+ */
+const TTL_FAILED_MS = 5 * 1000;
 // In development the cache is kept short on purpose: a custom-domain fixture
 // flips verified → unverified mid-test, and a 2-minute TTL would serve the old
 // state while the test reads it. Production keeps the real durations above.
@@ -148,8 +155,9 @@ async function resolveHost(host: string): Promise<CacheEntry> {
   if (hit && hit.expires > Date.now()) return hit;
   if (hit) cache.delete(host);
 
-  // The cheap miss: cached briefly, and the request proceeds unbranded.
-  const miss: CacheEntry = { state: "miss", brand: null, expires: Date.now() + TTL_MISS_MS * DEV_CACHE_FACTOR };
+  // A lookup that failed: cached briefly, and the request proceeds unbranded,
+  // except that pages about us are not served on it (see the proxy below).
+  const miss: CacheEntry = { state: "miss", brand: null, failed: true, expires: Date.now() + TTL_FAILED_MS * DEV_CACHE_FACTOR };
   try {
     const body = await lookupBranding(host);
     const parsed = JSON.parse(body) as {
@@ -295,8 +303,10 @@ export async function proxy(request: NextRequest) {
   }
 
   let hostState: HostState = "default";
+  let lookupFailed = false;
   if (host && !DEFAULT_HOSTS.has(host)) {
     const entry = await resolveHost(host);
+    lookupFailed = entry.failed === true;
     hostState = entry.state;
     requestHeaders.set("x-harbor-host-state", entry.state);
     if (entry.brand) {
@@ -334,6 +344,20 @@ export async function proxy(request: NextRequest) {
   // landing. Unverified, unmatched and our own hosts never reach this.
   const agencyTarget = requestHeaders.get("x-harbor-host-state") === "verified" ? agencyHostTarget(request) : null;
   if (agencyTarget) return NextResponse.redirect(agencyTarget, 307);
+
+  /**
+   * Fail closed. When the lookup for a host that is not ours failed, it may
+   * be an agency's domain, and our pricing or tools page there would show our
+   * name to the agency's client. The pages about us go to /portal instead,
+   * temporarily (307), exactly as on a verified agency domain; everything a
+   * client is sent to is served as usual.
+   */
+  if (lookupFailed && (request.method === "GET" || request.method === "HEAD") && isVendorRoute(request.nextUrl.pathname)) {
+    const target = request.nextUrl.clone();
+    target.search = "";
+    target.pathname = "/portal";
+    return NextResponse.redirect(target, 307);
+  }
 
   // /docs has no page of its own while there is one developer document. Here,
   // after the agency check, rather than in next.config.ts: config redirects
