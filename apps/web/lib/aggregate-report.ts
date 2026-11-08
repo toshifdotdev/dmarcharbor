@@ -81,6 +81,12 @@ function epoch(value: string | null): Date | null {
 }
 
 export function parseAggregateReport(xml: string): AggregateReport {
+  // A DMARC report never declares a DOCTYPE or entities. Refusing them shuts
+  // out entity-expansion files ("billion laughs") that would hang the tab, and
+  // any external entity, before the parser sees them.
+  if (/<!DOCTYPE|<!ENTITY/i.test(xml)) {
+    throw new ReportReadError("This file declares a DOCTYPE or entities, which a DMARC report never does, so it was not read.");
+  }
   const doc = new DOMParser().parseFromString(xml, "application/xml");
   if (doc.getElementsByTagName("parsererror").length > 0) {
     throw new ReportReadError("This is not well-formed XML, so it cannot be a DMARC report.");

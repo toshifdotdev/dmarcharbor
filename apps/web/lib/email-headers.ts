@@ -141,7 +141,13 @@ function parseReceived(value: string): Omit<Hop, "delaySeconds"> {
   return { from: word("from"), by: word("by"), with: word("with"), at: when && !Number.isNaN(when.getTime()) ? when : null };
 }
 
+/** Headers run to a few kilobytes; a whole message with attachments is far more. */
+export const MAX_HEADER_CHARS = 512 * 1024;
+
 export function readHeaders(raw: string): HeaderReading {
+  if (raw.length > MAX_HEADER_CHARS) {
+    throw new HeaderReadError("That is more than 512 KB, far more than any message's headers. Paste only the headers, not the whole message.");
+  }
   const headers = splitHeaders(raw);
   if (headers.length === 0) throw new HeaderReadError("No headers were found. Paste the message source from the top, starting with a line such as Received: or From:.");
   const first = (name: string) => headers.find((h) => h.name === name)?.value ?? null;
