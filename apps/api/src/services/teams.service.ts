@@ -126,7 +126,7 @@ export function parseTeamsWebhookUrl(value: string): URL {
 
   if (isLegacyHost(labels)) {
     throw new TeamsError(
-      'That is an old Teams connector address, which Microsoft switched off in May 2026. In the Teams channel choose ⋯ › Workflows › \'Post to a channel when a webhook request is received\' and paste the address it gives you.',
+      'That is an old Teams connector address, which Microsoft switched off in May 2026. In the Teams channel choose ⋯ › Workflows › \'Send webhook alerts to a channel\' and paste the address it gives you.',
       'LEGACY_WEBHOOK_URL',
       400,
     );

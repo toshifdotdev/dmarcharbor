@@ -254,6 +254,23 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-12-14 — Chat channel audit rows say what changed
+
+Browser routes under `/api` only; `/api/v1` is unchanged. Found in session 19.
+
+- **`detail.change`** on `SLACK_DESTINATION_*` and `TEAMS_DESTINATION_*` rows
+  written by `/slack-destinations` and `/teams-destinations`: `added`, or any
+  of `address`, `name`, `routing`, `turned on`, `turned off`, or `saved,
+  nothing changed`. Before, adding a channel, renaming it, rerouting it and
+  giving it a new address all wrote the same row.
+- **`detail.clients`** names the routed clients (or `every client`), and
+  **`detail.kinds`** is `every kind` when the channel takes all of them.
+  `detail.clientIds` stays.
+- The Teams legacy-address refusal now names the template as Teams shows it
+  today: "Send webhook alerts to a channel".
+
+---
+
 ## 2026-12-13 — A DNS lookup that timed out is no longer read as a missing record
 
 Found while testing the free tools against real domains: a large TXT answer

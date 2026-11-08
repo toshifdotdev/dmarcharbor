@@ -141,10 +141,11 @@ const ACTION_SENTENCES: Record<AuditAction, string> = {
   PSA_CONNECTION_PAUSED: "PSA ticketing paused",
   PSA_CONNECTION_RESUMED: "PSA ticketing resumed",
   PSA_MAPPING_CHANGED: "Client to PSA company mapping changed",
-  SLACK_DESTINATION_CONFIGURED: "Slack destination configured",
-  SLACK_DESTINATION_REMOVED: "Slack destination removed",
-  TEAMS_DESTINATION_CONFIGURED: "Microsoft Teams destination configured",
-  TEAMS_DESTINATION_REMOVED: "Microsoft Teams destination removed",
+  // "Channel", the word the Slack and Teams screens use (session 19).
+  SLACK_DESTINATION_CONFIGURED: "Slack channel connected or changed",
+  SLACK_DESTINATION_REMOVED: "Slack channel removed",
+  TEAMS_DESTINATION_CONFIGURED: "Microsoft Teams channel connected or changed",
+  TEAMS_DESTINATION_REMOVED: "Microsoft Teams channel removed",
   PROSPECT_REPORT_CREATED: "Prospect risk report created",
   PROSPECT_REPORT_REVOKED: "Prospect risk report link revoked",
   PROSPECT_REPORT_DELETED: "Revoked prospect risk report removed",
@@ -169,10 +170,10 @@ const ACTION_SENTENCES: Record<AuditAction, string> = {
   MEMBER_REMOVED: "Team member removed",
   MEMBER_LEFT: "Team member left the workspace",
   OWNERSHIP_TRANSFERRED: "Workspace ownership transferred",
-  SLACK_DESTINATION_PAUSED: "Slack destination paused",
-  SLACK_DESTINATION_RESUMED: "Slack destination resumed",
-  TEAMS_DESTINATION_PAUSED: "Microsoft Teams destination paused",
-  TEAMS_DESTINATION_RESUMED: "Microsoft Teams destination resumed",
+  SLACK_DESTINATION_PAUSED: "Slack channel paused",
+  SLACK_DESTINATION_RESUMED: "Slack channel resumed",
+  TEAMS_DESTINATION_PAUSED: "Microsoft Teams channel paused",
+  TEAMS_DESTINATION_RESUMED: "Microsoft Teams channel resumed",
   FORENSIC_COLLECTION_ENABLED: "Forensic report collection turned on",
   FORENSIC_COLLECTION_DISABLED: "Forensic report collection turned off",
   CLIENT_CREATED: "Client added",
@@ -245,8 +246,8 @@ const TARGET_SENTENCES: Record<string, string> = {
   sender_review_bulk: "Bulk sender review",
   member: "Team member",
   invitation: "Invitation",
-  slack_destination: "Slack destination",
-  teams_destination: "Microsoft Teams destination",
+  slack_destination: "Slack channel",
+  teams_destination: "Microsoft Teams channel",
 };
 
 export function auditTargetLabel(targetType: string): string {
@@ -385,6 +386,8 @@ function renderObject(entries: Array<[string, AuditDetail]>, depth: number): str
  * spelled out in place, and anything too long for a row is shortened with the
  * whole value still available on the row.
  */
+const TYPED_NAMES = new Set(["channelLabel", "name", "label", "clientName", "domainName", "email"]);
+
 export function auditDetailRows(detail: AuditDetail): AuditDetailRow[] {
   if (detail === null) return [];
   if (typeof detail !== "object" || Array.isArray(detail)) {
@@ -392,7 +395,9 @@ export function auditDetailRows(detail: AuditDetail): AuditDetailRow[] {
     return [{ key: "detail", value: shorten(value), full: fullOf(value) }];
   }
   return Object.entries(detail).map(([key, value]) => {
-    const rendered = renderDetailValue(value, 0);
+    // A name someone typed is shown as typed: "dh-dns" is a channel, not an
+    // identifier to read out as "dh dns" (session 19).
+    const rendered = TYPED_NAMES.has(key) && typeof value === "string" ? value : renderDetailValue(value, 0);
     return { key: spokenWords(key), value: shorten(rendered), full: fullOf(rendered) };
   });
 }

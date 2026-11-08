@@ -32,7 +32,7 @@ function teamsMessage(code: string | undefined, apiMessage: string | undefined):
     return apiMessage;
   }
   if (code === "LEGACY_WEBHOOK_URL") {
-    return "That is an old Teams connector address, which Microsoft switched off in May 2026. In the Teams channel choose ⋯ › Workflows › 'Post to a channel when a webhook request is received' and paste the address it gives you.";
+    return "That is an old Teams connector address, which Microsoft switched off in May 2026. In the Teams channel choose ⋯ › Workflows › 'Send webhook alerts to a channel' and paste the address it gives you.";
   }
   if (code === "INVALID_WEBHOOK_URL") {
     return "That is not a Teams Workflows address. It must start with https:// and be on logic.azure.com or environment.api.powerplatform.com.";
@@ -47,14 +47,14 @@ const TEAMS_COPY: ChatCopy = {
   short: "Teams",
   addressLabel: "Workflows address",
   addressHint:
-    "Starts with https:// and ends with logic.azure.com or environment.api.powerplatform.com. Stored encrypted; only the host and the last four characters are ever shown.",
+    "Starts with https:// and is on logic.azure.com or environment.api.powerplatform.com; a :443 in it is fine. Stored encrypted; only the host and the last four characters are ever shown.",
   placeholder: "https://prod-00.westus.logic.azure.com/workflows/…",
   labelPlaceholder: "Alerts",
   kindOfChannel: "Microsoft Teams, through Workflows",
   stepsTitle: "Getting the address from Teams",
   steps: [
     { key: "open", name: "Open ⋯ › Workflows", detail: "In the Teams channel the alerts should go to." },
-    { key: "template", name: "Choose the webhook template", detail: "“Post to a channel when a webhook request is received”." },
+    { key: "template", name: "Choose the webhook template", detail: "“Send webhook alerts to a channel”, found by searching Workflows for webhook." },
     { key: "save", name: "Pick the team and channel", detail: "Then save the flow and leave it turned on. One flow per channel." },
     { key: "paste", name: "Paste the address here", detail: "The flow shows it once it is saved." },
   ],
@@ -62,7 +62,8 @@ const TEAMS_COPY: ChatCopy = {
     <>
       <p>
         The address comes from a Teams Workflows flow made from the template{" "}
-        <span className="font-semibold">&ldquo;Post to a channel when a webhook request is received&rdquo;</span>. Messages
+        <span className="font-semibold">&ldquo;Send webhook alerts to a channel&rdquo;</span> (older Teams called it &ldquo;Post to
+        a channel when a webhook request is received&rdquo;). Messages
         appear from <span className="font-semibold text-fg">Workflows</span>, a Microsoft bot. That is expected: Teams does not
         let the sender name or picture be changed.
       </p>

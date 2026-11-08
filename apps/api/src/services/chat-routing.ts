@@ -69,6 +69,17 @@ export async function checkedChatClientIds(
   return unique;
 }
 
+/** The clients' names, in name order, for an audit row a person reads. */
+export async function chatClientNames(organizationId: string, ids: string[]): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const rows = await prisma.client.findMany({
+    where: { organizationId, id: { in: ids } },
+    select: { name: true },
+    orderBy: { name: 'asc' },
+  });
+  return rows.map((row) => row.name);
+}
+
 /** "Alerts about every client", or "DNS changes and expiry about Pellowyn Dental and 2 more clients". */
 export async function routeSentence(organizationId: string, route: { clientIds: string[]; kinds: string[] }): Promise<string> {
   const names: Record<string, string> = {

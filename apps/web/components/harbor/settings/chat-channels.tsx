@@ -365,7 +365,9 @@ function ChannelRow({
           <Button size="sm" variant="danger-quiet" onClick={() => setRemoveOpen(true)} data-testid={`${p}-remove`}>
             Remove
           </Button>
-          <p className="min-w-0 flex-1 text-meta text-fg-3" data-testid={`${p}-test-result`}>
+          {/* At least 14rem, so on a phone it takes its own line rather than a
+              one-word column beside the buttons (session 19, 390 px). */}
+          <p className="min-w-[14rem] flex-1 text-meta text-fg-3" data-testid={`${p}-test-result`}>
             {testResult ?? (enabled ? "A test is the only way to know the channel works before a real alert depends on it." : "Paused: switch it on to send a test.")}
           </p>
         </div>

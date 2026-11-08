@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { recordAuditEvent } from '../services/audit.service.js';
-import { checkedChatClientIds, chatScopeSchema } from '../services/chat-routing.js';
+import { chatClientNames, checkedChatClientIds, chatScopeSchema } from '../services/chat-routing.js';
 import * as slack from '../services/slack.service.js';
 import * as teams from '../services/teams.service.js';
 
@@ -106,6 +106,25 @@ function hostOf(maskedUrl: string): string {
   }
 }
 
+const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
+
+/**
+ * What an audit row stores about a channel: its name, host and routing, with
+ * the clients by name as well as id. Session 19 found the trail showed ids a
+ * reader could not use, and the same row for a channel added, renamed, rerouted
+ * or given a new address.
+ */
+async function auditDetail(organizationId: string, view: View, change: string[]): Promise<Record<string, unknown>> {
+  return {
+    change,
+    channelLabel: view.channelLabel,
+    host: hostOf(view.maskedUrl),
+    clients: view.clientIds.length ? await chatClientNames(organizationId, view.clientIds) : 'every client',
+    kinds: view.kinds.length ? view.kinds : 'every kind',
+    clientIds: view.clientIds,
+  };
+}
+
 function invalid(response: Response, message: string): void {
   response.status(400).json({ error: { code: 'INVALID_REQUEST', message } });
 }
@@ -158,13 +177,7 @@ function controllers(provider: Provider) {
           clientIds: clientIds ?? [],
           kinds: body.data.kinds ?? [],
         });
-        await audit(
-          request,
-          response,
-          provider.actions.configured,
-          { channelLabel: destination.channelLabel, host: hostOf(destination.maskedUrl), clientIds: destination.clientIds, kinds: destination.kinds },
-          destination.id,
-        );
+        await audit(request, response, provider.actions.configured, await auditDetail(organizationId, destination, ['added']), destination.id);
         response.status(201).json(destination);
       } catch (error) {
         fail(error, response);
@@ -185,6 +198,7 @@ function controllers(provider: Provider) {
         return;
       }
       try {
+        const before = (await provider.list(organizationId)).find((d) => d.id === destinationId);
         const destination = await provider.update({
           organizationId,
           destinationId,
@@ -195,6 +209,13 @@ function controllers(provider: Provider) {
           ...(body.data.enabled !== undefined ? { enabled: body.data.enabled } : {}),
         });
         const onlyToggle = Object.keys(body.data).every((k) => k === 'enabled');
+        // What actually changed, compared with the channel as it was. The edit
+        // form sends every field, so a key in the body is not a change.
+        const change: string[] = [];
+        if (body.data.webhookUrl !== undefined) change.push('address');
+        if (before && body.data.channelLabel !== undefined && (before.channelLabel ?? null) !== destination.channelLabel) change.push('name');
+        if (before && (!sameSet(before.clientIds, destination.clientIds) || !sameSet(before.kinds, destination.kinds))) change.push('routing');
+        if (body.data.enabled !== undefined && !onlyToggle) change.push(body.data.enabled ? 'turned on' : 'turned off');
         await audit(
           request,
           response,
@@ -203,7 +224,7 @@ function controllers(provider: Provider) {
               ? provider.actions.resumed
               : provider.actions.paused
             : provider.actions.configured,
-          { channelLabel: destination.channelLabel, host: hostOf(destination.maskedUrl), clientIds: destination.clientIds, kinds: destination.kinds },
+          await auditDetail(organizationId, destination, onlyToggle ? [body.data.enabled ? 'turned on' : 'turned off'] : change.length ? change : ['saved, nothing changed']),
           destination.id,
         );
         response.json(destination);
