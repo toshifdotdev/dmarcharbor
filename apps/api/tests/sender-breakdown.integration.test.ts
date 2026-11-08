@@ -426,7 +426,8 @@ describe('readiness gates for the blind spots', () => {
     const { agent, organizationId, domainId, domainName } = await setup('quarantine');
     const rows = [{ ip: '192.0.2.1', count: 60_000, dkim: 'pass', spf: 'pass', spfDomain: domainName, headerFrom: domainName }];
 
-    // A month of reports in all, but only the last ten days at quarantine.
+    // A month of reports in all, but only days 21 to 31 at quarantine: 11 days,
+    // counted inclusively as readiness counts them (session 5).
     const { ingestDmarcReport } = await import('../src/services/report.service.js');
     for (const [index, { offset, policy }] of [
       { offset: 0, policy: 'none' },
@@ -445,9 +446,9 @@ describe('readiness gates for the blind spots', () => {
     const readiness = await agent.get(`/api/workspaces/${organizationId}/domains/${domainId}/policy-readiness`);
 
     expect(readiness.body.daysObserved).toBeGreaterThanOrEqual(30);
-    expect(readiness.body.daysAtCurrentPolicy).toBe(10);
+    expect(readiness.body.daysAtCurrentPolicy).toBe(11);
     expect(readiness.body.level).toBe('none');
-    expect(readiness.body.blockers.join(' ')).toContain('in force for 10 days');
+    expect(readiness.body.blockers.join(' ')).toContain('in force for 11 days');
   });
 
   it('holds reject back when mail relies on SPF without DKIM', async () => {
