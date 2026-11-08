@@ -9,7 +9,7 @@
  */
 
 export interface FreeTool {
-  slug: "dmarc" | "spf" | "dkim" | "bimi" | "dmarc-generator" | "report-reader";
+  slug: "dmarc" | "spf" | "dkim" | "bimi" | "dmarc-generator" | "report-reader" | "header-analyser";
   path: string;
   /** Bold name, as a station label. */
   name: string;
@@ -74,6 +74,15 @@ export const FREE_TOOLS: FreeTool[] = [
     title: "DMARC aggregate report reader",
     description:
       "Read a DMARC aggregate report as a table and a map of who sent as the domain: drop the XML, .zip or .xml.gz and see every source, its SPF and DKIM results and what the receiver did. Read in your browser, never uploaded. Free, no account.",
+  },
+  {
+    slug: "header-analyser",
+    path: "/tools/email-header-analyser",
+    name: "Header analyser",
+    kind: "one message, checked",
+    title: "Email header analyser",
+    description:
+      "Paste a message's headers to see whether SPF, DKIM and DMARC passed and aligned with the From domain, and every server it passed through with the time each hop took. Read in your browser. Free, no account.",
   },
 ];
 
