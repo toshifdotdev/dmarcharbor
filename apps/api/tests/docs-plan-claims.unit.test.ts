@@ -377,6 +377,7 @@ const faqFeatureAnswers: Record<string, EntitlementKey[]> = {
   'Does it warn me before a domain registration expires?': ['alerts.email'],
   'Can alerts open tickets in my PSA?': ['integrations.psa'],
   'Can I get events in my own systems?': ['integrations.webhooks'],
+  "Can each client's alerts go to its own Slack or Teams channel?": ['alerts.email'],
   'What is hosted DMARC?': ['dns.hosted'],
   'Can my client approve enforcement?': ['portal.client'],
   "What about SPF's 10-lookup limit?": ['dns.managedSpf'],

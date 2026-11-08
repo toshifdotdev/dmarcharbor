@@ -14,6 +14,7 @@ import { reviewSender, setSenderOwner } from "@/lib/ops-client";
 import { routeLines, type RouteSwatch } from "./domain-routes";
 import { fmtVolume } from "@/lib/posture";
 import { instantLabel } from "@/lib/instant";
+import { guideBySlug } from "@/lib/provider-guides";
 import type { SenderRow, WorkspaceMemberRow } from "@/lib/types";
 import { Badge, type Tone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -254,6 +255,11 @@ export function SendersTable({
                         <span className="mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-meta">
                           <span className="text-fg-3">{CONFIDENCE[row.confidence]}</span>
                           {row.service ? <span className="text-fg-3">{row.service.category}</span> : null}
+                          {row.service && guideBySlug(row.service.id) ? (
+                            <a href={`/guides/${row.service.id}`} className="link font-semibold" data-testid={`sender-guide-${row.senderKey}`}>
+                              Setup guide
+                            </a>
+                          ) : null}
                           {named(row) ? (
                             <span className="data break-all text-fg-2">{row.senderDomain ?? row.senderKey}</span>
                           ) : row.confidence === "network" && row.network ? (

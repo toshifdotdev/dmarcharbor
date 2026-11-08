@@ -154,6 +154,8 @@ export function PublicFooter({ brand }: { brand: HostBrand }) {
               ["/pricing", "Pricing"],
               ["/tools", "Free DNS tools"],
               ["/tools/dmarc-generator", "DMARC generator"],
+              ["/guides", "Provider setup guides"],
+              ["/glossary", "DMARC glossary"],
               ["/verify", "Verify a pack"],
               ["/sign-in", "Sign in"],
               ["/sign-up", "Start free"],

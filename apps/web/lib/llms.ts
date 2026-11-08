@@ -23,6 +23,8 @@ import { PENDING_TOKEN } from "../components/harbor/legal-markdown";
 import { DEVELOPER_DOCS } from "./docs-registry";
 import { LEGAL_DOCS } from "./legal-docs";
 import { FREE_TOOLS } from "./tools";
+import { GLOSSARY_PAGE } from "./glossary";
+import { GUIDES_INDEX, PROVIDER_GUIDES } from "./provider-guides";
 import type { PlanDefinition } from "./types";
 
 export const LLMS_NAME = "DMARC Harbor";
@@ -35,7 +37,8 @@ const LLMS_DETAIL = [
   "It measures and proves. It never sends mail as anyone, and it changes DNS only when you ask, through a Cloudflare connection you add or a record it hosts for you.",
   "Each client domain reads as exactly one of pass, block, unverified, stale or unmeasured, from report data; a domain that has never reported is never called passing.",
   "Agencies can hand clients compliance packs with a published SHA-256 fingerprint that anyone can check on the verify page, revocable report share links, and a client portal in the agency's own brand.",
-  "Free tools at /tools read any domain's DMARC, SPF, DKIM and BIMI records from public DNS with no account: the DMARC record tag by tag, SPF lookups counted through every include against the limit of 10, a DKIM selector's key with its size, the BIMI record and logo rules, and a DMARC record generator.",
+  "Free tools at /tools read any domain's DMARC, SPF, DKIM and BIMI records from public DNS with no account: the DMARC record tag by tag, SPF lookups counted through every include against the limit of 10, a DKIM selector's key with its size, the BIMI record and logo rules, a DMARC record generator, an aggregate report reader and an email header analyser. The two readers run in the browser and upload nothing.",
+  "A glossary at /glossary defines every term, and /guides has SPF, DKIM and DMARC setup for Microsoft 365, Google Workspace, Zoho Mail, Mailchimp, SendGrid, HubSpot, Amazon SES and Mailgun, checked against each provider's documentation.",
 ].join(" ");
 
 /** The documents an answer engine is most likely to need, with what each answers. */
@@ -53,6 +56,9 @@ const PRODUCT_PAGES: Array<{ path: string; title: string; note: string }> = [
     const note = t.description.replace(/ Free, no account\.$/, "").replace(/\.$/, "");
     return { path: t.path, title: t.title, note: `${note.charAt(0).toLowerCase()}${note.slice(1)}; no account needed` };
   }),
+  { path: GLOSSARY_PAGE.path, title: GLOSSARY_PAGE.title, note: "every email authentication term an MSP meets, in plain words, with an example each" },
+  { path: GUIDES_INDEX.path, title: GUIDES_INDEX.title, note: "SPF, DKIM and DMARC setup for eight email providers" },
+  ...PROVIDER_GUIDES.map((g) => ({ path: `/guides/${g.slug}`, title: g.title, note: `the records and steps for ${g.name}, checked ${g.checkedOn}` })),
   { path: "/support", title: "Support and contact", note: "how to reach support" },
 ];
 

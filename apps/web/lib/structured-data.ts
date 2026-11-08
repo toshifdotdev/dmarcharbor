@@ -108,7 +108,7 @@ export function softwareApplicationJsonLd(origin: string): Record<string, unknow
       // site-wide node beside the free offer does not claim the domain.
       "Client portal in your own brand",
       "Email, Slack and Teams alerting rules",
-      "Free DMARC, SPF, DKIM and BIMI lookups and a DMARC record generator, with no account",
+      "Free DMARC, SPF, DKIM and BIMI lookups, a DMARC record generator, an aggregate report reader and an email header analyser, with no account",
     ],
     isAccessibleForFree: true,
     publisher: { "@id": nodeId(origin, "organization") },

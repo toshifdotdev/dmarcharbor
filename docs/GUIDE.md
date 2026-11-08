@@ -116,11 +116,13 @@ counts the record's lookups and warns when it goes over 10.
 - **Alerts** (Fairway and above): create rules per domain for failure rate,
   failure count, volume from one source, report silence or new unauthenticated
   sources. Alerts go to the people you choose by email.
-- **Slack and Teams** (Fairway and above): under Settings, connect one Slack
-  channel and one Teams channel, and every alert also posts there. Send a test
-  message from either page to check the channel before a real alert depends on
-  it; the page shows what Slack or Teams answered. After a downgrade a connected
-  channel can still be paused or removed.
+- **Slack and Teams** (Fairway and above): under Settings, connect up to 20 Slack
+  channels and 20 Teams channels. Each can take every client or chosen clients, and
+  every kind of message or chosen kinds (failing mail, spoofing and new senders,
+  reports stopped, DNS changes, domain expiry), so each client's alerts can go to
+  that client's channel. Send a test message from each channel to check it before a
+  real alert depends on it; the page shows what Slack or Teams answered. After a
+  downgrade a connected channel can still be paused or removed.
 - **PSA tickets** (Harbor and above): connect HaloPSA, ConnectWise Manage or
   Autotask, map each client to a PSA company, and alerts open, update and close
   tickets.
@@ -241,7 +243,13 @@ someone, cancel an open invitation, or upgrade.
 
 **I want to read a domain's records as receivers see them.** The free tools (Free
 tools in the site header) read any domain's DMARC, SPF, DKIM and BIMI records from
-public DNS, count SPF lookups through every include, and write a DMARC record to
-publish. No account is needed.
+public DNS, count SPF lookups through every include, write a DMARC record to
+publish, read an aggregate report file and read a message's headers. No account is
+needed, and the two readers upload nothing.
+
+**A client's mail service needs SPF or DKIM.** The provider setup guides (Guides in
+the site footer, or Setup guide beside a known sender on the Senders tab) give the
+records and steps for Microsoft 365, Google Workspace, Zoho Mail, Mailchimp,
+SendGrid, HubSpot, Amazon SES and Mailgun. The glossary explains every term.
 
 Still stuck? Email `[SUPPORT EMAIL]`.

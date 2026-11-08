@@ -1,10 +1,12 @@
 import { DEVELOPER_DOCS, developerDocBody } from "@/lib/docs-registry";
 import { LEGAL_BY_SLUG, legalBody } from "@/lib/legal-docs";
 import { llmsFullTxt, type FullTextDocument } from "@/lib/llms";
+import { GLOSSARY_PAGE, glossaryMarkdown } from "@/lib/glossary";
+import { GUIDES_INDEX, PROVIDER_GUIDES, guideMarkdown } from "@/lib/provider-guides";
 import { canonicalOrigin, currentHostKind } from "@/lib/site-origin";
 
 /**
- * /llms-full.txt — the setup guide, the FAQ and the API reference in one
+ * /llms-full.txt — the setup guide, the FAQ, the API reference, the glossary and the provider setup guides in one
  * plain-text file, from the same docs/ files their pages render, with any
  * passage that carries an unsupplied fact left out (lib/llms.ts).
  *
@@ -29,6 +31,8 @@ export async function GET(): Promise<Response> {
     legalDocument("guide"),
     legalDocument("faq"),
     ...DEVELOPER_DOCS.map((d) => ({ title: d.title, path: d.path, markdown: developerDocBody(d).text })),
+    { title: GLOSSARY_PAGE.title, path: GLOSSARY_PAGE.path, markdown: glossaryMarkdown() },
+    { title: GUIDES_INDEX.title, path: GUIDES_INDEX.path, markdown: PROVIDER_GUIDES.map(guideMarkdown).join("\n") },
   ].filter((d): d is FullTextDocument => d !== null);
   const body = llmsFullTxt({ origin: await canonicalOrigin(), documents });
   return new Response(body, {

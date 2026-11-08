@@ -121,8 +121,16 @@ goes with it.
 Yes. Enter it on the home page, or use the free tools under Free tools: a DMARC
 lookup that reads the record tag by tag, an SPF lookup that counts DNS lookups
 through every include, a DKIM lookup for a selector's key, a BIMI check of the logo
-record and file, and a DMARC record generator. None needs an account and nothing
-is stored about the domain. Each is one lookup at one moment, not monitoring.
+record and file, a DMARC record generator, an aggregate report reader and an email
+header analyser. None needs an account and nothing is stored about the domain; the
+report reader and header analyser run in your browser and upload nothing. Each is
+one moment, not monitoring. There is also a glossary of terms and setup guides for
+eight email providers.
+
+**Can each client's alerts go to its own Slack or Teams channel?**
+Yes. Connect up to 20 channels of each, and limit each one to chosen clients and to
+chosen kinds of message, such as DNS changes to one channel and spoofing to another.
+Starts on Fairway.
 
 ## Plans and billing
 

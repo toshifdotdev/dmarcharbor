@@ -1506,6 +1506,113 @@ curl -sS "https://app.dmarcharbor.example/api/v1/usage?month=2026-11" \
 
 Errors: 400 `INVALID_PERIOD` (not `YYYY-MM`), 400 `PERIOD_NOT_COMPLETE` (this month or later), 400 `PERIOD_TOO_OLD` (more than 12 complete months ago), 401, 402 (`reports.usageExport`), 429.
 
+## Webhook endpoints
+
+The same endpoints the Webhooks settings page manages, so an integration can register its own receiver and rotate its secret without a person in the app. What is delivered, and how to verify it, is under [Webhooks](#webhooks).
+
+- Reading needs scope `read`; every change needs `write`.
+- Adding, rotating, testing and replaying need `integrations.webhooks` (from Fairway) and answer 402 without it. Pausing (`active: false`) and removing work on every plan, so a downgraded workspace can still stop delivery.
+- Every change is recorded in the audit trail, with no person, as every key-made change is.
+
+### GET /api/v1/webhooks
+
+Every endpoint in the key's workspace, the event names, and the default set. Secrets are never listed.
+
+```bash
+curl -sS https://app.dmarcharbor.example/api/v1/webhooks \
+  -H "Authorization: Bearer $DMH_API_KEY"
+```
+
+**Response 200**
+
+```json
+{
+  "endpoints": [
+    {
+      "id": "cmhw1e2n7000atd5w8k3p2m4q",
+      "name": "HaloPSA production",
+      "url": "https://halopsa.wistholm-it.example/hooks/dmarc",
+      "events": ["domain.verified", "alert.triggered"],
+      "clientIds": [],
+      "active": true,
+      "suspendedAt": null,
+      "failureCount": 0,
+      "lastDeliveryAt": "2026-11-28T09:02:54.010Z",
+      "previousSecretExpiresAt": null,
+      "createdAt": "2026-10-02T11:40:12.551Z"
+    }
+  ],
+  "events": ["domain.verified", "alert.triggered", "report.received", "entitlement.exceeded", "dns.changed", "policy.changed", "forensic.received", "tlsrpt.received"],
+  "defaultEvents": ["domain.verified", "alert.triggered"]
+}
+```
+
+Errors: 401, 402, 403, 429.
+
+### POST /api/v1/webhooks
+
+Adds an endpoint. The response carries its signing secret, once.
+
+| Field | Notes |
+|---|---|
+| `name` | Required. The system it feeds |
+| `url` | Required. Public https. Private and local addresses are refused, and redirects are not followed |
+| `events` | Optional. Defaults to `domain.verified` and `alert.triggered` |
+| `clientIds` | Optional. Clients of this workspace whose events it receives. Empty or absent means every client, including clients added later |
+
+```bash
+curl -sS -X POST https://app.dmarcharbor.example/api/v1/webhooks \
+  -H "Authorization: Bearer $DMH_API_KEY" -H "Content-Type: application/json" \
+  -d '{"name":"Pellowyn PSA","url":"https://psa.pellowyn-dental.example/dmarc","events":["alert.triggered"],"clientIds":["cmh2k4x7p0003wq8z5t1v9a6e"]}'
+```
+
+**Response 201**: the endpoint, with `secret` and a `notice`. Store the secret now; it is never shown again.
+
+Errors: 400 (a refused URL, or a client outside the workspace), 401, 402, 403, 429.
+
+### POST /api/v1/webhooks/test
+
+Queues a test `domain.verified` event, marked `"test": true`, to every endpoint subscribed to `domain.verified`. **Response 202**: `{ "queued": 1, "notice": "…" }`.
+
+Errors: 401, 402, 403, 429.
+
+### PATCH /api/v1/webhooks/{webhookId}
+
+Changes any of `name`, `url`, `events`, `clientIds` and `active`. Sending only `{"active": false}` pauses the endpoint on every plan; anything else needs `integrations.webhooks`. **Response 200**: the endpoint.
+
+Errors: 400, 401, 402, 403, 404 (not in this workspace), 429.
+
+### DELETE /api/v1/webhooks/{webhookId}
+
+Stops delivery and deletes the endpoint and its secret. **Response 204**.
+
+Errors: 401, 403, 404, 429.
+
+### POST /api/v1/webhooks/{webhookId}/rotate-secret
+
+Issues a new signing secret. `overlapHours` is how long the old secret keeps signing beside it: `0`, `1`, `24` or `168`. During the overlap `x-dmarcharbor-signature` lists both values, the new one first (see [Verifying the signature](#verifying-the-signature)).
+
+```bash
+curl -sS -X POST https://app.dmarcharbor.example/api/v1/webhooks/cmhw1e2n7000atd5w8k3p2m4q/rotate-secret \
+  -H "Authorization: Bearer $DMH_API_KEY" -H "Content-Type: application/json" \
+  -d '{"overlapHours":24}'
+```
+
+**Response 200**: the endpoint, with the new `secret`, once.
+
+Errors: 400, 401, 402, 403, 404, 429.
+
+### GET /api/v1/webhook-deliveries
+
+The last fifty deliveries, newest first, with their status, attempts and the response code your system gave. `endpointId` (query) limits it to one endpoint.
+
+Errors: 401, 403, 429.
+
+### POST /api/v1/webhook-deliveries/{deliveryId}/replay
+
+Queues the same event to the same endpoint again. **Response 202**: `{ "queued": true }`. A paused endpoint answers 409.
+
+Errors: 401, 402, 403, 404, 409, 429.
 ## Webhooks
 
 Webhooks run the other way from the API. You register an https address once, and the service posts a signed JSON event to it when something happens: a domain verifies, an alert opens, a DNS change is recorded. Your system only receives. Polling the API still works, and webhooks mean you do not have to.
@@ -1528,7 +1635,7 @@ Send a test event posts a test `domain.verified` event to every endpoint subscri
 
 To rotate the secret, choose Rotate secret on the endpoint and pick how long the old secret keeps signing beside the new one: 1 hour, 1 day, 7 days, or none. The new secret is shown once. During the overlap every delivery carries two signatures, the new one first (see Verifying the signature), so a receiver that accepts any listed value keeps working while you switch it to the new secret. With None the old secret stops at once, and deliveries fail at a receiver that still holds it. A rotation is recorded in the audit trail.
 
-The webhook settings use the app's own routes, which are not part of the API contract. Manage endpoints in the app rather than by script.
+Endpoints can also be managed with an API key, through [Webhook endpoints](#webhook-endpoints).
 
 ### What a delivery looks like
 
