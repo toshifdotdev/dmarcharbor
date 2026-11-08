@@ -90,31 +90,98 @@ after a change; a breached password refused at sign-up.
 
 ## All sessions
 
-Seventeen in all. A session marked * needs nothing new set up; the others
-list what has to exist before they start. Each later session gets its own
-section below when it is planned, in the same form as session 1: the order,
-the accounts, and what each item must show.
+Twenty in all: the seventeen planned first, and three for what was built
+after them (the free tools and guides, routed Slack and Teams channels with
+the webhook additions, and the Cloudflare zone import). A session marked * needs
+nothing new set up.
 
-| # | Session | Set up first |
-|---|---|---|
-| 1 | Accounts and sign-in | done |
-| 2* | Workspace, team members, roles, invitations | nothing |
-| 3* | Clients and domains: add, verify ownership, bulk import, move, rename, delete | nothing |
-| 4 | Report ingestion: real DMARC reports arriving and being measured | the report mailbox (Migadu) and `rua` on our own `_dmarc` record |
-| 5* | Domain posture, senders, subdomains, readiness for quarantine and reject | nothing |
-| 6* | DNS monitoring, change history, expiry dates, Gmail, Yahoo and Microsoft checks, the home-page checker | nothing |
-| 7 | Alerts by email, Slack and Teams | a Slack and a Teams test channel |
-| 8 | PSA tickets and webhooks | a PSA trial (Halo, ConnectWise or Autotask), and a ConnectWise client id if testing that one |
-| 9 | Publishing DNS: Cloudflare connection, hosted DMARC, managed SPF | a Cloudflare token and zone id |
-| 10 | Hosted BIMI, MTA-STS, TLS reports | a BIMI origin and Cloudflare for SaaS |
-| 11 | Billing: checkout, upgrade, downgrade, failed payment, refund | Razorpay test keys, the Paddle sandbox, and a tunnel for webhooks |
-| 12 | White label: logo, colours, support contact, branded client emails | an S3 bucket for logos |
-| 13* | Client portal, approvals, share links, Trust Center, compliance packs, verifier, monthly reports, digests | nothing new (uses sessions 2, 3 and 12) |
-| 14 | Admiralty: custom domain, agency sending domain, single sign-on | a second domain, a full-access Resend key, an SSO identity provider |
-| 15* | Prospect reports, switch kit, usage export, API keys and the API | nothing |
-| 16* | Data export, erasure, audit trail, plan limits on every plan | nothing |
-| 17 | Ask (written answers), public site, docs and SEO, then one end-to-end run as a brand-new MSP | an Anthropic API key |
+**Order from here.** First the sessions never run (4, 5, 10, 14), then the new
+ones (18, 19, 20), then the sessions an earlier tester ran, again. Billing (11)
+is last, once the Razorpay keys exist. Then one fast pass over all twenty,
+because the redesign changed every screen after most sessions were run.
 
+| # | Session | Set up first | State |
+|---|---|---|---|
+| 1 | Accounts and sign-in | nothing | run, fixed; in the fast pass |
+| 2* | Workspace, team members, roles, invitations | nothing | run; again if an earlier tester ran it |
+| 3* | Clients and domains: add, verify, bulk import, move, rename, delete | nothing | run, fixed; again if an earlier tester ran it |
+| 4 | Report ingestion: real DMARC reports arriving and being measured | Migadu mailbox, `rua` on our `_dmarc` record, reports received | **not run**: waiting for reports |
+| 5* | Domain posture, senders (with setup-guide links), subdomains, readiness, the portfolio and domain page figures | real reports from session 4 | **not run** |
+| 6* | DNS monitoring, change history, expiry, Gmail, Yahoo and Microsoft checks, the home-page checker | nothing | run, fixed; again if an earlier tester ran it |
+| 7 | Alerts by email, Slack and Teams (single channel) | Slack and Teams test channels | run; routing moves to 19 |
+| 8 | PSA tickets and webhooks (create, test, deliveries, replay) | a PSA trial, a webhook receiver | run; rotation and client limits move to 19 |
+| 9 | Publishing DNS: Cloudflare connection, hosted DMARC, managed SPF | a Cloudflare token | run; zone import moves to 20 |
+| 10 | Hosted BIMI, MTA-STS, TLS reports | a BIMI origin and Cloudflare for SaaS | **not run** |
+| 11 | Billing: checkout, upgrade, downgrade, failed payment, refund | Razorpay test keys, Paddle sandbox, a tunnel | **not run**: last |
+| 12 | White label: logo, colours, support contact, branded client emails | S3 keys for logos | run except the logo upload (closed S3 account) |
+| 13* | Client portal, approvals, share links, Trust Center, compliance packs, verifier, monthly reports, digests | sessions 2, 3 and 12 | run, fixed |
+| 14 | Admiralty: custom domain, agency sending domain, single sign-on | a second domain, a full-access Resend key, an SSO provider | **not run** |
+| 15* | Prospect reports, switch kit, usage export, API keys and the API | nothing | run, fixed; webhook API in 19 |
+| 16* | Data export, erasure, audit trail, plan limits on every plan | nothing | run, fixed |
+| 17 | Ask, public site, docs and SEO, one end-to-end run as a new MSP | an Anthropic API key | run before the free tools existed |
+| 18* | Free tools, glossary and setup guides | nothing | **new** |
+| 19 | Routed Slack and Teams channels, webhook rotation and client limits, webhooks through `/api/v1` | 2 Slack and 2 Teams test channels, a webhook receiver, an API key | **new** |
+| 20 | Cloudflare zone import | a Cloudflare token that can read several zones | **new** |
+
+## Session 18: free tools, glossary and setup guides
+
+Signed out, on the public site. Every page at 1440 and 390 wide, with no
+sideways scroll, and its search title, description and structured data.
+
+1. **DMARC lookup.** A domain at p=none, one at quarantine with t=y, one with no
+   record, one with `pct` (shows retired), one with a web-only `rua`. The tags
+   read right, the policy line stops at the published policy.
+2. **SPF lookup.** A domain under 10 lookups, one over (red past ten), one with
+   a void lookup, one with a loop or missing include. The tree matches what DNS
+   holds; each include is its own coloured line.
+3. **DKIM lookup.** A real selector with a key (size shown), a revoked one
+   (gmail.com `20230601`), a wrong selector, no selector at all, and an invalid
+   selector refused before sending.
+4. **BIMI lookup.** A domain with a valid logo and certificate, one with a
+   logo but no certificate, one with no record, one whose DMARC is too weak.
+5. **DMARC generator.** Every choice changes the record; our report address
+   is off until ticked and then first in `rua`; another domain's address shows
+   the external-authorisation note; the record copies.
+6. **Report reader.** A real Google `.zip`, a Microsoft `.xml.gz`, a pasted XML,
+   a file that is not a report, a file with a DOCTYPE (refused), a file over
+   50 MB (refused). Totals match the file; nothing appears in the network log.
+7. **Header analyser.** Headers from Gmail and from Outlook for a passing
+   message, a failing one, a forwarded one; the hops and times match the
+   headers; nothing appears in the network log.
+8. **Glossary and guides.** Every term's anchor works from the tools; every
+   guide's steps match the provider's console today; Setup guide appears
+   beside a known sender on the Senders tab.
+9. **Rate limit.** More than 20 lookups a minute from one address pauses with
+   the time to wait.
+10. **On an agency's domain** every one of these pages goes to the portal.
+
+## Session 19: routed channels and the webhook additions
+
+1. **Several channels.** Add two Slack and two Teams channels: one for every
+   client and kind, one per client, one for DNS changes only. A test message on
+   each names what it is routed to.
+2. **Routing.** A failing-mail alert reaches the client's channel and the
+   unrouted one, not the DNS-only one; a DNS change summary lists only each
+   channel's clients' domains; an expiry warning likewise.
+3. **Manage.** Pause, change routing, change address, remove; the 21st channel
+   is refused; a client from another workspace is refused; the audit trail
+   names each change.
+4. **Webhook rotation.** Rotate with a 1-hour overlap: deliveries carry two
+   signatures and a receiver that accepts either keeps working; with none, the
+   old secret stops at once.
+5. **Webhook client limits.** An endpoint for one client receives only that
+   client's events, plus test and workspace events.
+6. **Webhooks through the API.** With a `read` key: list only. With `write`:
+   add, rotate, pause, remove, replay; another workspace's endpoint is a 404.
+
+## Session 20: Cloudflare zone import
+
+1. A token that reads several zones lists them, marked ready, monitored here
+   (with the client) or monitored by another workspace (not named).
+2. Ticking zones and a client adds them, within the plan's limit, with their
+   ownership records; the ones over the limit say so.
+3. A token without Zone Read says what to fix. An account with more than 1,000
+   zones says it listed part.
 ## Session 2: workspace, team members, roles, invitations
 
 Owner `dmarcharbor+test1@gmail.com`. Invite `dmarcharbor+admin@gmail.com`,

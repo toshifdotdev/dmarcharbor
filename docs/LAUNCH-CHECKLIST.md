@@ -602,6 +602,9 @@ correctly in the Workflows chat.
       Start with GoDaddy and Route 53, the commonest after Cloudflare for small
       clients. Compare the cost of a broker such as Entri, which PowerDMARC
       uses for one-click publishing across many providers, with building each.
+      Decided (November 2026): not before launch. Build directly (free APIs),
+      GoDaddy and Route 53 first, when two customers ask or a deal depends on it.
+      Hosted DMARC covers every provider meanwhile. Entri starts near $249 a month.
 - [x] Import domains from a connected zone: list the zones the token can see
       and offer to add them, in place of typing each domain. Built: Import
       domains on each connection under Settings, DNS publishing. Clicked through
