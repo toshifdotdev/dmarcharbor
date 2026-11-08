@@ -10,7 +10,7 @@
 
 import Link from "next/link";
 import { clsx } from "clsx";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { readHostBrand } from "@/lib/host-brand";
 import { canonicalOrigin } from "@/lib/site-origin";
 import { toolJsonLd, toolsIndexJsonLd } from "@/lib/structured-data";
@@ -23,39 +23,61 @@ export async function ToolFrame({
   headline,
   lead,
   children,
+  structured,
+  crumb,
+  showTools,
+  closingHeadline = "One lookup is one moment.",
 }: {
   slug: FreeTool["slug"] | null;
   headline: string;
   lead: ReactNode;
   children: ReactNode;
+  /** JSON-LD for a page that is not a tool (the glossary, a guide). */
+  structured?: Record<string, unknown>;
+  /** The link above the headline. Defaults to Free tools on a tool page. */
+  crumb?: { href: string; label: string } | null;
+  /** The line of free tools below the page. Defaults to on for a tool. */
+  showTools?: boolean;
+  closingHeadline?: string;
 }) {
   const [brand, origin] = await Promise.all([readHostBrand(), canonicalOrigin()]);
   const name = brandName(brand);
   // Each tool is a free WebApplication under Free tools; the index lists them.
-  const data = slug ? toolJsonLd(origin, toolBySlug(slug)) : toolsIndexJsonLd(origin, { ...TOOLS_INDEX, tools: FREE_TOOLS });
+  const data = structured ?? (slug ? toolJsonLd(origin, toolBySlug(slug)) : toolsIndexJsonLd(origin, { ...TOOLS_INDEX, tools: FREE_TOOLS }));
+  const above = crumb === undefined ? (slug ? { href: "/tools", label: "Free tools" } : null) : crumb;
+  const toolsLine = showTools ?? Boolean(slug);
   return (
     <div data-harbor data-host-brand={brand.state}>
       <StructuredData data={data} />
       <PublicHeader brand={brand} current="tools" />
       <main id="main" className="page-wrap pb-24 sm:pb-32">
         <header className="max-w-[46rem] pt-10 sm:pt-16">
-          {slug ? (
-            <Link href="/tools" className="link text-[14.5px] font-semibold">
-              Free tools
+          {above ? (
+            <Link href={above.href} className="link text-[14.5px] font-semibold">
+              {above.label}
             </Link>
           ) : null}
           <h1 className="mt-3 text-[38px] font-[760] leading-[0.96] tracking-[-0.035em] text-fg [text-wrap:balance] sm:text-[52px] min-[68.75rem]:text-[60px]">
             {headline}
           </h1>
           <div className="mt-5 max-w-[34rem] text-[17px] leading-[1.5] text-fg-2 sm:text-[19px]">{lead}</div>
+          {slug ? (
+            <p className="mt-3 text-[14.5px] text-fg-4">
+              A term you do not know?{" "}
+              <Link href="/glossary" className="link font-semibold">
+                The glossary
+              </Link>{" "}
+              explains each one.
+            </p>
+          ) : null}
         </header>
 
         <div className="mt-10 sm:mt-14">{children}</div>
 
-        {slug ? (
+        {toolsLine ? (
           <section aria-labelledby="other-tools" className="mt-24 border-t border-rule pt-10 sm:mt-32">
             <h2 id="other-tools" className="text-[24px] font-[740] leading-[1.02] tracking-[-0.03em] text-fg sm:text-[30px]">
-              The other free tools
+              {slug ? "The other free tools" : "The free tools"}
             </h2>
             <ToolLine current={slug} className="mt-8" />
           </section>
@@ -63,7 +85,7 @@ export async function ToolFrame({
 
         <section className="mt-20 grid gap-6 border-t border-rule pt-10 min-[68.75rem]:grid-cols-[minmax(0,0.74fr)_minmax(0,1fr)] min-[68.75rem]:gap-16">
           <h2 className="text-[28px] font-[740] leading-[1.02] tracking-[-0.03em] text-fg [text-wrap:balance] sm:text-[36px]">
-            One lookup is one moment.
+            {closingHeadline}
           </h2>
           <div className="max-w-[34rem]">
             <p className="text-[17px] leading-[1.5] text-fg-2">
@@ -90,25 +112,42 @@ export async function ToolFrame({
   );
 }
 
-/**
- * The tools as one line. Each station links to its tool; the current one is
- * the accent capsule and is not a link. `current` null draws every station
- * the same (the index page lists them separately).
- */
+/** The tools as one line, the current one marked "you are here". */
 export function ToolLine({ current, className }: { current: FreeTool["slug"] | null; className?: string }) {
   return (
-    <ol className={clsx("grid min-[900px]:grid-cols-5", className)} aria-label="Free tools">
-      {FREE_TOOLS.map((tool, i) => {
-        const here = tool.slug === current;
-        const last = i === FREE_TOOLS.length - 1;
-        const label = (
-          <>
-            <span className={clsx("block text-[16px] font-bold", here ? "text-act" : "text-fg")}>{tool.name}</span>
-            <span className="mt-0.5 block text-[14px] leading-[1.35] text-fg-4">{here ? "you are here" : tool.kind}</span>
-          </>
-        );
+    <LinkLine
+      label="Free tools"
+      className={className}
+      stops={FREE_TOOLS.map((tool) => ({ key: tool.slug, name: tool.name, kind: tool.kind, href: tool.path, here: tool.slug === current }))}
+    />
+  );
+}
+
+/**
+ * Stops on one line, each a link. The current one is the accent capsule and
+ * not a link. Horizontal from 900px with one column per stop, vertical below,
+ * and no station sits outside its box.
+ */
+export function LinkLine({
+  label,
+  stops,
+  className,
+}: {
+  label: string;
+  stops: Array<{ key: string; name: string; kind: string; href: string; here?: boolean }>;
+  className?: string;
+}) {
+  return (
+    <ol
+      className={clsx("grid min-[900px]:[grid-template-columns:repeat(var(--n),minmax(0,1fr))]", className)}
+      style={{ "--n": stops.length } as CSSProperties}
+      aria-label={label}
+    >
+      {stops.map((stop, i) => {
+        const here = Boolean(stop.here);
+        const last = i === stops.length - 1;
         return (
-          <li key={tool.slug} className="relative pb-7 pl-10 min-[900px]:pb-0 min-[900px]:pl-0 min-[900px]:pr-6 min-[900px]:pt-9">
+          <li key={stop.key} className="relative pb-7 pl-10 min-[900px]:pb-0 min-[900px]:pl-0 min-[900px]:pr-6 min-[900px]:pt-9">
             {/* The line: down to the next station on phones, across to it from 900px. */}
             {last ? null : (
               <span
@@ -125,13 +164,16 @@ export function ToolLine({ current, className }: { current: FreeTool["slug"] | n
               )}
             />
             {here ? (
-              <p aria-current="page">{label}</p>
+              <p aria-current="page">
+                <span className="block text-[16px] font-bold text-act">{stop.name}</span>
+                <span className="mt-0.5 block text-[14px] leading-[1.35] text-fg-4">you are here</span>
+              </p>
             ) : (
-              <Link href={tool.path} className="group block rounded-[4px]">
+              <Link href={stop.href} className="group block rounded-[4px]">
                 <span className="block text-[16px] font-bold text-fg underline decoration-rule-2 underline-offset-4 transition-colors duration-100 group-hover:decoration-fg">
-                  {tool.name}
+                  {stop.name}
                 </span>
-                <span className="mt-0.5 block text-[14px] leading-[1.35] text-fg-4">{tool.kind}</span>
+                <span className="mt-0.5 block text-[14px] leading-[1.35] text-fg-4">{stop.kind}</span>
               </Link>
             )}
           </li>

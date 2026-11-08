@@ -308,6 +308,63 @@ export function toolsIndexJsonLd(
   ]);
 }
 
+/** The glossary as a DefinedTermSet, each term at its anchor on the page. */
+export function glossaryJsonLd(
+  origin: string,
+  input: { path: string; title: string; description: string; terms: Array<{ id: string; name: string; definition: string }> },
+): Record<string, unknown> {
+  const page = new URL(input.path, origin).toString();
+  return graph([
+    {
+      "@type": "DefinedTermSet",
+      "@id": `${page}#terms`,
+      name: input.title,
+      description: input.description,
+      url: page,
+      inLanguage: "en",
+      isPartOf: { "@id": nodeId(origin, "website") },
+      publisher: { "@id": nodeId(origin, "organization") },
+      hasDefinedTerm: input.terms.map((term) => ({
+        "@type": "DefinedTerm",
+        "@id": `${page}#${term.id}`,
+        name: term.name,
+        description: term.definition,
+        url: `${page}#${term.id}`,
+        inDefinedTermSet: { "@id": `${page}#terms` },
+      })),
+    },
+    breadcrumbJsonLd(origin, [{ name: input.title, path: input.path }]),
+  ]);
+}
+
+/** A how-to guide: the steps to set one sender or mailbox host up. */
+export function howToJsonLd(
+  origin: string,
+  input: { path: string; title: string; description: string; steps: Array<{ name: string; text: string }>; trail: Array<{ name: string; path: string }> },
+): Record<string, unknown> {
+  const page = new URL(input.path, origin).toString();
+  return graph([
+    {
+      "@type": "HowTo",
+      "@id": `${page}#howto`,
+      name: input.title,
+      description: input.description,
+      url: page,
+      inLanguage: "en",
+      isPartOf: { "@id": nodeId(origin, "website") },
+      publisher: { "@id": nodeId(origin, "organization") },
+      step: input.steps.map((step, index) => ({
+        "@type": "HowToStep",
+        position: index + 1,
+        name: step.name,
+        text: step.text,
+        url: `${page}#step-${index + 1}`,
+      })),
+    },
+    breadcrumbJsonLd(origin, input.trail),
+  ]);
+}
+
 /** A set of nodes in one block. */
 export function graph(nodes: Array<Record<string, unknown> | null>): Record<string, unknown> {
   return { "@context": "https://schema.org", "@graph": nodes.filter((n): n is Record<string, unknown> => n !== null) };
