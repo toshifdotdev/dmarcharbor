@@ -49,7 +49,8 @@ function daySpan(from: Date | null, to: Date): number {
   if (!from) {
     return 0;
   }
-  return Math.max(0, Math.floor((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000)));
+  // A part day counts as a day, as onboarding.service.ts daySpan (session 5).
+  return Math.max(0, Math.ceil((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000)));
 }
 
 export async function getPortfolioOnboarding(organizationId: string, now = new Date()): Promise<PortfolioReport> {
@@ -186,7 +187,7 @@ export async function getPortfolioOnboarding(organizationId: string, now = new D
     }
     if (daysObserved < readinessThresholds.minimumDaysObserved) {
       blockers.push(
-        `Only ${daysObserved} days of reporting observed. At least ${readinessThresholds.minimumDaysObserved} days are needed.`,
+        `Only ${daysObserved} ${daysObserved === 1 ? 'day' : 'days'} of reporting observed. At least ${readinessThresholds.minimumDaysObserved} days are needed.`,
       );
     }
     if (passRatePercent === null) {
@@ -197,10 +198,10 @@ export async function getPortfolioOnboarding(organizationId: string, now = new D
       );
     }
     if (openAlerts > 0) {
-      blockers.push(`${openAlerts} alert(s) are still open on this domain.`);
+      blockers.push(openAlerts === 1 ? '1 alert is still open on this domain.' : `${openAlerts} alerts are still open on this domain.`);
     }
     if (staleAlerts > 0) {
-      blockers.push(`${staleAlerts} alert(s) have gone stale and need review.`);
+      blockers.push(staleAlerts === 1 ? '1 alert has gone stale and needs review.' : `${staleAlerts} alerts have gone stale and need review.`);
     }
 
     const readyForQuarantine = blockers.length === 0;

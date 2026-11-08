@@ -254,6 +254,20 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-12-16 — Readiness counts part days
+
+Found in session 5.
+
+- **`daysObserved`** on policy readiness (`/policy-readiness`, `/onboarding`,
+  the portfolio report) counts a part day as a day. A report period from
+  8 October 00:00 to 6 November 23:59:59 is 30 days; it read 29, so no domain
+  reached the 30 the rule asks for.
+- Blocker sentences count in words ("1 alert is still open", "1 day"), and a
+  failing source that named no domain is named by its address instead of
+  `<ip>|unknown`.
+
+---
+
 ## 2026-12-15 — The first real report: pct, subdomain senders, Resend
 
 Found on Google's first report for our own domain (session 4).

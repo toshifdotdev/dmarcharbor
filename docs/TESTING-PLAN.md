@@ -115,7 +115,7 @@ fast pass over every session not marked final.
 | 2* | Workspace, team members, roles, invitations | nothing | fast pass |
 | 3* | Clients and domains: add, verify, bulk import, move, rename, delete | nothing | fast pass |
 | 4 | Report ingestion: real DMARC reports arriving and being measured | Migadu mailbox, `rua` on our `_dmarc` record, reports received | **final** (9 November 2026), on Google's first report for `dmarcharbor.com` |
-| 5* | Domain posture, senders (with setup-guide links), subdomains, readiness, the portfolio and domain page figures | real reports from session 4 | **not run** |
+| 5* | Domain posture, senders (with setup-guide links), subdomains, readiness, the portfolio and domain page figures | real reports from session 4 | **final** (9 November 2026) |
 | 6* | DNS monitoring, change history, expiry, Gmail, Yahoo and Microsoft checks, the home-page checker | nothing | fast pass |
 | 7 | Alerts by email, Slack and Teams (single channel) | Slack and Teams test channels | **re-run** (Gemini); routing is in 19 |
 | 8 | PSA tickets and every webhook feature: endpoints, deliveries, retries, suspension, replay, rotation, client limits, `/api/v1` | a HaloPSA trial, a webhook receiver, an API key | **final** (8 November 2026); ConnectWise and Autotask wait for a live account |
@@ -493,7 +493,55 @@ Test. The mailbox was opened read-only for the checks; the attachment is in
 - There is no Resend setup guide, so a Resend sender has no Setup guide link. Consider one with the guides in session 17.
 - The TLS reports tab formats its periods the same local way; check it in session 10.
 - `np` in `policy_published` is not stored (no column).
-- The preview account (`dmarcharbor+colour`) was made an admin of Session One Test to read this domain; remove it with `.shots/s4-member.mts remove` after session 5.
+- The preview account (`dmarcharbor+colour`) was made an admin of Session One Test to read this domain, and removed again after session 5.
+
+## Session 5: posture, senders, subdomains, readiness, the portfolio and domain figures
+
+On `dmarcharbor.com` (the real report from session 4) and Wistholm IT's nine
+sample domains, which hold 30 days of generated reports from 8 October to
+6 November.
+
+1. **Figures agree.** Every domain's reports, messages, failures and SPF and
+   DKIM rates are the same counted from the stored records, in the portfolio
+   (`/domain-signals`) and on the domain page (`/insights`), and the senders
+   add up to the domain's messages.
+2. **Posture.** Each verdict follows the rule and its sentence is true:
+   failing mail, not attributed, stale, never measured, aligned.
+3. **Senders.** Named where the evidence supports it, with the Setup guide
+   beside a known service; a source that named no domain reads as its
+   address.
+4. **Subdomains.** Names under the domain seen as the From domain are listed
+   with their figures.
+5. **Readiness.** The next step and what blocks it follow the thresholds:
+   1,000 messages, 30 days, 95% pass for quarantine, the reject conditions, no
+   failing sender, no open alert.
+6. **Screens.** The portfolio row and the domain link open the domain; no
+   sideways scroll at 390 and 1440.
+
+### Session 5 results (9 November 2026): final
+
+| # | Item | Result |
+|---|---|---|
+| 1 | Figures agree | **Pass.** All 13 domains match three ways, from thrandle-build.example (750 reports, 1,572,003 messages, 127,148 failed, DKIM 91.91%, SPF 70.17%) to the four with none; each domain's senders sum to its messages and failures. |
+| 2 | Posture | **Pass** after a copy fix. Four Blocking, corriwick-cafe.example Stale (no report for 9 days), three Not measured, pellowyn-smiles.example and dmarcharbor.com Aligned. |
+| 3 | Senders | **Pass** after a copy fix. Setup guide beside Microsoft 365 and Google Workspace (session 18); Resend named on dmarcharbor.com (session 4). |
+| 4 | Subdomains | **Pass.** `mail.dmarcharbor.com`, 9 messages, 100% pass, 7 sources. |
+| 5 | Readiness | **Pass** after a fix. pellowyn-smiles.example: ready for quarantine (30 days, 7,053 messages, 100%). thrandle-build.example: held at 91.91% and by two failing senders. pellowyn-clinic.example: "none: p=reject is the strictest". dmarcharbor.com: 9 messages, 1 day. |
+| 6 | Screens | **Pass.** A row click and the domain link both open the domain (a click before the page has finished compiling in dev does nothing, which is the clickthrough's "landed on /"). No sideways scroll at 390 or 1440. |
+
+**Broken, fixed**
+
+- Readiness counted days by rounding down: 8 October 00:00 to 6 November 23:59:59 read as 29 days, so every domain was one day short of the 30 required and none could be ready. Part days now count, on the domain page and in the portfolio report.
+- The Blocking verdict said "a rejecting policy is live: mail is being denied" for domains at p=none and p=quarantine, where the failing mail was delivered or sent to spam. It now says what is true at every policy: mail sent as the domain failed DMARC.
+
+**Gap, fixed**
+
+- A source that named no domain appeared in readiness as "Sending service 185.234.218.12|unknown … (seen from 185.234.218.12)"; it now reads "The source at 185.234.218.12, which named no domain, fails DMARC…".
+- "1 alert(s) are still open", "Only 1 days of reporting": counted in words now.
+
+**Open, for later sessions**
+
+- The clickthrough's portfolio-to-domain failure is a dev compile race, not a broken link; it needs a longer wait or a warmed route before the fast pass.
 
 ## Session 2: workspace, team members, roles, invitations
 

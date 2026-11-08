@@ -125,11 +125,17 @@ export function enforcementLevelOf(policy: ReadinessLevel, testing: boolean): Re
   return 'none';
 }
 
+/**
+ * Days the reports cover, a part day counted as a day: a period ends at
+ * 23:59:59, so 8 October 00:00 to 6 November 23:59:59 is 30 days. Rounding
+ * down read it as 29 and held every domain one day short of the 30 the
+ * readiness rule asks for (session 5).
+ */
 function daySpan(from: Date | null, to: Date): number {
   if (!from) {
     return 0;
   }
-  return Math.max(0, Math.floor((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000)));
+  return Math.max(0, Math.ceil((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000)));
 }
 
 /**
@@ -284,7 +290,7 @@ export async function assessPolicyReadiness(
 
     if (daysObserved < readinessThresholds.minimumDaysObserved) {
       blockers.push(
-        `Only ${daysObserved} days of reporting observed. RFC 9989 section 7.4 asks for at least a month (${readinessThresholds.minimumDaysObserved} days) of monitoring before enforcement.`,
+        `Only ${daysObserved} ${daysObserved === 1 ? 'day' : 'days'} of reporting observed. RFC 9989 section 7.4 asks for at least a month (${readinessThresholds.minimumDaysObserved} days) of monitoring before enforcement.`,
       );
     }
 
@@ -305,11 +311,11 @@ export async function assessPolicyReadiness(
     }
 
     if (openAlerts > 0) {
-      blockers.push(`${openAlerts} alert(s) are still open on this domain.`);
+      blockers.push(openAlerts === 1 ? '1 alert is still open on this domain.' : `${openAlerts} alerts are still open on this domain.`);
     }
 
     if (staleAlerts > 0) {
-      blockers.push(`${staleAlerts} alert(s) have gone stale and need review.`);
+      blockers.push(staleAlerts === 1 ? '1 alert has gone stale and needs review.' : `${staleAlerts} alerts have gone stale and need review.`);
     }
 
     if (policyOrder[currentPolicy] >= policyOrder[level] && !(testing && currentPolicy === level)) {

@@ -35,8 +35,11 @@ export const POSTURE_META: Record<
   block: {
     label: "Blocking",
     action: "Investigate",
+    // True at every policy: this posture is any failed mail in the window.
+    // "A rejecting policy is live: mail is being denied" was said of domains at
+    // p=none, where the failing mail was delivered (session 5).
     meaning:
-      "Observed traffic failed DMARC while a rejecting policy is live: mail is being denied.",
+      "Mail sent as this domain failed DMARC: a sender that is not set up yet, or someone forging the domain.",
   },
   unverified: {
     label: "Unverified",

@@ -324,7 +324,12 @@ export function senderLabel(
   if (row.service && (row.confidence === 'confirmed' || row.confidence === 'likely')) {
     return row.service.name;
   }
-  return row.senderDomain ?? row.senderKey;
+  return row.senderDomain ?? unnamedSourceIp(row.senderKey) ?? row.senderKey;
+}
+
+/** The address behind "185.234.218.12|unknown", the key of a source that named no domain. */
+function unnamedSourceIp(senderKey: string): string | null {
+  return /^(.+)\|unknown$/.exec(senderKey)?.[1] ?? null;
 }
 
 export function senderBlockers(rows: SenderBreakdownRow[]): string[] {
@@ -333,6 +338,14 @@ export function senderBlockers(rows: SenderBreakdownRow[]): string[] {
     .map((row) => {
       if (row.review.status === 'APPROVED') {
         return `Approved sender ${senderLabel(row)} fails DMARC on ${row.dmarcFailureSharePercent}% of its messages. Fix its SPF or DKIM before enforcing, or reject will block its real mail.`;
+      }
+      // A source that named no domain is its address, said once (session 5:
+      // "Sending service 185.234.218.12|unknown … (seen from 185.234.218.12)").
+      if (!row.senderDomain && unnamedSourceIp(row.senderKey) && !(row.service && (row.confidence === 'confirmed' || row.confidence === 'likely'))) {
+        return (
+          `The source at ${unnamedSourceIp(row.senderKey)}, which named no domain, fails DMARC on ${row.dmarcFailureSharePercent}% of its ${row.totalMessages} messages. ` +
+          'Fix its SPF or DKIM before enforcing, or confirm it is an attacker.'
+        );
       }
       return (
         `Sending service ${senderLabel(row)} fails DMARC on ${row.dmarcFailureSharePercent}% of its ${row.totalMessages} messages` +
