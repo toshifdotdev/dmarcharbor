@@ -1157,8 +1157,12 @@ export interface WebhookEndpointRow {
   /** Until when deliveries also carry a signature with the secret before the last rotation. */
   previousSecretExpiresAt?: string | null;
   active: boolean;
-  /** Set when the endpoint was auto-suspended after too many failures. */
+  /** Set when the endpoint is paused or suspended. */
   suspendedAt: string | null;
+  /** True when it stopped itself after repeated failures. Absent from an older API. */
+  suspended?: boolean;
+  /** When a suspended endpoint gets one trial delivery, unless resumed first. */
+  probeAt?: string | null;
   failureCount: number;
   lastDeliveryAt: string | null;
   createdAt: string;

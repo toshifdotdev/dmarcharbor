@@ -228,6 +228,36 @@ For each: what the FAQ, `docs/API.md` (Webhooks, Webhook endpoints, the PSA
 recipes) and the screen say, compared with how dmarcian and EasyDMARC
 document their webhooks and PSA links.
 
+### Session 8 results so far (8 November 2026)
+
+Webhooks, against webhook.site receivers:
+
+- **Pass:**
+  - 11 add: https only; localhost, 10/8, 169.254.169.254 and `::1` are refused; the secret is shown once.
+  - 12 test event: all five headers; the signature checks with the page's recipe.
+  - 14 delivery log.
+  - 16 send again: refused on a paused endpoint with its sentence.
+  - 18 pause and resume.
+  - 19 rotation: with a 1-hour overlap there are two values, new first, each matching its secret; with None, only the new one, behind a red confirmation.
+  - 20 client limits: another client's domain event is not sent; a workspace event is.
+  - 22 `/api/v1`: a read key lists only; a write key does everything; another workspace's endpoint and delivery are 404.
+- **Broken, fixed:**
+  - Resuming a suspended endpoint left its failure count at 20 and its deliveries held, so one more failure suspended it again. Resume now clears both, and the held deliveries are sent.
+  - The rest of a batch kept sending to an endpoint after it was suspended, which wrote one audit row per delivery.
+  - The screen said "Until <time>, then probed", but the probe comes 6 hours later. It now gives the trial time, from the new `suspended` and `probeAt` fields.
+- **Gap, fixed:**
+  - Nobody was told about a suspension. Owners and admins now get a `WEBHOOK` notice.
+  - The `http://` refusal read "a signing secret derived event".
+  - The secret notice said the same thing twice.
+- **Not yet run:**
+  - 13 real events from a real alert, DNS change and policy change (with the PSA part).
+  - 15 the retry timings and a 301 (webhook.site's free URL started answering 429 after about 100 requests).
+  - 17 the 30-hour probe.
+  - 21 remove from the screen.
+  - 23 roles and plan.
+  - The PSA items 1 to 10, which wait on a HaloPSA trial.
+- **Noted:** a receiver's 429 counts as a failure and its Retry-After is not honoured; the PSA queue honours it.
+
 ## Session 18: free tools, glossary and setup guides
 
 Signed out, on the public site. Every page at 1440 and 390 wide, with no

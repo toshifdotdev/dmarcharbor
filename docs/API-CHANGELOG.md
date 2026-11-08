@@ -254,6 +254,30 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-12-11 — Webhook suspension: a flag, a notice, and a resume that clears it
+
+**`/api/v1` addition.** Each endpoint in `GET /api/v1/webhooks` (and every
+response that returns an endpoint) carries two new fields. `suspended` is
+`true` when the endpoint stopped itself after 20 failed attempts in a row, as
+opposed to being paused. `probeAt` is when a suspended endpoint gets its one
+trial delivery if nobody resumes it first; it is `null` otherwise.
+
+**Changed behaviour.** Resuming a suspended endpoint (`PATCH` with
+`{"active": true}`, or Resume in Settings, Webhooks) now sets its failure count
+back to zero and sends its held deliveries on the next pass. Before, the count
+stayed at the threshold, so one more failure suspended it again at once, and
+the held deliveries waited for Send again one by one.
+
+**New notice.** When an endpoint is suspended, owners and admins get an in-app
+notification of kind `WEBHOOK` naming the endpoint, the host and the last
+answer it gave. Until now a suspension was recorded only in the audit trail.
+
+A refused `http://` endpoint URL now says why in plain words: "The endpoint
+must use https: every delivery is signed, and over plain http anyone on the way
+can read or change it."
+
+---
+
 ## 2026-12-08 — Bulk size cap, domains in another client, and a scoped deletion preview
 
 ### Changes an integration might notice

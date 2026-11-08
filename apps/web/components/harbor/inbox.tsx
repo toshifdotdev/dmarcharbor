@@ -69,6 +69,7 @@ const KIND: Record<string, string> = {
   PSA: "PSA",
   DOMAIN_EXPIRY: "Domain expiry",
   POLICY_APPROVAL: "Client approval",
+  WEBHOOK: "Webhook",
 };
 
 export function Inbox() {

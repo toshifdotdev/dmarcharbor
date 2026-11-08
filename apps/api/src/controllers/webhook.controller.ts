@@ -98,7 +98,7 @@ export async function createWebhookController(request: Request, response: Respon
   response.status(201).json({
     ...endpoint,
     secret,
-    notice: 'Copy the secret now. It is stored encrypted and is never shown again. Use it to verify our signatures.',
+    notice: 'Copy the secret now. It is stored encrypted and is never shown again.',
   });
 }
 

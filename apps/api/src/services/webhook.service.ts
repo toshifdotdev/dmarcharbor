@@ -217,8 +217,14 @@ export interface RegisteredEndpoint {
   clientIds: string[];
   /** Until when deliveries are also signed with the secret before the last rotation. */
   previousSecretExpiresAt: string | null;
+  /** False when paused or suspended: nothing is sent to it. */
   active: boolean;
+  /** Set when paused or suspended. */
   suspendedAt: string | null;
+  /** True when it stopped itself after repeated failures, as opposed to being paused. */
+  suspended: boolean;
+  /** When a suspended endpoint gets its one trial delivery, if nobody resumes it first. */
+  probeAt: string | null;
   failureCount: number;
   lastDeliveryAt: string | null;
   createdAt: string;
@@ -246,7 +252,7 @@ export function validateEndpointUrl(raw: string): { url: string } | { error: str
   }
 
   if (parsed.protocol !== 'https:') {
-    return { error: 'The endpoint must use https, because the payload carries a signing secret derived event.' };
+    return { error: 'The endpoint must use https: every delivery is signed, and over plain http anyone on the way can read or change it.' };
   }
 
   if (isPrivateOrReservedHost(parsed.hostname)) {
@@ -358,9 +364,28 @@ export async function updateEndpoint(
     return null;
   }
 
+  /**
+   * Resuming a suspended endpoint ends the suspension outright: the failure
+   * count starts again from nothing and the deliveries it held are sent on the
+   * next pass, as a paused endpoint's are. Leaving the count at the threshold
+   * meant one more failure suspended it again at once, and the held deliveries
+   * stayed held while the screen said the endpoint was receiving.
+   */
+  const endsSuspension =
+    data.active === true &&
+    existing.suspendedAt !== null &&
+    (existing.active || existing.failureCount >= failureThreshold);
+  if (endsSuspension) {
+    await prisma.webhookDelivery.updateMany({
+      where: { endpointId, status: 'SUSPENDED' },
+      data: { status: 'PENDING', nextAttemptAt: new Date(), claimedAt: null, claimedBy: null },
+    });
+  }
+
   const row = await prisma.webhookEndpoint.update({
     where: { id: endpointId },
     data: {
+      ...(endsSuspension ? { failureCount: 0 } : {}),
       ...(data.name !== undefined ? { name: data.name } : {}),
       ...(data.url !== undefined ? { url: data.url } : {}),
       ...(data.events !== undefined ? { events: data.events } : {}),
@@ -428,6 +453,12 @@ function toRegistered(
       row.previousSecretExpiresAt && row.previousSecretExpiresAt > now ? row.previousSecretExpiresAt.toISOString() : null,
     active: row.active && row.suspendedAt === null,
     suspendedAt: row.suspendedAt?.toISOString() ?? null,
+    // Pausing clears `active`; a suspension leaves it and sets `suspendedAt`.
+    suspended: row.active && row.suspendedAt !== null,
+    probeAt:
+      row.active && row.suspendedAt
+        ? new Date(row.suspendedAt.getTime() + suspensionProbeHours * 60 * 60 * 1000).toISOString()
+        : null,
     failureCount: row.failureCount,
     lastDeliveryAt: row.lastDeliveryAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
@@ -654,8 +685,22 @@ export async function deliverDueWebhooks(now = new Date()): Promise<DeliveryOutc
   const due = await claimDueDeliveries(now);
 
   const outcomes: DeliveryOutcome[] = [];
+  /**
+   * Endpoints suspended during this pass. The rest of the batch was claimed
+   * before the suspension, so without this every later delivery to the same
+   * endpoint was still sent, failed, and suspended it again: one audit row and
+   * one notice per delivery instead of one per suspension.
+   */
+  const suspendedThisPass = new Set<string>();
 
   for (const delivery of due) {
+    if (suspendedThisPass.has(delivery.endpoint.id)) {
+      await prisma.webhookDelivery.update({
+        where: { id: delivery.id },
+        data: { status: 'SUSPENDED', claimedAt: null, claimedBy: null },
+      });
+      continue;
+    }
     const attempt = delivery.attempts + 1;
     const body = JSON.stringify(delivery.payload);
     const secret = decryptSensitive(delivery.endpoint.secret) ?? '';
@@ -765,25 +810,35 @@ export async function deliverDueWebhooks(now = new Date()): Promise<DeliveryOutc
     const failureCount = bumped.failureCount;
     const shouldSuspend = failureCount >= failureThreshold;
 
-    if (shouldSuspend) {
-      await prisma.webhookEndpoint.update({
-        where: { id: delivery.endpoint.id },
-        data: { suspendedAt: new Date(now.getTime() + suspensionWindowHours * 60 * 60 * 1000) },
-      });
-    }
+    // Only the delivery that crosses the threshold suspends: one that fails on
+    // another instance after it finds the endpoint already suspended.
+    const crossed = shouldSuspend
+      ? (
+          await prisma.webhookEndpoint.updateMany({
+            where: { id: delivery.endpoint.id, suspendedAt: null },
+            data: { suspendedAt: new Date(now.getTime() + suspensionWindowHours * 60 * 60 * 1000) },
+          })
+        ).count === 1
+      : false;
+    if (shouldSuspend) suspendedThisPass.add(delivery.endpoint.id);
 
-    if (shouldSuspend) {
+    if (crossed) {
       await prisma.webhookDelivery.updateMany({
         where: { endpointId: delivery.endpoint.id, status: { in: ['PENDING', 'IN_FLIGHT'] } },
         data: { status: 'SUSPENDED', claimedAt: null, claimedBy: null },
       });
+      const suspended = await prisma.webhookEndpoint.findUniqueOrThrow({
+        where: { id: delivery.endpoint.id },
+        select: { organizationId: true, name: true, url: true },
+      });
       await recordAuditEvent({
-        organizationId: (await prisma.webhookEndpoint.findUniqueOrThrow({ where: { id: delivery.endpoint.id } })).organizationId,
+        organizationId: suspended.organizationId,
         action: 'WEBHOOK_ENDPOINT_SUSPENDED',
         targetType: 'webhook_endpoint',
         targetId: delivery.endpoint.id,
         detail: { failures: failureCount, suspendedForHours: suspensionWindowHours },
       });
+      await notifySuspension({ ...suspended, failures: failureCount, lastError: error ?? null });
     }
 
     outcomes.push({ deliveryId: delivery.id, status: exhausted ? 'FAILED' : 'RETRY', responseCode, error });
@@ -842,4 +897,51 @@ export async function replayDelivery(organizationId: string, deliveryId: string)
   });
 
   return 'queued';
+}
+
+/**
+ * Tells the workspace's owners and admins that an endpoint stopped itself.
+ *
+ * Without it a suspension was only an audit row: the receiving system went
+ * quiet and nobody here knew why until they opened the delivery log. Once per
+ * suspension, because the threshold is crossed once; a failure while already
+ * suspended does not reach this code. Never throws: a notice that cannot be
+ * written must not undo the suspension.
+ */
+async function notifySuspension(input: {
+  organizationId: string;
+  name: string;
+  url: string;
+  failures: number;
+  lastError: string | null;
+}): Promise<void> {
+  const members = await prisma.member.findMany({
+    where: { organizationId: input.organizationId, role: { in: ['owner', 'admin'] } },
+    select: { userId: true },
+  });
+  if (members.length === 0) return;
+  let host = input.url;
+  try {
+    host = new URL(input.url).host;
+  } catch {
+    // The stored URL was validated on the way in; the raw value is a fine fallback.
+  }
+  await prisma.notification
+    .createMany({
+      data: members.map((member) => ({
+        userId: member.userId,
+        organizationId: input.organizationId,
+        kind: 'WEBHOOK' as const,
+        severity: 'CRITICAL' as const,
+        title: `Webhook ${input.name} suspended`,
+        body: `${input.failures} deliveries to ${host} failed in a row, so nothing more is sent to it. ${input.lastError ? `The last answer: ${input.lastError} ` : ''}Its waiting deliveries are held. Fix the receiver, then resume the endpoint to send them.`,
+        link: '/settings/webhooks',
+      })),
+      skipDuplicates: true,
+    })
+    .catch((caught: unknown) => {
+      console.error(
+        `[webhooks] could not create the suspension notice: ${caught instanceof Error ? caught.message : 'unknown error'}`,
+      );
+    });
 }

@@ -12,7 +12,8 @@
  *
  * The retry and suspension behaviour stated here is the API's own
  * (webhook.service.ts): five attempts on a widening ladder, suspension after
- * sustained failure, and a later probe. Resuming an endpoint clears it.
+ * sustained failure, and a later probe. Resuming an endpoint clears the
+ * suspension and sends what it held.
  *
  * Test hooks: webhook-secret, webhook-event-<event>; the plan refusal is the
  * UpgradeNotice section carrying data-feature="integrations.webhooks".
@@ -358,7 +359,7 @@ export function WebhooksBoard({
               const detail = webhooksUnavailable
                 ? `Webhooks are included from ${webhooksPlanLabel}.`
                 : ep.suspendedUntilLabel
-                  ? `Until ${ep.suspendedUntilLabel}, then probed. Resume to clear it now.`
+                  ? `New events are not sent and waiting ones are held. One trial delivery about ${ep.suspendedUntilLabel}; resume to send them now.`
                   : ep.failureCount > 0
                     ? `${ep.failureCount} recent failure${ep.failureCount === 1 ? "" : "s"}; retries continue.`
                     : ep.lastDeliveryLabel

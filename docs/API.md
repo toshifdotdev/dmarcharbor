@@ -1536,6 +1536,8 @@ curl -sS https://app.dmarcharbor.example/api/v1/webhooks \
       "clientIds": [],
       "active": true,
       "suspendedAt": null,
+      "suspended": false,
+      "probeAt": null,
       "failureCount": 0,
       "lastDeliveryAt": "2026-11-28T09:02:54.010Z",
       "previousSecretExpiresAt": null,
@@ -1958,10 +1960,12 @@ A delivery that gave up is not lost for good. Once it is more than 24 hours old,
 
 Suspension protects both sides from an endpoint that is down for days. Each endpoint counts failed attempts, and any success resets the count. At 20 failed attempts in a row the endpoint is suspended:
 
+- Owners and admins get an in-app notice (kind `WEBHOOK`) naming the endpoint and the last answer it gave.
 - Deliveries already waiting for it are held.
 - New events are not queued for it at all while it is suspended. They are not sent later, so catch up from the API once it is back, for example with `GET /alerts?state=open` and `GET /dns-changes?acknowledged=false`.
 - About 30 hours after the suspension began, if it has held deliveries, the service releases them as a trial. If they go through the endpoint is back; if they fail it is suspended again sooner.
-- Resume the endpoint in Settings, Webhooks to end a suspension at once. Its held deliveries then show Send again in the delivery log.
+- Resume the endpoint in Settings, Webhooks (or `PATCH` it with `{"active": true}`) to end a suspension at once: its failure count starts again from zero and its held deliveries are sent on the next pass.
+- An endpoint reads `"suspended": true` while suspended, with `probeAt` saying when the trial delivery is due. A paused endpoint reads `"active": false` and `"suspended": false`.
 
 Pausing an endpoint in Settings, Webhooks stops delivery to it:
 

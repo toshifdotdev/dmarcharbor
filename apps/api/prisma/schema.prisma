@@ -1100,6 +1100,8 @@ enum NotificationKind {
   DOMAIN_EXPIRY
   /// A client approved or declined a stricter DMARC policy.
   POLICY_APPROVAL
+  /// A webhook endpoint suspended itself after repeated failures.
+  WEBHOOK
 }
 
 enum NotificationSeverity {
