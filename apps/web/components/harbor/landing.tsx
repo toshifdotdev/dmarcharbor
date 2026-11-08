@@ -296,7 +296,7 @@ function Alerts() {
         </h2>
         <p className={s.lead}>
           A new sender failing SPF and DKIM, failures over your threshold, reports that stop arriving, a DNS record that
-          changes: each alert goes to email, Slack or Teams, or opens a ticket in HaloPSA, ConnectWise or Autotask.
+          changes: each alert goes to email, Slack or Teams, or opens a ticket in HaloPSA (ConnectWise and Autotask in early access).
         </p>
       </div>
       <figure className={s.figure}>

@@ -527,6 +527,25 @@ it is still the largest gap in the product.
 - The whole app
 - See the separate handoff prompt
 
+**ConnectWise and Autotask, once the site is live.** Both are built to the
+vendors' published APIs and covered by tests, but neither has been run against a
+live account: neither vendor offers a self-serve trial. Until they have, they
+are labelled **early access** on the PSA screen, on pricing, on the home page
+map, in the FAQ, the guide, the API reference and the roadmap. HaloPSA was run
+end to end in session 8 and found three bugs, so expect the same here.
+
+- [ ] Register on the ConnectWise Developer Network
+      (<https://register.developer.connectwise.com/>). It is free and gives the
+      client ID the deployment needs as `PSA_CONNECTWISE_CLIENT_ID`; without it
+      the option stays disabled. It asks for a live website and a company.
+- [ ] Apply to ConnectWise Invent for a PSA sandbox to test against, or test
+      on the first customer's own instance with them.
+- [ ] Apply to Kaseya's technology partner programme for an Autotask sandbox
+      (an API-only user and an integration code), or test on the first
+      customer's own instance with them.
+- [ ] Run session 8's PSA items 1 to 10 against each, fix what it finds, then
+      remove the early-access labels (search the repo for "early access").
+
 ---
 
 ## After the test sessions, before launch

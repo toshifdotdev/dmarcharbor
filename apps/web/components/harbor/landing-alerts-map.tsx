@@ -8,7 +8,9 @@
  * already works: email, Slack, Teams, and a ticket in the PSA. The forged
  * sender is the dashed red line, as on the hero map. Reports that stopped
  * arriving are a grey dashed line with no messages on it, because that is the
- * event: nothing is coming.
+ * event: nothing is coming. ConnectWise and Autotask are lines under
+ * construction (grey, dashed, no messages): built to each vendor's API and not
+ * yet run against a live account, so they are offered as early access.
  *
  * Same rules as the hero map: fixed geometry, coordinates rounded, messages
  * added only after hydration and paused off screen.
@@ -23,7 +25,7 @@ const X0 = 36;
 const ST = 300;
 const TX = 636;
 
-type Tone = "plain" | "forged" | "quiet";
+type Tone = "plain" | "forged" | "quiet" | "early";
 
 interface Route {
   id: string;
@@ -69,8 +71,8 @@ const OUT: (Route & { y1: number })[] = [
   { id: "slack", name: "Slack", kind: "a channel", tone: "plain", y1: 112, points: depart(203.5, 112, 364.56) },
   { id: "teams", name: "Teams", kind: "a channel", tone: "plain", y1: 184, points: depart(214.5, 184, 369.12) },
   { id: "halo", name: "HaloPSA", kind: "a ticket", tone: "plain", y1: 256, points: depart(225.5, 256, 369.12) },
-  { id: "cw", name: "ConnectWise", kind: "a ticket", tone: "plain", y1: 328, points: depart(236.5, 328, 364.56) },
-  { id: "autotask", name: "Autotask", kind: "a ticket", tone: "plain", y1: 400, points: depart(247.5, 400, 360) },
+  { id: "cw", name: "ConnectWise", kind: "early access", tone: "early", y1: 328, points: depart(236.5, 328, 364.56) },
+  { id: "autotask", name: "Autotask", kind: "early access", tone: "early", y1: 400, points: depart(247.5, 400, 360) },
 ];
 
 // Ink, the forged line's red, and rule-2 for "reports stopped arriving": a
@@ -79,6 +81,8 @@ const STROKE: Record<Tone, string> = {
   plain: "var(--color-fg)",
   forged: "var(--color-route-red)",
   quiet: "var(--color-rule-2)",
+  // A line under construction: built, not yet run against a live account.
+  early: "var(--color-fg-4)",
 };
 
 const withPaths = <T extends Route>(routes: T[]) => routes.map((r) => ({ ...r, d: rounded(r.points, 14), len: length(r.points) }));
@@ -93,8 +97,8 @@ export function AlertsMap() {
     <svg ref={svg} viewBox="8 -6 656 438" className={s.map} role="img" aria-labelledby="al-map-title">
       <title id="al-map-title">
         Where alerts go: a new sender failing SPF and DKIM, failures over a threshold, reports that stop arriving and a
-        changed DNS record each raise an alert, which goes to email, Slack or Teams, or opens a ticket in HaloPSA,
-        ConnectWise or Autotask.
+        changed DNS record each raise an alert, which goes to email, Slack or Teams, or opens a ticket in HaloPSA;
+        ConnectWise and Autotask are in early access.
       </title>
 
       {[...IN_PATHS, ...OUT_PATHS].map((r) => (
@@ -107,13 +111,13 @@ export function AlertsMap() {
           strokeWidth={6}
           strokeLinecap={r.tone === "plain" ? "round" : "butt"}
           strokeLinejoin="round"
-          strokeDasharray={r.tone === "forged" ? "10 7" : r.tone === "quiet" ? "3 8" : undefined}
+          strokeDasharray={r.tone === "forged" ? "10 7" : r.tone === "quiet" ? "3 8" : r.tone === "early" ? "8 7" : undefined}
         />
       ))}
 
       {/* Messages: into the station on every live line, then out on each route. */}
       {moving
-        ? [...IN_PATHS.filter((r) => r.tone !== "quiet"), ...OUT_PATHS].flatMap((r, n) => {
+        ? [...IN_PATHS.filter((r) => r.tone !== "quiet"), ...OUT_PATHS.filter((r) => r.tone !== "early")].flatMap((r, n) => {
             const dur = r.len / SPEED;
             return [0, 1].map((i) => (
               <circle key={`${r.id}-${i}`} r={4} className={s.mMsg} stroke={STROKE[r.tone]}>

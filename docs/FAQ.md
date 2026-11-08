@@ -316,7 +316,7 @@ Yes, on every plan. Each domain's page shows which of the bulk sender requiremen
 it meets and what is missing.
 
 **Can alerts open tickets in my PSA?**
-Yes, in HaloPSA, ConnectWise Manage or Autotask. Map each client to a PSA company,
+Yes. HaloPSA is supported. ConnectWise PSA and Autotask are in early access: they\nare built to each vendor's published API but not yet run against a live account, so\nwe set them up with you and check the first tickets together. Map each client to a\nPSA company,
 and alerts open, update and close tickets there. Starts on Harbor.
 
 **Can I get events in my own systems?**

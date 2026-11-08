@@ -12,7 +12,7 @@ Use the API when you want something to happen without a person in the app:
 - Keep each domain under the client your PSA says it belongs to.
 - Bill your clients from the monthly usage figures.
 
-If your PSA is HaloPSA, ConnectWise PSA or Autotask, connect it under Settings, PSA first. That native integration files tickets, adds notes and closes them with no code. The API is for every other system, and for agencies that already run their own automation.
+If your PSA is HaloPSA, connect it under Settings, PSA first (ConnectWise PSA and Autotask are in early access there). That native integration files tickets, adds notes and closes them with no code. The API is for every other system, and for agencies that already run their own automation.
 
 Everything under `/api/v1` is a contract. Within v1, changes are additive: new endpoints and new fields can appear, and nothing is removed, renamed or changes meaning. A breaking change would ship as v2 beside v1. Write your client so it ignores fields it does not know.
 

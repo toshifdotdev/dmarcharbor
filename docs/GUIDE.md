@@ -123,8 +123,8 @@ counts the record's lookups and warns when it goes over 10.
   that client's channel. Send a test message from each channel to check it before a
   real alert depends on it; the page shows what Slack or Teams answered. After a
   downgrade a connected channel can still be paused or removed.
-- **PSA tickets** (Harbor and above): connect HaloPSA, ConnectWise Manage or
-  Autotask, map each client to a PSA company, and alerts open, update and close
+- **PSA tickets** (Harbor and above): connect HaloPSA (ConnectWise PSA and
+  Autotask are in early access, set up with us), map each client to a PSA company, and alerts open, update and close
   tickets.
 - **Webhooks** (Fairway and above): send signed events to your own systems.
   An endpoint can be limited to chosen clients, and its signing secret can be

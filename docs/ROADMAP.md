@@ -28,7 +28,7 @@ it survives a handover or a lost conversation.
 | IMAP collection and dedup | `ed29d3d` | Shared mailbox, encrypted credentials, report identity |
 | Billing safety and scaling | `683d4cd` | Staff-only plan changes, atomic webhook claim |
 | Enterprise SSO | `683d4cd` | SAML and OIDC, domain allowlist, JIT provisioning |
-| PSA ticketing | `f9324ac` | HaloPSA, ConnectWise and Autotask tickets from alerts and DNS changes, Harbor and up |
+| PSA ticketing | `f9324ac` | HaloPSA tickets from alerts and DNS changes, Harbor and up; ConnectWise and Autotask in early access until run against a live account |
 
 ## Remaining
 

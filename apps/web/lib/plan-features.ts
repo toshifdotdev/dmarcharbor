@@ -30,7 +30,7 @@ const FEATURES: Array<[key: string, label: string]> = [
   ["dns.managedSpf", "Managed SPF"],
   ["dns.hostedBimi", "Logo in the inbox (BIMI)"],
   ["dns.hostedMtaSts", "Hosted MTA-STS policy"],
-  ["integrations.psa", "PSA ticketing"],
+  ["integrations.psa", "PSA tickets in HaloPSA (ConnectWise and Autotask in early access)"],
   ["reports.usageExport", "Monthly usage export per client"],
   ["prospects.reports", "Prospect risk reports"],
   ["reports.forensic", "Forensic reports, recipients unnamed"],
