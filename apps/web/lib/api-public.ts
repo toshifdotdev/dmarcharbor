@@ -107,6 +107,8 @@ export interface ServiceMeta {
   hostedZone?: string | null;
   /** Services whose vendor documentation names an SPF include. */
   spfServices?: Array<{ id: string; name: string; include: string }>;
+  /** The shared aggregate report address. Absent on an older API. */
+  reports?: { aggregateAddress: string };
 }
 
 /**

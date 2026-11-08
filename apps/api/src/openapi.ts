@@ -2097,6 +2097,7 @@ export const openApiDocument = {
         summary: 'Runtime configuration',
         description: [
           'Effective retention windows, alerting intervals and the full plan catalog, for the UI to display.',
+          'reports.aggregateAddress is the shared aggregate report address; reports sent to it are kept only for a domain verified in a workspace.',
           'Include the catalog in the pricing page so the interface can show correct upgrade prompts before a customer hits a limit.',
         ].join(' '),
         responses: { 200: { description: 'Configuration snapshot.' } },

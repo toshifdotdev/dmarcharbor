@@ -11,11 +11,19 @@
  * be published, the policy line, and what each tag will make a receiver do,
  * in the same words the DMARC lookup uses (record-reading.tsx TAGS).
  *
+ * Our shared report address is offered as a choice (`ourAddress`, from GET
+ * /api/meta). It is put first in rua, beside any address typed, and the page
+ * says plainly what happens to the reports: they are refused on arrival until
+ * the domain is added to a workspace and verified (the API ingests a report only
+ * for a verified domain), so ticking it is not monitoring by itself.
+ *
  * Test hooks: gen-domain, gen-rua, gen-ruf, gen-sp, gen-fo, gen-testing,
- * gen-record (the TXT record), gen-warnings.
+ * gen-ours, gen-report-route, gen-record (the TXT record), gen-warnings.
  */
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
+import { clsx } from "clsx";
 import { Checkbox } from "@/components/ui/choice";
 import { DnsRecord } from "@/components/ui/copy";
 import { Field, Input, Segmented, Select } from "@/components/ui/field";
@@ -69,7 +77,7 @@ export function buildDmarcRecord(input: {
   return tags.join("; ");
 }
 
-export function DmarcGenerator() {
+export function DmarcGenerator({ ourAddress = null, ourName = "DMARC Harbor" }: { ourAddress?: string | null; ourName?: string }) {
   const [domainRaw, setDomainRaw] = useState("");
   const [policy, setPolicy] = useState<Policy>("none");
   const [sp, setSp] = useState<Policy | "">("");
@@ -79,9 +87,16 @@ export function DmarcGenerator() {
   const [fo, setFo] = useState("0");
   const [adkim, setAdkim] = useState<Align>("r");
   const [aspf, setAspf] = useState<Align>("r");
+  // Off until chosen: a record copied without reading must not send a stranger's reports to us.
+  const [useOurs, setUseOurs] = useState(false);
 
   const domain = lookupDomain(domainRaw);
-  const rua = useMemo(() => addresses(ruaRaw), [ruaRaw]);
+  const typed = useMemo(() => addresses(ruaRaw), [ruaRaw]);
+  const ours = useOurs && ourAddress ? ourAddress.toLowerCase() : null;
+  const rua = useMemo(
+    () => ({ valid: ours ? [ours, ...typed.valid.filter((a) => a !== ours)] : typed.valid, invalid: typed.invalid }),
+    [ours, typed],
+  );
   const ruf = useMemo(() => addresses(rufRaw), [rufRaw]);
   const record = buildDmarcRecord({ policy, sp, testing, rua: rua.valid, ruf: ruf.valid, fo, adkim, aspf });
   const tags = parseTags(record.replace(/;\s*/g, ";"));
@@ -90,7 +105,13 @@ export function DmarcGenerator() {
   // Report addresses at another domain need that domain's permission: a TXT
   // record at <zone>._report._dmarc.<their domain> (external report
   // destination verification).
-  const outside = domain ? [...rua.valid, ...ruf.valid].map((a) => a.split("@")[1]!).filter((d) => d !== domain && !d.endsWith(`.${domain}`)) : [];
+  // Our own report domain publishes that permission for every domain, so it is not listed.
+  const oursDomain = ourAddress?.split("@")[1]?.toLowerCase() ?? null;
+  const outside = domain
+    ? [...rua.valid, ...ruf.valid]
+        .map((a) => a.split("@")[1]!)
+        .filter((d) => d !== domain && !d.endsWith(`.${domain}`) && d !== oursDomain)
+    : [];
 
   const warnings: string[] = [];
   if (rua.valid.length === 0) warnings.push("No report address: nobody will receive this domain's reports, so nobody can see who sends as it.");
@@ -139,7 +160,32 @@ export function DmarcGenerator() {
           </p>
         </div>
 
-        <Field label="Aggregate reports to" hint="One or more addresses, separated by commas. Receivers send a daily summary here.">
+        {ourAddress ? (
+          <div className="flex flex-col gap-3">
+            <Checkbox
+              label={`Send reports to ${ourName}`}
+              hint={
+                <>
+                  Adds <span className="data text-fg-2">{ourAddress}</span>. Reports are kept once the domain is added to a free
+                  account and verified; until then they are refused on arrival.
+                </>
+              }
+              checked={useOurs}
+              onChange={(e) => setUseOurs(e.target.checked)}
+              data-testid="gen-ours"
+            />
+            <ReportRoute ours={useOurs} name={ourName} />
+          </div>
+        ) : null}
+
+        <Field
+          label={ourAddress ? "Other addresses for reports" : "Aggregate reports to"}
+          hint={
+            ourAddress
+              ? "Optional. Your own mailbox as well, separated by commas."
+              : "One or more addresses, separated by commas. Receivers send a daily summary here."
+          }
+        >
           <Input
             mono
             size="lg"
@@ -286,5 +332,71 @@ export function DmarcGenerator() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Where the reports go, as a short line: the receiving mail servers, our
+ * report address, then the workspace. Chosen, the first leg is ink and the
+ * last a dashed accent: the step still to take is adding the domain. Not
+ * chosen, the whole line is grey and dotted, every station closed.
+ */
+function ReportRoute({ ours, name }: { ours: boolean; name: string }) {
+  const stops = [
+    { key: "rx", label: "Receivers", kind: "Gmail, Microsoft, Yahoo" },
+    { key: "addr", label: "Report address", kind: name },
+    { key: "ws", label: "Your workspace", kind: ours ? "after the domain is added" : "not chosen" },
+  ];
+  return (
+    <figure className="m-0 pl-[26px]" data-testid="gen-report-route" data-on={ours ? "yes" : "no"}>
+      <div
+        role="img"
+        aria-label={
+          ours
+            ? `Reports go from receivers to ${name}'s report address, and reach your workspace once the domain is added.`
+            : `${name}'s report address is not chosen.`
+        }
+        className="relative h-[17px]"
+      >
+        {ours ? (
+          <>
+            <span aria-hidden className="absolute left-[8px] top-[6px] h-[5px] w-[calc(50%-8px)] rounded-full bg-fg" />
+            <span
+              aria-hidden
+              className="absolute right-[8px] top-[6px] h-[5px] w-[calc(50%-8px)] bg-[repeating-linear-gradient(90deg,var(--color-act)_0_9px,transparent_9px_15px)]"
+            />
+          </>
+        ) : (
+          <span aria-hidden className="absolute left-[8px] right-[8px] top-[7px] border-t-[3px] border-dotted border-rule-2" />
+        )}
+        {stops.map((stop, i) => (
+          <span
+            key={stop.key}
+            aria-hidden
+            style={i === 0 ? { left: 0 } : i === 1 ? { left: "calc(50% - 8.5px)" } : { right: 0 }}
+            className={clsx(
+              "absolute top-0 size-[17px] rounded-full border-[3px] bg-paper",
+              !ours ? "border-rule-2" : i === 2 ? "border-act" : "border-fg",
+            )}
+          />
+        ))}
+      </div>
+      <div className="mt-2.5 grid grid-cols-3 gap-2">
+        {stops.map((stop, i) => (
+          <p key={stop.key} className={clsx("min-w-0 text-[13px] leading-[1.35]", i === 1 && "text-center", i === 2 && "text-right")}>
+            <span className={clsx("block font-semibold", ours ? "text-fg" : "text-fg-4")}>{stop.label}</span>
+            <span className="block text-fg-4">{stop.kind}</span>
+          </p>
+        ))}
+      </div>
+      {ours ? (
+        <figcaption className="mt-2.5 text-[13.5px] text-fg-2">
+          <Link href="/sign-up" className="link font-semibold">
+            Start free
+          </Link>{" "}
+          and add the domain, so the reports are kept and read.
+        </figcaption>
+      ) : null}
+    </figure>
   );
 }

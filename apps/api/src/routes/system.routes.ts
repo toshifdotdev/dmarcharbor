@@ -125,6 +125,10 @@ systemRouter.get('/meta', (_request, response) => {
       enabled: env.DNS_MONITOR_ENABLED,
     },
     hostedZone: env.HOSTED_DNS_ENABLED ? env.HOSTED_DNS_ZONE ?? null : null,
+    // The shared report address, already public in every customer's rua tag.
+    // The free DMARC generator offers it; reports to it are kept only for a
+    // domain verified in a workspace (ingestDmarcReportByPolicyDomain).
+    reports: { aggregateAddress: env.REPORT_AGGREGATE_ADDRESS },
     spfServices: serviceCatalogue
       .filter((entry) => entry.spfInclude)
       .map((entry) => ({ id: entry.id, name: entry.name, include: entry.spfInclude })),
