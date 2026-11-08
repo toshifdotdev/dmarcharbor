@@ -342,6 +342,19 @@ you have not made yet.
   `+something` address before turning it on, or reports bounce.
 - Publish the MX record.
 - Verify with `dig MX dmarcharbor.com`.
+- Publish the external report authorisation record, or receivers such as
+  Google drop reports for every customer domain: TXT
+  `*._report._dmarc.reports.dmarcharbor.com` with the value `v=DMARC1`
+  (RFC 7489 section 7.1). The switch kit already warns when it is missing.
+- Decided in testing (session 7, 6 November 2026): Gmail refuses mail that
+  Cloudflare Email Routing forwards to it ("421 4.7.28 unusual rate of
+  unsolicited mail"), so every Google report to the Gmail test mailbox failed.
+  The report mailbox moves to Migadu on `reports.dmarcharbor.com` now, not at
+  launch.
+- On Migadu, also add `dmarc-forensics@reports.dmarcharbor.com` as an alias of
+  the report mailbox. It is `REPORT_FORENSIC_ADDRESS`, and the app already
+  publishes it as `ruf=` (seen on `_dmarc.lab.dmarcharbor.com` in session 9).
+  One mailbox is enough: the reader tells forensic reports from aggregate ones.
 - Then, and only then, can a customer be told to put that address in their
   `rua` tag.
 
@@ -513,6 +526,104 @@ it is still the largest gap in the product.
 
 - The whole app
 - See the separate handoff prompt
+
+---
+
+## After the test sessions, before launch
+
+**Free public tools.** dmarcian and EasyDMARC are found through free tools
+("SPF lookup", "DMARC generator"); our public site has only the home-page check
+and `/verify` (session 17). Build in this order, each as its own public page in
+the sitemap, from the scanner the home-page check already uses:
+
+- [x] DMARC, SPF, DKIM and BIMI lookup pages, one page each
+      (compare [dmarcian SPF survey](https://dmarcian.com/spf-survey/),
+      [EasyDMARC DKIM lookup](https://easydmarc.com/tools/dkim-lookup)).
+      Built: `/tools/dmarc`, `/tools/spf`, `/tools/dkim` (with an optional
+      selector, now accepted by `POST /api/scan`), `/tools/bimi`, and the `/tools`
+      index. In the sitemap, robots allowlist, llms.txt, header and footer, with
+      WebApplication and BreadcrumbList JSON-LD on each page.
+- [x] DMARC record generator, a few choices in, the record out
+      ([dmarcian wizard](https://dmarcian.com/dmarc-record-wizard/)). Built:
+      `/tools/dmarc-generator`, in the browser alone.
+- [x] Offer our reporting address in the generator. Today the person types the
+      `rua` address; offering ours needs the report address in `/api/meta` and a
+      line saying it only collects once the domain is added to a workspace.
+      Built: an unticked choice, from `reports.aggregateAddress` in `/api/meta`.
+- [x] Aggregate report reader: paste an XML report, read it as a table, offer
+      sign-up to keep receiving them ([dmarcian XML to human](https://dmarcian.com/xml-to-human-converter/))
+- [x] Email header analyser ([dmarcian](https://dmarcian.com/email-header-analyzer/))
+- [x] DMARC glossary ([dmarcian dictionary](https://dmarcian.com/dmarc-dictionary/))
+- [x] Setup guides per email provider: Microsoft 365, Google Workspace and the
+      common senders ([EasyDMARC knowledge base](https://support.easydmarc.com/))
+
+**Webhook gaps (session 8).**
+
+- [x] Rotate an endpoint's signing secret, with the old secret still accepted
+      for a short overlap (both signatures sent), so a receiver can switch
+      without missing events. Built: Rotate secret, with an overlap of 1 hour,
+      1 day, 7 days or none; `x-dmarcharbor-signature` lists both values.
+- [x] Limit an endpoint to chosen clients, so an MSP can point one client's
+      events at that client's own system
+      ([dmarcian Alert Central](https://dmarcian.com/alert-central-overview/)).
+- [x] Manage webhook endpoints through the `/api/v1` API with an API key, not
+      only from the settings page ([EasyDMARC API](https://developers.easydmarc.com/)).
+
+**Slack and Teams gaps (session 7).** Today a workspace has one Slack and one
+Teams destination (`SlackDestination`, `TeamsDestination`, one per
+organization), and every alert goes to both.
+Built since: up to 20 channels of each, routed by client and by kind (`/slack-destinations`, `/teams-destinations`).
+
+- [x] Route alerts to more than one channel: by client (an MSP sends each
+      client's alerts to that client's channel) and by kind (DNS changes to one
+      channel, spoofing to another). EasyDMARC chooses a channel per
+      notification category ([EasyDMARC Slack integration](https://support.easydmarc.com/knowledge-base/slack-integration));
+      dmarcian routes by domain group ([Alert Central](https://dmarcian.com/alert-central-overview/)).
+- [ ] Later, a Slack app installed with "Add to Slack" in place of pasting an
+      incoming-webhook URL. Not needed for launch; PagerDuty and Opsgenie can
+      take our signed webhooks today.
+
+**Slack and Teams fixes (session 7).** Delivery itself works: a message sent
+through `deliverSlackAlert` arrived in `#dmarc-alerts`, and the Teams card shows
+correctly in the Workflows chat.
+
+- [x] A "Send a test message" button on the Slack page, as Teams has, so an
+      agency can check its setup without waiting for an alert.
+- [x] The Teams test card names the real workspace (it says "Domain: test",
+      "Workspace: test") and does not say "this channel", because a workflow
+      can post to a chat or to the person privately.
+
+**DNS publishing gaps (session 9).** Publishing works through Cloudflare only
+(`services/dns-automation/cloudflare.client.ts`), and each domain is typed in.
+
+- [ ] More DNS providers. EasyDMARC connects Cloudflare, GoDaddy, AWS Route 53,
+      Azure DNS, Google Cloud DNS and OVHcloud
+      ([EasyDMARC DNS integrations](https://easydmarc.com/blog/dns-provider-integrations/)).
+      Start with GoDaddy and Route 53, the commonest after Cloudflare for small
+      clients. Compare the cost of a broker such as Entri, which PowerDMARC
+      uses for one-click publishing across many providers, with building each.
+- [x] Import domains from a connected zone: list the zones the token can see
+      and offer to add them, in place of typing each domain. Built: Import
+      domains on each connection under Settings, DNS publishing. Clicked through
+      locally with a mocked zone list only; check it against a real Cloudflare
+      token in the final pass.
+
+**Deferred re-tests.**
+
+- [ ] Slack and Teams in the final pass: the "DMARC Harbor test" Slack app and
+      the Teams workflow "Send webhook alerts from anyone" (posting to "Myself
+      privately") are kept for it. Delete both when the programme ends.
+
+- [ ] Real webhook events end to end: `report.received` once real reports
+      arrive (session 4), and `alert.triggered` from a real alert. Session 8
+      sent only test events; the real paths are covered by the CI integration
+      tests (`webhook`, `dns-monitoring`).
+
+- [ ] Logo upload (session 12): the S3 account in `apps/api/.env` is closed.
+      With working keys, a logo uploads and shows on the portal, share page and
+      Trust Center; with `LOGO_BUCKET` removed and the API restarted, the Logo
+      panel says "Logo upload isn't available on this deployment".
+- [ ] A quick final pass over every session tested only by Argon.
 
 ---
 
