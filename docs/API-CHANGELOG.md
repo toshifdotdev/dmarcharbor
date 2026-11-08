@@ -254,6 +254,47 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-12-12 — PSA fixes from a live HaloPSA, and acknowledged alerts that resolve
+
+Found by running PSA ticketing against a real HaloPSA trial. Browser routes
+under `/api`, except the alert behaviour, which `/api/v1` sees as well.
+
+**Alerts.** An acknowledged alert now resolves when its rule is back within the
+threshold, the same as one nobody acknowledged. Before, only unacknowledged
+alerts were ever resolved, so an alert someone acknowledged stayed open for
+good and its PSA ticket was never closed. `GET /api/v1/alerts` shows it with
+`state: "resolved"` and a `resolvedAt`. After an acknowledged alert resolves,
+the same problem coming back raises a new alert at once, instead of waiting
+out the acknowledgement window.
+
+**HaloPSA.**
+
+- The resource server is accepted as Halo's API page shows it,
+  `https://<instance>/api`; the `/api` is dropped before it is stored.
+- The application needs `read:customers` as well as `read:tickets` and
+  `edit:tickets`: the connection test and the company search read Halo's
+  clients. The setup steps and the 403 message now say so.
+- A 403 from Halo drops the cached access token, so adding a missing permission
+  in Halo works on the next try instead of up to an hour later.
+- The status pickers leave out Halo's sales-order and item statuses. Halo sends
+  no closed flag, so statuses whose name closes a ticket (Closed, Resolved,
+  Completed, Cancelled) are offered first as the closed status and are not
+  offered as the open status.
+
+**PSA screen.**
+
+- `GET /api/workspaces/{id}/psa/jobs` gives each job `about: { clientName,
+  domainName }`, read from the job that opened the ticket, and Recent activity
+  shows it.
+- Connecting records a successful call, so the line no longer reads "Connected"
+  beside "No successful call yet".
+- A connection paused because Halo refused the credentials gives Halo's own
+  sentence once, followed by "Nothing is sent until the credentials are
+  replaced; waiting tickets are kept."
+- Reminder notes no longer say "nobody has acknowledged this alert" twice.
+
+---
+
 ## 2026-12-11 — Webhook suspension: a flag, a notice, and a resume that clears it
 
 **`/api/v1` addition.** Each endpoint in `GET /api/v1/webhooks` (and every

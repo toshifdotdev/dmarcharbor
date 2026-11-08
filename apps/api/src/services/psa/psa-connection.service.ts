@@ -82,6 +82,8 @@ export interface PsaJobView {
   doneAt: string | null;
   nextAttemptAt: string;
   ticket: { id: string; url: string | null; state: string } | null;
+  /** The client and domain the ticket is about, read from the job that opened it. */
+  about: { clientName: string | null; domainName: string | null };
 }
 
 const providerNames: Record<PsaProvider, PsaProviderName> = {
@@ -128,10 +130,12 @@ export function assertProviderOffered(provider: PsaProviderName): void {
  * Checked here as well as at request time: a value that can never work should
  * be refused while the form is open, not stored and then failed on every job.
  * `allowPath` is the one exception — Halo's auth server lives at `/auth`.
+ * `dropPath` is a path accepted and then removed: Halo's own API page shows
+ * the resource server as `https://<instance>/api`, and a customer pastes that.
  */
 export function validateHttpsBaseUrl(
   value: string,
-  options: { allowPath?: string; label: string },
+  options: { allowPath?: string; dropPath?: string; label: string },
 ): string {
   let url: URL;
   try {
@@ -152,7 +156,8 @@ export function validateHttpsBaseUrl(
       400,
     );
   }
-  const path = url.pathname.replace(/\/+$/, '');
+  const typed = url.pathname.replace(/\/+$/, '');
+  const path = options.dropPath && typed.toLowerCase() === options.dropPath ? '' : typed;
   const allowed = options.allowPath ?? '';
   if (path !== allowed && path !== '') {
     throw new PsaConnectionError(
@@ -281,6 +286,7 @@ async function resolveBaseUrl(provider: PsaProviderName, credentials: PsaCredent
   switch (provider) {
     case 'HALOPSA': {
       const resourceServer = validateHttpsBaseUrl(credentials.resourceServer ?? '', {
+        dropPath: '/api',
         label: 'The Halo resource server',
       });
       const authServer = credentials.authServer?.trim()
@@ -486,6 +492,9 @@ export async function saveConnection(input: {
     baseUrl,
     consecutiveFailures: 0,
     lastError: null,
+    // The test above is a successful call; without it the line read
+    // "Connected" beside "No successful call yet".
+    lastSuccessAt: new Date(),
     version: { increment: 1 },
     ...(input.settings?.ticketQueueId !== undefined ? { ticketQueueId: input.settings.ticketQueueId } : {}),
     ...(input.settings?.ticketTypeId !== undefined ? { ticketTypeId: input.settings.ticketTypeId } : {}),
@@ -876,8 +885,31 @@ export async function listJobs(organizationId: string, limit: number): Promise<P
     : [];
   const linkByReference = new Map(links.map((link) => [link.reference, link]));
 
+  // A note or a close carries only its text; the client and domain are on the
+  // job that opened the ticket. Without them the log said "Add a note, Done"
+  // with no way to tell which client's ticket it was.
+  const opens = references.length
+    ? await prisma.psaTicketJob.findMany({
+        where: { organizationId, kind: 'OPEN', linkReference: { in: references } },
+        select: { linkReference: true, payload: true },
+      })
+    : [];
+  const aboutByReference = new Map(
+    opens.map((open) => {
+      const payload = (open.payload ?? {}) as { clientName?: unknown; domainName?: unknown };
+      return [
+        open.linkReference,
+        {
+          clientName: typeof payload.clientName === 'string' ? payload.clientName : null,
+          domainName: typeof payload.domainName === 'string' ? payload.domainName : null,
+        },
+      ];
+    }),
+  );
+
   return rows.map((row) => {
     const link = linkByReference.get(row.linkReference);
+    const about = aboutByReference.get(row.linkReference) ?? { clientName: null, domainName: null };
     return {
       id: row.id,
       kind: row.kind,
@@ -892,6 +924,7 @@ export async function listJobs(organizationId: string, limit: number): Promise<P
       ticket: link
         ? { id: link.externalTicketId, url: link.externalTicketUrl, state: link.state }
         : null,
+      about,
     };
   });
 }

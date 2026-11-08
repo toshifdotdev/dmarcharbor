@@ -166,7 +166,7 @@ function permissionHint(provider: PsaProviderName): string {
     case 'CONNECTWISE':
       return 'In ConnectWise, give the API member’s security role Service Desk › Service Tickets › Add, and Edit for notes and status changes.';
     case 'HALOPSA':
-      return 'In Halo, give the API application the permissions read:tickets and edit:tickets.';
+      return 'In Halo, give the API application the permissions read:tickets, edit:tickets and read:customers.';
     case 'AUTOTASK':
       return 'In Autotask, check that the API user’s security level allows adding tickets and notes, and that the integration code matches.';
     default:

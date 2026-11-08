@@ -999,28 +999,43 @@ export async function evaluateAlertRules(now = new Date()): Promise<RuleEvaluati
     });
 
     if (!crossed) {
-      if (openEvent) {
-        await prisma.alertEvent.update({
-          where: { id: openEvent.id },
+      /**
+       * An acknowledged alert resolves too. Acknowledging says a person has
+       * picked it up; it does not say the mail is passing again. Only looking
+       * at unacknowledged events meant an alert someone acknowledged was never
+       * resolved, so its PSA ticket stayed open for good although the setting
+       * says it closes when the alert resolves (session 8, HaloPSA).
+       */
+      const unresolved = await prisma.alertEvent.findMany({
+        where: { ruleId: rule.id, resolvedAt: null },
+        select: { id: true },
+        orderBy: { triggeredAt: 'desc' },
+        take: 50,
+      });
+      if (unresolved.length > 0) {
+        await prisma.alertEvent.updateMany({
+          where: { id: { in: unresolved.map((event) => event.id) }, resolvedAt: null },
           data: { resolvedAt: now },
         });
-        results.push({ ruleId: rule.id, outcome: 'resolved', observed, eventId: openEvent.id });
+        results.push({ ruleId: rule.id, outcome: 'resolved', observed, eventId: unresolved[0]!.id });
 
         /**
          * A resolved alert notes its ticket, and closes it when the connection
          * asks for that. Never allowed to fail the tick: the alert is already
          * resolved, and a PSA problem must not undo that.
          */
-        try {
-          await enqueueAlertClosed({
-            organizationId: rule.organizationId,
-            eventId: openEvent.id,
-            text: `Resolved in DMARC Harbor: ${rule.metric} is back within the threshold (observed ${observed}, threshold ${rule.threshold}).`,
-          });
-        } catch (error) {
-          console.warn(
-            `[psa] could not queue the resolve note for alert ${openEvent.id}: ${error instanceof Error ? error.message : 'unknown error'}`,
-          );
+        for (const event of unresolved) {
+          try {
+            await enqueueAlertClosed({
+              organizationId: rule.organizationId,
+              eventId: event.id,
+              text: `Resolved in DMARC Harbor: ${rule.metric} is back within the threshold (observed ${observed}, threshold ${rule.threshold}).`,
+            });
+          } catch (error) {
+            console.warn(
+              `[psa] could not queue the resolve note for alert ${event.id}: ${error instanceof Error ? error.message : 'unknown error'}`,
+            );
+          }
         }
       } else {
         results.push({ ruleId: rule.id, outcome: 'unchanged', observed });
@@ -1031,12 +1046,15 @@ export async function evaluateAlertRules(now = new Date()): Promise<RuleEvaluati
     if (!openEvent) {
       const lastEvent = await prisma.alertEvent.findFirst({
         where: { ruleId: rule.id },
-        select: { id: true, acknowledgedAt: true },
+        select: { id: true, acknowledgedAt: true, resolvedAt: true },
         orderBy: { triggeredAt: 'desc' },
       });
 
+      // An acknowledgement quiets the rule while the problem it acknowledged
+      // is still there. Once that alert has resolved, the problem coming back
+      // is a new one and alerts again.
       const acknowledgedFor =
-        lastEvent?.acknowledgedAt === null || lastEvent?.acknowledgedAt === undefined
+        lastEvent?.acknowledgedAt === null || lastEvent?.acknowledgedAt === undefined || lastEvent.resolvedAt
           ? null
           : now.getTime() - lastEvent.acknowledgedAt.getTime();
 
@@ -1175,7 +1193,9 @@ export async function evaluateAlertRules(now = new Date()): Promise<RuleEvaluati
         await enqueueAlertNote({
           organizationId: rule.organizationId,
           eventId: openEvent.id,
-          text: `Reminder ${reminderLevel} in DMARC Harbor: nobody has acknowledged this alert. ${escalationNote(reminderLevel)}`.trim(),
+          // escalationNote already says nobody has acknowledged it; saying so
+          // here too put the same sentence twice in every reminder note.
+          text: `Reminder ${reminderLevel} in DMARC Harbor. ${escalationNote(reminderLevel)}`.trim(),
           suffix: `reminder:${reminderLevel}`,
         });
       } catch (error) {

@@ -501,7 +501,9 @@ async function recordFailure(input: {
   if (credentialsBad) {
     await pauseConnection({
       connection: input.connection,
-      reason: `The PSA rejected the stored credentials, so retrying cannot help. ${message}`,
+      // The provider's sentence already says the credentials were refused and
+      // what to check; prefixing "rejected the stored credentials" said it twice.
+      reason: `${message} Nothing is sent until the credentials are replaced; waiting tickets are kept.`,
     });
     return 'paused';
   }

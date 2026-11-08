@@ -227,6 +227,8 @@ export interface PsaJobView {
   doneAt: string | null;
   nextAttemptAt: string;
   ticket: { id: string; url: string | null; state: string } | null;
+  /** The client and domain the ticket is about. Absent from an older API. */
+  about?: { clientName: string | null; domainName: string | null };
 }
 
 // ─── Hosted MTA-STS ─────────────────────────────────────────────────────────

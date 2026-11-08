@@ -72,17 +72,24 @@ const PROVIDERS: Array<{
   label: string;
   needs: string;
   where: string;
+  /**
+   * Built to the vendor's published API and covered by tests, but not yet run
+   * against a live account. Said on the choice, so nobody expects it to have
+   * been proven the way HaloPSA was.
+   */
+  early?: boolean;
 }> = [
   {
     id: "HALOPSA",
     label: "HaloPSA",
     needs: "Your Halo address, a client ID and a client secret.",
     where:
-      "In Halo: Configuration › Integrations › Halo API. Create an application with the “Client ID and Secret (Services)” method and allow read:tickets and edit:tickets.",
+      "In Halo: Configuration › Integrations › Halo API. Create an application with the “Client ID and Secret (Services)” method and allow read:tickets, edit:tickets and read:customers (to find each client's company).",
   },
   {
     id: "CONNECTWISE",
     label: "ConnectWise PSA",
+    early: true,
     needs: "Your site, company ID, and an API member’s public and private key.",
     where:
       "In ConnectWise: System › Members › API Members. An API member does not use a paid seat; generate its key pair there.",
@@ -90,6 +97,7 @@ const PROVIDERS: Array<{
   {
     id: "AUTOTASK",
     label: "Autotask",
+    early: true,
     needs: "An API user, its secret, and the integration code.",
     where:
       "In Autotask: create an API-only user with a tracking identifier. If your vendor is not listed, choose “Custom (Internal Integration)”, which generates the code.",
@@ -98,7 +106,7 @@ const PROVIDERS: Array<{
 
 const FIELDS: Record<PsaProviderName, Array<{ key: string; label: string; secret?: boolean; optional?: boolean; hint?: string }>> = {
   HALOPSA: [
-    { key: "resourceServer", label: "Resource server", hint: "https://your-instance.halopsa.com" },
+    { key: "resourceServer", label: "Resource server", hint: "https://your-instance.halopsa.com/api" },
     { key: "clientId", label: "Client ID" },
     { key: "clientSecret", label: "Client secret", secret: true },
     { key: "authServer", label: "Authorisation server", optional: true, hint: "Defaults to <resource server>/auth" },
@@ -334,7 +342,7 @@ export function PsaBoard({
     setNotice(
       enabled
         ? "Ticketing resumed. Queued jobs start sending on the next pass."
-        : "Ticketing paused. Nothing new is sent until you resume.",
+        : "Ticketing paused. Alerts and DNS changes from now until you resume open no ticket; tickets already waiting are kept and sent on resume.",
     );
   }
 
@@ -494,10 +502,19 @@ export function PsaBoard({
                           className="mt-[1px]"
                         />
                         <span className="flex min-w-0 flex-col gap-0.5">
-                          <span className={clsx("font-bold", availability?.available ? "text-fg" : "text-fg-3")}>{entry.label}</span>
+                          <span className="flex flex-wrap items-baseline gap-x-2">
+                            <span className={clsx("font-bold", availability?.available ? "text-fg" : "text-fg-3")}>{entry.label}</span>
+                            {entry.early ? <span className="text-meta font-semibold text-fg-3">Early access</span> : null}
+                          </span>
                           <span className="text-meta text-fg-2">
                             {availability?.available ? entry.needs : (availability?.reason ?? "Not available on this deployment.")}
                           </span>
+                          {entry.early ? (
+                            <span className="text-meta text-fg-3">
+                              Built to {entry.label}&rsquo;s published API, not yet run against a live account. Write to
+                              support before connecting and we check the first tickets with you.
+                            </span>
+                          ) : null}
                         </span>
                       </label>
                     );
@@ -834,7 +851,16 @@ export function PsaBoard({
                       return (
                         <Tr key={job.id} tone={job.status === "FAILED" ? "fail" : job.status === "SKIPPED" ? "warn" : undefined}>
                           <Td className="tnum whitespace-nowrap text-meta">{instantLabel(job.createdAt)}</Td>
-                          <Td className="font-semibold">{KIND_WORDS[job.kind] ?? job.kind}</Td>
+                          <Td>
+                            <span className="block font-semibold">{KIND_WORDS[job.kind] ?? job.kind}</span>
+                            {job.about?.clientName || job.about?.domainName ? (
+                              <span className="mt-0.5 block text-meta text-fg-3">
+                                {job.about.clientName ? <span className="font-semibold text-fg-2">{job.about.clientName}</span> : null}
+                                {job.about.clientName && job.about.domainName ? " " : null}
+                                {job.about.domainName ? <span className="data">{job.about.domainName}</span> : null}
+                              </span>
+                            ) : null}
+                          </Td>
                           <Td className="max-w-[360px]">
                             <Badge tone={tone}>{word}</Badge>
                             {job.skipReason ? (
@@ -878,7 +904,7 @@ export function PsaBoard({
                   The connection
                 </h2>
                 <p className="mt-0.5 max-w-[72ch] text-ui text-fg-2">
-                  Pause to stop new tickets for a while, replace the credentials when they are rotated in{" "}
+                  Pause to stop new tickets for a while (what happens during the pause gets no ticket later), replace the credentials when they are rotated in{" "}
                   {connectedProvider?.label ?? "the PSA"}, or disconnect to remove the connection and its mappings.
                 </p>
               </div>

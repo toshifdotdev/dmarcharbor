@@ -46,7 +46,9 @@ function whoLine(who: Who, role: string | null): { lead: string; rest: string; c
   }
   return can
     ? { lead: "Owners and admins", rest: `can change this. You are ${noun}.`, can }
-    : { lead: "Owners and admins", rest: `can change this. You are ${noun}, so it is read-only for you.`, can };
+    : // "read-only for you" sat above a "No access" panel on sections the role
+      // cannot read at all (PSA, webhooks for an analyst). This is true of both.
+      { lead: "Owners and admins", rest: `can change this. You are ${noun}, so you cannot change it here.`, can };
 }
 
 export function SettingsFrame({

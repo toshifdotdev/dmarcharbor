@@ -131,7 +131,10 @@ export function createHaloPsaClient(config: PsaClientConfig): PsaProviderClient 
       );
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      if (response.statusCode === 401) {
+      // A 403 too: the token carries the permissions Halo granted when it was
+      // issued, so a customer who adds a missing permission and tries again was
+      // refused with the old token until it expired, up to an hour later.
+      if (response.statusCode === 401 || response.statusCode === 403) {
         tokenCache.delete(cacheKey);
       }
       throw psaErrorForStatus({
@@ -181,19 +184,30 @@ export function createHaloPsaClient(config: PsaClientConfig): PsaProviderClient 
     async options() {
       const [ticketTypes, statuses, teams] = await Promise.all([
         call<Array<{ id?: unknown; name?: unknown }>>('/api/TicketType'),
-        call<Array<{ id?: unknown; name?: unknown; closed?: unknown }>>('/api/Status'),
+        call<Array<{ id?: unknown; name?: unknown; closed?: unknown; type?: unknown }>>('/api/Status'),
         call<Array<{ id?: unknown; name?: unknown }>>('/api/Team'),
       ]);
-      const allStatuses = Array.isArray(statuses) ? statuses : [];
-      // Halo marks a status closed with `closed: true`; without that flag a
-      // status is offered in both pickers rather than hidden from one.
+      /**
+       * Halo's `type` says what a status is for: 1 is a sales order and 2 an
+       * item, so neither can be a ticket's status and both are left out. A
+       * real Halo answers no `closed` flag (seen on a trial in session 8), so
+       * without one every ticket status is offered in both pickers, and the
+       * closed picker lists the ones whose name closes a ticket first.
+       */
+      const allStatuses = (Array.isArray(statuses) ? statuses : []).filter(
+        (status) => status?.type !== 1 && status?.type !== 2,
+      );
       const closed = allStatuses.filter((status) => status?.closed === true);
       const open = allStatuses.filter((status) => status?.closed !== true);
+      const closing = (status: { name?: unknown }) =>
+        typeof status?.name === 'string' && /\b(closed|resolved|completed|cancell?ed)\b/i.test(status.name) ? 0 : 1;
+      const closedChoices = closed.length > 0 ? closed : [...allStatuses].sort((a, b) => closing(a) - closing(b));
+      const openChoices = closed.length > 0 ? open : allStatuses.filter((status) => closing(status) === 1);
       return {
         queues: optionsFor(teams),
         ticketTypes: optionsFor(ticketTypes),
-        openStatuses: optionsFor(open.length > 0 ? open : allStatuses),
-        closedStatuses: optionsFor(closed.length > 0 ? closed : allStatuses),
+        openStatuses: optionsFor(openChoices.length > 0 ? openChoices : allStatuses),
+        closedStatuses: optionsFor(closedChoices),
         priorities: [],
       } satisfies PsaOptions;
     },
