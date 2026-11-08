@@ -8,8 +8,8 @@ import { isWithinQuietHours } from '../alert.service.js';
 import { organizationalDomain } from '../alignment.service.js';
 import { domainRef } from '../domain-ref.js';
 import { resolveEntitlements } from '../entitlements/entitlement.service.js';
-import { deliverSlackAlert, hasEnabledSlackDestination } from '../slack.service.js';
-import { deliverTeamsAlert, hasEnabledTeamsDestination } from '../teams.service.js';
+import { deliverSlackRouted } from '../slack.service.js';
+import { deliverTeamsRouted } from '../teams.service.js';
 import { lookupRegistration, type RdapResult } from './rdap.js';
 
 /**
@@ -214,6 +214,8 @@ interface ClaimedWarning {
   registrationId: string;
   organizationId: string;
   organizationName: string;
+  /** For routing to the channels limited to this client. */
+  clientId: string;
   domainName: string;
   domainSlug: string;
   registrableDomain: string;
@@ -241,6 +243,7 @@ async function claimWarnings(now: Date): Promise<ClaimedWarning[]> {
         select: {
           name: true,
           slug: true,
+          clientId: true,
           client: { select: { organizationId: true, organization: { select: { name: true } } } },
         },
       },
@@ -274,6 +277,7 @@ async function claimWarnings(now: Date): Promise<ClaimedWarning[]> {
       registrationId: row.id,
       organizationId: row.domain.client.organizationId,
       organizationName: row.domain.client.organization.name,
+      clientId: row.domain.clientId,
       domainName: row.domain.name,
       domainSlug: row.domain.slug,
       registrableDomain: row.registrableDomain,
@@ -411,25 +415,42 @@ async function deliverWarnings(
     }
   }
 
-  const listed = sentences.slice(0, 10).map(({ sentence }) => sentence);
-  const more = sentences.length > 10 ? [`and ${sentences.length - 10} more`] : [];
-  const subject =
-    sentences.length === 1
-      ? warnings[0]!.daysLeft < 0
-        ? `${warnings[0]!.domainName}: registration expired`
-        : `${warnings[0]!.domainName}: registration expires in ${warnings[0]!.daysLeft} day${warnings[0]!.daysLeft === 1 ? '' : 's'}`
-      : `${sentences.length} domain registrations expire soon in ${workspaceName}`;
-  const body = [...listed, ...more, 'Renew with the registrar, or confirm auto-renew is on.'].join('\n');
-  const risk = warnings.some((warning) => severityFor(warning.threshold) === 'CRITICAL') ? 'high' : 'medium';
+  /**
+   * One message per channel, listing only the warnings about the clients that
+   * channel is routed to.
+   */
+  type Item = { warning: ClaimedWarning; sentence: string; clientId: string };
+  const items: Item[] = sentences.map((s) => ({ ...s, clientId: s.warning.clientId }));
+  const message = (subset: Item[]) => {
+    const first = subset[0]!.warning;
+    const listed = subset.slice(0, 10).map(({ sentence }) => sentence);
+    const more = subset.length > 10 ? [`and ${subset.length - 10} more`] : [];
+    const subject =
+      subset.length === 1
+        ? first.daysLeft < 0
+          ? `${first.domainName}: registration expired`
+          : `${first.domainName}: registration expires in ${first.daysLeft} day${first.daysLeft === 1 ? '' : 's'}`
+        : `${subset.length} domain registrations expire soon in ${workspaceName}`;
+    return {
+      subject,
+      body: [...listed, ...more, 'Renew with the registrar, or confirm auto-renew is on.'].join('\n'),
+      domainName: first.domainName,
+      risk: subset.some(({ warning }) => severityFor(warning.threshold) === 'CRITICAL') ? ('high' as const) : ('medium' as const),
+      domainSlug: first.domainSlug,
+    };
+  };
 
   try {
-    if (await hasEnabledSlackDestination(organizationId)) {
-      const result = await deliverSlackAlert({
-        organizationId,
-        message: { subject, body, domainName: warnings[0]!.domainName, risk },
-      });
-      if (result.delivered) outcome.slack += 1;
-    }
+    const result = await deliverSlackRouted({
+      organizationId,
+      kind: 'expiry',
+      items,
+      build: (subset) => {
+        const { subject, body, domainName, risk } = message(subset);
+        return { subject, body, domainName, risk };
+      },
+    });
+    outcome.slack += result.delivered;
   } catch (error) {
     console.error(
       `[domain-expiry] Slack delivery failed for ${organizationId}: ${error instanceof Error ? error.message : 'unknown error'}`,
@@ -437,27 +458,22 @@ async function deliverWarnings(
   }
 
   try {
-    if (await hasEnabledTeamsDestination(organizationId)) {
-      const result = await deliverTeamsAlert({
-        organizationId,
-        message: {
-          subject,
-          body,
-          domainName: warnings[0]!.domainName,
-          workspaceName,
-          risk,
-          linkPath: `/domains/${warnings[0]!.domainSlug}`,
-        },
-      });
-      if (result.delivered) outcome.teams += 1;
-    }
+    const result = await deliverTeamsRouted({
+      organizationId,
+      kind: 'expiry',
+      items,
+      build: (subset) => {
+        const { domainSlug, ...rest } = message(subset);
+        return { ...rest, workspaceName, linkPath: `/domains/${domainSlug}` };
+      },
+    });
+    outcome.teams += result.delivered;
   } catch (error) {
     console.error(
       `[domain-expiry] Teams delivery failed for ${organizationId}: ${error instanceof Error ? error.message : 'unknown error'}`,
     );
   }
 }
-
 /** One pass: a batch of lookups, then every newly reached warning. */
 export async function runDomainExpiryPass(now: Date = new Date()): Promise<DomainExpiryOutcome> {
   const outcome: DomainExpiryOutcome = {

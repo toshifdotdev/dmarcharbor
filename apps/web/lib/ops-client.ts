@@ -946,6 +946,37 @@ export const testTeamsDestination = (orgId: string) =>
 export const testSlackDestination = (orgId: string) =>
   call<TeamsTestResult>(wsPath(orgId, "/slack-destination/test"), { method: "POST" });
 
+// ─── settings: several Slack and Teams channels, routed ─────────────────────
+
+export type ChatService = "slack" | "teams";
+
+/** One channel's routing: clients and kinds (empty means all). */
+export interface ChatRouteBody {
+  clientIds?: string[];
+  kinds?: string[];
+}
+
+export const createChatDestination = (
+  orgId: string,
+  service: ChatService,
+  body: { webhookUrl: string; channelLabel?: string | null } & ChatRouteBody,
+) =>
+  call<SlackDestination>(wsPath(orgId, `/${service}-destinations`), { method: "POST", body: JSON.stringify(body) });
+
+export const updateChatDestination = (
+  orgId: string,
+  service: ChatService,
+  destinationId: string,
+  body: { webhookUrl?: string; channelLabel?: string | null; enabled?: boolean } & ChatRouteBody,
+) =>
+  call<SlackDestination>(wsPath(orgId, `/${service}-destinations/${destinationId}`), { method: "PATCH", body: JSON.stringify(body) });
+
+export const deleteChatDestination = (orgId: string, service: ChatService, destinationId: string) =>
+  call<void>(wsPath(orgId, `/${service}-destinations/${destinationId}`), { method: "DELETE" });
+
+export const testChatDestination = (orgId: string, service: ChatService, destinationId: string) =>
+  call<TeamsTestResult>(wsPath(orgId, `/${service}-destinations/${destinationId}/test`), { method: "POST" });
+
 // ─── settings: API keys (Phase 6) ────────────────────────────────────────────
 
 export const createApiKeyClient = (

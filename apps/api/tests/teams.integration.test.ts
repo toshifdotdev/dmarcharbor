@@ -506,3 +506,154 @@ describe('Teams alert delivery', () => {
     expect(await prisma.alertDelivery.count({ where: { eventId: event.id, channel: 'TEAMS' } })).toBe(0);
   });
 });
+
+describe('Several Slack and Teams channels, routed by client and kind', () => {
+  beforeAll(resetDatabase);
+
+  const slackUrl = (n: number) => `https://${SLACK_HOST}/services/T00000000/B0000000${n}/${SLACK_PATH}`;
+
+  async function clientOf(domainId: string): Promise<string> {
+    return (await prisma.domain.findUniqueOrThrow({ where: { id: domainId }, select: { clientId: true } })).clientId;
+  }
+
+  it('posts an alert only to the channels routed to its client and kind', async () => {
+    const fixture = await createWorkspace();
+    const { domainId } = await createFiringAlert(fixture);
+    const clientId = await clientOf(domainId);
+    const other = await prisma.client.create({
+      data: { organizationId: fixture.organizationId, name: 'Other Client', slug: `other-${fixtureId}` },
+      select: { id: true },
+    });
+    const base = `/api/workspaces/${fixture.organizationId}/slack-destinations`;
+
+    const mine = await fixture.agent.post(base).send({ webhookUrl: slackUrl(1), channelLabel: 'client-one', clientIds: [clientId], kinds: ['failures'] });
+    expect(mine.status, JSON.stringify(mine.body)).toBe(201);
+    expect(mine.body).toMatchObject({ channelLabel: 'client-one', clientIds: [clientId], kinds: ['failures'] });
+    expect(JSON.stringify(mine.body)).not.toContain(SLACK_PATH);
+    expect((await fixture.agent.post(base).send({ webhookUrl: slackUrl(2), clientIds: [other.id] })).status).toBe(201);
+    expect((await fixture.agent.post(base).send({ webhookUrl: slackUrl(3), kinds: ['dns'] })).status).toBe(201);
+    expect((await fixture.agent.post(base).send({ webhookUrl: slackUrl(4) })).status).toBe(201);
+
+    const calls = stubFetch();
+    await evaluateAlertRules();
+
+    // The client's own channel and the unrouted one; not the other client's,
+    // and not the DNS-only channel.
+    const posted = calls.filter((call) => call.url.includes(SLACK_HOST)).map((call) => call.url).sort();
+    expect(posted).toEqual([slackUrl(1), slackUrl(4)].sort());
+
+    // Still one delivery row per channel type for the event.
+    const event = await prisma.alertEvent.findFirstOrThrow({ where: { organizationId: fixture.organizationId } });
+    const rows = await prisma.alertDelivery.findMany({ where: { eventId: event.id, channel: 'SLACK' } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.status).toBe('SENT');
+  });
+
+  it('writes no delivery row when no channel takes the alert', async () => {
+    const fixture = await createWorkspace();
+    const { domainId } = await createFiringAlert(fixture);
+    expect(await clientOf(domainId)).toBeTruthy();
+    expect(
+      (await fixture.agent.post(`/api/workspaces/${fixture.organizationId}/teams-destinations`).send({ webhookUrl: TEAMS, kinds: ['expiry'] })).status,
+    ).toBe(201);
+
+    const calls = stubFetch();
+    await evaluateAlertRules();
+
+    expect(calls.filter((call) => call.url.includes('logic.azure.com'))).toHaveLength(0);
+    const event = await prisma.alertEvent.findFirstOrThrow({ where: { organizationId: fixture.organizationId } });
+    expect(await prisma.alertDelivery.count({ where: { eventId: event.id, channel: 'TEAMS' } })).toBe(0);
+  });
+
+  it('splits a DNS change summary by the clients each channel carries', async () => {
+    const fixture = await createWorkspace();
+    const make = async (name: string) => {
+      const client = await prisma.client.create({
+        data: { organizationId: fixture.organizationId, name, slug: `${name.toLowerCase()}-${fixtureId}-${Date.now()}` },
+        select: { id: true },
+      });
+      const domain = await prisma.domain.create({
+        data: { clientId: client.id, name: `${name.toLowerCase()}-${Date.now()}.test`, slug: `${name.toLowerCase()}-${Date.now()}`, status: 'VERIFIED' },
+        select: { id: true, name: true },
+      });
+      const scan = await prisma.scan.create({ data: { domainId: domain.id, status: 'COMPLETED' }, select: { id: true } });
+      await prisma.dnsChange.create({
+        data: { organizationId: fixture.organizationId, domainId: domain.id, scanId: scan.id, kind: 'SPF_RECORD', severity: 'CRITICAL', code: 'SPF_REMOVED', summary: `${name} SPF removed` },
+      });
+      return { clientId: client.id, domainName: domain.name };
+    };
+    const north = await make('Northbay');
+    const south = await make('Southbay');
+    const base = `/api/workspaces/${fixture.organizationId}/slack-destinations`;
+    expect((await fixture.agent.post(base).send({ webhookUrl: slackUrl(1), clientIds: [north.clientId], kinds: ['dns'] })).status).toBe(201);
+    expect((await fixture.agent.post(base).send({ webhookUrl: slackUrl(2), clientIds: [south.clientId] })).status).toBe(201);
+    expect((await fixture.agent.post(base).send({ webhookUrl: slackUrl(3), kinds: ['failures'] })).status).toBe(201);
+
+    const calls = stubFetch();
+    const outcome = await deliverDnsChangeNotifications();
+
+    expect(outcome.slack).toBe(2);
+    const toNorth = calls.find((call) => call.url === slackUrl(1))!;
+    const toSouth = calls.find((call) => call.url === slackUrl(2))!;
+    expect(toNorth.body).toContain('Northbay SPF removed');
+    expect(toNorth.body).not.toContain('Southbay');
+    expect(toSouth.body).toContain('Southbay SPF removed');
+    expect(toSouth.body).not.toContain('Northbay');
+    expect(calls.some((call) => call.url === slackUrl(3))).toBe(false);
+  });
+
+  it('manages one channel by id, and refuses what is not the workspace\'s', async () => {
+    const fixture = await createWorkspace();
+    const stranger = await createWorkspace();
+    const base = `/api/workspaces/${fixture.organizationId}/teams-destinations`;
+    const first = await fixture.agent.post(base).send({ webhookUrl: TEAMS, channelLabel: 'First' });
+    const second = await fixture.agent.post(base).send({ webhookUrl: TEAMS, channelLabel: 'Second' });
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+
+    // The single-destination route still answers with the oldest channel.
+    const legacy = await fixture.agent.get(`/api/workspaces/${fixture.organizationId}/teams-destination`);
+    expect(legacy.body.channelLabel).toBe('First');
+
+    const listed = await fixture.agent.get(base);
+    expect(listed.body.destinations.map((d: { channelLabel: string }) => d.channelLabel)).toEqual(['First', 'Second']);
+
+    const paused = await fixture.agent.patch(`${base}/${second.body.id}`).send({ enabled: false });
+    expect(paused.status).toBe(200);
+    expect(paused.body.enabled).toBe(false);
+
+    const strangerClient = await prisma.client.create({
+      data: { organizationId: stranger.organizationId, name: 'Not yours', slug: `not-yours-${fixtureId}` },
+      select: { id: true },
+    });
+    const foreign = await fixture.agent.patch(`${base}/${second.body.id}`).send({ clientIds: [strangerClient.id] });
+    expect(foreign.status).toBe(400);
+
+    expect((await stranger.agent.delete(`/api/workspaces/${stranger.organizationId}/teams-destinations/${first.body.id}`)).status).toBe(404);
+    expect((await stranger.agent.delete(`${base}/${first.body.id}`)).status).toBe(403);
+
+    stubFetch();
+    const test = await fixture.agent.post(`${base}/${first.body.id}/test`);
+    expect(test.status).toBe(200);
+    expect(test.body.delivered).toBe(true);
+    const pausedTest = await fixture.agent.post(`${base}/${second.body.id}/test`);
+    expect(pausedTest.status).toBe(409);
+
+    expect((await fixture.agent.delete(`${base}/${second.body.id}`)).status).toBe(204);
+    expect((await fixture.agent.get(base)).body.destinations).toHaveLength(1);
+    const audited = await prisma.auditLog.count({
+      where: { organizationId: fixture.organizationId, action: { in: ['TEAMS_DESTINATION_CONFIGURED', 'TEAMS_DESTINATION_PAUSED', 'TEAMS_DESTINATION_REMOVED'] } },
+    });
+    expect(audited).toBe(4);
+  });
+
+  it('holds at most 20 channels of one service', async () => {
+    const fixture = await createWorkspace();
+    await prisma.slackDestination.createMany({
+      data: Array.from({ length: 20 }, () => ({ organizationId: fixture.organizationId, encryptedWebhookUrl: 'x' })),
+    });
+    const refused = await fixture.agent.post(`/api/workspaces/${fixture.organizationId}/slack-destinations`).send({ webhookUrl: slackUrl(1) });
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.code).toBe('DESTINATION_LIMIT');
+  });
+});

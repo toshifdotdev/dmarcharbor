@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
-import { getPlanCatalog, getSlackDestination, getWorkspaceEntitlements, OpsError } from "@/lib/api-ops";
+import { listClients } from "@/lib/api";
+import { getPlanCatalog, getWorkspaceEntitlements, listChatDestinations, OpsError } from "@/lib/api-ops";
 import { featureOf, includedFrom } from "@/lib/entitlements";
-import { instantLabel } from "@/lib/instant";
 import { settingsContext } from "@/lib/settings-context";
 import { mayChange } from "@/lib/settings-map";
-import type { SlackDestination } from "@/lib/types";
 import { PlanUnknown } from "@/components/harbor/plan-refusal";
 import { SettingsFrame } from "@/components/harbor/settings/frame";
 import { SlackBoard } from "@/components/harbor/settings/slack";
@@ -13,44 +12,45 @@ import { ErrorState, PermissionState } from "@/components/ui/states";
 export const metadata: Metadata = { title: "Slack alerts" };
 
 /**
- * /settings/slack — reading it needs owner or admin. Connecting, replacing and
- * switching it on need alerts.email (the same key as every alert channel);
- * reading and removing a kept destination stay on every plan, so a downgrade
- * never strands a webhook nobody can delete.
+ * /settings/slack — reading it needs owner or admin. Adding, changing, switching
+ * on and the test message need alerts.email; reading, pausing and removing a
+ * kept channel stay on every plan, so a downgrade never strands an address
+ * nobody can delete. The clients are loaded to route channels by client.
  */
 export default async function SlackPage() {
   const ctx = await settingsContext();
-  const [read, entitlements, catalog] = await Promise.all([
-    getSlackDestination(ctx.active.id)
-      .then((d) => ({ kind: "ok" as const, destination: d as SlackDestination | null }))
+  const [read, entitlements, catalog, clientRows] = await Promise.all([
+    listChatDestinations(ctx.active.id, "slack")
+      .then((destinations) => ({ kind: "ok" as const, destinations }))
       .catch((e: unknown) => ({ kind: e instanceof OpsError && e.status === 403 ? ("forbidden" as const) : ("failed" as const) })),
     getWorkspaceEntitlements(ctx.active.id).catch(() => null),
     getPlanCatalog().catch(() => null),
+    listClients(ctx.active.id).catch(() => null),
   ]);
   const alerting = featureOf(entitlements, "alerts.email");
-
+  const clients = clientRows ? clientRows.map((c) => ({ id: c.id, name: c.name })).sort((a, b) => a.name.localeCompare(b.name)) : null;
   return (
     <SettingsFrame
       ctx={ctx}
       section="slack"
-      lede="Alerts your rules raise can also go to one Slack channel, through a Slack incoming webhook. Email alerts are unaffected either way."
+      lede="Alerts, DNS changes and expiry warnings can also go to Slack channels, through Slack incoming webhooks: one channel for everything, or a channel per client or per kind of message. Email alerts are unaffected either way."
     >
       {read.kind === "ok" ? (
         <>
           {entitlements === null ? <PlanUnknown what="Slack alerts" /> : null}
           <SlackBoard
             organizationId={ctx.active.id}
-            destination={read.destination}
+            destinations={read.destinations}
+            clients={clients}
             canManage={ctx.role === null ? true : mayChange(ctx.role, "admin")}
-            lastDeliveredLabel={read.destination?.lastDeliveredAt ? instantLabel(read.destination.lastDeliveredAt) : null}
             alerting={alerting}
             includedFrom={includedFrom(catalog, "alerts.email")}
           />
         </>
       ) : read.kind === "forbidden" ? (
-        <PermissionState what="the Slack destination" back={{ label: "All settings", href: "/settings" }} />
+        <PermissionState what="the Slack channels" back={{ label: "All settings", href: "/settings" }} />
       ) : (
-        <ErrorState what="the Slack destination" detail="Nothing was changed. Retry to read it." />
+        <ErrorState what="the Slack channels" detail="Nothing was changed. Retry to read them." />
       )}
     </SettingsFrame>
   );

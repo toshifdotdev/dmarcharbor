@@ -22,6 +22,7 @@ import { buildSenderBreakdown, possibleSpoofingSources } from './sender-breakdow
 import { emitEvent } from './webhook.service.js';
 import { deliverSlackAlert, hasEnabledSlackDestination } from './slack.service.js';
 import { deliverTeamsAlert, hasEnabledTeamsDestination } from './teams.service.js';
+import { chatKindForMetric, type ChatKind } from './chat-routing.js';
 import { domainRef } from './domain-ref.js';
 import { enqueueAlertClosed, enqueueAlertNote, enqueueAlertOpened } from './psa/psa-queue.service.js';
 import { resolveEntitlements } from './entitlements/entitlement.service.js';
@@ -583,6 +584,7 @@ async function deliverEvent(
   risk: 'high' | 'medium',
   reminderLevel: number,
   now: Date,
+  route: { kind: ChatKind; clientId: string | null },
 ): Promise<void> {
   if (recipientUserIds.length === 0) {
     return;
@@ -641,6 +643,7 @@ const users = await prisma.user.findMany({
     risk,
     kind: 'ALERT',
     reminderLevel,
+    route,
   });
 
   /**
@@ -662,6 +665,7 @@ const users = await prisma.user.findMany({
     risk,
     kind: 'ALERT',
     reminderLevel,
+    route,
   });
 }
 
@@ -687,10 +691,12 @@ async function deliverToSlack(input: {
   risk: 'high' | 'medium';
   kind: AlertDeliveryKind;
   reminderLevel: number;
+  /** Which channels take it: by the rule's client and the kind of its metric. */
+  route: { kind: ChatKind; clientId: string | null };
 }): Promise<void> {
   // No channel means no delivery and no row. Checked first so a workspace that
   // never configured Slack does not accumulate a row per alert forever.
-  if (!(await hasEnabledSlackDestination(input.organizationId))) {
+  if (!(await hasEnabledSlackDestination(input.organizationId, input.route))) {
     return;
   }
 
@@ -725,6 +731,7 @@ async function deliverToSlack(input: {
 
   const result = await deliverSlackAlert({
     organizationId: input.organizationId,
+    scope: input.route,
     message: {
       subject: input.subject,
       body: input.body,
@@ -773,11 +780,12 @@ async function deliverToTeams(input: {
   risk: 'high' | 'medium';
   kind: AlertDeliveryKind;
   reminderLevel: number;
+  route: { kind: ChatKind; clientId: string | null };
 }): Promise<void> {
   // No channel means no delivery and no row, checked first for the same reason as
   // Slack: otherwise a workspace that never configured Teams accumulates a row
   // per alert forever.
-  if (!(await hasEnabledTeamsDestination(input.organizationId))) {
+  if (!(await hasEnabledTeamsDestination(input.organizationId, input.route))) {
     return;
   }
 
@@ -812,6 +820,7 @@ async function deliverToTeams(input: {
 
   const result = await deliverTeamsAlert({
     organizationId: input.organizationId,
+    scope: input.route,
     message: {
       subject: input.subject,
       body: input.body,
@@ -1235,6 +1244,7 @@ async function notifyRecipients(
     risk,
     reminderLevel,
     now,
+    { kind: chatKindForMetric(rule.metric), clientId: rule.domain.clientId },
   );
 }
 

@@ -1063,6 +1063,13 @@ export interface AuthProviders {
  *  there is nothing to fetch to populate an edit form. Editing means the owner
  *  pastes a new URL. */
 export interface SlackDestination {
+  /** Absent from an older API. */
+  id?: string;
+  /** Clients it receives messages about; empty means every client. */
+  clientIds?: string[];
+  /** Kinds of message it receives (lib/chat-kinds.ts); empty means all. */
+  kinds?: string[];
+  createdAt?: string;
   channelLabel: string | null;
   enabled: boolean;
   maskedUrl: string;
@@ -1077,6 +1084,10 @@ export interface SlackDestination {
  *  the Workflows address never comes back, so maskedUrl is the host plus the
  *  last four characters of the path, with no signature. */
 export interface TeamsDestination {
+  id?: string;
+  clientIds?: string[];
+  kinds?: string[];
+  createdAt?: string;
   channelLabel: string | null;
   enabled: boolean;
   maskedUrl: string;

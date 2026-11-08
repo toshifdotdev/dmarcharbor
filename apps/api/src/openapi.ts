@@ -1759,12 +1759,134 @@ export const openApiDocument = {
         },
       },
     },
+    '/workspaces/{organizationId}/slack-destinations': {
+      get: {
+        tags: ['Settings'],
+        summary: 'List the workspace Slack channels',
+        description: [
+          'Up to 20 channels per workspace, oldest first, each with clientIds and kinds: the clients and the kinds of message it receives (failures, spoofing, silence, dns, expiry). An empty list means all.',
+          'Every address is returned masked, never in full. The single-destination route acts on the first channel listed here.',
+        ].join(' '),
+        responses: { 200: { description: '{ destinations }.' } },
+      },
+      post: {
+        tags: ['Settings'],
+        summary: 'Add a Slack channel',
+        description: [
+          'Body: webhookUrl (an incoming-webhook URL on hooks.slack.com), and optionally channelLabel, clientIds (clients of this workspace) and kinds.',
+          'Requires alerts.email; answers 402 without it, 400 for a refused address or a client outside the workspace, and 409 DESTINATION_LIMIT past 20 channels.',
+        ].join(' '),
+        responses: {
+          201: { description: 'The channel, masked.' },
+          400: { description: 'The address or a client id was refused.' },
+          402: { description: 'Alerts are not included in this workspace plan.' },
+          409: { description: 'The workspace already holds 20 channels of this service.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/slack-destinations/{destinationId}': {
+      patch: {
+        tags: ['Settings'],
+        summary: 'Change one Slack channel',
+        description: [
+          'Any of webhookUrl, channelLabel, clientIds, kinds and enabled. A new address clears the failure count.',
+          'Sending only enabled:false is allowed on every plan; anything else requires alerts.email.',
+        ].join(' '),
+        responses: {
+          200: { description: 'The channel, masked.' },
+          400: { description: 'A field was refused.' },
+          402: { description: 'Alerts are not included in this workspace plan.' },
+          404: { description: 'No such channel in this workspace.' },
+        },
+      },
+      delete: {
+        tags: ['Settings'],
+        summary: 'Remove one Slack channel',
+        description: 'Discards the stored address. Allowed on every plan.',
+        responses: { 204: { description: 'Removed.' }, 404: { description: 'No such channel in this workspace.' } },
+      },
+    },
+    '/workspaces/{organizationId}/slack-destinations/{destinationId}/test': {
+      post: {
+        tags: ['Settings'],
+        summary: 'Post a test message to one Slack channel',
+        description: 'Names the workspace and what the channel is routed to. Rate limited to five a minute per workspace. A refusal is a 200 with delivered: false and the reason.',
+        responses: {
+          200: { description: '{ delivered, error? }.' },
+          402: { description: 'Alerts are not included in this workspace plan.' },
+          404: { description: 'No such channel in this workspace.' },
+          409: { description: 'The channel is paused.' },
+          429: { description: 'Five test messages already sent in the last minute.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/teams-destinations': {
+      get: {
+        tags: ['Settings'],
+        summary: 'List the workspace Teams channels',
+        description: [
+          'Up to 20 channels per workspace, oldest first, each with clientIds and kinds: the clients and the kinds of message it receives (failures, spoofing, silence, dns, expiry). An empty list means all.',
+          'Every address is returned masked, never in full. The single-destination route acts on the first channel listed here.',
+        ].join(' '),
+        responses: { 200: { description: '{ destinations }.' } },
+      },
+      post: {
+        tags: ['Settings'],
+        summary: 'Add a Teams channel',
+        description: [
+          'Body: webhookUrl (a Workflows address), and optionally channelLabel, clientIds (clients of this workspace) and kinds.',
+          'Requires alerts.email; answers 402 without it, 400 for a refused address or a client outside the workspace, and 409 DESTINATION_LIMIT past 20 channels.',
+        ].join(' '),
+        responses: {
+          201: { description: 'The channel, masked.' },
+          400: { description: 'The address or a client id was refused.' },
+          402: { description: 'Alerts are not included in this workspace plan.' },
+          409: { description: 'The workspace already holds 20 channels of this service.' },
+        },
+      },
+    },
+    '/workspaces/{organizationId}/teams-destinations/{destinationId}': {
+      patch: {
+        tags: ['Settings'],
+        summary: 'Change one Teams channel',
+        description: [
+          'Any of webhookUrl, channelLabel, clientIds, kinds and enabled. A new address clears the failure count.',
+          'Sending only enabled:false is allowed on every plan; anything else requires alerts.email.',
+        ].join(' '),
+        responses: {
+          200: { description: 'The channel, masked.' },
+          400: { description: 'A field was refused.' },
+          402: { description: 'Alerts are not included in this workspace plan.' },
+          404: { description: 'No such channel in this workspace.' },
+        },
+      },
+      delete: {
+        tags: ['Settings'],
+        summary: 'Remove one Teams channel',
+        description: 'Discards the stored address. Allowed on every plan.',
+        responses: { 204: { description: 'Removed.' }, 404: { description: 'No such channel in this workspace.' } },
+      },
+    },
+    '/workspaces/{organizationId}/teams-destinations/{destinationId}/test': {
+      post: {
+        tags: ['Settings'],
+        summary: 'Post a test message to one Teams channel',
+        description: 'Names the workspace and what the channel is routed to. Rate limited to five a minute per workspace. A refusal is a 200 with delivered: false and the reason.',
+        responses: {
+          200: { description: '{ delivered, error? }.' },
+          402: { description: 'Alerts are not included in this workspace plan.' },
+          404: { description: 'No such channel in this workspace.' },
+          409: { description: 'The channel is paused.' },
+          429: { description: 'Five test messages already sent in the last minute.' },
+        },
+      },
+    },
     '/workspaces/{organizationId}/slack-destination': {
       get: {
         tags: ['Settings'],
         summary: 'Read the workspace Slack destination',
         description: [
-          'One destination per workspace rather than per user, because a Slack channel is shared by everyone in it.',
+          'The first (oldest) Slack channel of the workspace; see /slack-destinations for several, routed by client and kind. Per workspace rather than per user, because a Slack channel is shared by everyone in it.',
           'The webhook URL is a credential: anyone holding it can post to the channel. It is stored encrypted and returned masked, never in full.',
           'Returns null when no destination is configured.',
         ].join(' '),

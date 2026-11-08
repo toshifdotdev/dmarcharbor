@@ -2,6 +2,7 @@ import { URL } from 'node:url';
 import { env } from '../config/env.js';
 import { prisma } from '../database/prisma.js';
 import { decryptSensitive, encryptSensitive } from './privacy.service.js';
+import { maxChatDestinations, routeAllows, routeSentence, type ChatKind } from './chat-routing.js';
 
 /**
  * Microsoft Teams delivery for domain alerts, through a Workflows webhook.
@@ -36,6 +37,7 @@ export class TeamsError extends Error {
       | 'LEGACY_WEBHOOK_URL'
       | 'NO_DESTINATION'
       | 'DESTINATION_PAUSED'
+    | 'DESTINATION_LIMIT'
       | 'DELIVERY_FAILED'
       | 'TEAMS_ERROR',
     readonly status: number,
@@ -188,101 +190,175 @@ export function maskTeamsWebhookUrl(encryptedUrl: string): string {
 }
 
 export interface TeamsDestinationView {
+  id: string;
   channelLabel: string | null;
   enabled: boolean;
   maskedUrl: string;
+  /** Clients whose messages this channel receives; empty means every client. */
+  clientIds: string[];
+  /** Kinds of message it receives (chat-routing chatKinds); empty means all. */
+  kinds: string[];
   lastDeliveredAt: Date | null;
   consecutiveFailures: number;
   lastError: string | null;
+  createdAt: Date;
 }
 
-export async function getTeamsDestination(
-  organizationId: string,
-): Promise<TeamsDestinationView | null> {
-  const destination = await prisma.teamsDestination.findUnique({
-    where: { organizationId },
-  });
+type TeamsRow = {
+  id: string;
+  channelLabel: string | null;
+  enabled: boolean;
+  encryptedWebhookUrl: string;
+  clientIds: string[];
+  kinds: string[];
+  lastDeliveredAt: Date | null;
+  consecutiveFailures: number;
+  lastError: string | null;
+  createdAt: Date;
+};
 
-  if (!destination) {
-    return null;
-  }
-
+function teamsView(row: TeamsRow): TeamsDestinationView {
   return {
-    channelLabel: destination.channelLabel,
-    enabled: destination.enabled,
-    maskedUrl: maskTeamsWebhookUrl(destination.encryptedWebhookUrl),
-    lastDeliveredAt: destination.lastDeliveredAt,
-    consecutiveFailures: destination.consecutiveFailures,
-    lastError: destination.lastError,
+    id: row.id,
+    channelLabel: row.channelLabel,
+    enabled: row.enabled,
+    maskedUrl: maskTeamsWebhookUrl(row.encryptedWebhookUrl),
+    clientIds: row.clientIds,
+    kinds: row.kinds,
+    lastDeliveredAt: row.lastDeliveredAt,
+    consecutiveFailures: row.consecutiveFailures,
+    lastError: row.lastError,
+    createdAt: row.createdAt,
   };
 }
 
+/** Every channel, oldest first: the first is the one the single-destination routes act on. */
+export async function listTeamsDestinations(organizationId: string): Promise<TeamsDestinationView[]> {
+  const rows = await prisma.teamsDestination.findMany({
+    where: { organizationId },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+  });
+  return rows.map(teamsView);
+}
+
+/** The oldest channel, for the original single-destination routes (/teams-destination). */
+export async function getTeamsDestination(organizationId: string): Promise<TeamsDestinationView | null> {
+  return (await listTeamsDestinations(organizationId))[0] ?? null;
+}
+
+/** Connects or replaces the oldest channel (PUT /teams-destination). */
 export async function configureTeamsDestination(input: {
   organizationId: string;
   webhookUrl: string;
   channelLabel?: string | null;
 }): Promise<TeamsDestinationView> {
-  const url = parseTeamsWebhookUrl(input.webhookUrl);
+  const existing = await getTeamsDestination(input.organizationId);
+  if (!existing) return createTeamsDestination(input);
+  return updateTeamsDestination({
+    organizationId: input.organizationId,
+    destinationId: existing.id,
+    webhookUrl: input.webhookUrl,
+    channelLabel: input.channelLabel ?? null,
+  });
+}
 
-  await prisma.teamsDestination.upsert({
-    where: { organizationId: input.organizationId },
-    create: {
+/** Adds a channel, up to maxChatDestinations, routed by client and kind. */
+export async function createTeamsDestination(input: {
+  organizationId: string;
+  webhookUrl: string;
+  channelLabel?: string | null;
+  clientIds?: string[];
+  kinds?: string[];
+}): Promise<TeamsDestinationView> {
+  const url = parseTeamsWebhookUrl(input.webhookUrl);
+  const count = await prisma.teamsDestination.count({ where: { organizationId: input.organizationId } });
+  if (count >= maxChatDestinations) {
+    throw new TeamsError(
+      `This workspace already has ${maxChatDestinations} Teams channels, the most it can hold. Remove one before adding another.`,
+      'DESTINATION_LIMIT',
+      409,
+    );
+  }
+  const row = await prisma.teamsDestination.create({
+    data: {
       organizationId: input.organizationId,
       channelLabel: input.channelLabel ?? null,
       encryptedWebhookUrl: encryptSensitive(url.toString()),
-    },
-    update: {
-      channelLabel: input.channelLabel ?? null,
-      encryptedWebhookUrl: encryptSensitive(url.toString()),
-      // A fresh address is a fresh start: carrying the old failure count across
-      // would leave a working integration showing as broken.
-      consecutiveFailures: 0,
-      lastError: null,
+      clientIds: input.clientIds ?? [],
+      kinds: input.kinds ?? [],
     },
   });
-
-  const view = await getTeamsDestination(input.organizationId);
-  if (!view) {
-    throw new TeamsError('The destination could not be saved.', 'TEAMS_ERROR', 500);
-  }
-
-  return view;
+  return teamsView(row);
 }
 
+/** Changes one channel: its label, routing, on or off, or a new address. */
+export async function updateTeamsDestination(input: {
+  organizationId: string;
+  destinationId: string;
+  webhookUrl?: string;
+  channelLabel?: string | null;
+  clientIds?: string[];
+  kinds?: string[];
+  enabled?: boolean;
+}): Promise<TeamsDestinationView> {
+  const url = input.webhookUrl !== undefined ? parseTeamsWebhookUrl(input.webhookUrl) : null;
+  const result = await prisma.teamsDestination.updateMany({
+    where: { id: input.destinationId, organizationId: input.organizationId },
+    data: {
+      ...(input.channelLabel !== undefined ? { channelLabel: input.channelLabel } : {}),
+      ...(input.clientIds !== undefined ? { clientIds: input.clientIds } : {}),
+      ...(input.kinds !== undefined ? { kinds: input.kinds } : {}),
+      ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+      // A fresh address is a fresh start: carrying the old failure count across
+      // would leave a working integration showing as broken.
+      ...(url ? { encryptedWebhookUrl: encryptSensitive(url.toString()), consecutiveFailures: 0, lastError: null } : {}),
+    },
+  });
+  if (result.count === 0) {
+    throw new TeamsError('No such Teams channel in this workspace.', 'NO_DESTINATION', 404);
+  }
+  const row = await prisma.teamsDestination.findFirstOrThrow({ where: { id: input.destinationId } });
+  return teamsView(row);
+}
+
+/** Pauses or resumes one channel, or the oldest when no id is given. */
 export async function setTeamsDestinationEnabled(input: {
   organizationId: string;
   enabled: boolean;
+  destinationId?: string;
 }): Promise<void> {
-  const result = await prisma.teamsDestination.updateMany({
-    where: { organizationId: input.organizationId },
-    data: { enabled: input.enabled },
-  });
-
-  if (result.count === 0) {
+  const destinationId = input.destinationId ?? (await getTeamsDestination(input.organizationId))?.id;
+  if (!destinationId) {
     throw new TeamsError('No Teams destination is configured.', 'NO_DESTINATION', 404);
   }
+  await updateTeamsDestination({ organizationId: input.organizationId, destinationId, enabled: input.enabled });
 }
 
-export async function deleteTeamsDestination(organizationId: string): Promise<void> {
-  await prisma.teamsDestination.deleteMany({ where: { organizationId } });
+/** Removes one channel, or the oldest when no id is given. True when one was removed. */
+export async function deleteTeamsDestination(organizationId: string, destinationId?: string): Promise<boolean> {
+  const id = destinationId ?? (await getTeamsDestination(organizationId))?.id;
+  if (!id) return false;
+  const result = await prisma.teamsDestination.deleteMany({ where: { id, organizationId } });
+  return result.count > 0;
 }
 
 /**
- * Is there a channel this workspace actually wants posts in?
+ * Is there a channel that wants this message?
  *
  * Checked before a delivery row is written, for the same reason as Slack: a
  * delivery row exists to record and deduplicate an attempt, and with no
  * destination there is no attempt.
  */
-export async function hasEnabledTeamsDestination(organizationId: string): Promise<boolean> {
-  const destination = await prisma.teamsDestination.findFirst({
+export async function hasEnabledTeamsDestination(
+  organizationId: string,
+  scope?: { kind: ChatKind; clientId: string | null },
+): Promise<boolean> {
+  const rows = await prisma.teamsDestination.findMany({
     where: { organizationId, enabled: true },
-    select: { id: true },
+    select: { clientIds: true, kinds: true },
   });
-
-  return destination !== null;
+  return rows.some((row) => !scope || routeAllows(row, scope.kind, scope.clientId));
 }
-
 export interface TeamsAlertMessage {
   subject: string;
   body: string;
@@ -427,27 +503,76 @@ async function postTeams(url: string, payload: unknown): Promise<{ ok: true } | 
 }
 
 /**
- * Posts one alert, or records why it could not.
+ * Posts one message to every channel that takes it, built per channel from the
+ * items that channel is routed to. Each channel fails on its own.
+ */
+export async function deliverTeamsRouted<T extends { clientId: string | null }>(input: {
+  organizationId: string;
+  kind: ChatKind;
+  items: T[];
+  build: (items: T[]) => TeamsAlertMessage;
+}): Promise<{ delivered: number; failed: number; errors: string[] }> {
+  const destinations = await prisma.teamsDestination.findMany({
+    where: { organizationId: input.organizationId, enabled: true },
+    select: { id: true, encryptedWebhookUrl: true, clientIds: true, kinds: true },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+  });
+  const outcome = { delivered: 0, failed: 0, errors: [] as string[] };
+  for (const destination of destinations) {
+    const items = input.items.filter((item) => routeAllows(destination, input.kind, item.clientId));
+    if (items.length === 0) continue;
+    const result = await postToTeamsDestination(destination, input.build(items));
+    if (result.delivered) outcome.delivered += 1;
+    else {
+      outcome.failed += 1;
+      if (result.error) outcome.errors.push(result.error);
+    }
+  }
+  return outcome;
+}
+
+/**
+ * Posts one alert to every enabled channel that takes it: all of them when no
+ * scope is given, or the one named by destinationId.
  *
- * Failure is swallowed into the destination row rather than thrown, because the
- * caller is an alert evaluation tick that must go on to the other rules. This is
- * also why Teams and Slack are independent: one channel refusing the message is a
- * problem for one workspace's chat, not a reason to abandon the other channel or
- * the remaining rules.
+ * Failure is swallowed into each destination row rather than thrown, because
+ * the caller is an alert evaluation tick that must go on to the other rules.
  */
 export async function deliverTeamsAlert(input: {
   organizationId: string;
   message: TeamsAlertMessage;
+  scope?: { kind: ChatKind; clientId: string | null };
+  destinationId?: string;
 }): Promise<{ delivered: boolean; error?: string }> {
-  const destination = await prisma.teamsDestination.findFirst({
-    where: { organizationId: input.organizationId, enabled: true },
-    select: { id: true, encryptedWebhookUrl: true },
+  const destinations = await prisma.teamsDestination.findMany({
+    where: {
+      organizationId: input.organizationId,
+      enabled: true,
+      ...(input.destinationId ? { id: input.destinationId } : {}),
+    },
+    select: { id: true, encryptedWebhookUrl: true, clientIds: true, kinds: true },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
   });
-
-  if (!destination) {
+  const targets = input.scope
+    ? destinations.filter((d) => routeAllows(d, input.scope!.kind, input.scope!.clientId))
+    : destinations;
+  if (targets.length === 0) {
     return { delivered: false };
   }
+  let delivered = false;
+  const errors: string[] = [];
+  for (const destination of targets) {
+    const result = await postToTeamsDestination(destination, input.message);
+    if (result.delivered) delivered = true;
+    else if (result.error) errors.push(result.error);
+  }
+  return errors.length ? { delivered, error: errors.join('; ') } : { delivered };
+}
 
+async function postToTeamsDestination(
+  destination: { id: string; encryptedWebhookUrl: string },
+  message: TeamsAlertMessage,
+): Promise<{ delivered: boolean; error?: string }> {
   const url = decryptSensitive(destination.encryptedWebhookUrl);
   if (!url) {
     const error = 'The stored Teams address could not be read.';
@@ -460,12 +585,12 @@ export async function deliverTeamsAlert(input: {
   try {
     parseTeamsWebhookUrl(url);
   } catch (error) {
-    const message = error instanceof TeamsError ? error.message : 'The stored Teams address is invalid.';
-    await recordTeamsFailure(destination.id, message);
-    return { delivered: false, error: message };
+    const reason = error instanceof TeamsError ? error.message : 'The stored Teams address is invalid.';
+    await recordTeamsFailure(destination.id, reason);
+    return { delivered: false, error: reason };
   }
 
-  const result = await postTeams(url, buildTeamsCard({ message: input.message, appUrl: env.APP_URL }));
+  const result = await postTeams(url, buildTeamsCard({ message, appUrl: env.APP_URL }));
 
   if (!result.ok) {
     await recordTeamsFailure(destination.id, result.error);
@@ -485,7 +610,7 @@ export async function deliverTeamsAlert(input: {
 }
 
 /**
- * Posts the fixed test message.
+ * Posts the fixed test message to one channel (the oldest when no id is given).
  *
  * A Workflows setup is easy to get wrong in ways that only show up at the worst
  * moment — the wrong template, a flow that was never turned on, an address from a
@@ -494,10 +619,12 @@ export async function deliverTeamsAlert(input: {
  */
 export async function sendTeamsTestMessage(
   organizationId: string,
+  destinationId?: string,
 ): Promise<{ delivered: boolean; error?: string }> {
   const destination = await prisma.teamsDestination.findFirst({
-    where: { organizationId },
-    select: { id: true, enabled: true, organization: { select: { name: true } } },
+    where: { organizationId, ...(destinationId ? { id: destinationId } : {}) },
+    select: { id: true, enabled: true, clientIds: true, kinds: true, organization: { select: { name: true } } },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
   });
 
   if (!destination) {
@@ -517,11 +644,13 @@ export async function sendTeamsTestMessage(
   // The real workspace, and no claim about "this channel": a Workflows flow can
   // post to a channel, a group chat or the person who made it, privately.
   const workspace = destination.organization.name;
+  const routed = await routeSentence(organizationId, destination);
   return deliverTeamsAlert({
     organizationId,
+    destinationId: destination.id,
     message: {
       subject: 'DMARC Harbor test message',
-      body: `This is a test, and needs no action. Alerts for ${workspace}'s domains will be posted where this message arrived.`,
+      body: `This is a test, and needs no action. ${routed} for ${workspace} will be posted where this message arrived.`,
       domainName: 'None (a test)',
       workspaceName: workspace,
       risk: 'low',
@@ -529,7 +658,6 @@ export async function sendTeamsTestMessage(
     },
   });
 }
-
 async function recordTeamsFailure(destinationId: string, error: string): Promise<void> {
   /**
    * Incremented by the database rather than in JavaScript.

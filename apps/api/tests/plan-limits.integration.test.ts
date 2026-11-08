@@ -388,16 +388,18 @@ const probes = {
     setup: async (ctx) => {
       // A Slack and a Teams channel kept from an earlier plan, so pausing and
       // removing are checked on the plans that can no longer add one.
-      await prisma.slackDestination.upsert({
-        where: { organizationId: ctx.organizationId },
-        create: { organizationId: ctx.organizationId, encryptedWebhookUrl: encryptSensitive(SLACK_URL), channelLabel: 'dmarc-alerts' },
-        update: {},
-      });
-      await prisma.teamsDestination.upsert({
-        where: { organizationId: ctx.organizationId },
-        create: { organizationId: ctx.organizationId, encryptedWebhookUrl: encryptSensitive(TEAMS_URL), channelLabel: 'Alerts' },
-        update: {},
-      });
+      // A workspace may hold several channels now, so "one kept" is created only
+      // when none is there yet.
+      if (!(await prisma.slackDestination.findFirst({ where: { organizationId: ctx.organizationId } }))) {
+        await prisma.slackDestination.create({
+          data: { organizationId: ctx.organizationId, encryptedWebhookUrl: encryptSensitive(SLACK_URL), channelLabel: 'dmarc-alerts' },
+        });
+      }
+      if (!(await prisma.teamsDestination.findFirst({ where: { organizationId: ctx.organizationId } }))) {
+        await prisma.teamsDestination.create({
+          data: { organizationId: ctx.organizationId, encryptedWebhookUrl: encryptSensitive(TEAMS_URL), channelLabel: 'Alerts' },
+        });
+      }
     },
     request: (ctx) =>
       ctx.agent.post(`${base(ctx)}/alert-rules`).send({

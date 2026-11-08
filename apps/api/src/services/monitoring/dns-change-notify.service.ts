@@ -5,8 +5,8 @@ import { dnsChangesEmail } from '../../email/templates.js';
 import { queueEmail } from '../../email/email.service.js';
 import { isWithinQuietHours } from '../alert.service.js';
 import { resolveEntitlements } from '../entitlements/entitlement.service.js';
-import { deliverSlackAlert, hasEnabledSlackDestination } from '../slack.service.js';
-import { deliverTeamsAlert, hasEnabledTeamsDestination } from '../teams.service.js';
+import { deliverSlackRouted } from '../slack.service.js';
+import { deliverTeamsRouted } from '../teams.service.js';
 import { enqueueDnsChangesOpened } from '../psa/psa-queue.service.js';
 
 export interface DnsChangeDeliveryOutcome {
@@ -254,67 +254,52 @@ export async function deliverDnsChangeNotifications(
       }
     }
 
+    /**
+     * One summary per channel per pass, not one per change. Each channel gets
+     * only the changes about the clients it is routed to, so an MSP's
+     * per-client channel never lists another client's domains. Slack and Teams
+     * are posted independently: one being broken does not suppress the other,
+     * and the counts say which carried it.
+     */
+    type Item = (typeof changes)[number] & { clientId: string };
+    const items: Item[] = changes.map((change) => ({ ...change, clientId: change.domain.clientId }));
+    const summary = (subset: Item[]) => {
+      const listed = subset.slice(0, 10).map((change) => `${change.domain.name}: ${change.summary}`);
+      const more = subset.length > 10 ? [`and ${subset.length - 10} more`] : [];
+      return {
+        subject: `DNS changed on ${new Set(subset.map((change) => change.domain.name)).size} domain(s) in ${workspaceName}`,
+        body: [...listed, ...more].join('\n'),
+        domainName: subset[0]?.domain.name ?? 'your domains',
+        risk: subset.some((change) => change.severity === 'CRITICAL') ? ('high' as const) : ('medium' as const),
+      };
+    };
+
     try {
-      if (await hasEnabledSlackDestination(organizationId)) {
-        const listed = changes
-          .slice(0, 10)
-          .map((change) => `${change.domain.name}: ${change.summary}`);
-        const more = changes.length > 10 ? [`and ${changes.length - 10} more`] : [];
-        const result = await deliverSlackAlert({
-          organizationId,
-          message: {
-            subject: `DNS changed on ${new Set(changes.map((change) => change.domain.name)).size} domain(s) in ${workspaceName}`,
-            body: [...listed, ...more].join('\n'),
-            domainName: changes[0]?.domain.name ?? 'your domains',
-            risk: changes.some((change) => change.severity === 'CRITICAL') ? 'high' : 'medium',
-          },
-        });
-        if (result.delivered) {
-          outcome.slack += 1;
-        }
-      }
+      const result = await deliverSlackRouted({ organizationId, kind: 'dns', items, build: summary });
+      outcome.slack += result.delivered;
     } catch (error) {
       console.error(
         `[dns-monitor] Slack delivery failed for ${organizationId}: ${error instanceof Error ? error.message : 'unknown error'}`,
       );
     }
 
-    /**
-     * Teams, in its own try/catch and with its own summary.
-     *
-     * The same message the Slack post carries — one summary per workspace per
-     * pass, not one per change — but posted independently. A workspace with both
-     * channels configured gets both; one of them being broken does not suppress
-     * the other, and the count is reported separately so the scheduler log says
-     * which channel carried it.
-     */
     try {
-      if (await hasEnabledTeamsDestination(organizationId)) {
-        const listed = changes
-          .slice(0, 10)
-          .map((change) => `${change.domain.name}: ${change.summary}`);
-        const more = changes.length > 10 ? [`and ${changes.length - 10} more`] : [];
-        const result = await deliverTeamsAlert({
-          organizationId,
-          message: {
-            subject: `DNS changed on ${new Set(changes.map((change) => change.domain.name)).size} domain(s) in ${workspaceName}`,
-            body: [...listed, ...more].join('\n'),
-            domainName: changes[0]?.domain.name ?? 'your domains',
-            workspaceName,
-            risk: changes.some((change) => change.severity === 'CRITICAL') ? 'high' : 'medium',
-            linkPath: changes[0] ? `/domains/${changes[0].domain.slug}` : '/alerts',
-          },
-        });
-        if (result.delivered) {
-          outcome.teams += 1;
-        }
-      }
+      const result = await deliverTeamsRouted({
+        organizationId,
+        kind: 'dns',
+        items,
+        build: (subset) => ({
+          ...summary(subset),
+          workspaceName,
+          linkPath: subset[0] ? `/domains/${subset[0].domain.slug}` : '/alerts',
+        }),
+      });
+      outcome.teams += result.delivered;
     } catch (error) {
       console.error(
         `[dns-monitor] Teams delivery failed for ${organizationId}: ${error instanceof Error ? error.message : 'unknown error'}`,
       );
-    }
-  }
+    }  }
 
   return outcome;
 }

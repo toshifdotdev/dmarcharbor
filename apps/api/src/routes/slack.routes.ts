@@ -6,6 +6,7 @@ import {
   setSlackDestinationEnabledController,
   testSlackDestinationController,
 } from '../controllers/slack.controller.js';
+import { slackDestinations } from '../controllers/chat-destinations.controller.js';
 import { requireSession } from '../middleware/auth.middleware.js';
 import { slackTestRateLimiter } from '../middleware/rate-limit.middleware.js';
 import { onlyDisables, requireFeature, requireFeatureUnless } from '../middleware/entitlement.middleware.js';
@@ -74,4 +75,49 @@ slackRouter.post(
   requireFeature('alerts.email'),
   slackTestRateLimiter,
   testSlackDestinationController,
+);
+
+/**
+ * Several channels, each routed by client and kind (chat-destinations
+ * controller). The same gates as the single-destination routes above: adding,
+ * changing and testing need alerts.email; reading, pausing and removing are
+ * open on every plan.
+ */
+slackRouter.get(
+  '/workspaces/:organizationId/slack-destinations',
+  requireSession,
+  requireOrganizationPermission('organization', 'read'),
+  slackDestinations.list,
+);
+
+slackRouter.post(
+  '/workspaces/:organizationId/slack-destinations',
+  requireSession,
+  requireOrganizationPermission('organization', 'update'),
+  requireFeature('alerts.email'),
+  slackDestinations.create,
+);
+
+slackRouter.patch(
+  '/workspaces/:organizationId/slack-destinations/:destinationId',
+  requireSession,
+  requireOrganizationPermission('organization', 'update'),
+  requireFeatureUnless('alerts.email', onlyDisables),
+  slackDestinations.update,
+);
+
+slackRouter.delete(
+  '/workspaces/:organizationId/slack-destinations/:destinationId',
+  requireSession,
+  requireOrganizationPermission('organization', 'update'),
+  slackDestinations.remove,
+);
+
+slackRouter.post(
+  '/workspaces/:organizationId/slack-destinations/:destinationId/test',
+  requireSession,
+  requireOrganizationPermission('organization', 'update'),
+  requireFeature('alerts.email'),
+  slackTestRateLimiter,
+  slackDestinations.test,
 );

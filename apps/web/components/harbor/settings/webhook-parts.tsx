@@ -20,6 +20,10 @@ export function ClientScope({
   chosen,
   onChosen,
   disabled,
+  allText = "Events about every client’s domains, including clients added later.",
+  someText = "Only these clients' domain events are sent. Workspace events, such as a plan limit, still are.",
+  testId = "webhook-client-scope",
+  itemTestId = "webhook-client",
 }: {
   clients: ClientChoice[] | null;
   scope: "all" | "some";
@@ -27,9 +31,13 @@ export function ClientScope({
   chosen: string[];
   onChosen: (ids: string[]) => void;
   disabled?: boolean;
+  allText?: string;
+  someText?: string;
+  testId?: string;
+  itemTestId?: string;
 }) {
   return (
-    <fieldset className="flex flex-col gap-2.5" data-testid="webhook-client-scope">
+    <fieldset className="flex flex-col gap-2.5" data-testid={testId}>
       <legend className="mb-1 text-meta font-semibold text-fg-2">For which clients</legend>
       <div className="flex">
       <Segmented
@@ -44,7 +52,7 @@ export function ClientScope({
       />
       </div>
       {scope === "all" ? (
-        <p className="text-meta text-fg-3">Events about every client&rsquo;s domains, including clients added later.</p>
+        <p className="text-meta text-fg-3">{allText}</p>
       ) : clients === null ? (
         <p className="text-meta text-warn">The client list could not be read. Reload to choose clients.</p>
       ) : clients.length === 0 ? (
@@ -59,14 +67,14 @@ export function ClientScope({
                 onChange={(e) => onChosen(e.target.checked ? [...chosen, c.id] : chosen.filter((x) => x !== c.id))}
                 label={c.name}
                 disabled={disabled}
-                data-testid={`webhook-client-${c.id}`}
+                data-testid={`${itemTestId}-${c.id}`}
               />
             ))}
           </div>
           <p className={chosen.length === 0 ? "text-meta font-medium text-fail" : "text-meta text-fg-3"}>
             {chosen.length === 0
               ? "Choose at least one client."
-              : "Only these clients' domain events are sent. Workspace events, such as a plan limit, still are."}
+              : someText}
           </p>
         </>
       )}

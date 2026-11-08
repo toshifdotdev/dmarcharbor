@@ -241,8 +241,8 @@ model Organization {
   idempotencyRecords    IdempotencyRecord[]
   billingEvents         BillingEvent[]
   reportInbox           ReportInbox?
-  slackDestination      SlackDestination?
-  teamsDestination      TeamsDestination?
+  slackDestinations     SlackDestination[]
+  teamsDestinations     TeamsDestination[]
   ssoConnections        SsoConnection[]
   webhookEndpoints      WebhookEndpoint[]
   domainSwitches        DomainSwitch[]
@@ -1533,7 +1533,9 @@ model ReportInbox {
   @@map("report_inbox")
 }
 
-/// One Slack channel per workspace, not per user.
+/// A Slack channel the workspace's alerts go to: up to 20 per workspace, each
+/// limited to chosen clients and kinds of message (clientIds, kinds; empty
+/// means all). Per workspace, not per user.
 ///
 /// A Slack channel is shared by everybody in it, so an individual email
 /// preference cannot sensibly gate it: turning off your own email must not
@@ -1544,13 +1546,17 @@ model ReportInbox {
 /// the channel, so it is encrypted at rest and never returned in full.
 model SlackDestination {
   id                  String    @id @default(cuid())
-  organizationId      String    @unique
+  organizationId      String
   organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   /// Channel name for display only, e.g. "dmarc-alerts". Slack resolves the
   /// destination from the webhook URL, so this is never used to route anything.
   channelLabel        String?
   encryptedWebhookUrl String
   enabled             Boolean   @default(true)
+  /// Clients whose messages this channel receives. Empty means every client.
+  clientIds           String[]  @default([])
+  /// Kinds of message it receives (lib chat-routing chatKinds). Empty means all.
+  kinds               String[]  @default([])
   /// Set while an instance is delivering, so a fleet does not post the same
   /// alert to the same channel several times at once.
   deliveryClaimedAt   DateTime?
@@ -1561,10 +1567,12 @@ model SlackDestination {
   updatedAt           DateTime  @updatedAt
 
   @@index([enabled])
+  @@index([organizationId])
   @@map("slack_destination")
 }
 
-/// One Microsoft Teams channel that receives the same alerts as email.
+/// A Microsoft Teams channel that receives alerts: up to 20 per workspace,
+/// routed by client and kind exactly as Slack destinations are.
 ///
 /// Deliberately independent of `SlackDestination`: a workspace may have Slack,
 /// Teams, both or neither, and one of them failing must not stop the other. The
@@ -1577,13 +1585,17 @@ model SlackDestination {
 /// refused with their own message rather than a generic "invalid URL".
 model TeamsDestination {
   id                  String    @id @default(cuid())
-  organizationId      String    @unique
+  organizationId      String
   organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   /// Channel name for display only, e.g. "Alerts". Teams resolves the
   /// destination from the webhook URL, so this is never used to route anything.
   channelLabel        String?
   encryptedWebhookUrl String
   enabled             Boolean   @default(true)
+  /// Clients whose messages this channel receives. Empty means every client.
+  clientIds           String[]  @default([])
+  /// Kinds of message it receives. Empty means all.
+  kinds               String[]  @default([])
   lastDeliveredAt     DateTime?
   consecutiveFailures Int       @default(0)
   lastError           String?
@@ -1591,6 +1603,7 @@ model TeamsDestination {
   updatedAt           DateTime  @updatedAt
 
   @@index([enabled])
+  @@index([organizationId])
   @@map("teams_destination")
 }
 

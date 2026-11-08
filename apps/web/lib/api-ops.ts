@@ -837,6 +837,10 @@ export function deleteSlackDestination(organizationId: string): Promise<void> {
   });
 }
 
+/** Every Slack or Teams channel of the workspace, oldest first, masked. */
+export function listChatDestinations(organizationId: string, service: "slack" | "teams"): Promise<SlackDestination[]> {
+  return opsFetch<{ destinations: SlackDestination[] }>(`/api/workspaces/${organizationId}/${service}-destinations`).then((r) => r.destinations);
+}
 /** Microsoft Teams alerts. Same rule as Slack: the Workflows address never
  *  comes back, so the page shows maskedUrl and editing means pasting a new
  *  one. */

@@ -6,6 +6,7 @@ import {
   setTeamsDestinationEnabledController,
   testTeamsDestinationController,
 } from '../controllers/teams.controller.js';
+import { teamsDestinations } from '../controllers/chat-destinations.controller.js';
 import { requireSession } from '../middleware/auth.middleware.js';
 import { onlyDisables, requireFeature, requireFeatureUnless } from '../middleware/entitlement.middleware.js';
 import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
@@ -70,4 +71,49 @@ teamsRouter.post(
   requireFeature('alerts.email'),
   teamsTestRateLimiter,
   testTeamsDestinationController,
+);
+
+/**
+ * Several channels, each routed by client and kind (chat-destinations
+ * controller). The same gates as the single-destination routes above: adding,
+ * changing and testing need alerts.email; reading, pausing and removing are
+ * open on every plan.
+ */
+teamsRouter.get(
+  '/workspaces/:organizationId/teams-destinations',
+  requireSession,
+  requireOrganizationPermission('organization', 'read'),
+  teamsDestinations.list,
+);
+
+teamsRouter.post(
+  '/workspaces/:organizationId/teams-destinations',
+  requireSession,
+  requireOrganizationPermission('organization', 'update'),
+  requireFeature('alerts.email'),
+  teamsDestinations.create,
+);
+
+teamsRouter.patch(
+  '/workspaces/:organizationId/teams-destinations/:destinationId',
+  requireSession,
+  requireOrganizationPermission('organization', 'update'),
+  requireFeatureUnless('alerts.email', onlyDisables),
+  teamsDestinations.update,
+);
+
+teamsRouter.delete(
+  '/workspaces/:organizationId/teams-destinations/:destinationId',
+  requireSession,
+  requireOrganizationPermission('organization', 'update'),
+  teamsDestinations.remove,
+);
+
+teamsRouter.post(
+  '/workspaces/:organizationId/teams-destinations/:destinationId/test',
+  requireSession,
+  requireOrganizationPermission('organization', 'update'),
+  requireFeature('alerts.email'),
+  teamsTestRateLimiter,
+  teamsDestinations.test,
 );
