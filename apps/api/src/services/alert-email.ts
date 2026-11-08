@@ -22,6 +22,52 @@ export function escalationSubject(rule: { domain: { name: string }; name: string
   return `[DMARC Harbor] URGENT unacknowledged: ${rule.domain.name} ${rule.name}`;
 }
 
+/**
+ * Plain words for what a rule measures and how it compares, for a technician
+ * reading the alert in a channel. Session 19 found posts reading
+ * "(FAILURE_COUNT)", "GREATER_THAN 50" and "1440 minutes".
+ */
+const METRIC_WORDS: Record<string, string> = {
+  FAILURE_COUNT: 'failing messages',
+  FAILURE_RATE: 'failure rate',
+  FORENSIC_FAILURES: 'failure reports',
+  SOURCE_IP_VOLUME: 'mail from one source',
+  NEW_UNAUTHENTICATED_SOURCE: 'new senders failing SPF and DKIM',
+  REPORT_SILENCE: 'reports going quiet',
+};
+const OPERATOR_WORDS: Record<string, string> = {
+  GREATER_THAN: 'more than',
+  GREATER_THAN_OR_EQUAL: 'at least',
+  LESS_THAN: 'less than',
+  LESS_THAN_OR_EQUAL: 'at most',
+};
+const UNIT: Record<string, string> = { FAILURE_RATE: '%', REPORT_SILENCE: ' hours' };
+
+/** 1440 as "24 hours", 90 as "90 minutes", 10080 as "7 days". */
+export function durationWords(minutes: number): string {
+  if (minutes % 1440 === 0 && minutes >= 2880) return `${minutes / 1440} days`;
+  if (minutes % 60 === 0 && minutes >= 60) return minutes === 60 ? '1 hour' : `${minutes / 60} hours`;
+  return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+}
+
+function thresholdWords(metric: string, operator: string, threshold: number): string {
+  const op = OPERATOR_WORDS[operator] ?? operator.toLowerCase().replace(/_/g, ' ');
+  const unit = UNIT[metric] ?? (metric === 'FAILURE_COUNT' || metric === 'SOURCE_IP_VOLUME' ? ' messages' : '');
+  return `${op} ${threshold.toLocaleString('en-GB')}${unit}`;
+}
+
+/** "Alert: Session 8 failing mail (failing messages)", without repeating a rule named for its metric. */
+function alertLine(ruleName: string, metric: string): string {
+  const words = METRIC_WORDS[metric] ?? metric.toLowerCase().replace(/_/g, ' ');
+  return ruleName.trim().toLowerCase() === words ? `Alert: ${ruleName}` : `Alert: ${ruleName} (${words})`;
+}
+
+/** "This is the first notice", then "Reminder 1 of 2": the first notice is not a reminder. */
+export function noticeLine(reminderLevel: number, maxReminderLevel: number): string {
+  if (reminderLevel <= 1) return 'This is the first notice.';
+  return `Reminder ${reminderLevel - 1} of ${Math.max(1, maxReminderLevel - 1)}`;
+}
+
 export function escalationNote(reminderLevel: number): string {
   if (reminderLevel <= 1) {
     return '';
@@ -78,13 +124,13 @@ export function alertEmailBody(input: {
   return [
     `Workspace: ${input.organizationName}`,
     `Domain: ${input.domainName}`,
-    `Alert: ${input.ruleName} (${input.metric})`,
+    alertLine(input.ruleName, input.metric),
     input.summary,
     '',
-    `Threshold: ${input.operator} ${input.threshold}`,
-    `Window: ${input.windowMinutes} minutes`,
+    `Fires at: ${thresholdWords(input.metric, input.operator, input.threshold)}`,
+    `Measured over: the last ${durationWords(input.windowMinutes)}`,
     ...spoofingLines,
-    input.reminderLevel > 1 ? `Reminder ${input.reminderLevel} of ${input.maxReminderLevel}` : 'This is the first notification.',
+    noticeLine(input.reminderLevel, input.maxReminderLevel),
     escalationNote(input.reminderLevel),
     '',
     'Review and acknowledge this alert in DMARC Harbor.',

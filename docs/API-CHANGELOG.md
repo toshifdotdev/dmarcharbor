@@ -254,6 +254,27 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-12-14 — Alert and summary wording in plain words
+
+Found reading real posts in Slack and Teams (session 19). No field changes;
+text changes only.
+
+- **`summary`** on new alert events (`GET /api/v1/alerts`, the
+  `alert.triggered` webhook) gives the window in hours or days: "in the last 24
+  hours", not "in the last 1440 minutes". Existing events keep their text.
+- **Alert email, Slack and Teams body:** the metric in words ("failing
+  messages", not `FAILURE_COUNT`), "Fires at: more than 50 messages" instead of
+  "Threshold: GREATER_THAN 50", "Measured over: the last 24 hours". The first
+  notice is "This is the first notice." and the reminders after it are
+  "Reminder 1 of 2" and "Reminder 2 of 2" (they read "2 of 3" and "3 of 3",
+  counting the first notice as a reminder). PSA reminder notes match.
+- **DNS change and expiry summaries:** "DNS changed on 1 domain" or "on 2
+  domains", not "domain(s)". A summary about several domains names "2
+  domains" as its domain, and its Teams button opens Alerts rather than the
+  first domain.
+
+---
+
 ## 2026-12-14 — Chat channel audit rows say what changed
 
 Browser routes under `/api` only; `/api/v1` is unchanged. Found in session 19.

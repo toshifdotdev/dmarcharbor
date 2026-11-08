@@ -73,7 +73,7 @@ const alertRule = {
   ruleName: 'Failure rate',
   metric: 'FAILURE_RATE',
   summary: '12% of 4,210 messages failed DMARC.',
-  operator: 'GT',
+  operator: 'GREATER_THAN',
   threshold: 5,
   windowMinutes: 60,
   reminderLevel: 1,
@@ -504,17 +504,17 @@ describe('alert wording', () => {
       [
         'Workspace: Wistholm IT',
         'Domain: pellowyn-dental.example',
-        'Alert: Failure rate (FAILURE_RATE)',
+        'Alert: Failure rate',
         '12% of 4,210 messages failed DMARC.',
-        'Threshold: GT 5',
-        'Window: 60 minutes',
-        'This is the first notification.',
+        'Fires at: more than 5%',
+        'Measured over: the last 1 hour',
+        'This is the first notice.',
         'Review and acknowledge this alert in DMARC Harbor.',
       ].join('\n'),
     );
 
     expect(alertEmailBody({ ...alertRule, reminderLevel: 2 })).toContain(
-      'Reminder 2 of 3\nNobody has acknowledged this alert yet. If someone is already handling it, acknowledge it to stop further reminders.\n',
+      'Reminder 1 of 2\nNobody has acknowledged this alert yet. If someone is already handling it, acknowledge it to stop further reminders.\n',
     );
 
     expect(
@@ -533,7 +533,7 @@ describe('alert wording', () => {
         ],
       }),
     ).toContain(
-      'Window: 60 minutes\nSending sources to check:\n  mail.lookalike.example: 40 of 40 messages failed both SPF and DKIM, from 203.0.113.7, first seen 2026-11-02.\nIf the domain owner confirms this is not their service, move to p=reject to stop it.\nThis is the first notification.',
+      'Measured over: the last 1 hour\nSending sources to check:\n  mail.lookalike.example: 40 of 40 messages failed both SPF and DKIM, from 203.0.113.7, first seen 2026-11-02.\nIf the domain owner confirms this is not their service, move to p=reject to stop it.\nThis is the first notice.',
     );
 
     expect(escalationSubject({ domain: { name: 'pellowyn-dental.example' }, name: 'Failure rate' }, 3)).toBe(

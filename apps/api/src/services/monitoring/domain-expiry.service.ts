@@ -434,9 +434,10 @@ async function deliverWarnings(
     return {
       subject,
       body: [...listed, ...more, 'Renew with the registrar, or confirm auto-renew is on.'].join('\n'),
-      domainName: first.domainName,
+      // Several domains are labelled as several (session 19).
+      domainName: subset.length === 1 ? first.domainName : `${subset.length} domains`,
       risk: subset.some(({ warning }) => severityFor(warning.threshold) === 'CRITICAL') ? ('high' as const) : ('medium' as const),
-      domainSlug: first.domainSlug,
+      domainSlug: subset.length === 1 ? first.domainSlug : null,
     };
   };
 
@@ -464,7 +465,7 @@ async function deliverWarnings(
       items,
       build: (subset) => {
         const { domainSlug, ...rest } = message(subset);
-        return { ...rest, workspaceName, linkPath: `/domains/${domainSlug}` };
+        return { ...rest, workspaceName, linkPath: domainSlug ? `/domains/${domainSlug}` : '/alerts' };
       },
     });
     outcome.teams += result.delivered;

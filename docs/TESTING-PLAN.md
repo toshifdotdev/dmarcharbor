@@ -104,7 +104,7 @@ What the state column means:
   in the fast pass only.
 - **not run** and **new**: never run. Run in full, then final.
 
-**Order from here.** Sessions 8 and 18 are done; next the sessions never run (19, 20,
+**Order from here.** Sessions 8, 18 and 19 are done; next the sessions never run (20,
 then 4 and 5 once reports arrive, then 10 and 14), then the re-runs (7, 9, 12,
 13, 16, 17). Billing (11) is last, once the Razorpay keys exist. Then one
 fast pass over every session not marked final.
@@ -129,7 +129,7 @@ fast pass over every session not marked final.
 | 16* | Data export, erasure, audit trail, plan limits on every plan | nothing | **re-run** (Gemini) |
 | 17 | Ask, public site, docs and SEO, one end-to-end run as a new MSP | an Anthropic API key | **re-run** (Gemini) |
 | 18* | Free tools, glossary and setup guides | nothing | **final** (8 November 2026); the agency-host check is repeated live in 14 |
-| 19 | Routed Slack and Teams channels | 2 Slack and 2 Teams test channels | **new** |
+| 19 | Routed Slack and Teams channels | 2 Slack and 2 Teams test channels | **final** (9 November 2026) |
 | 20 | Cloudflare zone import | a Cloudflare token that can read several zones | **new** |
 
 ## Session 8: PSA tickets and webhooks
@@ -382,6 +382,43 @@ Webhook rotation, client limits and `/api/v1` webhooks moved to session 8.
 3. **Manage.** Pause, change routing, change address, remove; the 21st channel
    is refused; a client from another workspace is refused; the audit trail
    names each change.
+
+### Session 19 results (9 November 2026): final
+
+Wistholm IT on Admiralty, with four real channels: Slack `dh-pellowyn`
+(Pellowyn Dental, every kind), Slack `dh-dns` (DNS changes, every client),
+Teams "DH Pellowyn" (everything) and Teams "DH DNS" (DNS changes and expiry,
+Haskerley Law). Real alerts, DNS changes and expiry warnings on
+pellowyn-clinic.example and haskerley-law.example, delivered as the scheduler
+delivers them; what arrived was read in each channel.
+
+| # | Item | Result |
+|---|---|---|
+| 1 | Several channels | **Pass** after a copy fix. All four connected from the settings screens; each test message names its routing ("DNS changes and domain expiry about Haskerley Law"). Teams gives a `…environment.api.powerplatform.com:443` address now, which is accepted. |
+| 2 | Routing | **Pass.** Failing-mail alerts reached `dh-pellowyn` (Pellowyn only) and DH Pellowyn (both), not the DNS channels. Each DNS summary and expiry warning listed only the channel's own clients: `dh-pellowyn` Pellowyn, `dh-dns` both, DH DNS Haskerley only. Reminders followed the same routes. |
+| 3 | Manage | **Pass** after fixes. Pause stopped `dh-pellowyn` getting the next summary and warning; adding expiry to `dh-dns` brought the next warning there; a new address on a channel with 14 failures reset it to 0 and the test arrived; Remove asks first and deletes. The 21st Slack channel is refused (409) and the screen says so at 20; another workspace's client, an old Teams connector address and an unknown id are refused. Every change has an audit row with its actor. |
+| – | Roles and plan | **Pass.** An analyst is refused (403). On Mooring, adding, changing, resuming and testing answer 402 naming Fairway, pausing works, and nothing is posted. |
+
+The screens have no sideways scroll at 390 and 1440.
+
+**Broken, fixed**
+
+- Reminders were numbered from the first notice: the first reminder said "Reminder 2 of 3". Now "Reminder 1 of 2"; the PSA note matches.
+- A DNS summary or expiry warning about two domains was labelled with the first of them ("Domain: pellowyn-clinic.example") and its Teams button opened that domain.
+
+**Gap, fixed**
+
+- Alert posts and emails read "(FAILURE_COUNT)", "Threshold: GREATER_THAN 50" and "1440 minutes"; now the metric in words, "Fires at: more than 50 messages" and "the last 24 hours".
+- "DNS changed on 2 domain(s)" is now "2 domains".
+- The audit trail wrote one row for a channel added, renamed, rerouted or given a new address, and named clients by id. Rows now say what changed and name the clients; the screen calls them channels and shows "dh-dns" as typed, not "dh dns".
+- The Teams steps named the template "Post to a channel when a webhook request is received"; Teams now calls it "Send webhook alerts to a channel".
+- On a phone the hint beside Send test message was a one-word column.
+
+**Open, for later sessions**
+
+- Haskerley Law's first reminder reached nobody: the API restarted (a code edit, under `tsx watch`) while it was being sent. The alert's level had already moved on, so the email row stayed pending and the Teams post was never made, and the next reminder came at the next level. A deploy during a reminder would do the same. Look at it in the session 7 re-run: record the level after sending, so a restart sends the same reminder again.
+- DNS changes and expiry warnings that happen while a workspace is on a plan without alerts are dropped, not sent after an upgrade. Kept as designed unless decided otherwise.
+- An analyst cannot read the Slack and Teams screens (403), as for PSA and webhooks in session 8.
 
 ## Session 20: Cloudflare zone import
 

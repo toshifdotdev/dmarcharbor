@@ -266,10 +266,14 @@ export async function deliverDnsChangeNotifications(
     const summary = (subset: Item[]) => {
       const listed = subset.slice(0, 10).map((change) => `${change.domain.name}: ${change.summary}`);
       const more = subset.length > 10 ? [`and ${subset.length - 10} more`] : [];
+      const domains = new Set(subset.map((change) => change.domain.name)).size;
       return {
-        subject: `DNS changed on ${new Set(subset.map((change) => change.domain.name)).size} domain(s) in ${workspaceName}`,
+        subject: `DNS changed on ${domains} domain${domains === 1 ? '' : 's'} in ${workspaceName}`,
         body: [...listed, ...more].join('\n'),
-        domainName: subset[0]?.domain.name ?? 'your domains',
+        // A summary of several domains is labelled as several, not as the
+        // first of them (session 19: "Domain: pellowyn-clinic.example" on a
+        // post about two).
+        domainName: domains === 1 ? (subset[0]?.domain.name ?? 'your domains') : `${domains} domains`,
         risk: subset.some((change) => change.severity === 'CRITICAL') ? ('high' as const) : ('medium' as const),
       };
     };
@@ -291,7 +295,8 @@ export async function deliverDnsChangeNotifications(
         build: (subset) => ({
           ...summary(subset),
           workspaceName,
-          linkPath: subset[0] ? `/domains/${subset[0].domain.slug}` : '/alerts',
+          linkPath:
+            subset[0] && new Set(subset.map((change) => change.domain.name)).size === 1 ? `/domains/${subset[0].domain.slug}` : '/alerts',
         }),
       });
       outcome.teams += result.delivered;

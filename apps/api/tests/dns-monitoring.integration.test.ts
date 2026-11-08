@@ -1193,7 +1193,7 @@ describe('DNS change notifications', () => {
         text: string;
         blocks: Array<{ text: { text: string } }>;
       };
-      expect(body.text).toContain('DNS changed on 1 domain(s)');
+      expect(body.text).toContain('DNS changed on 1 domain in');
       expect(body.text).toContain('Slack change 0.');
       expect(body.text).toContain('and 2 more');
       expect(body.blocks[0]!.text.text).toContain('Slack change 9.');

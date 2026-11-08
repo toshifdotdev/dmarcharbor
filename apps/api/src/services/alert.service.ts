@@ -11,8 +11,10 @@ import { sendAuthEmail } from '../email/email.service.js';
 import {
   alertEmail,
   alertEmailBody,
+  durationWords,
   escalationNote,
   escalationSubject,
+  noticeLine,
   rollupEmailBody,
   rollupEmailSubject,
 } from './alert-email.js';
@@ -527,19 +529,22 @@ function summarise(
     return `No DMARC report has been received since ${last}, which is ${comparison} the ${rule.threshold}h threshold.`;
   }
 
+  // "the last 24 hours", not "the last 1440 minutes" (session 19).
+  const window = durationWords(rule.windowMinutes);
+
   if (rule.metric === 'SOURCE_IP_VOLUME' && snapshot.busiestSourceIp) {
-    return `Source ${snapshot.busiestSourceIp} sent ${observed}${unit} in the last ${rule.windowMinutes} minutes, ${comparison} the ${rule.threshold}${unit} threshold.`;
+    return `Source ${snapshot.busiestSourceIp} sent ${observed}${unit} in the last ${window}, ${comparison} the ${rule.threshold}${unit} threshold.`;
   }
 
   if (rule.metric === 'FAILURE_COUNT') {
-    return `Observed ${observed} messages that failed DMARC in the last ${rule.windowMinutes} minutes, ${comparison} the ${rule.threshold} message threshold.`;
+    return `Observed ${observed} messages that failed DMARC in the last ${window}, ${comparison} the ${rule.threshold} message threshold.`;
   }
 
   if (rule.metric === 'FAILURE_RATE') {
-    return `Observed a DMARC failure rate of ${observed}% in the last ${rule.windowMinutes} minutes, ${comparison} the ${rule.threshold}% threshold.`;
+    return `Observed a DMARC failure rate of ${observed}% in the last ${window}, ${comparison} the ${rule.threshold}% threshold.`;
   }
 
-  return `Observed ${observed}${unit} in the last ${rule.windowMinutes} minutes, ${comparison} the ${rule.threshold}${unit} threshold.`;
+  return `Observed ${observed}${unit} in the last ${window}, ${comparison} the ${rule.threshold}${unit} threshold.`;
 }
 
 function contextFor(snapshot: DomainSnapshot, metric: AlertMetric): Prisma.InputJsonValue {
@@ -1195,7 +1200,7 @@ export async function evaluateAlertRules(now = new Date()): Promise<RuleEvaluati
           eventId: openEvent.id,
           // escalationNote already says nobody has acknowledged it; saying so
           // here too put the same sentence twice in every reminder note.
-          text: `Reminder ${reminderLevel} in DMARC Harbor. ${escalationNote(reminderLevel)}`.trim(),
+          text: `${noticeLine(reminderLevel, rule.maxReminderLevel)} in DMARC Harbor. ${escalationNote(reminderLevel)}`.trim(),
           suffix: `reminder:${reminderLevel}`,
         });
       } catch (error) {
