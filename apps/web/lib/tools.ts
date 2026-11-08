@@ -9,7 +9,7 @@
  */
 
 export interface FreeTool {
-  slug: "dmarc" | "spf" | "dkim" | "bimi" | "dmarc-generator";
+  slug: "dmarc" | "spf" | "dkim" | "bimi" | "dmarc-generator" | "report-reader";
   path: string;
   /** Bold name, as a station label. */
   name: string;
@@ -65,6 +65,15 @@ export const FREE_TOOLS: FreeTool[] = [
     title: "DMARC record generator",
     description:
       "Write a DMARC record to publish: choose the policy, report addresses, alignment and testing mode, and copy the TXT record with what each tag will do. Free, no account.",
+  },
+  {
+    slug: "report-reader",
+    path: "/tools/dmarc-report-reader",
+    name: "Report reader",
+    kind: "an aggregate report, read",
+    title: "DMARC aggregate report reader",
+    description:
+      "Read a DMARC aggregate report as a table and a map of who sent as the domain: drop the XML, .zip or .xml.gz and see every source, its SPF and DKIM results and what the receiver did. Read in your browser, never uploaded. Free, no account.",
   },
 ];
 
