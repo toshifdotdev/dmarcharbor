@@ -187,15 +187,27 @@ export function ZoneImport({
 
           <div className="flex flex-col">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-rule pb-2">
-              <Checkbox
-                label={allShownChosen ? "Clear the ready zones" : `Choose all ${shownAvailable.length} ready to add`}
-                checked={allShownChosen}
-                disabled={shownAvailable.length === 0}
-                onChange={(e) => toggleShown(e.target.checked)}
-                data-testid="zone-select-all"
-              />
+              {shownAvailable.length > 0 ? (
+                <Checkbox
+                  label={
+                    allShownChosen
+                      ? "Clear the ready zones"
+                      : shownAvailable.length === 1
+                        ? "Choose the 1 ready to add"
+                        : `Choose all ${shownAvailable.length} ready to add`
+                  }
+                  checked={allShownChosen}
+                  onChange={(e) => toggleShown(e.target.checked)}
+                  data-testid="zone-select-all"
+                />
+              ) : (
+                // Nothing to choose: say so rather than offer "Choose all 0" (session 20).
+                <span className="text-meta text-fg-3" data-testid="zone-none-ready">
+                  None ready to add: every zone here is already monitored.
+                </span>
+              )}
               <span className="flex-1" />
-              <span className="text-meta text-fg-3 tnum">{shown.length === zones.length ? `${zones.length} zones` : `${shown.length} of ${zones.length} zones`}</span>
+              <span className="text-meta text-fg-3 tnum">{shown.length === zones.length ? zoneCount(zones.length) : `${shown.length} of ${zoneCount(zones.length)}`}</span>
             </div>
             <ul className="flex max-h-[320px] flex-col overflow-y-auto" data-testid="zone-list">
               {shown.map((zone) => (
@@ -286,6 +298,10 @@ export function ZoneImport({
   );
 }
 
+function zoneCount(n: number): string {
+  return `${n.toLocaleString("en-GB")} ${n === 1 ? "zone" : "zones"}`;
+}
+
 /** Where a zone stands, as a word with its mark. */
 function ZoneWord({ zone }: { zone: ImportableZone }) {
   if (zone.state === "here") {
@@ -331,7 +347,7 @@ function ZoneLine({ zones }: { zones: ImportableZone[] }) {
 
   return (
     <figure className="flex flex-col gap-2" data-testid="zone-import-line">
-      <div role="img" aria-label={`${zones.length} zones in this account: ${summary}.`} className="flex items-center gap-1.5">
+      <div role="img" aria-label={`${zoneCount(zones.length)} in this account: ${summary}.`} className="flex items-center gap-1.5">
         <span aria-hidden className="size-3.5 shrink-0 rounded-full border-[3px] border-fg bg-paper" />
         <div className="flex min-w-0 flex-1 gap-1">
           {parts.map((p) => (
@@ -342,7 +358,7 @@ function ZoneLine({ zones }: { zones: ImportableZone[] }) {
       </div>
       <figcaption className="flex flex-wrap gap-x-5 gap-y-1 text-meta text-fg-3">
         <span>
-          <span className="font-semibold text-fg tnum">{zones.length}</span> zones in this account
+          <span className="font-semibold text-fg tnum">{zones.length}</span> {zones.length === 1 ? "zone" : "zones"} in this account
         </span>
         {parts.map((p) => (
           <span key={p.key} className="inline-flex items-center gap-1.5">

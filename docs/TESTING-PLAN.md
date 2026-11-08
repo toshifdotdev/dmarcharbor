@@ -104,8 +104,8 @@ What the state column means:
   in the fast pass only.
 - **not run** and **new**: never run. Run in full, then final.
 
-**Order from here.** Sessions 8, 18 and 19 are done; next the sessions never run (20,
-then 4 and 5 once reports arrive, then 10 and 14), then the re-runs (7, 9, 12,
+**Order from here.** Sessions 8, 18, 19 and 20 are done; next the sessions never run
+(4 and 5 with the report that has arrived, then 10 and 14), then the re-runs (7, 9, 12,
 13, 16, 17). Billing (11) is last, once the Razorpay keys exist. Then one
 fast pass over every session not marked final.
 
@@ -130,7 +130,7 @@ fast pass over every session not marked final.
 | 17 | Ask, public site, docs and SEO, one end-to-end run as a new MSP | an Anthropic API key | **re-run** (Gemini) |
 | 18* | Free tools, glossary and setup guides | nothing | **final** (8 November 2026); the agency-host check is repeated live in 14 |
 | 19 | Routed Slack and Teams channels | 2 Slack and 2 Teams test channels | **final** (9 November 2026) |
-| 20 | Cloudflare zone import | a Cloudflare token that can read several zones | **new** |
+| 20 | Cloudflare zone import | a Cloudflare token that can read several zones | **final** (9 November 2026); several zones checked against stand-in answers, the account has one |
 
 ## Session 8: PSA tickets and webhooks
 
@@ -417,7 +417,7 @@ The screens have no sideways scroll at 390 and 1440.
 **Open, for later sessions**
 
 - Haskerley Law's first reminder reached nobody: the API restarted (a code edit, under `tsx watch`) while it was being sent. The alert's level had already moved on, so the email row stayed pending and the Teams post was never made, and the next reminder came at the next level. A deploy during a reminder would do the same. Look at it in the session 7 re-run: record the level after sending, so a restart sends the same reminder again.
-- DNS changes and expiry warnings that happen while a workspace is on a plan without alerts are dropped, not sent after an upgrade. Kept as designed unless decided otherwise.
+- DNS changes and expiry warnings that happen while a workspace is on a plan without alerts are not sent after an upgrade. **Decided (9 November): kept.** A notice is about the moment; a backlog posted at upgrade would page people about changes that may be long fixed. The changes stay in the domain's DNS history, and an expiry still close after the upgrade is warned at its next rung.
 - An analyst cannot read the Slack and Teams screens (403), as for PSA and webhooks in session 8.
 
 ## Session 20: Cloudflare zone import
@@ -428,6 +428,27 @@ The screens have no sideways scroll at 390 and 1440.
    ownership records; the ones over the limit say so.
 3. A token without Zone Read says what to fix. An account with more than 1,000
    zones says it listed part.
+
+### Session 20 results (9 November 2026): final
+
+A real token (Zone → Zone → Read and Zone → DNS → Edit, all zones) on the
+Cloudflare account that holds `dmarcharbor.com`, its only zone, connected to
+Wistholm IT. The code was read first to confirm that listing and importing
+write nothing to Cloudflare: connecting calls `GET /user/tokens/verify`,
+listing calls `GET /zones`, and importing creates domains here only. The states
+the real account cannot show (several zones, more than 1,000, no Zone Read)
+were run through the real service and Cloudflare client with stand-in
+answers. The connection was removed after the session.
+
+| # | Item | Result |
+|---|---|---|
+| 1 | Listing | **Pass** after a copy fix. The real account lists `dmarcharbor.com` as "Monitored by another workspace" (it is under Session One Test), without naming it, and the connection reads the account name. Stand-in zones read as ready, monitored here under Pellowyn Dental, and in another workspace. No sideways scroll at 390 or 1440. |
+| 2 | Import | **Pass.** 15 zones chosen on Fairway with 9 domains in use: 11 added as pending with their ownership records, the 12th and 13th refused naming Fairway's 20 and Harbor's 80, `dmarcharbor.com` refused as held by another workspace, and a domain already here refused as such. The 11 were removed after. |
+| 3 | Refusals | **Pass.** A token without Zone Read (403, code 9109) answers what to add and marks the connection with it; a token that sees no zones gets its own sentence; 1,250 zones read 20 pages, list 1,000 and say the list is partial. A wrong token and a Global API Key are refused when connecting. |
+
+**Gap, fixed**
+
+- The zone panel said "1 zones in this account", "1 zones", and offered "Choose all 0 ready to add" when nothing could be added; it now says "1 zone" and "None ready to add: every zone here is already monitored".
 
 ## Session 2: workspace, team members, roles, invitations
 
