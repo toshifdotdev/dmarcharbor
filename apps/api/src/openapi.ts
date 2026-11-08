@@ -358,7 +358,92 @@ export const openApiDocument = {
         },
       },
     },
-    '/v1/usage': {
+    '/v1/webhooks': {
+      get: {
+        tags: ['API'],
+        summary: 'List webhook endpoints',
+        description: [
+          'Every endpoint of the key workspace with its events, clientIds (empty means every client), state and failure count, plus the event names and the default set.',
+          'Secrets are never returned here; one is returned once, when an endpoint is created or its secret rotated.',
+        ].join(' '),
+        security: [{ apiKeyAuth: [] }],
+        responses: { 200: { description: '{ endpoints, events, defaultEvents }.' }, ...apiErrors },
+      },
+      post: {
+        tags: ['API'],
+        summary: 'Add a webhook endpoint',
+        description: [
+          'Body: name, url (public https; private and local addresses refused, redirects not followed), events (defaults to domain.verified and alert.triggered) and clientIds (clients of this workspace; empty or absent means every client).',
+          'Needs the write scope and integrations.webhooks. The response carries the signing secret once; store it.',
+        ].join(' '),
+        security: [{ apiKeyAuth: [] }],
+        responses: { 201: { description: 'The endpoint, with its secret, once.' }, ...apiErrors },
+      },
+    },
+    '/v1/webhooks/test': {
+      post: {
+        tags: ['API'],
+        summary: 'Send a test event',
+        description: 'Queues a test domain.verified event, marked test: true, to every endpoint subscribed to domain.verified. Needs write and integrations.webhooks.',
+        security: [{ apiKeyAuth: [] }],
+        responses: { 202: { description: '{ queued, notice }.' }, ...apiErrors },
+      },
+    },
+    '/v1/webhooks/{webhookId}': {
+      patch: {
+        tags: ['API'],
+        summary: 'Change a webhook endpoint',
+        description: [
+          'Any of name, url, events, clientIds and active. Sending only active: false (pausing) works on every plan; anything else needs integrations.webhooks.',
+        ].join(' '),
+        security: [{ apiKeyAuth: [] }],
+        parameters: [idParam('webhookId', 'Endpoint identifier from the list.')],
+        responses: { 200: { description: 'The endpoint.' }, ...apiErrors },
+      },
+      delete: {
+        tags: ['API'],
+        summary: 'Remove a webhook endpoint',
+        description: 'Stops delivery and deletes the endpoint and its secret. Works on every plan.',
+        security: [{ apiKeyAuth: [] }],
+        parameters: [idParam('webhookId', 'Endpoint identifier from the list.')],
+        responses: { 204: { description: 'Removed.' }, ...apiErrors },
+      },
+    },
+    '/v1/webhooks/{webhookId}/rotate-secret': {
+      post: {
+        tags: ['API'],
+        summary: 'Rotate an endpoint signing secret',
+        description: [
+          'Body: overlapHours, one of 0, 1, 24 or 168: how long the old secret keeps signing beside the new one. During the overlap x-dmarcharbor-signature lists both values, new first.',
+          'The new secret is returned once. Needs write and integrations.webhooks.',
+        ].join(' '),
+        security: [{ apiKeyAuth: [] }],
+        parameters: [idParam('webhookId', 'Endpoint identifier from the list.')],
+        responses: { 200: { description: 'The endpoint, with its new secret, once.' }, ...apiErrors },
+      },
+    },
+    '/v1/webhook-deliveries': {
+      get: {
+        tags: ['API'],
+        summary: 'List recent webhook deliveries',
+        description: 'The last fifty deliveries, newest first, optionally for one endpoint (endpointId query parameter), with status, attempts and the response code your system gave.',
+        security: [{ apiKeyAuth: [] }],
+        parameters: [
+          { name: 'endpointId', in: 'query', required: false, description: 'Only this endpoint.', schema: { type: 'string' } },
+        ],
+        responses: { 200: { description: '{ deliveries }.' }, ...apiErrors },
+      },
+    },
+    '/v1/webhook-deliveries/{deliveryId}/replay': {
+      post: {
+        tags: ['API'],
+        summary: 'Send a delivery again',
+        description: 'Queues the same event again to the same endpoint. 409 when the endpoint is paused. Needs write and integrations.webhooks.',
+        security: [{ apiKeyAuth: [] }],
+        parameters: [idParam('deliveryId', 'Delivery identifier from the deliveries list.')],
+        responses: { 202: { description: '{ queued: true }.' }, ...apiErrors },
+      },
+    },    '/v1/usage': {
       get: {
         tags: ['API'],
         summary: 'Per-client usage for one month',

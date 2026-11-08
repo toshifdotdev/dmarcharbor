@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { grantPlan } from './helpers/plan.js';
+import { createApiKey } from '../src/services/api-key.service.js';
 import {
   deliverDueWebhooks,
   emitEvent,
@@ -677,5 +678,73 @@ describe('webhook secret rotation and client filters', () => {
     const foreign = await clientWithDomain(other.organizationId, 'Charlie');
     const refused = await agent.patch(`/api/workspaces/${organizationId}/webhooks/${endpoint.id}`).send({ clientIds: [foreign.client.id] });
     expect(refused.status).toBe(400);
+  });
+});
+
+describe('webhook endpoints through /api/v1 with an API key', () => {
+  beforeAll(resetDatabase);
+
+  async function keyed(scopes: Array<'read' | 'write'>) {
+    const fixture = await setup();
+    const owner = await prisma.member.findFirstOrThrow({ where: { organizationId: fixture.organizationId, role: 'owner' }, select: { userId: true } });
+    const { key } = await createApiKey({ organizationId: fixture.organizationId, name: `Hooks ${scopes.join('+')}`, scopes, createdById: owner.userId });
+    const call = (method: 'get' | 'post' | 'patch' | 'delete', path: string) =>
+      request(app)[method](`/api/v1${path}`).set('Authorization', `Bearer ${key}`);
+    return { ...fixture, call };
+  }
+
+  it('adds, lists, limits, rotates, pauses and removes an endpoint', async () => {
+    const { organizationId, call } = await keyed(['read', 'write']);
+    const client = await prisma.client.create({
+      data: { organizationId, name: 'Keyed Client', slug: `keyed-${Date.now()}` },
+      select: { id: true },
+    });
+
+    const created = await call('post', '/webhooks').send({
+      name: 'PSA bridge',
+      url: 'https://hooks.example.com/dmarc',
+      events: ['alert.triggered'],
+      clientIds: [client.id],
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    expect(typeof created.body.secret).toBe('string');
+    expect(created.body.clientIds).toEqual([client.id]);
+
+    const listed = await call('get', '/webhooks');
+    expect(listed.status).toBe(200);
+    expect(listed.body.endpoints).toHaveLength(1);
+    expect(JSON.stringify(listed.body)).not.toContain(created.body.secret);
+
+    const rotated = await call('post', `/webhooks/${created.body.id}/rotate-secret`).send({ overlapHours: 24 });
+    expect(rotated.status).toBe(200);
+    expect(rotated.body.secret).not.toBe(created.body.secret);
+
+    const paused = await call('patch', `/webhooks/${created.body.id}`).send({ active: false });
+    expect(paused.status).toBe(200);
+    expect(paused.body.active).toBe(false);
+
+    expect((await call('get', '/webhook-deliveries')).status).toBe(200);
+    expect((await call('delete', `/webhooks/${created.body.id}`)).status).toBe(204);
+    expect((await call('get', '/webhooks')).body.endpoints).toHaveLength(0);
+
+    const audited = await prisma.auditLog.findMany({
+      where: { organizationId, action: { in: ['WEBHOOK_ENDPOINT_CREATED', 'WEBHOOK_SECRET_ROTATED', 'WEBHOOK_ENDPOINT_DELETED'] } },
+      select: { action: true },
+    });
+    expect(audited.map((row) => row.action).sort()).toEqual(['WEBHOOK_ENDPOINT_CREATED', 'WEBHOOK_ENDPOINT_DELETED', 'WEBHOOK_SECRET_ROTATED']);
+  });
+
+  it('refuses changes to a read-only key and endpoints of another workspace', async () => {
+    const reader = await keyed(['read']);
+    expect((await reader.call('get', '/webhooks')).status).toBe(200);
+    const refused = await reader.call('post', '/webhooks').send({ name: 'No', url: 'https://hooks.example.com/x' });
+    expect(refused.status).toBe(403);
+
+    const owner = await keyed(['read', 'write']);
+    const theirs = await owner.call('post', '/webhooks').send({ name: 'Theirs', url: 'https://hooks.example.com/theirs' });
+    expect(theirs.status).toBe(201);
+    const other = await keyed(['read', 'write']);
+    expect((await other.call('delete', `/webhooks/${theirs.body.id}`)).status).toBe(404);
+    expect((await other.call('patch', `/webhooks/${theirs.body.id}`).send({ active: false })).status).toBe(404);
   });
 });

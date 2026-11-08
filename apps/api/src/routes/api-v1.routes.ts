@@ -29,6 +29,17 @@ import {
 } from '../middleware/rate-limit.middleware.js';
 import type { ApiScope } from '../services/api-key.service.js';
 import { apiUsageController } from '../controllers/usage-export.controller.js';
+import {
+  createWebhookController,
+  deleteWebhookController,
+  listWebhookDeliveriesController,
+  listWebhooksController,
+  replayWebhookDeliveryController,
+  rotateWebhookSecretController,
+  testWebhookController,
+  updateWebhookController,
+} from '../controllers/webhook.controller.js';
+import { requireFeature } from '../middleware/entitlement.middleware.js';
 
 // Mounted at /api/v1, and every path below is declared relative to that. The
 // contract in openapi.ts is keyed on '/v1/...' and the drift test applies this
@@ -108,3 +119,25 @@ apiV1Router.post('/alerts/:alertId/acknowledge', ...apiRoute('write', apiAcknowl
 
 apiV1Router.get('/dns-changes', ...apiRoute('read', apiListDnsChangesController));
 apiV1Router.post('/dns-changes/:changeId/acknowledge', ...apiRoute('write', apiAcknowledgeDnsChangeController));
+
+// ─── Webhook endpoints ───────────────────────────────────────────────────────
+
+/**
+ * The same endpoints the Webhooks settings page manages, with the same
+ * controllers, so a key and a person can never disagree about what an
+ * endpoint is. Reading needs `read`; every change needs `write`. Adding,
+ * rotating, testing and replaying need integrations.webhooks, checked after
+ * the key; pausing and removing are open on every plan, and the update
+ * controller checks the plan itself because only its body tells the two apart.
+ * The audit trail records each change from the service, with no person, as
+ * every other key-made change is.
+ */
+const webhooksFeature = requireFeature('integrations.webhooks');
+apiV1Router.get('/webhooks', ...apiRoute('read', listWebhooksController));
+apiV1Router.post('/webhooks', ...apiRoute('write', webhooksFeature), createWebhookController);
+apiV1Router.post('/webhooks/test', ...apiRoute('write', webhooksFeature), testWebhookController);
+apiV1Router.patch('/webhooks/:webhookId', ...apiRoute('write', updateWebhookController));
+apiV1Router.delete('/webhooks/:webhookId', ...apiRoute('write', deleteWebhookController));
+apiV1Router.post('/webhooks/:webhookId/rotate-secret', ...apiRoute('write', webhooksFeature), rotateWebhookSecretController);
+apiV1Router.get('/webhook-deliveries', ...apiRoute('read', listWebhookDeliveriesController));
+apiV1Router.post('/webhook-deliveries/:deliveryId/replay', ...apiRoute('write', webhooksFeature), replayWebhookDeliveryController);
