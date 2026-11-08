@@ -4,6 +4,7 @@ import {
   entriesForAsn,
   entriesForDomain,
   entriesForPtr,
+  entriesForSelector,
   type CatalogueEntry,
   type ServiceCategory,
 } from './service-catalogue.js';
@@ -46,6 +47,8 @@ export interface AuthSignal {
   domain: string | null;
   result: string;
   messageCount: number;
+  /** The DKIM selector, when the report gave one. */
+  selector?: string | null;
 }
 
 export interface CachedIntel {
@@ -147,8 +150,12 @@ function ownServer(ptr: string, reportedDomain: string): boolean {
 }
 
 function choose(candidates: Map<string, Candidate>): Candidate | null {
+  const verified = [...candidates.values()].filter((candidate) => candidate.verified);
+  // A service seen with the platform it sends through is named, not the
+  // platform: Resend's mail is also signed by amazonses.com.
+  const carried = new Set(verified.flatMap((candidate) => candidate.entry.sendsThrough ?? []));
   return (
-    [...candidates.values()].filter((candidate) => candidate.verified).sort(
+    verified.filter((candidate) => !carried.has(candidate.entry.id)).sort(
       (left, right) =>
         right.messages - left.messages ||
         Number(right.confirmed) - Number(left.confirmed) ||
@@ -185,6 +192,21 @@ export function attributeSender(input: {
         `${label} (${signal.result || 'unknown'})`,
       );
       addEvidence(allEvidence, `${label} (${signal.result || 'unknown'})`);
+    }
+    // A passing signature under the customer's own domain with a service's
+    // default selector. Failing ones are ignored: a selector is a name anyone
+    // can write in a header.
+    if (
+      kind === 'dkim' &&
+      signal.selector &&
+      isPass(signal.result) &&
+      (!input.reportedDomain || ownServer(domain, input.reportedDomain))
+    ) {
+      for (const entry of entriesForSelector(signal.selector)) {
+        const line = `DKIM s=${clean(signal.selector, 64)} d=${domain} (pass)`;
+        addSignal(candidates, entry, signal.messageCount, true, line);
+        addEvidence(allEvidence, line);
+      }
     }
   }
 

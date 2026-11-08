@@ -422,7 +422,7 @@ export async function collectMonthlyFacts(input: FactsInput): Promise<MonthlyFac
           select: {
             sourceIp: true,
             messageCount: true,
-            authResults: { select: { type: true, domain: true, result: true } },
+            authResults: { select: { type: true, domain: true, result: true, selector: true } },
           },
           take: 5_000,
         })
@@ -439,11 +439,12 @@ export async function collectMonthlyFacts(input: FactsInput): Promise<MonthlyFac
     const ip = normaliseIpAddress(record.sourceIp) ?? record.sourceIp;
     const signals = signalsByIp.get(ip) ?? new Map<string, AuthSignal>();
     for (const auth of record.authResults) {
-      const key = `${auth.type}|${auth.domain ?? ''}|${auth.result}`;
+      const key = `${auth.type}|${auth.domain ?? ''}|${auth.result}|${auth.selector ?? ''}`;
       const signal = signals.get(key) ?? {
         type: auth.type,
         domain: auth.domain,
         result: auth.result,
+        selector: auth.selector,
         messageCount: 0,
       };
       signal.messageCount += record.messageCount;

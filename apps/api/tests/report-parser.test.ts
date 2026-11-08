@@ -85,6 +85,8 @@ describe('DMARC report parser', () => {
     expect(report.policyDomain).toBe('example.com');
     expect(report.policyP).toBe('none');
     expect(report.policyFraction).toBe(100);
+    // Real receivers send <pct>, as RFC 7489 names it (session 4: Google).
+    expect(parseDmarcReport(aggregateReport.replace('<fraction>100</fraction>', '<pct>50</pct>')).policyFraction).toBe(50);
     expect(report.dateRangeBegin?.toISOString()).toBe('2024-04-04T00:00:00.000Z');
     expect(report.records).toHaveLength(2);
     expect(report.records[0]).toMatchObject({

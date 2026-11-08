@@ -32,6 +32,19 @@ export interface CatalogueEntry {
   dkimDomains: string[];
   /** Domains that appear as the SPF-authenticated envelope-from domain. */
   spfDomains: string[];
+  /**
+   * DKIM selectors the service sets by default on the customer's own domain
+   * (Resend signs as `resend._domainkey.<domain>`). Only a passing signature
+   * counts: it was made with the customer's published key, so it is not
+   * something a spoofer can write.
+   */
+  dkimSelectors?: string[];
+  /**
+   * Services this one sends through. Resend sends through Amazon SES, so its
+   * mail also carries an amazonses.com signature; naming Amazon SES there sent
+   * the customer to an SES console they do not have (session 4).
+   */
+  sendsThrough?: string[];
   /** The SPF include named in the vendor's own documentation, when it names one. */
   spfInclude?: string;
   /** Confirmed PTR suffixes owned by the service. */
@@ -276,6 +289,11 @@ export const serviceCatalogue: readonly CatalogueEntry[] = [
     category: 'transactional',
     dkimDomains: ['resend.com'],
     spfDomains: ['resend.com'],
+    // The DKIM record Resend generates is resend._domainkey on the customer's
+    // domain, and its SPF include is amazonses.com on the send. subdomain:
+    // https://resend.com/docs/llms-full.txt (domain records, checked November 2026).
+    dkimSelectors: ['resend'],
+    sendsThrough: ['amazon-ses'],
     ptrSuffixes: ['resend.com'],
     asns: [],
     source: 'https://resend.com/docs/dashboard/domains/introduction',
@@ -317,6 +335,12 @@ export function entriesForDomain(domain: string, kind: 'dkim' | 'spf'): Catalogu
   return serviceCatalogue.filter((entry) =>
     entry[field].some((suffix) => domainMatchesSuffix(domain, suffix)),
   );
+}
+
+export function entriesForSelector(selector: string): CatalogueEntry[] {
+  const clean = selector.trim().toLowerCase();
+  if (!clean) return [];
+  return serviceCatalogue.filter((entry) => entry.dkimSelectors?.includes(clean));
 }
 
 export function entriesForPtr(ptr: string): CatalogueEntry[] {

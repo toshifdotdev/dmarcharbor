@@ -879,7 +879,7 @@ function ReportsTable({ reports }: { reports: ReportRow[] }) {
                   {r.reportId ?? "none"}
                 </Td>
                 <Td className="tnum whitespace-nowrap text-fg-2">
-                  {r.dateRangeBegin ? `${shortDate(r.dateRangeBegin)} – ${r.dateRangeEnd ? shortDate(r.dateRangeEnd) : "?"}` : <Nil label="no period stated" />}
+                  {r.dateRangeBegin ? periodLabel(r.dateRangeBegin, r.dateRangeEnd) : <Nil label="no period stated" />}
                 </Td>
                 <Td numeric muted>
                   {shortDate(r.receivedAt)}
@@ -1165,9 +1165,30 @@ function shortDate(iso: string): string {
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
+/**
+ * A report period's day, in UTC: receivers report whole UTC days. In the
+ * server's own zone, Google's 7 November (00:00 to 23:59:59 UTC) read as
+ * "7 Nov – 8 Nov" in India (session 4). An end at 00:00:00 belongs to the day
+ * before, as an exclusive end.
+ */
+function utcDay(iso: string, end = false): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const at = end && d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 ? new Date(d.getTime() - 1000) : d;
+  return at.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+}
+
+/** "7 Nov", or "7 Nov – 8 Nov" when the period covers more than one UTC day. */
+function periodLabel(begin: string, end: string | null): string {
+  if (!end) return `${utcDay(begin)} – ?`;
+  const first = utcDay(begin);
+  const last = utcDay(end, true);
+  return first === last ? first : `${first} – ${last}`;
+}
+
 function windowLabel(w: { begin: string | null; end: string | null }): string {
   if (!w.begin || !w.end) return "no measurement window";
-  return `${shortDate(w.begin)} – ${shortDate(w.end)}`;
+  return periodLabel(w.begin, w.end);
 }
 
 function capitalise(s: string) {

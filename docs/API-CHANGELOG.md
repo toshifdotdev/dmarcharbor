@@ -254,6 +254,26 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-12-15 — The first real report: pct, subdomain senders, Resend
+
+Found on Google's first report for our own domain (session 4).
+
+- **`policyFraction`** is now read from `<pct>`, the element receivers send
+  (RFC 7489), as well as `<fraction>`. Before, it was null for every real
+  report. Reports already stored keep null.
+- **`unattributedMessages`** on `GET /api/workspaces/{id}/domain-signals` no
+  longer counts mail whose sender authenticated as a name under the domain
+  (`mail.example.com` for `example.com`). The domain page's verdict follows.
+- **Sender names.** A passing DKIM signature with Resend's default `resend`
+  selector under the domain names Resend; a service is named rather than the
+  platform it sends through (Resend over Amazon SES). This changes `service`
+  and `evidence` on sender and source rows (`/api/v1/domains/{domain}/senders`
+  included) for such mail, from Amazon SES to Resend.
+- **`topSendingDomain`** on a source breaks a tie towards the domain's own
+  passing signature, then DKIM, then name order, instead of database order.
+
+---
+
 ## 2026-12-14 — Alert and summary wording in plain words
 
 Found reading real posts in Slack and Teams (session 19). No field changes;

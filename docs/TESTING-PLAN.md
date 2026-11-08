@@ -104,8 +104,8 @@ What the state column means:
   in the fast pass only.
 - **not run** and **new**: never run. Run in full, then final.
 
-**Order from here.** Sessions 8, 18, 19 and 20 are done; next the sessions never run
-(4 and 5 with the report that has arrived, then 10 and 14), then the re-runs (7, 9, 12,
+**Order from here.** Sessions 4, 8, 18, 19 and 20 are done; next the sessions never run
+(5 on the same report, then 10 and 14), then the re-runs (7, 9, 12,
 13, 16, 17). Billing (11) is last, once the Razorpay keys exist. Then one
 fast pass over every session not marked final.
 
@@ -114,7 +114,7 @@ fast pass over every session not marked final.
 | 1 | Accounts and sign-in | nothing | fast pass |
 | 2* | Workspace, team members, roles, invitations | nothing | fast pass |
 | 3* | Clients and domains: add, verify, bulk import, move, rename, delete | nothing | fast pass |
-| 4 | Report ingestion: real DMARC reports arriving and being measured | Migadu mailbox, `rua` on our `_dmarc` record, reports received | **not run**: waiting for reports |
+| 4 | Report ingestion: real DMARC reports arriving and being measured | Migadu mailbox, `rua` on our `_dmarc` record, reports received | **final** (9 November 2026), on Google's first report for `dmarcharbor.com` |
 | 5* | Domain posture, senders (with setup-guide links), subdomains, readiness, the portfolio and domain page figures | real reports from session 4 | **not run** |
 | 6* | DNS monitoring, change history, expiry, Gmail, Yahoo and Microsoft checks, the home-page checker | nothing | fast pass |
 | 7 | Alerts by email, Slack and Teams (single channel) | Slack and Teams test channels | **re-run** (Gemini); routing is in 19 |
@@ -449,6 +449,51 @@ answers. The connection was removed after the session.
 **Gap, fixed**
 
 - The zone panel said "1 zones in this account", "1 zones", and offered "Choose all 0 ready to add" when nothing could be added; it now says "1 zone" and "None ready to add: every zone here is already monitored".
+
+## Session 4: report ingestion
+
+The first real aggregate report: Google's for `dmarcharbor.com`, 7 November
+2026 (UTC), sent to our `rua` address on Migadu and read by the platform
+mailbox poller. `dmarcharbor.com` is under Pellowyn Dental in Session One
+Test. The mailbox was opened read-only for the checks; the attachment is in
+`.shots/s4/`.
+
+1. **Arrival.** The poller read the message, stored the report and moved the
+   message to "DMARC Harbor processed"; the inbox is empty.
+2. **Counts.** Every field and record matches the XML: reporter, report id,
+   period, policy, records, sources, messages, results, auth results.
+3. **Again.** The same message delivered a second time stores nothing.
+4. **Who sent it.** The sender is named as the service that sent it, with the
+   evidence; a name under the domain is the domain's own.
+5. **On the domain page.** The verdict, readouts, routes, Sources, Subdomains,
+   Aggregate reports and Gmail/Yahoo/Outlook read what the report says, with
+   periods in UTC days. The portfolio agrees.
+
+### Session 4 results (9 November 2026): final
+
+| # | Item | Result |
+|---|---|---|
+| 1 | Arrival | **Pass.** Received 8 November 11:00 UTC, stored at 11:02, moved to the processed folder; inbox 0, processed 1. |
+| 2 | Counts | **Pass** after a fix. google.com, report 13288681401065445299, 7 Nov 00:00–23:59:59 UTC, p=none sp=none adkim=r aspf=r; 7 records, 7 sources (23.251.234.51–61), 9 messages, all DKIM and SPF pass; each record's DKIM (mail.dmarcharbor.com `resend`, amazonses.com) and SPF (rsend.mail.dmarcharbor.com) results stored. `pct=100` was not stored. |
+| 3 | Again | **Pass.** A second delivery answers "duplicate" with the same report id; still one report. |
+| 4 | Who sent it | **Pass** after a fix. Named Resend, "Confirmed by DKIM", on the Senders tab and on every source; the evidence lists `DKIM s=resend d=mail.dmarcharbor.com (pass)`, the amazonses.com signature and the confirmed `*.smtp-out.ap-northeast-1.amazonses.com` reverse DNS. "Too little data" at 9 messages. `mail.dmarcharbor.com` is listed under Subdomains, 9 messages, 100% pass. |
+| 5 | On the domain page | **Pass** after fixes. "Aligned: 9 messages aligned"; Messages observed 9, 7 Nov; SPF and DKIM 100%; one route, "Resend app mail"; Aggregate reports 7 Nov, 7 records, 9 messages, 0 failed, p=none; Gmail 9 messages, below 5,000 a day. The portfolio counts 0 messages not attributed to the domain. |
+
+**Broken, fixed**
+
+- The parser read the policy's `<fraction>` element, but receivers send `<pct>` (RFC 7489), so the percentage was never stored for a real report. It now reads `<pct>`, then `<fraction>`; the one stored report was given its 100.
+- Mail signed as a name under the domain counted as unattributed: `mail.dmarcharbor.com` made `dmarcharbor.com` read "Unverified: 100% of volume from senders not attributed to this domain", in the domain page and in the portfolio count (`/domain-signals`).
+- The same comparison labelled the route "signs as another domain".
+- Resend's mail was named Amazon SES, because it also carries an amazonses.com signature, and the Setup guide pointed at the SES console. A passing DKIM signature with Resend's `resend` selector under the domain now names Resend, and a service seen with the platform it sends through is named rather than the platform.
+- The Sources tab's sending domain picked between equal counts in database order and showed amazonses.com; the domain's own passing signature now wins a tie.
+- Report periods were dated in the server's time zone: Google's 7 November read "7 Nov – 8 Nov" in India. Periods are now UTC days, shown as one day when they cover one.
+
+**Open, for later sessions**
+
+- There is no Resend setup guide, so a Resend sender has no Setup guide link. Consider one with the guides in session 17.
+- The TLS reports tab formats its periods the same local way; check it in session 10.
+- `np` in `policy_published` is not stored (no column).
+- The preview account (`dmarcharbor+colour`) was made an admin of Session One Test to read this domain; remove it with `.shots/s4-member.mts remove` after session 5.
 
 ## Session 2: workspace, team members, roles, invitations
 

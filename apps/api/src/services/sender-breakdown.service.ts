@@ -77,6 +77,7 @@ interface SenderSignalRow {
   type: string;
   domain: string | null;
   result: string;
+  selector: string | null;
   messages: bigint;
 }
 
@@ -133,12 +134,13 @@ export async function buildSenderBreakdown(
              a."type"::text AS "type",
              a."domain" AS "domain",
              a."result" AS "result",
+             a."selector" AS "selector",
              COALESCE(SUM(rec."messageCount"), 0)::bigint AS "messages"
       FROM "dmarc_auth_result" a
       JOIN "dmarc_report_record" rec ON rec.id = a."recordId"
       JOIN "dmarc_report" r ON r.id = rec."reportId"
       WHERE r."domainId" = ${domainId}
-      GROUP BY 1, 2, 3, 4
+      GROUP BY 1, 2, 3, 4, 5
     `,
   ]);
 
@@ -213,11 +215,12 @@ export async function buildSenderBreakdown(
   for (const row of signalRows) {
     const entry = senders.get(row.key);
     if (!entry) continue;
-    const signalKey = `${row.type}|${row.domain ?? ''}|${row.result}`;
+    const signalKey = `${row.type}|${row.domain ?? ''}|${row.result}|${row.selector ?? ''}`;
     const signal = entry.signals.get(signalKey) ?? {
       type: row.type as AuthSignal['type'],
       domain: row.domain,
       result: row.result,
+      selector: row.selector,
       messageCount: 0,
     };
     signal.messageCount += Number(row.messages);

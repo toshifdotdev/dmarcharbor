@@ -314,7 +314,10 @@ export function parseDmarcReport(xml: string): ParsedDmarcReport {
 
   const metadata = asRecord(feedback.report_metadata);
   const dateRange = asRecord(metadata?.date_range);
-  const fractionValue = text(policy.fraction);
+  // RFC 7489 reports call it <pct> (Google, Microsoft and Yahoo send that);
+  // <fraction> is read too. Reading only <fraction> stored nothing for every
+  // real report (session 4, Google's report for dmarcharbor.com).
+  const fractionValue = text(policy.pct) ?? text(policy.fraction);
   const fraction = fractionValue === undefined ? undefined : requiredNumber(fractionValue, 'policy fraction');
 
   return {

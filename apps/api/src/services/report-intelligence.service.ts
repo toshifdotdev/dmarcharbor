@@ -263,18 +263,32 @@ export async function getDomainInsights(
   for (const row of signalRows) {
     const sourceIp = normaliseIpAddress(row.ip) ?? row.ip;
     const signals = ipSignals.get(sourceIp) ?? new Map<string, AuthSignal>();
-    const key = `${row.type}|${row.domain ?? ''}|${row.result}`;
-    const signal = signals.get(key) ?? { type: row.type, domain: row.domain, result: row.result, messageCount: 0 };
+    const key = `${row.type}|${row.domain ?? ''}|${row.result}|${row.selector ?? ''}`;
+    const signal = signals.get(key) ?? { type: row.type, domain: row.domain, result: row.result, selector: row.selector, messageCount: 0 };
     signal.messageCount += Number(row.messages);
     signals.set(key, signal);
     ipSignals.set(sourceIp, signals);
   }
   // The domain the most mail from a source authenticated as names it, ahead of
-  // the From header the query fell back on.
+  // the From header the query fell back on. On a tie a passing domain under
+  // the monitored one wins, then DKIM over SPF, then name order: Resend's mail
+  // carries both mail.example.com and amazonses.com signatures on every
+  // message, and the unordered query let amazonses.com win (session 4).
+  const own = (name: string) => {
+    const d = name.toLowerCase();
+    const root = domain.name.toLowerCase();
+    return d === root || d.endsWith(`.${root}`);
+  };
   for (const source of listed) {
     const best = [...(ipSignals.get(source.sourceIp)?.values() ?? [])]
-      .filter((signal) => signal.domain)
-      .sort((a, b) => b.messageCount - a.messageCount)[0];
+      .filter((signal): signal is AuthSignal & { domain: string } => Boolean(signal.domain))
+      .sort(
+        (a, b) =>
+          b.messageCount - a.messageCount ||
+          Number(own(b.domain) && b.result.toLowerCase() === 'pass') - Number(own(a.domain) && a.result.toLowerCase() === 'pass') ||
+          Number(b.type.toUpperCase() === 'DKIM') - Number(a.type.toUpperCase() === 'DKIM') ||
+          a.domain.localeCompare(b.domain),
+      )[0];
     if (best?.domain) source.topSendingDomain = best.domain;
   }
 
@@ -401,6 +415,7 @@ interface SourceSignalRow {
   type: string;
   domain: string | null;
   result: string;
+  selector: string | null;
   messages: bigint;
 }
 
@@ -412,6 +427,7 @@ async function sourceSignals(domainId: string, ips: string[]): Promise<SourceSig
            a."type"::text AS "type",
            a."domain" AS "domain",
            a."result" AS "result",
+           a."selector" AS "selector",
            COALESCE(SUM(rec."messageCount"), 0)::bigint AS "messages"
     FROM "dmarc_auth_result" a
     JOIN "dmarc_report_record" rec ON rec.id = a."recordId"
@@ -419,7 +435,7 @@ async function sourceSignals(domainId: string, ips: string[]): Promise<SourceSig
     WHERE r."domainId" = ${domainId}
       AND r."reportType" = 'AGGREGATE'
       AND rec."sourceIp" = ANY(${ips}::text[])
-    GROUP BY 1, 2, 3, 4
+    GROUP BY 1, 2, 3, 4, 5
   `;
 }
 

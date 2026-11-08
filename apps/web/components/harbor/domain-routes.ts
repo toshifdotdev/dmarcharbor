@@ -20,6 +20,7 @@
  */
 
 import type { SenderRow } from "@/lib/types";
+import { signsAsDomain } from "@/lib/sender-domain";
 
 export const ROUTE_COLOURS = [
   "var(--color-route-blue)",
@@ -85,8 +86,8 @@ function named(row: SenderRow): boolean {
 }
 
 function label(row: SenderRow, domainName: string): { name: string; mono: boolean; kind: string } {
-  const signedAs = (row.senderDomain ?? "").toLowerCase();
-  const elsewhere = signedAs !== "" && signedAs !== domainName.toLowerCase();
+  // A name under the domain is the domain's own (lib/sender-domain.ts).
+  const elsewhere = (row.senderDomain ?? "") !== "" && !signsAsDomain(row.senderDomain, domainName);
   if (named(row) && row.service) {
     return {
       name: row.service.name,

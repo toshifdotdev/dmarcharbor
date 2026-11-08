@@ -232,8 +232,8 @@ export async function latestReportedPolicyByDomain(domainIds: string[]): Promise
 
 /**
  * Messages from senders that authenticated as some other domain than the one
- * monitored: seen, but not attributed. Counted per record, so a sender whose
- * name changed is counted by what each record said.
+ * monitored, or a name under it: seen, but not attributed. Counted per record,
+ * so a sender whose name changed is counted by what each record said.
  */
 export async function unattributedByDomain(domainIds: string[]): Promise<Map<string, number>> {
   const out = new Map<string, number>();
@@ -245,7 +245,12 @@ export async function unattributedByDomain(domainIds: string[]): Promise<Map<str
     JOIN "domain" d ON d.id = r."domainId"
     WHERE r."domainId" = ANY(${domainIds}::text[])
       AND r."reportType" = 'AGGREGATE'
+      -- The domain itself or a name under it is this domain's own mail: the
+      -- parser stores the aligned domain, and mail.example.com aligns with
+      -- example.com (session 4: Resend signing as mail.dmarcharbor.com read
+      -- as 100% unattributed).
       AND lower(COALESCE(rec."senderDomain", '')) <> lower(d."name")
+      AND right(lower(COALESCE(rec."senderDomain", '')), length(d."name") + 1) <> '.' || lower(d."name")
     GROUP BY 1
   `;
   for (const row of rows) out.set(row.domainId, Number(row.messages));

@@ -16,6 +16,7 @@ import { cache } from "react";
 import { redirect } from "next/navigation";
 import { API_BASE, apiFetch as apiRequest } from "./api-fetch";
 import { sessionCookieHeader } from "./session-cookie";
+import { signsAsDomain } from "./sender-domain";
 import { cookies } from "next/headers";
 import type {
   ApiErrorBody,
@@ -203,9 +204,11 @@ export function deriveSignals(
   reportedPolicy: string | null,
 ): DomainSignals {
   // Attribution, measured: a sender that authenticates as some other domain is
-  // seen traffic we cannot attribute to this domain. That is never a pass.
+  // seen traffic we cannot attribute to this domain. That is never a pass. A
+  // name under the domain (mail.example.com) is the domain's own, as the API's
+  // portfolio count has it (unattributedByDomain).
   const unattributedMessages = insights.senders
-    .filter((s) => (s.senderDomain ?? "").toLowerCase() !== domainName.toLowerCase())
+    .filter((s) => !signsAsDomain(s.senderDomain, domainName))
     .reduce((sum, s) => sum + s.totalMessages, 0);
 
   const a = insights.aggregate;
