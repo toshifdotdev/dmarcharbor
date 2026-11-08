@@ -104,8 +104,8 @@ What the state column means:
   in the fast pass only.
 - **not run** and **new**: never run. Run in full, then final.
 
-**Order from here.** Sessions 4, 8, 18, 19 and 20 are done; next the sessions never run
-(5 on the same report, then 10 and 14), then the re-runs (7, 9, 12,
+**Order from here.** Sessions 4, 5, 8, 18, 19 and 20 are done; next the sessions never
+run (10 and 14), then the re-runs (7, 9, 12,
 13, 16, 17). Billing (11) is last, once the Razorpay keys exist. Then one
 fast pass over every session not marked final.
 
