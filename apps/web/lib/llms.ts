@@ -37,7 +37,7 @@ const LLMS_DETAIL = [
   "It measures and proves. It never sends mail as anyone, and it changes DNS only when you ask, through a Cloudflare connection you add or a record it hosts for you.",
   "Each client domain reads as exactly one of pass, block, unverified, stale or unmeasured, from report data; a domain that has never reported is never called passing.",
   "Agencies can hand clients compliance packs with a published SHA-256 fingerprint that anyone can check on the verify page, revocable report share links, and a client portal in the agency's own brand.",
-  "Free tools at /tools read any domain's DMARC, SPF, DKIM and BIMI records from public DNS with no account: the DMARC record tag by tag, SPF lookups counted through every include against the limit of 10, a DKIM selector's key with its size, the BIMI record and logo rules, a DMARC record generator, an aggregate report reader and an email header analyser. The two readers run in the browser and upload nothing.",
+  "Free checkers at /tools read any domain's DMARC, SPF, DKIM and BIMI records from public DNS with no account: the DMARC record tag by tag, SPF lookups counted through every include against the limit of 10, a DKIM selector's key with its size, the BIMI record and logo rules, a DMARC record generator, an aggregate report reader and an email header analyser. The two readers run in the browser and upload nothing.",
   "A glossary at /glossary defines every term, and /guides has SPF, DKIM and DMARC setup for Microsoft 365, Google Workspace, Zoho Mail, Mailchimp, SendGrid, HubSpot, Amazon SES and Mailgun, checked against each provider's documentation.",
 ].join(" ");
 
@@ -51,7 +51,7 @@ const DOCUMENTATION: Array<{ path: string; title: string; note: string }> = [
 const PRODUCT_PAGES: Array<{ path: string; title: string; note: string }> = [
   { path: "/pricing", title: "Pricing", note: "every plan's price in USD and INR, monthly and annual, its limits and its features" },
   { path: "/verify", title: "Document fingerprint verifier", note: "check that a compliance pack or monthly report is the one issued, by its SHA-256 fingerprint; no account needed" },
-  { path: "/tools", title: "Free DNS tools", note: "free DMARC, SPF, DKIM and BIMI lookups and a DMARC record generator; no account needed" },
+  { path: "/tools", title: "Free DNS tools", note: "free DMARC, SPF, DKIM and BIMI checkers, a DMARC record generator, a report reader and a header analyser; no account needed" },
   ...FREE_TOOLS.map((t) => {
     const note = t.description.replace(/ Free, no account\.$/, "").replace(/\.$/, "");
     return { path: t.path, title: t.title, note: `${note.charAt(0).toLowerCase()}${note.slice(1)}; no account needed` };

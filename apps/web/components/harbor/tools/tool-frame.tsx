@@ -3,6 +3,9 @@
  * question the tool answers as its headline, the tool, the line of the other
  * tools, and the footer.
  *
+ * Below the tool, the questions people ask about it, as anchored headings with
+ * their answers; the same words are the page's FAQPage.
+ *
  * The other tools are drawn as one line with a station each, the current one
  * an accent capsule (you are here), the way the steering file draws a route.
  * Horizontal from 900px, vertical below, and no station sits outside its box.
@@ -14,7 +17,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { readHostBrand } from "@/lib/host-brand";
 import { canonicalOrigin } from "@/lib/site-origin";
 import { toolJsonLd, toolsIndexJsonLd } from "@/lib/structured-data";
-import { FREE_TOOLS, TOOLS_INDEX, toolBySlug, type FreeTool } from "@/lib/tools";
+import { FREE_TOOLS, TOOLS_INDEX, plainAnswer, toolBySlug, type FreeTool, type ToolQuestion } from "@/lib/tools";
 import { StructuredData } from "@/components/structured-data-view";
 import { PublicFooter, PublicHeader, brandName } from "@/components/harbor/public-frame";
 
@@ -43,7 +46,12 @@ export async function ToolFrame({
   const [brand, origin] = await Promise.all([readHostBrand(), canonicalOrigin()]);
   const name = brandName(brand);
   // Each tool is a free WebApplication under Free tools; the index lists them.
-  const data = structured ?? (slug ? toolJsonLd(origin, toolBySlug(slug)) : toolsIndexJsonLd(origin, { ...TOOLS_INDEX, tools: FREE_TOOLS }));
+  const tool = slug ? toolBySlug(slug) : null;
+  const data =
+    structured ??
+    (tool
+      ? toolJsonLd(origin, { ...tool, faq: tool.faq.map((q) => ({ ...q, answer: plainAnswer(q.answer) })) })
+      : toolsIndexJsonLd(origin, { ...TOOLS_INDEX, tools: FREE_TOOLS }));
   const above = crumb === undefined ? (slug ? { href: "/tools", label: "Free tools" } : null) : crumb;
   const toolsLine = showTools ?? Boolean(slug);
   return (
@@ -73,6 +81,8 @@ export async function ToolFrame({
         </header>
 
         <div className="mt-10 sm:mt-14">{children}</div>
+
+        {tool && tool.faq.length > 0 ? <ToolQuestions topic={tool.topic} questions={tool.faq} /> : null}
 
         {toolsLine ? (
           <section aria-labelledby="other-tools" className="mt-24 border-t border-rule pt-10 sm:mt-32">
@@ -180,5 +190,53 @@ export function LinkLine({
         );
       })}
     </ol>
+  );
+}
+
+/**
+ * The questions people ask about the tool, each an anchored heading with its
+ * answer. Copy at 0.74fr beside the list at 1fr from 1100px, stacked below,
+ * hairlines between the questions. `backticks` in an answer are literal DNS.
+ */
+function ToolQuestions({ topic, questions }: { topic: string; questions: ToolQuestion[] }) {
+  return (
+    <section
+      aria-labelledby="tool-questions"
+      className="mt-24 grid gap-8 border-t border-rule pt-10 sm:mt-32 min-[68.75rem]:grid-cols-[minmax(0,0.74fr)_minmax(0,1fr)] min-[68.75rem]:gap-16"
+    >
+      <h2 id="tool-questions" className="text-[28px] font-[740] leading-[1.02] tracking-[-0.03em] text-fg [text-wrap:balance] sm:text-[36px]">
+        Questions about {topic}
+      </h2>
+      <div className="flex flex-col">
+        {questions.map((q) => (
+          <div key={q.id} className="border-b border-rule py-6 first:pt-0 last:border-b-0">
+            <h3 id={q.id} className="scroll-mt-24 text-[19px] font-bold leading-[1.25] tracking-[-0.01em] text-fg">
+              {q.question}
+            </h3>
+            <p className="mt-2 max-w-[38rem] text-[16.5px] leading-[1.55] text-fg-2">
+              <AnswerText text={q.answer} />
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** Plain text with `backtick` spans set in mono, as literal DNS. */
+function AnswerText({ text }: { text: string }) {
+  const parts = text.split("`");
+  return (
+    <>
+      {parts.map((part, i) =>
+        i % 2 === 1 ? (
+          <code key={i} className="data break-words text-[0.92em] text-fg">
+            {part}
+          </code>
+        ) : (
+          part
+        ),
+      )}
+    </>
   );
 }

@@ -119,9 +119,9 @@ goes with it.
 
 **Can I check a domain without an account?**
 Yes. Enter it on the home page, or use the free tools under Free tools: a DMARC
-lookup that reads the record tag by tag, an SPF lookup that counts DNS lookups
-through every include, a DKIM lookup for a selector's key, a BIMI check of the logo
-record and file, a DMARC record generator, an aggregate report reader and an email
+checker that reads the record tag by tag, an SPF checker that counts DNS lookups
+through every include, a DKIM checker for a selector's key, a BIMI checker for the
+logo record and file, a DMARC record generator, an aggregate report reader and an email
 header analyser. None needs an account and nothing is stored about the domain; the
 report reader and header analyser run in your browser and upload nothing. Each is
 one moment, not monitoring. There is also a glossary of terms and setup guides for

@@ -108,7 +108,7 @@ export function softwareApplicationJsonLd(origin: string): Record<string, unknow
       // site-wide node beside the free offer does not claim the domain.
       "Client portal in your own brand",
       "Email, Slack and Teams alerting rules",
-      "Free DMARC, SPF, DKIM and BIMI lookups, a DMARC record generator, an aggregate report reader and an email header analyser, with no account",
+      "Free DMARC, SPF, DKIM and BIMI checkers, a DMARC record generator, an aggregate report reader and an email header analyser, with no account",
     ],
     isAccessibleForFree: true,
     publisher: { "@id": nodeId(origin, "organization") },
@@ -247,6 +247,8 @@ export interface StructuredToolInput {
   path: string;
   title: string;
   description: string;
+  /** The questions shown on the page, published as its FAQPage. Answers in plain text. */
+  faq?: Array<{ id: string; question: string; answer: string }>;
 }
 
 /**
@@ -277,6 +279,11 @@ export function toolJsonLd(origin: string, tool: StructuredToolInput): Record<st
       { name: "Free tools", path: "/tools" },
       { name: tool.title, path: tool.path },
     ]),
+    faqPageJsonLd(
+      origin,
+      tool.path,
+      (tool.faq ?? []).map((q) => ({ ...q, section: null, sectionId: null, pending: false })),
+    ),
   ]);
 }
 

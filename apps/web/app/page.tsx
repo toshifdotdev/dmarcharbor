@@ -31,7 +31,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return publicMetadata({
     title: "DMARC reports for MSPs managing client domains",
     description:
-      "DMARC monitoring for agencies and MSPs: posture per client domain, evidence to hand over, and a client portal in your brand. DNS changes only when you ask.",
+      "DMARC monitoring for agencies and MSPs: posture per client domain, evidence to hand over, a client portal in your brand, and a free DMARC checker.",
     path: "/",
   });
 }

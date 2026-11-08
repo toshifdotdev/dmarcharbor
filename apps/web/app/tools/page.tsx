@@ -17,7 +17,7 @@ export default function ToolsPage() {
   return (
     <ToolFrame
       slug={null}
-      headline="Free tools for the records that protect a domain’s mail."
+      headline="Free DMARC, SPF, DKIM and BIMI checkers."
       lead={
         <p>
           Each one reads public DNS the way receiving mail servers do and says what it finds in plain words. No account,
