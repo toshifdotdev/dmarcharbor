@@ -429,7 +429,11 @@ it is on your own domain. Replies to the emails they receive go to your support
 email.
 
 On Admiralty, add your own domain, such as `reports.youragency.example`, under
-Settings, White label, and verify it. From then on everything a client opens is on
+Settings, White label. Publish the two records it shows at your DNS host: a TXT
+record that proves the domain is yours, and a CNAME that points it at us. The page
+shows each step, and the domain goes live once it opens through us, usually within
+minutes of the CNAME being found. Until then, the links you send keep using our
+address. From then on everything a client opens is on
 your address: the portal and its sign-in page, share links, Trust Centers, prospect
 reports, and the links in monthly report and password reset emails. Clients sign in
 there with email and password, because Google and Microsoft sign-in only complete

@@ -169,8 +169,9 @@ the workspace, its clients, its active domains or its team, open invitations inc
   contact, add a support email and a support page: clients see them in the portal
   and on the sign-in page on your own domain, and replies to client emails go to
   your support email. On Admiralty, add your own domain under Settings, White
-  label, publish the TXT record it shows and point the hostname at this service.
-  Once it is verified, everything a client opens is on your address: the portal
+  label, and publish the TXT and CNAME records it shows. If your DNS host
+  proxies records (Cloudflare's orange cloud), set the CNAME to DNS only. Once
+  the page says it is live, everything a client opens is on your address: the portal
   and its sign-in, share links, Trust Centers, prospect reports, and the links in
   monthly report and password reset emails.
   Clients sign in there with email and password; Google and Microsoft sign-in are

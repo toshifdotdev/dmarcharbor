@@ -950,7 +950,8 @@ export const openApiDocument = {
         tags: ['White label'],
         summary: 'Stored white label settings',
         description: [
-          'The raw branding values held for this workspace, including the custom domain and whether its DNS record has been verified, and clientOrigin: the origin every link the workspace\'s clients receive is built on (https:// and the custom domain once the plan includes it and it is verified, APP_URL otherwise). Agency side.',
+          'The raw branding values held for this workspace, including the custom domain and whether its DNS record has been verified, and clientOrigin: the origin every link the workspace\'s clients receive is built on (https:// and the custom domain once the plan includes it, it is verified and it is live, APP_URL otherwise). Agency side.',
+          'customDomainHosting is how far the custom domain is from serving: { mode (automatic, manual or unavailable), cnameTarget (the name to CNAME the domain to), cnameState (found, missing, elsewhere or null), hostnameStatus, sslStatus, sslError, setupError, live, liveAt, checkedAt, requestedAt }. Live means https://<domain>/api/branding/host has answered as this agency through us.',
           'Also brandSupportEmail and brandSupportUrl (the contact the agency publishes to its clients), and the sending domain: sendingAddress (the stored local@domain, verified or not, or null), sendingDomainStatus (the email provider\'s last status, or null), sendingDomainRecords (the DNS records to publish, each { record, type, name, value, priority, status }; [] when none), sendingDomainVerifiedAt and sendingDomainCheckedAt. The provider\'s own id for the domain is never returned.',
         ].join(' '),
         parameters: [orgParam],
@@ -4543,14 +4544,14 @@ export const openApiDocument = {
       get: {
         tags: ['Onboarding and sharing'],
         summary: 'List share links',
-        description: 'Includes view count and last viewed time so an agency can tell whether a client opened the link, and pageUrl, the absolute page a client opens (on the agency\'s verified custom domain when it has one).',
+        description: 'Includes view count and last viewed time so an agency can tell whether a client opened the link, and pageUrl, the absolute page a client opens (on the agency\'s custom domain once it is live).',
         parameters: [orgParam, ...queryPagination],
         responses: { 200: { description: 'Page of share links.' }, ...standardErrors },
       },
       post: {
         tags: ['Onboarding and sharing'],
         summary: 'Create a share link',
-        description: 'Requires report update. The public response never contains personal data or pseudonyms. url is the relative API path that returns the report as JSON; pageUrl is the absolute page to send the client, {clientOrigin}/share/{token}, on the agency\'s verified custom domain when it has one and APP_URL otherwise.',
+        description: 'Requires report update. The public response never contains personal data or pseudonyms. url is the relative API path that returns the report as JSON; pageUrl is the absolute page to send the client, {clientOrigin}/share/{token}, on the agency\'s custom domain once it is live and APP_URL otherwise.',
         parameters: [orgParam],
         responses: { 201: { description: 'Share created, with the API url and the client pageUrl.' }, ...standardErrors },
       },

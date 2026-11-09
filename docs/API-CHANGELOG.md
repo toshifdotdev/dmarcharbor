@@ -254,6 +254,52 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-12-17 — Agency custom domains go live before client links use them
+
+Browser routes under `/api` only; `/api/v1` is unchanged. Found in session 14:
+the agency was never told where to point its domain, and nothing issued its
+certificate.
+
+### Changes an integration might notice
+
+- **`clientOrigin` waits for live.** `GET /api/workspaces/{id}/branding`
+  answers `clientOrigin` on the custom domain once the plan includes it, its
+  TXT record is verified **and it is live**: `https://<domain>/api/branding/host`
+  has answered as this agency through us. Until then it is `APP_URL`, and so is
+  every client link built on it (portal invitations, approval requests, monthly
+  reports, share links, Trust Centers, prospect reports, compliance pack
+  verify links). Live stays live until the domain is changed or removed.
+- **`GET /api/branding/host` reads the first `x-forwarded-host`** before
+  `Host`, as the portal routes do. Through the web app's `/api` proxy, `Host`
+  is ours, so this answered 404 on every agency domain.
+
+### Additive changes
+
+- **`customDomainHosting` on branding.** `GET /api/workspaces/{id}/branding`
+  answers how far the domain is from serving: `{ mode, cnameTarget, cnameState,
+  hostnameStatus, sslStatus, sslError, setupError, live, liveAt, checkedAt,
+  requestedAt }`. `mode` is `automatic` (the certificate is requested from
+  Cloudflare for SaaS), `manual` (the operator is asked to add the hostname) or
+  `unavailable` (this deployment has no CNAME target). `cnameState` is `found`,
+  `missing`, `elsewhere` or null when not read yet.
+- **`cnameTarget` and `hosting` on `PUT …/branding/custom-domain`**, the name
+  the agency points its hostname at and the same object as above.
+- **`hosting` on `POST …/branding/custom-domain/verify`.** Once the TXT record
+  is verified, every call also takes the domain one step on: it requests the
+  certificate (or tells the operator), reads the CNAME and the certificate's
+  state, and checks whether the domain is live. A 15-minute pass
+  does the same for every verified domain that is not live yet.
+- **`customDomainLive`** on the resolved branding (`GET …/branding/resolved`,
+  the portal branding and `GET /api/branding/host`).
+- **`CUSTOM_DOMAIN_LIVE`** audit action, with `{ customDomain, mode }`.
+- **`CUSTOM_DOMAIN_HOSTNAME_STUCK`** (502, or 503 when the deployment cannot
+  reach Cloudflare) from `PUT …/branding/custom-domain` when the domain holds a
+  Cloudflare certificate that could not be removed. Nothing is changed; try
+  again. A domain another workspace holds is refused with 409
+  `CUSTOM_DOMAIN_TAKEN` before anything is released.
+
+---
+
 ## 2026-12-16 — Readiness counts part days
 
 Found in session 5.

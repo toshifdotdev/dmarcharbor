@@ -104,8 +104,9 @@ What the state column means:
   in the fast pass only.
 - **not run** and **new**: never run. Run in full, then final.
 
-**Order from here.** Sessions 4, 5, 8, 10, 14, 18, 19 and 20 are done; next the
-re-runs (7, 9, 12, 13, 16, 17).
+**Order from here.** Sessions 4, 5, 8, 10, 14, 18, 19 and 20 are done; next
+billing (11), then the re-runs together (7, 9, 12, 13, 16, 17). The logo upload
+in 12 is tested just before production, with the production bucket.
 
 **Waiting on.** Check these at the start of each session until they are done.
 

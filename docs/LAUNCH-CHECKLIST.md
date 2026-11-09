@@ -261,7 +261,8 @@ coming from the shared address with the agency's name.
 ### 5a. Agency custom domains
 
 An Admiralty agency serves its clients on its own domain once its ownership
-TXT record is verified. For that host to work, it must reach the web app, and
+TXT record is verified and the domain is live (see "Serving the domain" below).
+For that host to work, it must reach the web app, and
 the web app must keep proxying `/api/*` here with `x-forwarded-host` set to the
 host the browser asked for (Next.js rewrites do this). The API then trusts that
 exact origin for sign-in, sign-out, password reset and email verification
