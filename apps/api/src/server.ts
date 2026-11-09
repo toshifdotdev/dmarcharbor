@@ -9,6 +9,7 @@ import { startEmailQueueScheduler, stopEmailQueueScheduler } from './scheduler/e
 import { startDnsMonitorScheduler, stopDnsMonitorScheduler } from './scheduler/dns-monitor-scheduler.js';
 import { startHostedDnsReconciler, stopHostedDnsReconciler } from './scheduler/hosted-dns-reconciler.js';
 import { startPsaScheduler, stopPsaScheduler } from './scheduler/psa-scheduler.js';
+import { startAgencyDomainScheduler, stopAgencyDomainScheduler } from './scheduler/agency-domain-scheduler.js';
 import { checkSchemaIsCurrent } from './services/schema-check.service.js';
 
 if (env.NODE_ENV !== 'test') {
@@ -36,6 +37,7 @@ if (env.NODE_ENV !== 'test') {
   startDnsMonitorScheduler();
   startHostedDnsReconciler();
   startPsaScheduler();
+  startAgencyDomainScheduler();
 
   /**
    * Last line of defence against a silent death.
@@ -88,6 +90,7 @@ const shutdown = (signal: string): void => {
   stopDnsMonitorScheduler();
   stopHostedDnsReconciler();
   stopPsaScheduler();
+  stopAgencyDomainScheduler();
 
   // The deadline, armed before closing so it covers the drain and not just the
   // database close afterwards.

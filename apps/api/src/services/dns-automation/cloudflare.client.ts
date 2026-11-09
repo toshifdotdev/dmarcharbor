@@ -84,8 +84,17 @@ export interface CloudflareClient {
     content: string,
   ): Promise<CloudflareTxtRecord>;
   deleteTxtRecord(zoneId: string, recordId: string): Promise<void>;
-  /** Cloudflare for SaaS. Needs Zone → SSL and Certificates → Edit. */
-  createCustomHostname(zoneId: string, hostname: string): Promise<CloudflareCustomHostname>;
+  /**
+   * Cloudflare for SaaS. Needs Zone → SSL and Certificates → Edit.
+   *
+   * `customOriginServer` sends this hostname to a record of its own in the zone
+   * instead of the zone's fallback origin (available on every plan since 2025).
+   */
+  createCustomHostname(
+    zoneId: string,
+    hostname: string,
+    options?: { customOriginServer?: string },
+  ): Promise<CloudflareCustomHostname>;
   getCustomHostname(zoneId: string, id: string): Promise<CloudflareCustomHostname>;
   deleteCustomHostname(zoneId: string, id: string): Promise<void>;
 }
@@ -467,7 +476,7 @@ export function createCloudflareClient(input: {
       );
     },
 
-    async createCustomHostname(zoneId, hostname) {
+    async createCustomHostname(zoneId, hostname, options) {
       try {
         const result = await request<RawCustomHostname>(
           `/zones/${encodeURIComponent(zoneId)}/custom_hostnames`,
@@ -479,6 +488,7 @@ export function createCloudflareClient(input: {
               // once the customer's CNAME resolves here, so the customer never
               // has to publish a second record.
               ssl: { method: 'http', type: 'dv' },
+              ...(options?.customOriginServer ? { custom_origin_server: options.customOriginServer } : {}),
             }),
           },
         );

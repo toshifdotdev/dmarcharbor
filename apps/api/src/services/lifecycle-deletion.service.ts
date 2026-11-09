@@ -15,6 +15,10 @@ import {
   removeHostedMtaStsForDeletion,
 } from './hosted-dns/hosted-mta-sts.service.js';
 import { removeProviderDomainQuietly, sendingDomainProviderIdFor } from './branding/sending-domain.service.js';
+import {
+  agencyHostnameSnapshotFor,
+  removeAgencyHostnameForDeletion,
+} from './branding/agency-domain-hosting.service.js';
 
 /**
  * lifecycle-deletion.ts — removing a domain, a client, or a whole workspace.
@@ -396,7 +400,7 @@ export async function deleteWorkspace(
   const domainIds = (
     await prisma.domain.findMany({ where: { client: { organizationId } }, select: { id: true } })
   ).map((domain) => domain.id);
-  const [hosted, spf, bimi, mtaSts, sendingDomainProviderId] = await Promise.all([
+  const [hosted, spf, bimi, mtaSts, sendingDomainProviderId, agencyHostname] = await Promise.all([
     hostedSnapshotsForDomainIds(domainIds),
     managedSpfSnapshotsForDomainIds(domainIds),
     hostedBimiSnapshotsForDomainIds(domainIds),
@@ -404,6 +408,8 @@ export async function deleteWorkspace(
     // The agency's sending domain is an entry in our email provider's account,
     // which the cascade cannot reach. Read now, removed once the delete commits.
     sendingDomainProviderIdFor(organization.id),
+    // The same for the custom domain's Cloudflare hostname (its certificate).
+    agencyHostnameSnapshotFor(organization.id),
   ]);
 
   await prisma.$transaction(async (transaction) => {
@@ -438,5 +444,6 @@ export async function deleteWorkspace(
   await removeHostedBimiForDeletion(bimi);
   await removeHostedMtaStsForDeletion(mtaSts);
   await removeProviderDomainQuietly(sendingDomainProviderId);
+  await removeAgencyHostnameForDeletion(agencyHostname);
   return { ok: true, name: organization.name, summary };
 }

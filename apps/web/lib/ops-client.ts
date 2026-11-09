@@ -13,6 +13,7 @@
  */
 
 import type {
+  AgencyDomainHosting,
   ApiErrorBody,
   BillingCurrencyPreference,
   DnsChangePage,
@@ -493,6 +494,9 @@ export interface CustomDomainInstructions {
   verificationValue: string | null;
   /** Human-readable guidance from the API, shown alongside the record. */
   notice: string | null;
+  /** The name to CNAME the hostname to, or null when this deployment has none. Absent from an older API. */
+  cnameTarget?: string | null;
+  hosting?: AgencyDomainHosting;
 }
 
 export const setCustomDomain = (orgId: string, customDomain: string | null) =>
@@ -514,6 +518,8 @@ export interface CustomDomainVerification {
   verified: boolean;
   lookupStatus: string;
   error?: string;
+  /** Where serving stands after this check: CNAME, certificate, live. Absent from an older API. */
+  hosting?: AgencyDomainHosting;
 }
 
 export const verifyCustomDomain = (orgId: string) =>

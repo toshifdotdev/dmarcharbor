@@ -39,6 +39,7 @@ export default async function BrandingPage() {
           logoUrl={resolved?.logoUrl ?? null}
           customDomain={branding.customDomain}
           customDomainVerified={Boolean(branding.customDomainVerifiedAt)}
+          customDomainHosting={branding.customDomainHosting}
           supportEmail={branding.brandSupportEmail ?? null}
           supportUrl={branding.brandSupportUrl ?? null}
           sending={{

@@ -280,6 +280,46 @@ agency.
   contacts who hold no seat in any workspace. The agency's own team gets links
   on our address.
 
+**Serving the domain (built after session 14).** The agency publishes the
+ownership TXT and a CNAME to `AGENCY_DOMAIN_CNAME_TARGET`, both shown on its
+white label page. The domain is **live** once `https://<domain>/api/branding/host`
+answers as that agency through us; the page shows each step, and links emailed
+to clients stay on `APP_URL` until then. A 15-minute check takes every verified,
+not-live domain one step on, and live stays live until the domain is changed or
+removed. Set up one of two ways:
+
+- **Automatic (recommended).** On the hosted DNS zone (Cloudflare for SaaS,
+  the same zone and token as hosted MTA-STS; the token needs SSL and
+  Certificates edit):
+  - [ ] A proxied record for the web app, such as
+        `portal-origin.dmarcharbor.com`, pointing at the AWS load balancer or
+        CloudFront distribution. It must accept any `Host` and pass it on,
+        because requests arrive with the agency's hostname.
+  - [ ] A proxied CNAME for agencies to point at, such as
+        `portals.dmarcharbor.com`, to that record.
+  - [ ] `AGENCY_DOMAIN_ORIGIN=portal-origin.dmarcharbor.com` and
+        `AGENCY_DOMAIN_CNAME_TARGET=portals.dmarcharbor.com` on the API. Each
+        agency hostname is registered as a custom hostname with that origin
+        (`custom_origin_server`), so the zone's fallback origin stays with
+        MTA-STS. Cloudflare issues the certificate once the CNAME resolves.
+  - [ ] The certificate is Cloudflare's, at the edge. The AWS side then needs
+        only a certificate for `portal-origin.dmarcharbor.com` (ACM), with
+        Cloudflare's SSL mode Full (strict).
+- **Manual.** Set only `AGENCY_DOMAIN_CNAME_TARGET` (for example the load
+  balancer's name). On verification the operator is emailed once per domain
+  to add the hostname and an ACM certificate for it by hand; the domain goes
+  live by itself after that.
+- [ ] `OPERATOR_EMAIL`: required in production once `AGENCY_DOMAIN_CNAME_TARGET`
+      is set. It also gets the email when Cloudflare refuses a hostname.
+- Agency hostnames and hosted MTA-STS share one limit,
+  `HOSTED_MTA_STS_HOSTNAME_LIMIT` (custom hostnames on the zone). At the limit
+  the agency's page says the certificate is held up and the operator is told.
+- Removing or changing a domain deletes its Cloudflare hostname first; if
+  Cloudflare refuses, the change is refused and nothing is lost. Deleting or
+  erasing a workspace removes it best effort and logs the id if it cannot.
+- An agency whose own DNS is on Cloudflare must set the CNAME to DNS only
+  (grey cloud); the page says so.
+
 ### 6. Object storage for logos
 
 - Create the bucket, **private**, in the same region as the database.
@@ -620,18 +660,16 @@ later means every customer edits their DNS again.
       set up just now. We have been told and will fix it shortly; nothing else
       on your domain is affected.") and the operator gets an email at once.
 
-**Proposed in session 14, waiting for a yes:**
+**Built after session 14:**
 
-- [ ] **Agency custom domains that an agency can finish alone.** Today the
-      white label page asks for the ownership TXT and says the hostname "must
-      also point at this service", but never says where, and nothing issues a
-      certificate for it; session 14 pointed `portal.linkshift.in` at the app
-      by hand through a tunnel. Proposed: a Cloudflare for SaaS custom hostname
-      per agency domain on the hosting zone, as hosted MTA-STS already does,
-      with the CNAME target and the certificate's status shown on the page. A
-      zone has one fallback origin and MTA-STS uses it for the API, so the
-      origin becomes the web app, which passes `/.well-known/mta-sts.txt` and
-      `/bimi/*` through to the API as it already does `/api/*`.
+- [x] **Agency custom domains that an agency can finish alone.** The white
+      label page shows the CNAME target beside the ownership TXT, and the
+      domain's steps (TXT, CNAME, certificate, live). Automatic mode registers
+      a Cloudflare for SaaS custom hostname per agency domain with its own
+      origin (`custom_origin_server`), so the fallback origin stays with
+      MTA-STS; manual mode emails the operator. Client links wait until the
+      domain is live. Setup is in step 5a. Tested in dev on
+      `portal.linkshift.in` both ways.
 
 Also before launch, listed elsewhere: Razorpay keys (step 7), ConnectWise and
 Autotask registration, and a full-access Resend key (step 5b).
@@ -767,11 +805,9 @@ the client portal cover most cases today.
 - [ ] One real logo uploaded and served from the asset origin
 - [ ] One real Trust Center page
 - [ ] One real compliance pack issued and verified by its digest
-- [ ] (Blocked until the custom-domain hosting below is built: session 14
-      found the agency is never told where to point the hostname, and nothing
-      issues its certificate.)
 - [ ] One real agency custom domain served over https (its TLS certificate
-      issued), with a client signing in on it
+      issued), live on the white label page, with a client signing in on it
+      and a portal invitation linking to it (step 5a set up first)
 - [ ] One real agency sending address added in Resend, its records verified,
       and a client email arriving from it with the agency's Reply-To. Done in
       session 14 on `notify.linkshift.in` (delivered to Gmail); repeat once on

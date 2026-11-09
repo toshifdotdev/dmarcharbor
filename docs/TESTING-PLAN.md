@@ -134,7 +134,7 @@ fast pass over every session not marked final.
 | 11 | Billing: checkout, upgrade, downgrade, failed payment, refund | Razorpay test keys, Paddle sandbox, a tunnel | **not run**: last |
 | 12 | White label: logo, colours, support contact, branded client emails | S3 keys for logos | **re-run** (Gemini) |
 | 13* | Client portal, approvals, share links, Trust Center, compliance packs, verifier, monthly reports, digests | sessions 2, 3 and 12 | **re-run** (Gemini) |
-| 14 | Admiralty: custom domain, agency sending domain, single sign-on | a second domain, a full-access Resend key, an SSO provider | **final** (9 November 2026), Auth0 for SSO; custom-domain hosting still to build |
+| 14 | Admiralty: custom domain, agency sending domain, single sign-on | a second domain, a full-access Resend key, an SSO provider | **final** (9 November 2026), Auth0 for SSO; custom-domain hosting built and tested in dev after it |
 | 15* | Prospect reports, switch kit, usage export, API keys and the API | nothing | fast pass; the webhook API is in 8 |
 | 16* | Data export, erasure, audit trail, plan limits on every plan | nothing | **re-run** (Gemini) |
 | 17 | Ask, public site, docs and SEO, one end-to-end run as a new MSP | an Anthropic API key | **re-run** (Gemini) |
@@ -653,9 +653,13 @@ with two users, `sso.staff@linkshift.in` (allowed domain) and
 - Resend's record names arrived relative to the registered domain (`resend._domainkey.notify`); they are shown in full.
 - A refused SAML response now logs the library's reason for the operator.
 
-**Gap, open (proposed in the launch checklist, waiting for a yes)**
+**Gap, closed after the session (custom-domain hosting built)**
 
-- An agency cannot finish its custom domain alone. The page asks for the ownership TXT and says the hostname must point at us, but never says where, and nothing issues a certificate for it. Proposed: a Cloudflare for SaaS custom hostname per agency domain, with the CNAME target and the certificate's state on the page.
+- An agency could not finish its custom domain alone: the page asked for the ownership TXT and said the hostname must point at us, but never said where, and nothing issued a certificate. Now the page shows the CNAME target and each step, and the domain is live only once `https://<domain>/api/branding/host` answers as the agency; client links wait for that. Tested in dev on `portal.linkshift.in`:
+  - Automatic: Check registered a Cloudflare custom hostname with `custom_origin_server`; hostname and certificate were active within a minute; the next Check went live (`CUSTOM_DOMAIN_LIVE` audited). `clientOrigin` moved from `http://localhost:3100` to `https://portal.linkshift.in`, and a portal invitation linked to `https://portal.linkshift.in/portal`.
+  - Removing the domain deleted the Cloudflare hostname.
+  - Manual: re-claimed and verified, one operator email ("Switch on portal.linkshift.in for Wistholm IT") sent, the page said "We are switching it on". It then went live without a hostname being added, because both test zones are in one Cloudflare account and Cloudflare follows a CNAME between them. A real agency's zone is in its own account, so this is a test artefact.
+  - Fix found: `/api/branding/host` read only `Host`, which is ours behind the web app's `/api` proxy, so it answered 404 on every agency domain. It now reads the first `x-forwarded-host` first, as the portal middleware does.
 
 **Open, for later sessions**
 

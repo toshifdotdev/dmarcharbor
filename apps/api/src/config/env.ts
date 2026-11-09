@@ -391,6 +391,52 @@ const envSchema = z.object({
     .optional(),
 
   /**
+   * Agency custom domains (Admiralty): the hostname an agency points its own
+   * domain at with a CNAME, for example `portals.dmarcharbour.com`.
+   *
+   * Unset, the white label page cannot tell an agency where to point its
+   * domain, so the domain can be verified but never goes live. Set on its own
+   * (no AGENCY_DOMAIN_ORIGIN), each verified domain is switched on by hand:
+   * OPERATOR_EMAIL is told, and the domain goes live once it answers through
+   * us. With AGENCY_DOMAIN_ORIGIN and the hosted zone as well, the certificate
+   * is issued automatically through Cloudflare for SaaS.
+   */
+  AGENCY_DOMAIN_CNAME_TARGET: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .refine(
+      (value) =>
+        /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(value) &&
+        !value.endsWith('.'),
+      'AGENCY_DOMAIN_CNAME_TARGET must be a lowercase hostname with at least two labels and no trailing dot.',
+    )
+    .optional(),
+  /**
+   * Where Cloudflare sends an agency's custom hostname: a proxied record in
+   * HOSTED_DNS_ZONE that reaches the web app, for example
+   * `portal-origin.dmarcharbour.com`. Sent as each hostname's
+   * `custom_origin_server`, so it never touches the zone's fallback origin,
+   * which hosted MTA-STS uses for the API.
+   */
+  AGENCY_DOMAIN_ORIGIN: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .refine(
+      (value) =>
+        /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(value) &&
+        !value.endsWith('.'),
+      'AGENCY_DOMAIN_ORIGIN must be a lowercase hostname with at least two labels and no trailing dot.',
+    )
+    .optional(),
+  /**
+   * Who runs this deployment, for the jobs only a person can finish: an agency
+   * domain to switch on by hand, or a certificate the provider refused.
+   */
+  OPERATOR_EMAIL: z.string().trim().email().optional(),
+
+  /**
    * The in-product assistant, which answers questions about the product from
    * its own documentation (services/assistant).
    *
@@ -529,6 +575,25 @@ if (parsed.data.HOSTED_MTA_STS_CNAME_TARGET) {
   }
   if (target !== zone && !target.endsWith(`.${zone}`)) {
     throw new Error('HOSTED_MTA_STS_CNAME_TARGET must be a hostname inside HOSTED_DNS_ZONE.');
+  }
+}
+/**
+ * The agency origin, like the MTA-STS target, has to be inside the hosted zone:
+ * Cloudflare accepts a `custom_origin_server` only from the zone the custom
+ * hostname belongs to. It also needs a CNAME target to hand agencies, or there
+ * is nothing to point at the origin.
+ */
+if (parsed.data.AGENCY_DOMAIN_ORIGIN) {
+  const origin = parsed.data.AGENCY_DOMAIN_ORIGIN;
+  const zone = parsed.data.HOSTED_DNS_ZONE;
+  if (!zone) {
+    throw new Error('AGENCY_DOMAIN_ORIGIN requires HOSTED_DNS_ZONE to be configured.');
+  }
+  if (origin !== zone && !origin.endsWith(`.${zone}`)) {
+    throw new Error('AGENCY_DOMAIN_ORIGIN must be a hostname inside HOSTED_DNS_ZONE.');
+  }
+  if (!parsed.data.AGENCY_DOMAIN_CNAME_TARGET) {
+    throw new Error('AGENCY_DOMAIN_ORIGIN requires AGENCY_DOMAIN_CNAME_TARGET, the name agencies point at.');
   }
 }
 const hostedDnsConfigured = [
@@ -688,6 +753,16 @@ if (parsed.data.NODE_ENV === 'production') {
    */
   if (!process.env.TRUST_PROXY_HOPS) {
     throw new Error('TRUST_PROXY_HOPS must be set explicitly in production.');
+  }
+
+  /**
+   * Agency custom domains need a person at least some of the time: by hand
+   * every time without AGENCY_DOMAIN_ORIGIN, and when Cloudflare refuses a
+   * certificate with it. Without an address that request would only be a log
+   * line, and the agency's domain would wait for ever.
+   */
+  if (parsed.data.AGENCY_DOMAIN_CNAME_TARGET && !parsed.data.OPERATOR_EMAIL) {
+    throw new Error('OPERATOR_EMAIL must be set in production when AGENCY_DOMAIN_CNAME_TARGET is set.');
   }
 }
 

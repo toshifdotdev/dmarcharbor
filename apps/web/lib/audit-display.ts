@@ -82,6 +82,7 @@ const ACTION_SENTENCES: Record<AuditAction, string> = {
   PAYMENT_FAILED: "Payment failed",
   BRANDING_UPDATED: "White label changed",
   CUSTOM_DOMAIN_VERIFIED: "Custom domain verified",
+  CUSTOM_DOMAIN_LIVE: "Custom domain live",
   SENDING_DOMAIN_VERIFIED: "Sending domain verified",
   REPORT_INBOX_CONFIGURED: "Report inbox configured",
   REPORT_INBOX_REMOVED: "Report inbox removed",

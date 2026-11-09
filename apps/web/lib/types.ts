@@ -1701,6 +1701,7 @@ export type AuditAction =
   | "PAYMENT_FAILED"
   | "BRANDING_UPDATED"
   | "CUSTOM_DOMAIN_VERIFIED"
+  | "CUSTOM_DOMAIN_LIVE"
   | "SENDING_DOMAIN_VERIFIED"
   | "REPORT_INBOX_CONFIGURED"
   | "REPORT_INBOX_REMOVED"
@@ -1885,6 +1886,34 @@ export interface WorkspaceInvitation {
   organizationId?: string;
 }
 
+/**
+ * Serving an agency's custom domain, after its TXT record is verified.
+ *
+ * `automatic`: the deployment registers the hostname with Cloudflare, which
+ * issues the certificate once the agency's CNAME resolves. `manual`: the
+ * operator is told and adds it by hand. `unavailable`: this deployment has no
+ * CNAME target, so the domain cannot be pointed at us yet. Either way the
+ * domain is live only once it has answered as this agency through us.
+ */
+export interface AgencyDomainHosting {
+  mode: "automatic" | "manual" | "unavailable";
+  /** The name the agency's hostname must be a CNAME to. */
+  cnameTarget: string | null;
+  /** What the hostname resolved to at the last check. */
+  cnameState: "found" | "missing" | "elsewhere" | null;
+  /** Cloudflare's hostname and certificate states, automatic only. */
+  hostnameStatus: string | null;
+  sslStatus: string | null;
+  sslError: string | null;
+  /** Why the certificate could not be requested, in words. */
+  setupError: string | null;
+  live: boolean;
+  liveAt: string | null;
+  checkedAt: string | null;
+  /** Manual: when the operator was asked to switch it on. */
+  requestedAt: string | null;
+}
+
 export interface BrandingSettings {
   brandLogoUrl: string | null;
   brandPrimaryColor: string | null;
@@ -1905,9 +1934,11 @@ export interface BrandingSettings {
   /** Set while the provider reports the domain verified: client email comes from it. */
   sendingDomainVerifiedAt?: string | null;
   sendingDomainCheckedAt?: string | null;
-  /** The absolute origin for client links: the verified custom domain when the
-   *  plan serves it, else our own address. Absent from an older API. */
+  /** The absolute origin for client links: the custom domain once the plan
+   *  serves it and it is live, else our own address. Absent from an older API. */
   clientOrigin?: string;
+  /** How far the custom domain is from serving client pages. Absent from an older API. */
+  customDomainHosting?: AgencyDomainHosting;
   /** False when this deployment has no logo storage, so upload cannot work.
    *  Absent from an older API: then upload is offered as before. */
   logoStorageConfigured?: boolean;

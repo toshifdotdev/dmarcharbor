@@ -24,11 +24,15 @@ export function appOrigin(): string {
  * branding anyway and should not read it twice.
  *
  * `customDomain` is only set by `resolveBranding` when the plan includes the
- * custom domain and its DNS record has been verified, so nothing else needs
- * checking here.
+ * custom domain and its ownership record has been verified. That is not
+ * enough for a link: until `https://<domain>` answers through us (the domain
+ * is live), a link to it is a broken link in a client's inbox, so links stay
+ * on APP_URL until then.
  */
-export function clientOriginFor(branding: Pick<ResolvedBranding, 'customDomain'> | null | undefined): string {
-  return branding?.customDomain ? `https://${branding.customDomain}` : appOrigin();
+export function clientOriginFor(
+  branding: Pick<ResolvedBranding, 'customDomain' | 'customDomainLive'> | null | undefined,
+): string {
+  return branding?.customDomain && branding.customDomainLive ? `https://${branding.customDomain}` : appOrigin();
 }
 
 export async function clientOrigin(organizationId: string): Promise<string> {

@@ -5,6 +5,14 @@ import { deleteStoredLogo, objectKeyFromLogoUrl, publicLogoUrl } from './brandin
 import { recordAuditEvent } from './audit.service.js';
 import { resolveEntitlements } from './entitlements/entitlement.service.js';
 import { resolveTxtFresh } from '../scanner/dns.js';
+import {
+  AgencyDomainHostingError,
+  agencyDomainHosting,
+  checkAgencyDomain,
+  clearedHosting,
+  releaseAgencyHostname,
+  type AgencyDomainHostingView,
+} from './branding/agency-domain-hosting.service.js';
 
 export const brandingVerificationHost = 'branding';
 
@@ -16,6 +24,12 @@ export interface ResolvedBranding {
   accentColor: string | null;
   customDomain: string | null;
   customDomainVerified: boolean;
+  /**
+   * True once `https://<customDomain>` has answered as this agency through us.
+   * Verification proves ownership; this proves the domain actually serves our
+   * pages, so links emailed to clients wait for it.
+   */
+  customDomainLive: boolean;
   /** True only when the portal should present the agency brand (logo and colours). */
   branded: boolean;
   /** True when the plan includes serving client pages on the agency's own domain. */
@@ -303,9 +317,12 @@ export async function setCustomDomain(input: {
   actorUserId?: string | null;
 }): Promise<{ customDomain: string | null; verificationHost: string | null; verificationValue: string | null }> {
   if (input.customDomain === null || input.customDomain.trim() === '') {
+    // The certificate first: if Cloudflare will not let it go, the stored id
+    // is kept and nothing changes, because it is the only handle on it.
+    await releaseAgencyHostnameOrRefuse(input.organizationId);
     await prisma.organization.update({
       where: { id: input.organizationId },
-      data: { customDomain: null, customDomainToken: null, customDomainVerifiedAt: null },
+      data: { customDomain: null, customDomainToken: null, customDomainVerifiedAt: null, ...clearedHosting },
     });
     await recordAuditEvent({
       organizationId: input.organizationId,
@@ -326,10 +343,25 @@ export async function setCustomDomain(input: {
   const domain = checked.domain;
   const token = randomBytes(16).toString('base64url');
 
+  // A hostname claimed by another workspace is refused before anything is
+  // let go, so a refused claim never costs the agency its current domain.
+  const holder = await prisma.organization.findFirst({
+    where: { customDomain: domain, id: { not: input.organizationId } },
+    select: { id: true },
+  });
+  if (holder) {
+    throw new BrandingError(
+      'That domain is already claimed by another workspace. Each hostname can serve only one agency.',
+      'CUSTOM_DOMAIN_TAKEN',
+      409,
+    );
+  }
+  await releaseAgencyHostnameOrRefuse(input.organizationId);
+
   try {
     await prisma.organization.update({
       where: { id: input.organizationId },
-      data: { customDomain: domain, customDomainToken: token, customDomainVerifiedAt: null },
+      data: { customDomain: domain, customDomainToken: token, customDomainVerifiedAt: null, ...clearedHosting },
     });
   } catch (error) {
     // Two agencies claiming one hostname would make host based tenant
@@ -360,10 +392,22 @@ export async function setCustomDomain(input: {
   };
 }
 
+/** The stored Cloudflare hostname, removed, or the change refused in the agency's words. */
+async function releaseAgencyHostnameOrRefuse(organizationId: string): Promise<void> {
+  try {
+    await releaseAgencyHostname(organizationId);
+  } catch (error) {
+    if (error instanceof AgencyDomainHostingError) {
+      throw new BrandingError(error.message, error.code, error.status);
+    }
+    throw error;
+  }
+}
+
 export async function verifyCustomDomain(
   organizationId: string,
   actorUserId?: string | null,
-): Promise<{ verified: boolean; lookupStatus: string; error?: string }> {
+): Promise<{ verified: boolean; lookupStatus: string; error?: string; hosting: AgencyDomainHostingView }> {
   const organization = await prisma.organization.findUnique({
     where: { id: organizationId },
     select: { customDomain: true, customDomainToken: true, customDomainVerifiedAt: true },
@@ -398,10 +442,17 @@ export async function verifyCustomDomain(
     });
   }
 
+  // Once the ownership record is proven, the rest of the way: the certificate
+  // (or the operator), the CNAME and whether it answers through us yet. Check
+  // is pressed again for each step, so this runs every time, not only the first.
+  const verifiedNow = verified || Boolean(organization.customDomainVerifiedAt);
+  const hosting = verifiedNow ? await checkAgencyDomain(organizationId) : await agencyDomainHosting(organizationId);
+
   return {
     verified,
     lookupStatus: lookup.status,
     ...(lookup.error ? { error: lookup.error } : {}),
+    hosting,
   };
 }
 
@@ -493,6 +544,7 @@ export async function resolveBranding(organizationId: string): Promise<ResolvedB
       brandAccentColor: true,
       customDomain: true,
       customDomainVerifiedAt: true,
+      customDomainLiveAt: true,
       brandSupportEmail: true,
       brandSupportUrl: true,
       sendingDomain: true,
@@ -522,6 +574,7 @@ export async function resolveBranding(organizationId: string): Promise<ResolvedB
     accentColor: licensed ? organization.brandAccentColor : null,
     customDomain: domainLicensed && domainVerified ? organization.customDomain : null,
     customDomainVerified: domainLicensed ? domainVerified : false,
+    customDomainLive: domainLicensed && domainVerified && organization.customDomainLiveAt !== null,
     branded: licensed,
     customDomainLicensed: domainLicensed,
     // Published by the agency for its clients, so it is presented wherever the

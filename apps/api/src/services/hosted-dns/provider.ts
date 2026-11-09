@@ -42,7 +42,8 @@ export interface HostedCustomHostname {
 }
 
 export interface HostedCustomHostnameClient {
-  create(hostname: string): Promise<HostedCustomHostname>;
+  /** `customOriginServer`: a record in the zone to send this hostname to, instead of the fallback origin. */
+  create(hostname: string, options?: { customOriginServer?: string }): Promise<HostedCustomHostname>;
   get(id: string): Promise<HostedCustomHostname>;
   remove(id: string): Promise<void>;
 }
@@ -161,7 +162,7 @@ export function hostedCustomHostnameClient(): HostedCustomHostnameClient | null 
   const zoneId = env.HOSTED_DNS_CLOUDFLARE_ZONE_ID;
   const client = createCloudflareClient({ token: env.HOSTED_DNS_CLOUDFLARE_TOKEN });
   return {
-    create: (hostname) => client.createCustomHostname(zoneId, hostname),
+    create: (hostname, options) => client.createCustomHostname(zoneId, hostname, options),
     get: (id) => client.getCustomHostname(zoneId, id),
     remove: (id) => client.deleteCustomHostname(zoneId, id),
   };

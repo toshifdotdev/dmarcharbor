@@ -24,7 +24,7 @@ describe('clientOrigin', () => {
   });
 
   it('is the agency domain when branding presents one', async () => {
-    branding.resolve.mockResolvedValue({ customDomain: 'reports.wistholm.example', branded: true });
+    branding.resolve.mockResolvedValue({ customDomain: 'reports.wistholm.example', customDomainLive: true, branded: true });
 
     expect(await clientOrigin('org_1')).toBe('https://reports.wistholm.example');
     expect(branding.resolve).toHaveBeenCalledWith('org_1');
@@ -34,7 +34,7 @@ describe('clientOrigin', () => {
     env.APP_URL = 'https://app.harbor.example/';
     // resolveBranding leaves customDomain null when the plan lacks it or the
     // record is unverified, so null is the only case to handle here.
-    branding.resolve.mockResolvedValue({ customDomain: null, branded: true });
+    branding.resolve.mockResolvedValue({ customDomain: null, customDomainLive: false, branded: true });
 
     expect(await clientOrigin('org_2')).toBe('https://app.harbor.example');
     expect(appOrigin()).toBe('https://app.harbor.example');
@@ -44,6 +44,8 @@ describe('clientOrigin', () => {
     env.APP_URL = 'https://app.harbor.example';
 
     expect(clientOriginFor(null)).toBe('https://app.harbor.example');
-    expect(clientOriginFor({ customDomain: 'portal.pellowyn.example' })).toBe('https://portal.pellowyn.example');
+    expect(clientOriginFor({ customDomain: 'portal.pellowyn.example', customDomainLive: true })).toBe(
+      'https://portal.pellowyn.example',
+    );
   });
 });

@@ -59,6 +59,9 @@ async function agency(input: { plan?: 'ADMIRALTY' | 'HARBOR'; verified?: boolean
       customDomain: host,
       customDomainToken: 'token',
       customDomainVerifiedAt: input.verified === false ? null : new Date(),
+      // Links wait until the domain answers through us; a verified fixture is
+      // also a live one, so its links are on the domain.
+      customDomainLiveAt: input.verified === false ? null : new Date(),
     },
   });
 

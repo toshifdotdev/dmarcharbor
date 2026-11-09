@@ -19,10 +19,13 @@
  * only in that response, so the record is shown once with that warning, and
  * an unverified domain can be issued a fresh record instead of a dead end.
  *
- * The custom domain is drawn as three stations (choose the hostname, publish
- * the TXT record, client pages open on it), travelled green up to where the
- * domain is, planned beyond, so "verified" and "not verified yet" are a place
- * on a line as well as a word.
+ * The custom domain is drawn as four stations (choose the hostname, publish
+ * the TXT record, point it at us with a CNAME, client pages open on it),
+ * travelled green up to where the domain is, planned beyond, so "verified",
+ * "not live yet" and "live" are a place on a line as well as a word. Verified
+ * proves ownership; live means https://<domain> has answered as this agency
+ * through us, and only then do emailed client links use it. An older API with
+ * no hosting state keeps the three stations and reads verified as live.
  *
  * Client contact (white label, Harbor and up): a support email and page the
  * agency publishes to its clients. They appear in the portal's foot and under
@@ -37,7 +40,8 @@
  * with the agency's name. Drawn as the same three stations as the custom
  * domain. A kept address can be removed on any plan.
  *
- * Test hooks: domain-verified, domain-unverified; wl-contact, wl-support-email,
+ * Test hooks: domain-verified (data-live), domain-unverified, domain-record,
+ * domain-cname; wl-contact, wl-support-email,
  * wl-support-url, wl-contact-save; wl-sending, wl-sending-address,
  * wl-sending-claim, wl-sending-records, wl-sending-record-<index>,
  * wl-sending-check, wl-sending-remove, sending-verified, sending-waiting,
@@ -58,7 +62,7 @@ import {
   type CustomDomainInstructions,
 } from "@/lib/ops-client";
 import { sendingCheckNotice, sendingDomainOf, sendingDomainPhase, sendingRecordPhase, type SendingPhase } from "@/lib/sending-domain";
-import type { SendingDomainRecord, SendingDomainState } from "@/lib/types";
+import type { AgencyDomainHosting, SendingDomainRecord, SendingDomainState } from "@/lib/types";
 import { PierMark } from "@/components/mark";
 import { ActionRefusal, type ActionError } from "@/components/harbor/plan-refusal";
 import { Button, fileInputClass } from "@/components/ui/button";
@@ -68,7 +72,7 @@ import { Field, Input } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { UpgradeNotice } from "@/components/ui/states";
 import { useToast } from "@/components/ui/toast";
-import { Panel, StateMark, StateWord, StepLine } from "./parts";
+import { Panel, StateMark, StateWord, StepLine, type StepState } from "./parts";
 
 /** The ground every client page sits on (--color-paper), as a hex because the
  *  contrast arithmetic needs one. */
@@ -209,6 +213,88 @@ function SendingRecordRow({ record, index }: { record: SendingDomainRecord; inde
 
 const NO_SENDING: SendingDomainState = { sendingAddress: null, status: null, records: [], verified: false };
 
+/**
+ * The zone a custom domain's records are usually published in: its parent,
+ * `youragency.example` for `reports.youragency.example`. Used only for the
+ * "many DNS forms want only…" hint; the full name is always shown too. Null
+ * for a two-label name, whose parent would be a TLD.
+ */
+function parentZone(host: string): string | undefined {
+  const labels = host.split(".");
+  return labels.length >= 3 ? labels.slice(1).join(".") : undefined;
+}
+
+/** Where the "point it at us" station is, and what it says. */
+function cnameStep(verified: boolean, hosting: AgencyDomainHosting | undefined): { body: string; state: StepState } {
+  if (hosting?.live) return { body: "Found", state: "done" };
+  if (!hosting || hosting.mode === "unavailable") return { body: "Not offered here yet", state: "planned" };
+  if (!verified) return { body: "Publish it with the TXT record", state: "planned" };
+  if (hosting.cnameState === "found") return { body: "Found", state: "done" };
+  if (hosting.cnameState === "elsewhere") return { body: "Points somewhere else", state: "current" };
+  if (hosting.cnameState === "missing") return { body: "Not found yet", state: "current" };
+  return { body: "Not checked yet", state: "current" };
+}
+
+/** What stands between a verified domain and live, in the agency's words. */
+function liveBody(verified: boolean, hosting: AgencyDomainHosting | undefined): string {
+  if (hosting?.live) return "Live, in your brand";
+  if (!verified || !hosting || hosting.mode === "unavailable") return "Not live yet";
+  if (hosting.mode === "manual") return hosting.requestedAt ? "We are switching it on" : "Not live yet";
+  if (hosting.setupError || hosting.sslError) return "The certificate is held up";
+  if (hosting.cnameState === "found" || hosting.sslStatus) return "Certificate being issued";
+  return "Waiting for your CNAME";
+}
+
+/** The note after Check, from the TXT result and where serving stands. */
+function checkNote(
+  domain: string | null,
+  verified: boolean,
+  lookupStatus: string,
+  hosting: AgencyDomainHosting | undefined,
+): { tone: "ok" | "info" | "warn"; text: string } {
+  if (!verified) {
+    return {
+      tone: "warn",
+      text: `The TXT record was not found yet${lookupStatus ? ` (${lookupStatus.toLowerCase().replace(/_/g, " ")})` : ""}. DNS changes can take minutes to hours to be visible; check again later.`,
+    };
+  }
+  const name = domain ?? "your domain";
+  if (!hosting || hosting.live) {
+    return { tone: "ok", text: `Live: client pages open on ${name} in your brand, and the links you send use it.` };
+  }
+  if (hosting.mode === "unavailable") {
+    return {
+      tone: "info",
+      text: "The TXT record is there, so the domain is verified. This service is not set up to serve agency domains yet, so client links stay on our address for now.",
+    };
+  }
+  if (hosting.cnameState === "elsewhere") {
+    return { tone: "warn", text: `The domain is verified, but ${name} points somewhere else. Change its CNAME to the value below.` };
+  }
+  if (hosting.cnameState !== "found") {
+    return {
+      tone: "info",
+      text: `The domain is verified. Next, publish the CNAME below. If your DNS host proxies records (Cloudflare's orange cloud), set this one to DNS only.`,
+    };
+  }
+  if (hosting.mode === "manual") {
+    return {
+      tone: "info",
+      text: "The domain is verified and points at us. We have been told and will switch it on, usually within one working day; it goes live by itself after that.",
+    };
+  }
+  if (hosting.setupError || hosting.sslError) {
+    return {
+      tone: "warn",
+      text: `The domain points at us, but its certificate is held up: ${hosting.setupError ?? hosting.sslError}. We have been told.`,
+    };
+  }
+  return {
+    tone: "info",
+    text: "The domain points at us and its certificate is being issued, which usually takes a few minutes. It goes live by itself; check again shortly.",
+  };
+}
+
 export function BrandingBoard({
   organizationId,
   workspaceName,
@@ -217,6 +303,7 @@ export function BrandingBoard({
   logoUrl,
   customDomain,
   customDomainVerified,
+  customDomainHosting,
   supportEmail: savedSupportEmail = null,
   supportUrl: savedSupportUrl = null,
   sending: savedSending = NO_SENDING,
@@ -234,6 +321,8 @@ export function BrandingBoard({
   logoUrl: string | null;
   customDomain: string | null;
   customDomainVerified: boolean;
+  /** CNAME, certificate and live state. Absent from an older API: then verified reads as live, as before. */
+  customDomainHosting?: AgencyDomainHosting;
   /** The stored client contact. */
   supportEmail?: string | null;
   supportUrl?: string | null;
@@ -262,8 +351,13 @@ export function BrandingBoard({
   const [record, setRecord] = useState<CustomDomainInstructions | null>(null);
   const [domainBusy, setDomainBusy] = useState<"set" | "verify" | "remove" | null>(null);
   const [domainError, setDomainError] = useState<ActionError | null>(null);
-  const [verifyNote, setVerifyNote] = useState<{ ok: boolean; text: string } | null>(null);
+  const [verifyNote, setVerifyNote] = useState<{ tone: "ok" | "info" | "warn"; text: string } | null>(null);
   const [removeOpen, setRemoveOpen] = useState(false);
+  // The last answer from Check, ahead of the refresh that brings the same state.
+  const [hostingAnswer, setHostingAnswer] = useState<AgencyDomainHosting | null>(null);
+  const hosting = hostingAnswer ?? customDomainHosting;
+  // An older API has no hosting state: verified meant live there.
+  const domainLive = hosting ? hosting.live : customDomainVerified;
 
   // The contact as last saved, kept here because the API normalises what it
   // stores (a lowercased domain, a trailing slash) and the form compares to that.
@@ -320,7 +414,7 @@ export function BrandingBoard({
       stored.email || stored.url
         ? {
             title: "Client contact saved",
-            body: customDomainVerified
+            body: domainLive
               ? "Clients see it in the portal at once, and on your sign-in page within ten minutes."
               : "Clients see it the next time they open the portal.",
             tone: "ok",
@@ -438,6 +532,7 @@ export function BrandingBoard({
       return;
     }
     setRecord(res.data);
+    setHostingAnswer(res.data.hosting ?? null);
     setDomain("");
     router.refresh();
   }
@@ -452,15 +547,11 @@ export function BrandingBoard({
       setDomainError(res.error);
       return;
     }
-    setVerifyNote(
-      res.data.verified
-        ? { ok: true, text: "The record is there: the domain is verified and serves your brand." }
-        : {
-            ok: false,
-            text: `The record was not found yet${res.data.lookupStatus ? ` (${res.data.lookupStatus.toLowerCase().replace(/_/g, " ")})` : ""}. DNS changes can take minutes to hours to be visible; check again later.`,
-          },
-    );
-    if (res.data.verified) setRecord(null);
+    // Verified before this check counts too: Check is pressed again for the CNAME and the certificate.
+    const verifiedNow = res.data.verified || customDomainVerified;
+    if (res.data.hosting) setHostingAnswer(res.data.hosting);
+    setVerifyNote(checkNote(customDomain, verifiedNow, res.data.lookupStatus, res.data.hosting));
+    if (verifiedNow) setRecord(null);
     router.refresh();
   }
 
@@ -475,6 +566,7 @@ export function BrandingBoard({
     }
     setRecord(null);
     setVerifyNote(null);
+    setHostingAnswer(null);
     toast({ title: "Custom domain removed", tone: "ok" });
     router.refresh();
   }
@@ -722,7 +814,7 @@ export function BrandingBoard({
       <Panel
         id="wl-domain"
         title="Custom domain"
-        why="Once it is verified, everything a client opens is on your address, such as reports.youragency.example: the portal and its sign-in, share links, Trust Centers, prospect reports, and the links in monthly report and password reset emails. Clients sign in there with email and password, because Google and Microsoft sign-in cannot complete on your domain. A TXT record proves the domain is yours; the hostname must also point at this service for the pages to open on it."
+        why="Once it is live, everything a client opens is on your address, such as reports.youragency.example: the portal and its sign-in, share links, Trust Centers, prospect reports, and the links in monthly report and password reset emails. Clients sign in there with email and password, because Google and Microsoft sign-in cannot complete on your domain. A TXT record proves the domain is yours and a CNAME points it at us. It goes live once it opens through us, and until then the links you send keep using our address."
         aside={
           customDomain ? (
             domainFeature === false ? (
@@ -730,10 +822,16 @@ export function BrandingBoard({
                 Kept, not used on this plan
               </StateWord>
             ) : customDomainVerified ? (
-              <span data-testid="domain-verified">
-                <StateWord shape="square" tone="ok">
-                  Verified, serving your brand
-                </StateWord>
+              <span data-testid="domain-verified" data-live={domainLive ? "true" : "false"}>
+                {domainLive ? (
+                  <StateWord shape="square" tone="ok">
+                    Live, serving your brand
+                  </StateWord>
+                ) : (
+                  <StateWord shape="ring" tone="warn">
+                    Verified, not live yet
+                  </StateWord>
+                )}
               </span>
             ) : (
               <span data-testid="domain-unverified">
@@ -765,11 +863,25 @@ export function BrandingBoard({
                 body: customDomainVerified ? "Found" : customDomain ? "Waiting to be found" : "Shown once, when you choose",
                 state: customDomainVerified ? "done" : customDomain ? "current" : "planned",
               },
+              // Only with hosting state: an older API has no CNAME step to show.
+              ...(hosting
+                ? [
+                    {
+                      key: "cname",
+                      title: "Point it at us",
+                      ...cnameStep(customDomainVerified, hosting),
+                    },
+                  ]
+                : []),
               {
                 key: "live",
                 title: "Client pages open on it",
-                body: customDomainVerified ? "Live, in your brand" : "Not live yet",
-                state: customDomainVerified ? "done" : "planned",
+                body: hosting ? liveBody(customDomainVerified, hosting) : customDomainVerified ? "Live, in your brand" : "Not live yet",
+                state: domainLive
+                  ? "done"
+                  : customDomainVerified && hosting && hosting.mode !== "unavailable" && hosting.cnameState === "found"
+                    ? "current"
+                    : "planned",
               },
             ]}
           />
@@ -778,10 +890,40 @@ export function BrandingBoard({
         {customDomain ? (
           <p className="text-ui">
             <code className="data text-body font-semibold text-fg">{customDomain}</code>
-            {customDomainVerified ? null : (
-              <span className="ml-2 text-fg-2">Clients still see the default address until the record below is found.</span>
+            {domainLive ? null : (
+              <span className="ml-2 text-fg-2">
+                {customDomainVerified
+                  ? "Clients still get links to our address until it is live."
+                  : "Clients still see the default address until the record below is found."}
+              </span>
             )}
           </p>
+        ) : null}
+
+        {customDomain && domainFeature !== false && hosting && !domainLive ? (
+          hosting.mode === "unavailable" || !hosting.cnameTarget ? (
+            customDomainVerified ? (
+              <Notice tone="info" title="This service is not set up to serve agency domains yet">
+                Your domain is verified and kept. Your brand still appears on our address, and client links stay there until your
+                domain goes live.
+              </Notice>
+            ) : null
+          ) : (
+            <div className="flex flex-col gap-3">
+              <p className="text-ui text-fg-2">
+                {hosting.cnameState === "found"
+                  ? "Your CNAME points at us. Keep it as it is."
+                  : "Publish this CNAME at your DNS host as well. It stays the same, so it can be added now, with the TXT record. If your DNS host proxies records (Cloudflare's orange cloud), set this one to DNS only."}
+              </p>
+              <DnsRecord
+                type="CNAME"
+                host={customDomain}
+                zone={parentZone(customDomain)}
+                value={hosting.cnameTarget}
+                testId="domain-cname"
+              />
+            </div>
+          )
         ) : null}
 
         {record?.verificationHost && record.verificationValue ? (
@@ -809,7 +951,7 @@ export function BrandingBoard({
             }
           />
         ) : null}
-        {verifyNote ? <Notice tone={verifyNote.ok ? "ok" : "warn"} title={verifyNote.text} /> : null}
+        {verifyNote ? <Notice tone={verifyNote.tone} title={verifyNote.text} /> : null}
         <ActionRefusal error={domainError} />
 
         {/* Removing a kept domain works on every plan; claiming and verifying need Admiralty. */}
@@ -825,6 +967,10 @@ export function BrandingBoard({
                     Issue a new record
                   </Button>
                 </>
+              ) : customDomainVerified && !domainLive && domainEditable ? (
+                <Button variant="primary" onClick={verify} busy={domainBusy === "verify"} busyLabel="Checking the domain">
+                  Check again
+                </Button>
               ) : null}
               <Button variant="danger-quiet" onClick={() => setRemoveOpen(true)}>
                 Remove custom domain

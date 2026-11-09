@@ -199,6 +199,25 @@ model Organization {
   customDomain          String?               @unique
   customDomainToken     String?
   customDomainVerifiedAt DateTime?
+  /// Hosting for the verified custom domain (services/branding/agency-domain-hosting.service.ts).
+  /// The Cloudflare for SaaS custom hostname, when this deployment issues the
+  /// certificate itself. The stored id is the only handle on it: hostnames
+  /// carry no comment, so nothing else could find it to remove.
+  customDomainHostnameId String?
+  customDomainHostnameStatus String?
+  customDomainSslStatus String?
+  /// Cloudflare's own words when certificate validation failed.
+  customDomainSslError  String?
+  /// What the last check saw at the hostname: found | missing | elsewhere.
+  customDomainCnameState String?
+  customDomainCheckedAt DateTime?
+  /// The first time https://<domain> answered as this agency through us.
+  /// Emailed client links use the domain only from then on.
+  customDomainLiveAt    DateTime?
+  /// When the operator was asked to switch it on by hand, so it is asked once.
+  customDomainOperatorNotifiedAt DateTime?
+  /// The last refusal from the certificate provider, for the agency to read.
+  customDomainSetupError String?
   /// The contact the agency publishes to its clients: the Reply-To on client
   /// mail and the "Questions?" line in it. Never a staff sign-in address unless
   /// the agency typed one in here itself.
@@ -2629,6 +2648,7 @@ enum AuditAction {
   PAYMENT_FAILED
   BRANDING_UPDATED
   CUSTOM_DOMAIN_VERIFIED
+  CUSTOM_DOMAIN_LIVE
   REPORT_INBOX_CONFIGURED
   REPORT_INBOX_REMOVED
   SSO_CONNECTION_CREATED

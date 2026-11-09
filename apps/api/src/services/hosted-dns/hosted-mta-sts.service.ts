@@ -4,6 +4,7 @@ import { env } from '../../config/env.js';
 import { prisma } from '../../database/prisma.js';
 import { systemDnsReader } from '../../scanner/dns.js';
 import { systemHttpsGetter, type HttpsGetter } from '../../scanner/https-get.js';
+import { customHostnameCapacity } from './custom-hostname-capacity.js';
 import type { DnsReader, LookupResult } from '../../scanner/types.js';
 import {
   mtaStsHostnamePattern,
@@ -350,12 +351,9 @@ async function domainFor(organizationId: string, domainRefOrId: string) {
   });
 }
 
+/** Shared with agency custom domains: one zone, one subscription, one limit. */
 async function capacityState(): Promise<{ full: boolean; used: number; limit: number }> {
-  // A released row whose hostname Cloudflare would not delete still holds one.
-  const used = await prisma.hostedMtaStsRecord.count({
-    where: { OR: [{ status: { not: 'RELEASED' } }, { customHostnameId: { not: null } }] },
-  });
-  return { full: used >= env.HOSTED_MTA_STS_HOSTNAME_LIMIT, used, limit: env.HOSTED_MTA_STS_HOSTNAME_LIMIT };
+  return customHostnameCapacity();
 }
 
 /** The MX hosts the domain actually receives mail on, or null when unknown. */

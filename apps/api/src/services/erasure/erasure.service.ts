@@ -4,6 +4,10 @@ import { env } from '../../config/env.js';
 import { sendErasureCompletedEmail, sendErasureScheduledEmail } from '../../email/mailer.js';
 import { deleteStoredLogo, objectKeyFromLogoUrl } from '../branding/logo-storage.service.js';
 import { removeProviderDomainQuietly, sendingDomainProviderIdFor } from '../branding/sending-domain.service.js';
+import {
+  agencyHostnameSnapshotFor,
+  removeAgencyHostnameForDeletion,
+} from '../branding/agency-domain-hosting.service.js';
 import { recordAuditEvent } from '../audit.service.js';
 import {
   buildErasureCertificate,
@@ -509,12 +513,15 @@ export async function executeErasure(
     // the row still exists and the entry removed once the row is gone; a failure
     // there is logged and never stops the erasure.
     const sendingDomainProviderId = await sendingDomainProviderIdFor(organizationId);
+    // The custom domain's Cloudflare hostname, the same way.
+    const agencyHostname = await agencyHostnameSnapshotFor(organizationId);
 
     // Organization deletion cascades to clients, domains, scans, reports,
     // forensic reports, alert rules, alert events, shares, digests, members,
     // invitations, overrides and the subscription.
     await prisma.organization.delete({ where: { id: organizationId } });
     await removeProviderDomainQuietly(sendingDomainProviderId);
+    await removeAgencyHostnameForDeletion(agencyHostname);
   } else {
     // Deleting the domains cascades their scans, reports, forensic reports,
     // alert rules, alert events, alert deliveries, shares and digests.

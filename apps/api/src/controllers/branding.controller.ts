@@ -10,6 +10,7 @@ import {
   verifyCustomDomain,
 } from '../services/branding.service.js';
 import { clientOrigin } from '../services/client-origin.js';
+import { agencyDomainHosting } from '../services/branding/agency-domain-hosting.service.js';
 import { EntitlementError, assertFeature } from '../services/entitlements/entitlement.service.js';
 import {
   LogoStorageError,
@@ -80,7 +81,15 @@ function sendBrandingError(response: Response, error: unknown): void {
  */
 export async function resolveBrandingByHostController(request: Request, response: Response): Promise<void> {
   try {
-    const found = await findOrganizationByHost(request.get('host'));
+    // Through the web app's /api proxy the Host is ours and the browser's host
+    // is the first x-forwarded-host, as the portal middleware reads it. Without
+    // this, https://<agency domain>/api/branding/host answered 404 on every
+    // agency domain, and the live check that opens it could never pass. The
+    // web server's own lookup calls the API directly with Host set, so it is
+    // unchanged. Either header is the caller's to choose; that needs no trust,
+    // because the answer is only what the agency publishes on that host.
+    const forwarded = request.get('x-forwarded-host')?.split(',')[0]?.trim();
+    const found = await findOrganizationByHost(forwarded || request.get('host'));
     if (!found) {
       response.status(404).json({ error: { code: 'NOT_FOUND', message: 'No agency is served on this address.' } });
       return;
@@ -160,8 +169,11 @@ export async function setCustomDomainController(request: Request, response: Resp
       actorUserId: response.locals.session?.user?.id,
     });
 
+    const hosting = await agencyDomainHosting(organizationId);
     response.json({
       ...result,
+      cnameTarget: hosting.cnameTarget,
+      hosting,
       notice: result.customDomain
         ? 'Publish the TXT record at your DNS host, then verify. The custom domain is not used until it is verified.'
         : 'The custom domain has been removed.',
@@ -251,13 +263,14 @@ export async function portalBrandingController(_request: Request, response: Resp
  * Raw branding row, for the agency interface only. Never exposed to a contact.
  *
  * `clientOrigin` is where the links this workspace's clients receive point:
- * `https://` and the custom domain once it is licensed and verified, APP_URL
- * otherwise. The settings page shows it so the agency knows which address its
- * clients are given.
+ * `https://` and the custom domain once it is licensed, verified and live,
+ * APP_URL otherwise. The settings page shows it so the agency knows which
+ * address its clients are given. `customDomainHosting` is how far the domain
+ * is from serving: the CNAME, the certificate, and whether it is live.
  */
 export async function getStoredBrandingController(_request: Request, response: Response): Promise<void> {
   const organizationId = response.locals.organizationId as string;
-  const [organization, origin] = await Promise.all([
+  const [organization, origin, hosting] = await Promise.all([
     prisma.organization.findUniqueOrThrow({
       where: { id: organizationId },
       select: {
@@ -277,6 +290,7 @@ export async function getStoredBrandingController(_request: Request, response: R
       },
     }),
     clientOrigin(organizationId),
+    agencyDomainHosting(organizationId),
   ]);
 
   // Built field by field, so the provider's id for the sending domain, which
@@ -288,6 +302,7 @@ export async function getStoredBrandingController(_request: Request, response: R
     brandAccentColor: organization.brandAccentColor,
     customDomain: organization.customDomain,
     customDomainVerifiedAt: organization.customDomainVerifiedAt,
+    customDomainHosting: hosting,
     brandSupportEmail: organization.brandSupportEmail,
     brandSupportUrl: organization.brandSupportUrl,
     sendingAddress: storedSendingAddress(organization),
