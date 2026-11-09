@@ -4,7 +4,7 @@ import { prisma } from '../database/prisma.js';
 import { deleteStoredLogo, objectKeyFromLogoUrl, publicLogoUrl } from './branding/logo-storage.service.js';
 import { recordAuditEvent } from './audit.service.js';
 import { resolveEntitlements } from './entitlements/entitlement.service.js';
-import { systemDnsReader } from '../scanner/dns.js';
+import { resolveTxtFresh } from '../scanner/dns.js';
 
 export const brandingVerificationHost = 'branding';
 
@@ -375,7 +375,12 @@ export async function verifyCustomDomain(
 
   const host = customDomainVerificationHost(organization.customDomain);
   const expected = customDomainVerificationValue(organization.customDomainToken);
-  const lookup = await systemDnsReader.resolveTxt(host);
+  // From the zone's own nameservers first, as for a client domain's ownership
+  // record. Verify pressed before the TXT existed made the recursive resolver
+  // cache "no such record" for the zone's negative TTL (30 minutes on
+  // Cloudflare), so Verify kept failing after the record was published
+  // (session 14).
+  const lookup = await resolveTxtFresh(host, organization.customDomain);
   const verified = lookup.status === 'found' && lookup.value?.some((chunks) => chunks.join('') === expected) === true;
 
   if (verified && !organization.customDomainVerifiedAt) {

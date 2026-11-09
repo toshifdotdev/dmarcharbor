@@ -122,6 +122,8 @@ describe('SSO identifiers an IdP configuration needs', () => {
       entryPoint: 'https://okta.test/sso',
       clientId: 'client-1',
       clientSecret: 'a-signing-secret-value',
+      // A SAML connection must carry the provider's certificate (session 14).
+      idpCertificate: '-----BEGIN CERTIFICATE-----\nMIIBplaceholder\n-----END CERTIFICATE-----',
       allowedEmailDomains: ['northgate.test'],
       defaultRole: 'analyst',
       provisioning: 'JIT',

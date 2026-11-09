@@ -603,8 +603,9 @@ export interface SsoCreateBody {
   protocol: "SAML" | "OIDC";
   issuer: string;
   entryPoint: string;
-  clientId: string;
-  clientSecret: string;
+  /** OIDC only; SAML has neither. */
+  clientId?: string;
+  clientSecret?: string;
   idpCertificate?: string;
   tokenEndpoint?: string;
   userinfoEndpoint?: string;

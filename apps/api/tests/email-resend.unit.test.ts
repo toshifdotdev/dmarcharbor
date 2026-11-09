@@ -183,6 +183,10 @@ describe('sending through Resend', () => {
     expect(isUnverifiedSenderDomain(unverified.error)).toBe(true);
     expect(isUnverifiedSenderDomain({ name: 'validation_error', message: 'The WISTHOLM.EXAMPLE DOMAIN IS NOT VERIFIED.' })).toBe(true);
     expect(isUnverifiedSenderDomain({ name: 'validation_error', message: 'Domain verification is pending.' })).toBe(true);
+    // A sending key limited to our own domain (session 14, Resend's own words).
+    expect(
+      isUnverifiedSenderDomain({ name: 'validation_error', message: 'This API key is not authorized to send emails from notify.linkshift.in' }),
+    ).toBe(true);
     expect(isUnverifiedSenderDomain({ name: 'validation_error', message: 'Invalid `to` field.' })).toBe(false);
     expect(isUnverifiedSenderDomain({ name: 'rate_limit_exceeded', message: 'Too many requests.' })).toBe(false);
   });

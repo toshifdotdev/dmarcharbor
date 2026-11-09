@@ -235,6 +235,11 @@ coming from the shared address with the agency's name.
   sending-only key. Unset, `RESEND_API_KEY` is used for the domain calls and must
   then have full access, or every agency claim fails with Resend's permission
   error (502 `SENDING_DOMAIN_PROVIDER_ERROR`).
+- **Create `RESEND_API_KEY` as Sending access with Domain: All domains.** A
+  sending key limited to our own domain cannot send from any agency's domain:
+  in session 14 the agency's domain verified, and then every client email from
+  it failed with "This API key is not authorized to send emails from
+  notify.linkshift.in" and was retried, never sent.
 - **Check the Resend plan's domain allowance** covers every Admiralty agency
   with a sending domain, plus our own domains. Pro includes 10 domains and
   Scale 1,000, and a 100-domain add-on exists. A claim over the allowance fails
@@ -518,8 +523,9 @@ it is still the largest gap in the product.
 **Needs the app running locally, not deployed**
 
 - Smoke test SSO against a real Okta or Entra tenant. Never run against a live
-  identity provider. Expect to fix things on first contact; the library paths
-  are tested but the flows are not.
+  identity provider. Done against Auth0 (OIDC and SAML) in session 14, which
+  found and fixed the faults listed there on first contact; Entra and Okta are still worth
+  one run each with the first customer that uses them.
 - Smoke test IMAP against the real mailbox, as noted in step 8
 
 **Frontend, your other agent**
@@ -545,6 +551,21 @@ end to end in session 8 and found three bugs, so expect the same here.
       customer's own instance with them.
 - [ ] Run session 8's PSA items 1 to 10 against each, fix what it finds, then
       remove the early-access labels (search the repo for "early access").
+
+**Hosted BIMI with a real mark certificate, with the first customer who has
+one.** Session 10 ran hosted BIMI end to end with a self-signed certificate:
+the checks, the files, the record and release all work. What it could not show
+is the logo in Gmail or Apple Mail, which needs a VMC or CMC (about $1,000 to
+$1,500 a year from DigiCert or Entrust; a CMC needs no trademark). Yahoo and
+Fastmail show a logo without one. Until a real certificate has been through it,
+the FAQ calls this early access.
+
+- [ ] When a customer (or we) has a VMC or CMC: upload it and the exact SVG the
+      authority approved, check the panel reads "Mark certificate (VMC or CMC)",
+      send a message from the domain to a Gmail and an iCloud address, and see
+      the logo (Gmail can take a day or two to start).
+- [ ] Fix what it finds, then remove "early access" from the BIMI answer in
+      `docs/FAQ.md`.
 
 ---
 
@@ -598,6 +619,19 @@ later means every customer edits their DNS again.
 - [ ] At a real limit, the customer sees a short message ("This could not be
       set up just now. We have been told and will fix it shortly; nothing else
       on your domain is affected.") and the operator gets an email at once.
+
+**Proposed in session 14, waiting for a yes:**
+
+- [ ] **Agency custom domains that an agency can finish alone.** Today the
+      white label page asks for the ownership TXT and says the hostname "must
+      also point at this service", but never says where, and nothing issues a
+      certificate for it; session 14 pointed `portal.linkshift.in` at the app
+      by hand through a tunnel. Proposed: a Cloudflare for SaaS custom hostname
+      per agency domain on the hosting zone, as hosted MTA-STS already does,
+      with the CNAME target and the certificate's status shown on the page. A
+      zone has one fallback origin and MTA-STS uses it for the API, so the
+      origin becomes the web app, which passes `/.well-known/mta-sts.txt` and
+      `/bimi/*` through to the API as it already does `/api/*`.
 
 Also before launch, listed elsewhere: Razorpay keys (step 7), ConnectWise and
 Autotask registration, and a full-access Resend key (step 5b).
@@ -733,10 +767,14 @@ the client portal cover most cases today.
 - [ ] One real logo uploaded and served from the asset origin
 - [ ] One real Trust Center page
 - [ ] One real compliance pack issued and verified by its digest
+- [ ] (Blocked until the custom-domain hosting below is built: session 14
+      found the agency is never told where to point the hostname, and nothing
+      issues its certificate.)
 - [ ] One real agency custom domain served over https (its TLS certificate
       issued), with a client signing in on it
 - [ ] One real agency sending address added in Resend, its records verified,
-      and a client email arriving from it with the agency's Reply-To. So far
-      this has only run against a fake provider
+      and a client email arriving from it with the agency's Reply-To. Done in
+      session 14 on `notify.linkshift.in` (delivered to Gmail); repeat once on
+      the production Resend account
 - [x] Every job that contacts a customer claims its row, proven by concurrent tests
 - [ ] Sub-processors named, residency question answered

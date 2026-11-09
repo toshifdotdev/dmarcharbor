@@ -55,12 +55,19 @@ const createSchema = z.object({
     //
     // Refining here rather than at the call site keeps the rule at the boundary,
     // where every other field's rule already lives.
-    .refine((value) => isHttpsUrl(value), {
+    //
+    // A URN is also accepted here, and only for SAML (checked with the
+    // protocol below): a SAML entity id is a URI, and Auth0's is
+    // `urn:<tenant>.auth0.com`, which the https-only rule refused (session 14).
+    .refine((value) => isHttpsUrl(value) || isUrn(value), {
       message: "The issuer must be an absolute https URL, for example https://accounts.example.com.",
     }),
   entryPoint: z.string().trim().url(),
-  clientId: z.string().trim().min(1).max(300),
-  clientSecret: z.string().min(1).max(1000),
+  // Required for OIDC, below. SAML has neither: the form asked a SAML
+  // administrator for a client secret their provider never gave them
+  // (session 14).
+  clientId: z.string().trim().max(300).default(''),
+  clientSecret: z.string().max(1000).default(''),
   idpCertificate: z.string().trim().max(8000).optional(),
   tokenEndpoint: z.string().trim().url().optional(),
   userinfoEndpoint: z.string().trim().url().optional(),
@@ -75,6 +82,35 @@ function fail(response: Response, error: unknown): void {
     return;
   }
   response.status(500).json({ error: { code: 'SSO_ERROR', message: 'Single sign on is not configured correctly.' } });
+}
+
+/**
+ * A refusal on the two addresses a browser lands on (start and callback).
+ *
+ * Answered as JSON, the person refused saw `{"error":{"code":
+ * "SSO_DOMAIN_NOT_PERMITTED",...}}` on a blank page straight after their
+ * provider's login (session 14). They go to the sign-in page instead, which
+ * says in words what happened (web lib/sign-in-errors.ts reads `sso_*`). The
+ * code is ours, never free text, so nothing from the provider reaches the URL.
+ */
+function failToSignIn(response: Response, error: unknown): void {
+  const code = error instanceof SsoError ? error.code : 'SSO_ERROR';
+  if (!(error instanceof SsoError)) {
+    console.error(`[sso] sign-in failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+  }
+  // 303: the browser fetches the sign-in page with GET, after a POSTed
+  // assertion too. Never 302, which is what the start answers when it sends
+  // someone on to their provider.
+  response.redirect(303, `/sign-in?error=${encodeURIComponent(code.toLowerCase())}`);
+}
+
+/**
+ * A `urn:` identifier, the other shape a SAML entity id takes. Never fetched.
+ * Looser than RFC 8141 on purpose: Auth0's `urn:<tenant>.us.auth0.com` has no
+ * second colon, and it is what that provider puts in every assertion.
+ */
+function isUrn(value: string): boolean {
+  return /^urn:[^\s]{3,}$/i.test(value);
 }
 
 function isHttpsUrl(value: string): boolean {
@@ -129,7 +165,20 @@ export async function listSsoConnectionsController(_request: Request, response: 
  * locking out the person it is really for.
  */
 async function callerOrganizationId(headers: NodeJS.Dict<string | string[] | undefined>): Promise<string | undefined> {
-  const organizations = await auth.api.listOrganizations({ headers: fromNodeHeaders(headers) });
+  /**
+   * No session means no scope, not an error.
+   *
+   * `listOrganizations` throws UNAUTHORIZED without a session, and that reached
+   * the catch-all as 500 "Single sign on is not configured correctly", so
+   * signing in through SSO failed for exactly the person it is for: someone not
+   * signed in yet (session 14).
+   */
+  let organizations: Array<{ id: string }>;
+  try {
+    organizations = await auth.api.listOrganizations({ headers: fromNodeHeaders(headers) });
+  } catch {
+    return undefined;
+  }
 
   // Only a member of exactly one workspace can be scoped by their session. A
   // person holding two cannot have "the" organization derived from the session
@@ -173,6 +222,36 @@ export async function createSsoConnectionController(request: Request, response: 
    * Checked here rather than in the schema because the two fields have to be read
    * together, which a per-field zod refine cannot see.
    */
+  // An OIDC issuer is fetched, so it has to be https; a URN is a SAML shape.
+  if (body.data.protocol === 'OIDC' && !isHttpsUrl(body.data.issuer)) {
+    response.status(400).json({
+      error: {
+        code: 'INVALID_REQUEST',
+        message: 'The OIDC issuer must be an absolute https URL, for example https://accounts.example.com.',
+      },
+    });
+    return;
+  }
+
+  if (body.data.protocol === 'OIDC' && (!body.data.clientId || !body.data.clientSecret)) {
+    response.status(400).json({
+      error: { code: 'INVALID_REQUEST', message: 'OIDC needs the client ID and client secret your provider gave this application.' },
+    });
+    return;
+  }
+
+  // Checked here rather than at the first sign-in, where a missing certificate
+  // fails closed with "the sign in response could not be verified".
+  if (body.data.protocol === 'SAML' && !/-----BEGIN CERTIFICATE-----/.test(body.data.idpCertificate ?? '')) {
+    response.status(400).json({
+      error: {
+        code: 'INVALID_REQUEST',
+        message: "SAML needs your provider's signing certificate, the PEM text that starts -----BEGIN CERTIFICATE-----.",
+      },
+    });
+    return;
+  }
+
   if (body.data.protocol === 'OIDC' && !isBareOrigin(body.data.issuer)) {
     response.status(400).json({
       error: {
@@ -328,7 +407,7 @@ export async function ssoStartController(request: Request, response: Response): 
 
     response.redirect(url);
   } catch (error) {
-    fail(response, error);
+    failToSignIn(response, error);
   }
 }
 
@@ -364,9 +443,13 @@ export async function ssoCallbackController(request: Request, response: Response
     const cookie = await ssoSessionCookie(token, expiresAt);
     response.cookie(cookie.name, cookie.value, cookie.options);
 
-    response.redirect('/portal');
+    // The workspace's own front page. Everyone who signs in through a
+    // connection is a member of that workspace (staff, never a client
+    // contact), and /portal told them "no report has been shared with that
+    // address" (session 14). On an agency's own domain, / goes to the portal.
+    response.redirect('/');
   } catch (error) {
-    fail(response, error);
+    failToSignIn(response, error);
   }
 }
 

@@ -362,7 +362,11 @@ record's lookups and warns when it goes over 10.
 
 **Do you support BIMI and MTA-STS?**
 Yes. Hosted BIMI serves your logo and certificate; hosted MTA-STS serves the policy
-file and record for you. TLS reports (TLS-RPT) show delivery problems to your mail
+file and record for you. Gmail and Apple Mail show the logo only with a mark
+certificate (a VMC or CMC) bought from a certificate authority such as DigiCert;
+Yahoo and Fastmail can show it without one. Hosted BIMI has been run end to end
+with a test certificate, so the first real certificate is checked with you
+(early access until then). TLS reports (TLS-RPT) show delivery problems to your mail
 servers. Hosted BIMI and MTA-STS start on Harbor. Viewing TLS reports starts on
 Fairway; they are collected on every plan, so reports received before an upgrade
 appear afterwards.

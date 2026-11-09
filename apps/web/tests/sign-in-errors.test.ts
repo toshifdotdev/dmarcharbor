@@ -31,6 +31,14 @@ describe("sign-in error codes", () => {
     expect(signInErrorMessage("verify_expired")).toMatch(/expired/);
   });
 
+  it("explains a single sign-on refusal in words (session 14)", () => {
+    expect(signInErrorMessage("sso_domain_not_permitted")).toMatch(/not at a domain this workspace lets in/);
+    expect(signInErrorMessage("sso_not_found")).toMatch(/switched off or removed/);
+    for (const code of ["sso_domain_not_permitted", "sso_not_found", "sso_error", "sso_response_invalid"]) {
+      expect(signInErrorMessage(code), code).not.toContain(code);
+    }
+  });
+
   it("falls back to a plain sentence for an unknown code", () => {
     expect(signInErrorMessage("something_new")).toBe("That did not work. Try again.");
   });

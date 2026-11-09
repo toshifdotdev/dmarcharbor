@@ -1,6 +1,7 @@
 import { Resend } from 'resend';
 import { env } from '../../config/env.js';
 import { PROVIDER_TIMEOUT_MS, withGenericTimeout } from '../../billing/provider-timeout.js';
+import { organizationalDomain } from '../alignment.service.js';
 
 /**
  * Where an agency's own sending domain is registered with the email provider.
@@ -81,13 +82,29 @@ interface ResendRecord {
   priority?: number;
 }
 
-function toRecords(records: ResendRecord[] | null | undefined): SendingDomainRecord[] {
+/**
+ * The full host name for one of Resend's records.
+ *
+ * Resend names its records relative to the registered domain, not to the
+ * domain added: for `notify.linkshift.in` it answers `resend._domainkey.notify`
+ * and `send.notify`. Shown as is, an agency cannot tell which zone the name
+ * belongs to, and the contract above promises the full name (session 14; the
+ * console provider always returned full names, so tests never saw this).
+ */
+export function fullRecordName(name: string, domain: string): string {
+  const clean = name.trim().toLowerCase().replace(/\.+$/, '');
+  const base = organizationalDomain(domain) || domain.toLowerCase();
+  if (clean === base || clean.endsWith(`.${base}`)) return clean;
+  return clean ? `${clean}.${base}` : base;
+}
+
+function toRecords(records: ResendRecord[] | null | undefined, domain: string): SendingDomainRecord[] {
   return (records ?? [])
     .filter((record) => sendingRecordKinds.has(record.record))
     .map((record) => ({
       record: record.record,
       type: record.type,
-      name: record.name,
+      name: fullRecordName(record.name, domain),
       value: record.value,
       priority: typeof record.priority === 'number' ? record.priority : null,
       status: record.status,
@@ -140,11 +157,11 @@ export function resendSendingDomainProvider(): SendingDomainProvider {
       const data = await call('domains.create', (resend) =>
         resend.domains.create({ name, capabilities: { sending: 'enabled', receiving: 'disabled' } }),
       );
-      return { id: data.id, status: data.status, records: toRecords(data.records as ResendRecord[]) };
+      return { id: data.id, status: data.status, records: toRecords(data.records as ResendRecord[], data.name ?? name) };
     },
     async get(id) {
       const data = await call('domains.get', (resend) => resend.domains.get(id));
-      return { id: data.id, status: data.status, records: toRecords(data.records as ResendRecord[]) };
+      return { id: data.id, status: data.status, records: toRecords(data.records as ResendRecord[], data.name) };
     },
     async verify(id) {
       await call('domains.verify', (resend) => resend.domains.verify(id));

@@ -104,8 +104,19 @@ What the state column means:
   in the fast pass only.
 - **not run** and **new**: never run. Run in full, then final.
 
-**Order from here.** Sessions 4, 5, 8, 10, 18, 19 and 20 are done; next the
-session never run (14), then the re-runs (7, 9, 12, 13, 16, 17). Billing (11) is last, once the Razorpay keys exist. Then one
+**Order from here.** Sessions 4, 5, 8, 10, 14, 18, 19 and 20 are done; next the
+re-runs (7, 9, 12, 13, 16, 17).
+
+**Waiting on.** Check these at the start of each session until they are done.
+
+- [ ] **Google's first TLS report for `dmarcharbor.com`** (session 10). Due
+      about 10 November 2026, from `noreply-smtp-tls-reporting@google.com` to
+      `dmarc-reports@reports.dmarcharbor.com` (the Migadu mailbox), subject
+      "Report Domain: dmarcharbor.com Submitter: google.com", a `.json.gz`
+      attachment. The poller moves it to "DMARC Harbor processed" within 15
+      minutes of the API running. Check: Session One Test → Pellowyn Dental →
+      `dmarcharbor.com` → TLS reports shows one report from Google for one UTC
+      day. Keep `_smtp._tls.dmarcharbor.com` published until it has arrived. Billing (11) is last, once the Razorpay keys exist. Then one
 fast pass over every session not marked final.
 
 | # | Session | Set up first | State |
@@ -123,7 +134,7 @@ fast pass over every session not marked final.
 | 11 | Billing: checkout, upgrade, downgrade, failed payment, refund | Razorpay test keys, Paddle sandbox, a tunnel | **not run**: last |
 | 12 | White label: logo, colours, support contact, branded client emails | S3 keys for logos | **re-run** (Gemini) |
 | 13* | Client portal, approvals, share links, Trust Center, compliance packs, verifier, monthly reports, digests | sessions 2, 3 and 12 | **re-run** (Gemini) |
-| 14 | Admiralty: custom domain, agency sending domain, single sign-on | a second domain, a full-access Resend key, an SSO provider | **not run** |
+| 14 | Admiralty: custom domain, agency sending domain, single sign-on | a second domain, a full-access Resend key, an SSO provider | **final** (9 November 2026), Auth0 for SSO; custom-domain hosting still to build |
 | 15* | Prospect reports, switch kit, usage export, API keys and the API | nothing | fast pass; the webhook API is in 8 |
 | 16* | Data export, erasure, audit trail, plan limits on every plan | nothing | **re-run** (Gemini) |
 | 17 | Ask, public site, docs and SEO, one end-to-end run as a new MSP | an Anthropic API key | **re-run** (Gemini) |
@@ -366,7 +377,7 @@ with results.
 
 **Open, for later sessions**
 
-- The agency-host lookup times out after 1.5 seconds and then served our own pages for 30 seconds: on the first request for the test host, `/tools` answered 200 instead of going to the portal. **Fixed (9 November):** a failed lookup now fails closed. On a host that is not ours, the pages about us go to `/portal` (307) while the lookup cannot answer, client links still load, and the failure is remembered for 5 seconds instead of 30. Checked with the API stopped (`/tools` and `/pricing` 307, `/share/…` and `/sign-in` 200) and running (an unknown host still 200). Repeat on a real custom domain in session 14.
+- The agency-host lookup times out after 1.5 seconds and then served our own pages for 30 seconds: on the first request for the test host, `/tools` answered 200 instead of going to the portal. **Fixed (9 November):** a failed lookup now fails closed. On a host that is not ours, the pages about us go to `/portal` (307) while the lookup cannot answer, client links still load, and the failure is remembered for 5 seconds instead of 30. Checked with the API stopped (`/tools` and `/pricing` 307, `/share/…` and `/sign-in` 200) and running (an unknown host still 200). Repeat on a real custom domain in session 14. (Done: `portal.linkshift.in` redirected `/pricing` and `/tools` to `/portal`.)
 
 ## Session 19: routed Slack and Teams channels
 
@@ -591,10 +602,67 @@ other path answers 404 at the tunnel). The BIMI certificate is self-signed for
 
 - Gmail shows the logo only with a real VMC or CMC; the self-signed certificate proves the path, not the inbox.
 - The TLS-RPT record on `dmarcharbor.com` was published on 9 November and two messages were sent from Gmail. Google's first real report (for `dmarcharbor.com`, in Session One Test) should arrive about 10 November; check it lands and reads the same.
-- The office resolver (10.2.1.60) answers a TXT query at a CNAME with the CNAME alone and does not follow it, so the API's own scan read `_mta-sts` and `default._bimi` as missing. Public resolvers follow it. For this session the API ran with Node's resolvers pointed at 1.1.1.1; a production host's resolver follows CNAMEs.
-- One in-app scan straight after an API restart read BIMI as missing; the next found it, and it did not happen again.
+- The office resolver (10.2.1.60) answered a TXT query at a CNAME with the CNAME alone, so the API's first scan read `_mta-sts` and `default._bimi` as missing. Public resolvers follow it. Later scans found both, after this machine's DNS had moved to the router (192.168.1.1); the "point Node at 1.1.1.1" preload tried for it had no effect, because `new Resolver()` reads the system's servers (found in session 14). A production host's resolver follows CNAMEs.
+- One in-app scan straight after an API restart read BIMI as missing; the next found it, and it did not happen again. Likely the same resolver change.
 - Cloudflare's edge kept the released SVG for up to the hour the API allows, and its default browser TTL raised that to 4 hours. Added to the launch checklist: "Respect Existing Headers" on the hosting zone.
 - The session 10 set-up (tunnel, test records, fallback origin, custom hostname, the hosted rows and the env block) is removed with the rest of the test data.
+
+## Session 14: Admiralty: custom domain, agency sending domain, single sign-on
+
+Wistholm IT on Admiralty. `linkshift.in` (ours) stands in for the agency's
+domain: `portal.linkshift.in` reaches the local web app through the session 10
+tunnel, and `notify.linkshift.in` is the sending domain, added to our Resend
+account with a full-access key. Single sign-on runs against a free Auth0 tenant
+with two users, `sso.staff@linkshift.in` (allowed domain) and
+`sso.outsider@writeora.in` (not).
+
+1. **Custom domain.** Claim it, publish the ownership TXT, verify; pages about
+   us redirect to the portal; nothing names us; sign-in works on the host.
+2. **Sending domain.** Claim an address, publish Resend's records, check;
+   client email then leaves from it with the agency's Reply-To.
+3. **OIDC.** A staff sign-in provisions a member; the outsider, a removed
+   member and a switched-off connection are refused in words.
+4. **SAML.** The same, through Auth0's SAML add-on.
+5. **Screens.** The SSO and white label settings at 390 and 1440.
+
+### Session 14 results (9 November 2026): final, with one gap to build
+
+| # | Item | Result |
+|---|---|---|
+| 1 | Custom domain | **Pass** after a fix, **gap open**. `portal.linkshift.in` claimed and verified; `/`, `/pricing` and `/tools` answer 307 to `/portal`, `/portal` to `/sign-in`; the page title is "Wistholm IT" and "DMARC Harbor" appears nowhere in it. Signing in through the host works; a foreign `Origin` answers 403 `INVALID_ORIGIN`. The agency could not have done the pointing itself: see the gap below. |
+| 2 | Sending domain | **Pass** after fixes. `reports@notify.linkshift.in`: Resend returned four records (DKIM TXT, SPF MX and TXT on `send.`, a CNAME on `rsend.`), published, and Resend reported the domain verified about three minutes later. Portal invitations then left as `"Wistholm IT" <reports@notify.linkshift.in>` with Reply-To `help@linkshift.in`, and Resend reports both delivered to Gmail. |
+| 3 | OIDC | **Pass** after fixes. `sso.staff@linkshift.in` was created as an analyst on first sign-in, with an `SSO_SIGN_IN` audit row, and lands on the Portfolio. The outsider is refused ("your email address is not at a domain this workspace lets in"), creating nothing; a member removed from the workspace is refused on the next sign-in until invited; a switched-off connection answers "That single sign-on link is not in use", and works again when switched on. |
+| 4 | SAML | **Pass** after fixes. The staff user was created as a viewer (the connection's role) and lands on the Portfolio; the outsider is refused as in OIDC. |
+| 5 | Screens | **Pass.** The SAML form asks only for issuer, entry point, certificate and who gets in; no sideways scroll at 390 or 1440. |
+
+**Broken, fixed**
+
+- No OIDC sign-in had ever worked against a real provider. Discovery connected to the issuer's IP address, so TLS sent no server name and Auth0 refused the handshake; the issuer check failed on Auth0's trailing slash; the authorisation request carried no `redirect_uri`; and the client metadata named the provider's own endpoint as our redirect. Every request to the provider now goes through the guarded requester (address checked and pinned, hostname kept for TLS, no redirects followed).
+- Starting single sign-on while signed out, the normal case, answered 500: the scope lookup threw for a missing session.
+- SAML sent an SP entity ID (`dmarcharbor-<id>`) different from the one the settings page tells the administrator to enter.
+- SAML required both the response and the assertion to be signed. Auth0 signs one or the other, as do Entra and Okta by default, so every Auth0 sign-in failed with "Invalid signature". The assertion's own signature is required; the response's is checked when present.
+- SAML read the address only from `mail` or `email`. Auth0, Entra and ADFS send the `.../claims/emailaddress` claim, and Auth0's NameID is its user id, so every Auth0 sign-in said the provider sent no address.
+- With our sending-only Resend key limited to our domain, every client email from the agency's verified domain failed ("not authorized to send emails from notify.linkshift.in") and was retried, never sent. It now falls back to the shared address with the agency's name, and the launch checklist says to create that key for all domains.
+- Custom domain Verify pressed before the TXT existed kept failing after it was published: the resolver cached "no record" for the zone's negative TTL. It now asks the domain's own nameservers first, as client domain verification does.
+
+**Gap, fixed**
+
+- Every refusal at the SSO start or callback was raw JSON on a blank page. They now return (303) to the sign-in page with a sentence for each case.
+- SSO staff landed on the client portal ("no report has been shared with that address"); they now land on the Portfolio.
+- The SAML form required a client ID and secret, which SAML has none of, and refused Auth0's `urn:` entity ID. SAML now asks for its certificate instead, and accepts a `urn:` issuer.
+- Resend's record names arrived relative to the registered domain (`resend._domainkey.notify`); they are shown in full.
+- A refused SAML response now logs the library's reason for the operator.
+
+**Gap, open (proposed in the launch checklist, waiting for a yes)**
+
+- An agency cannot finish its custom domain alone. The page asks for the ownership TXT and says the hostname must point at us, but never says where, and nothing issues a certificate for it. Proposed: a Cloudflare for SaaS custom hostname per agency domain, with the CNAME target and the certificate's state on the page.
+
+**Open, for later sessions**
+
+- There is no single sign-on button or email lookup on the sign-in page: staff use the connection's own link ("Your team signs in at"), which the administrator has to hand out.
+- Agency domains are created in Resend's default region (`us-east-1`), our own in `ap-northeast-1`. There is no setting for it; decide with the sub-processor regions.
+- A message that fell back to the shared address keeps the agency's address in its queue row, so the record does not show the fallback.
+- Session 14 sent with the full-access key (a second `RESEND_API_KEY` in the env block); remove it with the rest of the session's set-up.
 
 ## Session 2: workspace, team members, roles, invitations
 

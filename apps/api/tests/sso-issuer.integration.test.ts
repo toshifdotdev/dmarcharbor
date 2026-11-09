@@ -112,6 +112,8 @@ describe('an SSO connection cannot be given any string as its issuer', () => {
         ...body('https://okta.test/entity'),
         protocol: 'SAML',
         entryPoint: 'https://okta.test/sso',
+        // A SAML connection must carry the provider's certificate (session 14).
+        idpCertificate: '-----BEGIN CERTIFICATE-----\nMIIBplaceholder\n-----END CERTIFICATE-----',
       });
 
     expect(response.status).toBe(201);
@@ -151,8 +153,10 @@ describe('an SSO connection cannot be given any string as its issuer', () => {
     // The victim knows nothing about it and is not a member of it.
     const start = await victim.agent.get(`/api/sso/${attackerConnection.id}/start`);
 
-    // Either a refusal or a scope failure, never a redirect to the provider.
+    // Either a refusal or a scope failure, never a redirect to the provider. A
+    // refusal is a 303 back to our own sign-in page (session 14).
     expect(start.status).not.toBe(302);
+    expect(start.headers.location ?? '').not.toContain('northgate.okta.com');
 
     // And the victim's own workspace still has no connection, so the attempt
     // created nothing on the way through.

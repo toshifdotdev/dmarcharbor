@@ -57,7 +57,10 @@ special case. A user who arrived through SSO is an ordinary session.
   protocol. Use it to show "Sign in to Example Agency" so a person about to
   enter a work password can see they are in the right place.
 - `GET /api/sso/{connectionId}/start` — begins the flow, redirects.
-- Callback sets the cookie and redirects to `/portal`.
+- Callback sets the cookie and redirects to `/` (the person is a workspace
+  member, never a client contact). A refusal at start or callback redirects
+  (303) to `/sign-in?error=sso_<code>`, which `lib/sign-in-errors.ts` puts in
+  words.
 
 ## API surface
 

@@ -50,6 +50,15 @@ export interface EmailMessage {
  */
 export function isUnverifiedSenderDomain(error: { message?: string | null; name?: string | null }): boolean {
   const message = error.message ?? '';
+  /**
+   * A sending key limited to our own domain refuses an agency's domain with
+   * "This API key is not authorized to send emails from <domain>". The shared
+   * address is what that key can send from, so it gets the same fallback
+   * (session 14: the invite to a client contact was retried and never sent).
+   */
+  if (/not authori[sz]ed to send (e-?mails? )?from/i.test(message)) {
+    return true;
+  }
   if (!/domain/i.test(message)) {
     return false;
   }
@@ -119,7 +128,9 @@ export async function sendEmail(message: EmailMessage): Promise<void> {
       const fallback = sharedFromHeader(message.from);
       if (fallback) {
         const refused = addressOf(message.from)?.split('@')[1] ?? 'the sender';
-        console.warn(`[email] ${refused} is not verified with the provider; sending from the shared address instead.`);
+        console.warn(
+          `[email] the provider refused ${refused} (${result.error.message}); sending from the shared address instead.`,
+        );
         result = await attempt(fallback, message.idempotencyKey ? `${message.idempotencyKey}:shared-from` : undefined);
       }
     }

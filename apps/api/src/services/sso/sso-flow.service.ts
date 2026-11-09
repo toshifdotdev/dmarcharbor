@@ -6,14 +6,15 @@ import {
   authorizationCodeGrant,
   buildAuthorizationUrl,
   calculatePKCECodeChallenge,
+  customFetch,
   discovery,
   randomPKCECodeVerifier,
   randomState,
+  type CustomFetch,
 } from 'openid-client';
 import { prisma } from '../../database/prisma.js';
 import { env } from '../../config/env.js';
-import { lookup as dnsLookup } from 'node:dns';
-import { assertPublicHost } from '../net-guard.js';
+import { guardedRequest } from '../net/guarded-request.js';
 import { decryptSensitive, encryptSensitive } from '../privacy.service.js';
 import { recordAuditEvent } from '../audit.service.js';
 import { auth } from '../../auth/auth.config.js';
@@ -413,60 +414,99 @@ export async function createSessionForUser(
  * keys change and a stored copy is how a client ends up validating tokens
  * against a key the provider retired.
  */
+/**
+ * Every request to an identity provider, through the guarded requester.
+ *
+ * Discovery, the token exchange and the signing keys are all fetches to a host
+ * an administrator typed, so each one is held to the PSA rules: https on 443,
+ * the name resolved and refused if any answer is private or reserved (the cloud
+ * metadata service included), the socket pinned to the checked address, and no
+ * redirect followed.
+ *
+ * This replaces putting the resolved IP into the issuer URL, which kept the
+ * address check but sent no server name: TLS to Auth0 failed with a handshake
+ * alert before discovery could start, so no OIDC sign-in had ever worked
+ * (session 14). The guarded requester keeps the hostname for TLS and Host and
+ * pins only the address.
+ */
+const guardedIdpFetch: CustomFetch = async (url, options) => {
+  const method = (options.method ?? 'GET').toUpperCase();
+  if (method !== 'GET' && method !== 'POST') {
+    throw new TypeError(`The identity provider request used ${method}, which is not allowed.`);
+  }
+  const headers = Object.fromEntries(new Headers(options.headers).entries());
+  const raw = options.body;
+  const text =
+    raw === undefined || raw === null
+      ? null
+      : typeof raw === 'string'
+        ? raw
+        : raw instanceof URLSearchParams
+          ? raw.toString()
+          : raw instanceof Uint8Array || raw instanceof ArrayBuffer
+            ? Buffer.from(raw as Uint8Array).toString('utf8')
+            : null;
+  if (raw !== undefined && raw !== null && text === null) {
+    throw new TypeError('The identity provider request body could not be sent.');
+  }
+  const body =
+    text === null
+      ? undefined
+      : { kind: 'text' as const, value: text, contentType: headers['content-type'] ?? 'application/x-www-form-urlencoded' };
+  const result = await guardedRequest({ url, method, headers, body });
+  if (result.status === 'error') {
+    throw new TypeError(`The identity provider could not be reached: ${result.detail}`);
+  }
+  const responseHeaders = new Headers();
+  for (const [name, value] of Object.entries(result.headers)) {
+    if (Array.isArray(value)) value.forEach((entry) => responseHeaders.append(name, entry));
+    else if (typeof value === 'string') responseHeaders.set(name, value);
+  }
+  return new Response(new Uint8Array(result.body), { status: result.statusCode, headers: responseHeaders });
+};
+
+/** An issuer compared without its trailing slash: Auth0 publishes one, most providers do not. */
+function sameIssuer(a: string, b: string): boolean {
+  return a.replace(/\/+$/, '') === b.replace(/\/+$/, '');
+}
+
 async function oidcConfiguration(connection: NonNullable<Connection>) {
       if (!connection.issuer) {
         throw new SsoError('The connection has no issuer.', 'SSO_CONFIG_INVALID', 500);
       }
 
-      const redirectUri = connection.entryPoint;
+      // The redirect URI is our callback. This was the provider's own
+      // authorisation endpoint, which no provider accepts as a redirect.
+      const redirectUri = callbackUrlsFor(connection.id).oidc;
 
-      /**
-       * Resolved and re-checked, because discovery is a fetch.
-       *
-       * The issuer is validated as an https URL when the connection is created,
-       * which is a check on the string. `openid-client` then fetches
-       * `<issuer>/.well-known/openid-configuration`, and a hostname that answers a
-       * link-local address reaches the cloud metadata service - over https, since
-       * the scheme was already constrained. That is metadata disclosure in a
-       * service that treats SSO as the enterprise feature.
-       *
-       * Invalid JSON from a resolution failure is surfaced as an error the owner can
-       * act on rather than a stack trace inside a library.
-       */
-      const issuerUrl = new URL(connection.issuer);
-      const resolvedIssuerAddress = await assertPublicHost(issuerUrl.hostname, (host) =>
-        new Promise((resolve, reject) => {
-          dnsLookup(host, { all: true }, (error, addresses) =>
-            error ? reject(error) : resolve(addresses),
-          );
-        }),
-      ).catch((error: unknown) => {
+      let configuration: Awaited<ReturnType<typeof discovery>>;
+      try {
+        configuration = await discovery(
+          new URL(connection.issuer),
+          connection.clientId,
+          { client_secret: requireSecret(connection), redirect_uris: [redirectUri] },
+          ClientSecretPost(requireSecret(connection)),
+          // Assigned to the configuration too, so the token exchange and the
+          // key fetch go through the same guard.
+          { [customFetch]: guardedIdpFetch },
+        );
+      } catch (error) {
+        // In the administrator's words, rather than "not configured correctly".
         throw new SsoError(
-          error instanceof Error ? error.message : "That issuer host is not reachable.",
+          `The provider's discovery document could not be read from ${connection.issuer}: ${
+            error instanceof Error ? error.message : 'unknown error'
+          }`,
           'SSO_CONFIG_INVALID',
           400,
         );
-      });
-
-      // The pinned address replaces the hostname for the connection, and the
-      // original name travels in `Host` so TLS SNI and the issuer's own routing
-      // still resolve to the same server. Without the pin, discovery resolves the
-      // hostname a second time and can connect to what the check refused.
-      const pinnedIssuer = new URL(issuerUrl.toString());
-      pinnedIssuer.hostname = resolvedIssuerAddress[0]?.address ?? issuerUrl.hostname;
-
-      const configuration = await discovery(
-        pinnedIssuer,
-        connection.clientId,
-        { client_secret: requireSecret(connection), redirect_uris: [redirectUri] },
-        ClientSecretPost(requireSecret(connection)),
-      );
+      }
 
       // The issuer the provider claims must be the one configured. A discovery
-      // document served from a pinned address can name an issuer of its own
-      // choosing, and accepting that would let a connection point the whole trust
-      // decision at a document nobody configured.
-      if (configuration.serverMetadata().issuer !== connection.issuer.replace(/\/+$/, '')) {
+      // document can name an issuer of its own choosing, and accepting that
+      // would let a connection point the whole trust decision at a document
+      // nobody configured. The trailing slash is not a difference: Auth0's
+      // issuer is https://tenant.auth0.com/ and was refused for it (session 14).
+      if (!sameIssuer(configuration.serverMetadata().issuer, connection.issuer)) {
         throw new SsoError(
           "That provider published a different issuer than the one configured.",
           'SSO_CONFIG_INVALID',
@@ -545,6 +585,9 @@ export async function beginOidcSignIn(connectionId: string, organizationId?: str
   const configuration = await oidcConfiguration(connection);
 
   return buildAuthorizationUrl(configuration, {
+    // Required: the library does not add it from the client metadata, and a
+    // provider refuses an authorisation request without one (session 14).
+    redirect_uri: callbackUrlsFor(connection.id).oidc,
     scope: 'openid email profile',
     state,
     code_challenge: challenge,
@@ -649,7 +692,12 @@ export async function samlEntryPoint(connectionId: string, organizationId?: stri
 function buildSaml(connectionId: string, connection: NonNullable<Connection>) {
   return new saml.SAML({
     entryPoint: connection.entryPoint,
-    issuer: `dmarcharbor-${connectionId}`,
+    // The entity id the settings page tells the administrator to enter
+    // (ssoIdentifiersFor). This sent `dmarcharbor-<id>` instead, so an IdP set
+    // up from the page saw a request from an SP it did not know (session 14).
+    issuer: ssoIdentifiersFor({ id: connectionId, issuer: connection.issuer, entryPoint: connection.entryPoint }).entityId,
+    // The assertion must be addressed to us, by that same id.
+    audience: ssoIdentifiersFor({ id: connectionId, issuer: connection.issuer, entryPoint: connection.entryPoint }).entityId,
     // Required by the library's types. An unsigned assertion is refused
     // below by wantAssertionsSigned, so a missing certificate fails closed.
     idpCert: connection.idpCertificate ?? '',
@@ -657,25 +705,23 @@ function buildSaml(connectionId: string, connection: NonNullable<Connection>) {
     // the internal name, and without one the old fallback produced
     // https://localhost/api/sso/..., which tells an IdP to send users nowhere.
     callbackUrl: callbackUrlsFor(connectionId).saml,
-    wantAssertionsSigned: true,
     /**
-     * Both the response and the assertion must be signed. This comment used to say
-     * the opposite - "at least one must be signed" - which described an intention
-     * the two lines of configuration did not implement, so the next person
-     * reading it would have believed a wider set of providers worked than do.
+     * The assertion must carry its own signature; the response's is checked
+     * when present and not required.
      *
-     * Stricter is kept deliberately. Loosening it to either-signed would accept an
-     * assertion whose only signature comes from an envelope the assertion sits
-     * inside, and that is the case where the thing being asserted can be edited in
-     * flight. Refusing to sign somebody in is a support problem; accepting a
-     * modified assertion is a security problem.
+     * Both were required, and the comment here said that would fail "an IdP
+     * configured to sign only one of the two" and to relax it when a real
+     * provider did. One did, in session 14: Auth0 signs the assertion or the
+     * response, never both (its signResponse switch moves the signature), so
+     * every Auth0 sign-in failed with "Invalid signature". Entra ID and Okta
+     * also sign only the assertion unless told otherwise.
      *
-     * The cost is known and real: an IdP configured to sign only one of the two
-     * will fail here, with a signature complaint rather than anything pointing at
-     * this setting. If that happens with a real provider, relax it here and only
-     * here, and note it in the connection's own record.
+     * The assertion is the part that carries who the person is, and its own
+     * signature is what this requires, so the weaker either-signed rule (an
+     * assertion trusted only through the envelope around it) is still refused.
      */
-    wantAuthnResponseSigned: true,
+    wantAssertionsSigned: true,
+    wantAuthnResponseSigned: false,
     disableRequestedAuthnContext: true,
     acceptedClockSkewMs: 5000,
     identifierFormat: 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress',
@@ -757,13 +803,30 @@ export async function completeSamlSignIn(
     // a request we issued. Reported as a distinct code because it is the answer
     // to "someone is replaying assertions at us", which is worth being able to
     // alert on.
+    // The library's reason, for the operator: the person only sees "could not
+    // be verified", and without this nobody could tell a wrong certificate
+    // from an unsigned response (session 14).
+    console.warn(`[sso] SAML response refused for connection ${connectionId}: ${detail}`);
     if (/InResponseTo/i.test(detail)) {
       throw new SsoError('That sign in response does not match any request we made.', 'SSO_IN_RESPONSE_TO_INVALID', 400);
     }
     throw new SsoError('The sign in response could not be verified.', 'SSO_RESPONSE_INVALID', 400);
   }
 
-  const email = typeof profile?.email === 'string' ? profile.email : profile?.nameID;
+  /**
+   * The address, from where providers put it.
+   *
+   * node-saml fills `email` only from a `mail`, `email` or the urn:oid mail
+   * attribute. Auth0, Entra ID and ADFS send the WS-Federation claim
+   * `.../identity/claims/emailaddress` instead, and Auth0's NameID is its user
+   * id, so every Auth0 sign-in was "the provider did not return an email
+   * address" (session 14). The NameID is used last, and only if it is one.
+   */
+  const claimed = (profile as Record<string, unknown> | null | undefined)?.[
+    'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress'
+  ];
+  const candidates = [profile?.email, Array.isArray(claimed) ? claimed[0] : claimed, profile?.nameID];
+  const email = candidates.find((value): value is string => typeof value === 'string' && value.includes('@'));
   if (typeof email !== 'string' || !email.includes('@')) {
     throw new SsoError('The provider did not return an email address.', 'SSO_EMAIL_MISSING', 403);
   }

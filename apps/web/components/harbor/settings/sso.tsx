@@ -338,8 +338,12 @@ function Connection({
           <CopyValue value={startUrl} label="sign-in link" />
           <p className="text-meta text-fg-3">
             Issuer <code className="data text-fg-2">{c.idpEntityId}</code>
-            <br />
-            Client ID <code className="data text-fg-2">{c.clientId}</code>
+            {c.protocol === "OIDC" ? (
+              <>
+                <br />
+                Client ID <code className="data text-fg-2">{c.clientId}</code>
+              </>
+            ) : null}
           </p>
         </div>
       </div>
@@ -384,9 +388,12 @@ export function SsoBoard({
     .split(/[\s,;]+/)
     .map((d) => d.trim().replace(/^@/, "").toLowerCase())
     .filter(Boolean);
+  // A SAML entity id can also be a URN (Auth0's is urn:<tenant>.auth0.com).
   const issuerProblem =
-    issuer && !issuer.startsWith("https://")
-      ? "The issuer must start with https://."
+    issuer && !issuer.startsWith("https://") && !(protocol === "SAML" && /^urn:/i.test(issuer))
+      ? protocol === "SAML"
+        ? "The issuer must start with https:// or urn:."
+        : "The issuer must start with https://."
       : protocol === "OIDC" && issuer && !bareOrigin(issuer)
         ? "For OIDC, use the provider's base address with no path, for example https://accounts.example.com."
         : null;
@@ -403,8 +410,7 @@ export function SsoBoard({
       protocol,
       issuer: issuer.trim(),
       entryPoint: entryPoint.trim(),
-      clientId: clientId.trim(),
-      clientSecret: secret,
+      ...(protocol === "OIDC" ? { clientId: clientId.trim(), clientSecret: secret } : {}),
       provisioning,
       allowedEmailDomains: domainList,
       defaultRole,
@@ -472,7 +478,7 @@ export function SsoBoard({
             </div>
             <Labelled
               label="Issuer"
-              hint={protocol === "OIDC" ? "The provider's base address, with no path." : "The identity provider's entity ID, as an https URL."}
+              hint={protocol === "OIDC" ? "The provider's base address, with no path." : "The identity provider's entity ID, as an https URL or a urn: identifier."}
             >
               <Input mono value={issuer} onChange={(e) => setIssuer(e.target.value)} required placeholder="https://idp.example.com" autoComplete="off" />
             </Labelled>
@@ -482,12 +488,18 @@ export function SsoBoard({
             >
               <Input mono value={entryPoint} onChange={(e) => setEntryPoint(e.target.value)} required placeholder="https://idp.example.com/sso" autoComplete="off" />
             </Labelled>
-            <Labelled label="Client ID" hint="The identifier your provider gave this application.">
-              <Input mono value={clientId} onChange={(e) => setClientId(e.target.value)} required maxLength={300} autoComplete="off" />
-            </Labelled>
-            <Labelled label="Client secret" hint="Stored encrypted. It is never shown again, here or anywhere.">
-              <Input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} required autoComplete="new-password" />
-            </Labelled>
+            {/* OIDC only: a SAML provider issues no client ID or secret, and the
+                form asked for both (session 14). */}
+            {protocol === "OIDC" ? (
+              <>
+                <Labelled label="Client ID" hint="The identifier your provider gave this application.">
+                  <Input mono value={clientId} onChange={(e) => setClientId(e.target.value)} required maxLength={300} autoComplete="off" />
+                </Labelled>
+                <Labelled label="Client secret" hint="Stored encrypted. It is never shown again, here or anywhere.">
+                  <Input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} required autoComplete="new-password" />
+                </Labelled>
+              </>
+            ) : null}
             <Labelled
               label="Allowed email domains"
               hint="Separate with commas. Only addresses at these domains can sign in through this connection."
@@ -510,7 +522,7 @@ export function SsoBoard({
             </Labelled>
             {protocol === "SAML" ? (
               <Labelled label="Provider signing certificate" hint="PEM text. Used to check that assertions really come from your provider." className="md:col-span-2">
-                <Textarea mono value={cert} onChange={(e) => setCert(e.target.value)} rows={4} placeholder="-----BEGIN CERTIFICATE-----" />
+                <Textarea mono value={cert} onChange={(e) => setCert(e.target.value)} rows={4} required placeholder="-----BEGIN CERTIFICATE-----" />
               </Labelled>
             ) : (
               <>

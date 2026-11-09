@@ -96,8 +96,10 @@ describe('the SAML consumer is fed a parsed form body', () => {
     // as null and refuses at the relay-state check having never opened the
     // assertion; here the parsed form carries a real RelayState and a payload that
     // is not a SAML document, so the refusal comes from the assertion itself.
-    expect(response.body.error?.code).not.toBe('SSO_RELAY_STATE_INVALID');
-    expect(response.body.error?.code).toBe('SSO_RESPONSE_INVALID');
+    // A refusal here goes back to the sign-in page with our code (session 14).
+    expect(response.status).toBe(303);
+    expect(response.headers.location).not.toContain('sso_relay_state_invalid');
+    expect(response.headers.location).toBe('/sign-in?error=sso_response_invalid');
   });
 });
 
