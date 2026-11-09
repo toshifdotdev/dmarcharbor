@@ -487,7 +487,8 @@ async function viewFor(
               host: bimiCustomerName(domain.name),
               type: 'TXT',
               value,
-              note: 'This record points at files DMARC Harbor serves. Host the SVG and certificate yourself, update the URLs, and publish it before the CNAME goes.',
+              // No product name: this note is shown on white-label hosts too.
+              note: 'This value points at files we serve. To keep the logo after leaving, host the SVG and the certificate yourself and change the two URLs in it before the CNAME goes.',
             }
           : null,
       changes,
@@ -643,8 +644,12 @@ async function hostedRowFor(organizationId: string, domainRefOrId: string) {
     throw new HostedBimiError('This domain does not have a hosted BIMI record.', 'NOT_HOSTED', 404);
   }
   if (row.status === 'RELEASING' || row.status === 'RELEASED') {
+    // The code stays HOSTED_BIMI_RELEASING for both; only the sentence differs.
+    // A released record was told it "is being released" (session 10).
     throw new HostedBimiError(
-      'This record is being released and cannot be changed.',
+      row.status === 'RELEASED'
+        ? 'Hosting has stopped for this domain. Host the logo again to upload files.'
+        : 'This record is being released and cannot be changed.',
       'HOSTED_BIMI_RELEASING',
       409,
     );

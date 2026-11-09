@@ -548,6 +548,60 @@ end to end in session 8 and found three bugs, so expect the same here.
 
 ---
 
+## Before deployment: what to buy and set up
+
+Decided in session 10 (9 November 2026). Hosted DMARC, managed SPF, hosted BIMI
+and hosted MTA-STS publish customers' records in one Cloudflare zone, the
+hosting zone. It is a domain of its own, not `dmarcharbor.com`: customers'
+records then never share our own zone's record limit, an automation mistake
+cannot touch our website or mail, a test deployment can use its own zone, and
+a zone has only one Cloudflare for SaaS fallback origin. Customers point their
+CNAMEs at this zone, so it must be chosen before the first customer: changing it
+later means every customer edits their DNS again.
+
+- [ ] **Buy `dmarcharbour.com`** (the hosting zone; also stops someone else
+      using our British spelling). Add it to Cloudflare. Redirect its root and
+      `www` (301, a Cloudflare redirect rule) to `https://dmarcharbor.com`, so a
+      person who types it or finds it in a CNAME lands on us and does not take
+      it for a lookalike. The hosting names under it (`bimi.`, `mta.`, the
+      token records) are unaffected by the redirect.
+- [ ] Set `HOSTED_DNS_ZONE=dmarcharbour.com`, its zone ID, and a token scoped
+      to that zone with **Zone → DNS → Edit**, **Zone → SSL and Certificates →
+      Edit** and **Zone → Zone → Read**.
+- [ ] **Cloudflare for SaaS** on `dmarcharbour.com` (the card is on the
+      account). Fallback origin: a proxied record that reaches the production
+      **API**, for example `mta-origin.dmarcharbour.com`. Set
+      `HOSTED_MTA_STS_CNAME_TARGET`, for example `mta.dmarcharbour.com`, a
+      proxied CNAME to the fallback origin.
+- [ ] `HOSTED_BIMI_ORIGIN`, for example `https://bimi.dmarcharbour.com`,
+      proxied to the API. Never the web app's origin.
+- [ ] On the hosting zone, set **Caching → Configuration → Browser Cache TTL**
+      to **Respect Existing Headers**. The API sends `max-age=3600` for BIMI
+      files; Cloudflare's default (4 hours) raised it to `max-age=14400`, so a
+      released or replaced logo stayed in browsers for 4 hours instead of 1
+      (seen in session 10).
+- [ ] **Cloudflare Pro on `dmarcharbour.com`** (about $20–25 a month) when the
+      80% email arrives: Free holds 200 records, Pro 3,500. No setting to
+      change once the build below is done.
+- [ ] Cloudflare for SaaS bills $0.10 a month per hosted MTA-STS domain past
+      100. Nothing to do; the milestone emails say what it costs.
+- [ ] Remove the session 10 test set-up from `dmarcharbor.com`: the tunnel
+      hostnames, the fallback origin, the test custom hostname and the hosted
+      records under `bimi.` and `_mta-sts.`. Delete the tunnel.
+
+**To build before launch (agreed, not built yet):**
+
+- [ ] Hosted MTA-STS limit raised to Cloudflare's 50,000, with an email to the
+      operator at 100, 500, 1,000 and each 1,000 after, saying the monthly cost.
+- [ ] The hosting zone's record limit read from its Cloudflare plan (200 Free,
+      3,500 Pro, 3,500 Business), with an email to the operator at 80%.
+- [ ] At a real limit, the customer sees a short message ("This could not be
+      set up just now. We have been told and will fix it shortly; nothing else
+      on your domain is affected.") and the operator gets an email at once.
+
+Also before launch, listed elsewhere: Razorpay keys (step 7), ConnectWise and
+Autotask registration, and a full-access Resend key (step 5b).
+
 ## After the test sessions, before launch
 
 **Free public tools.** dmarcian and EasyDMARC are found through free tools

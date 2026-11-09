@@ -104,9 +104,8 @@ What the state column means:
   in the fast pass only.
 - **not run** and **new**: never run. Run in full, then final.
 
-**Order from here.** Sessions 4, 5, 8, 18, 19 and 20 are done; next the sessions never
-run (10 and 14), then the re-runs (7, 9, 12,
-13, 16, 17). Billing (11) is last, once the Razorpay keys exist. Then one
+**Order from here.** Sessions 4, 5, 8, 10, 18, 19 and 20 are done; next the
+session never run (14), then the re-runs (7, 9, 12, 13, 16, 17). Billing (11) is last, once the Razorpay keys exist. Then one
 fast pass over every session not marked final.
 
 | # | Session | Set up first | State |
@@ -120,7 +119,7 @@ fast pass over every session not marked final.
 | 7 | Alerts by email, Slack and Teams (single channel) | Slack and Teams test channels | **re-run** (Gemini); routing is in 19 |
 | 8 | PSA tickets and every webhook feature: endpoints, deliveries, retries, suspension, replay, rotation, client limits, `/api/v1` | a HaloPSA trial, a webhook receiver, an API key | **final** (8 November 2026); ConnectWise and Autotask wait for a live account |
 | 9 | Publishing DNS: Cloudflare connection, hosted DMARC, managed SPF | a Cloudflare token | **re-run** (Gemini); zone import is in 20 |
-| 10 | Hosted BIMI, MTA-STS, TLS reports | a BIMI origin and Cloudflare for SaaS | **not run** |
+| 10 | Hosted BIMI, MTA-STS, TLS reports | a BIMI origin and Cloudflare for SaaS | **final** (9 November 2026), on `linkshift.in` through a tunnel; Gmail's logo needs a real VMC |
 | 11 | Billing: checkout, upgrade, downgrade, failed payment, refund | Razorpay test keys, Paddle sandbox, a tunnel | **not run**: last |
 | 12 | White label: logo, colours, support contact, branded client emails | S3 keys for logos | **re-run** (Gemini) |
 | 13* | Client portal, approvals, share links, Trust Center, compliance packs, verifier, monthly reports, digests | sessions 2, 3 and 12 | **re-run** (Gemini) |
@@ -491,7 +490,7 @@ Test. The mailbox was opened read-only for the checks; the attachment is in
 **Open, for later sessions**
 
 - There is no Resend setup guide, so a Resend sender has no Setup guide link. Consider one with the guides in session 17.
-- The TLS reports tab formats its periods the same local way; check it in session 10.
+- The TLS reports tab formats its periods the same local way; check it in session 10. (It did; fixed in session 10.)
 - `np` in `policy_published` is not stored (no column).
 - The preview account (`dmarcharbor+colour`) was made an admin of Session One Test to read this domain, and removed again after session 5.
 
@@ -542,6 +541,60 @@ sample domains, which hold 30 days of generated reports from 8 October to
 **Open, for later sessions**
 
 - The clickthrough's portfolio-to-domain failure is a dev compile race, not a broken link; it needs a longer wait or a warmed route before the fast pass.
+
+## Session 10: hosted BIMI, hosted MTA-STS and TLS reports
+
+On `linkshift.in` (a domain of ours, verified as client "Linkshift (session
+10 test)" under Wistholm IT on Admiralty), with `dmarcharbor.com` standing in
+for the hosting zone. Cloudflare for SaaS is on that zone; a Cloudflare tunnel
+carries only `/.well-known/mta-sts.txt` and `/bimi/` to the local API (every
+other path answers 404 at the tunnel). The BIMI certificate is self-signed for
+`linkshift.in`, because a real VMC costs money.
+
+1. **Hosted MTA-STS.** Start, the custom hostname and its certificate, the
+   public policy, edits, refusals.
+2. **Hosted BIMI.** Start, the logo and certificate checks and refusals, the
+   public record and files, the expiry warning.
+3. **The scanner** reads both, as a receiver would.
+4. **TLS reports.** A report arriving, counted once, shown on the tab in UTC
+   days.
+5. **Release.** BIMI after the CNAME check and at once; MTA-STS through
+   `mode: none`.
+6. **Roles and plan.**
+7. **Screens** at 390 and 1440.
+
+### Session 10 results (9 November 2026): final
+
+| # | Item | Result |
+|---|---|---|
+| 1 | Hosted MTA-STS | **Pass.** Two CNAMEs; Cloudflare issued `mta-sts.linkshift.in`'s certificate in about 4 minutes; Active. `https://mta-sts.linkshift.in/.well-known/mta-sts.txt` answers 200 `text/plain`, `no-store`, `mode: testing`. An edit publishes a new id in the TXT; an invalid MX is refused (`INVALID_POLICY`) and a stale version answers 409 `VERSION_CHANGED`. |
+| 2 | Hosted BIMI | **Pass.** An SVG failing 4 of the 7 checks, a certificate for another domain (`BIMI_CERT_WRONG_DOMAIN`) and one carrying its private key (`BIMI_CERT_HAS_PRIVATE_KEY`) are refused. With the logo and certificate uploaded, `default._bimi.linkshift.in` resolves through the CNAME to `v=BIMI1; l=…svg; a=…pem`; both files answer 200 with the sandbox CSP, an unknown file 404. The panel says "Not a mark certificate" and warns 30 days before expiry. |
+| 3 | The scanner | **Pass.** MTA-STS found, policy fetched (testing, `route1.mx.cloudflare.net` covered); BIMI found, logo 7 of 7 checks, DMARC qualifies at quarantine. TLS-RPT missing on `linkshift.in`, which is true. See the open item on the office resolver. |
+| 4 | TLS reports | **Pass** after a fix. A crafted RFC 8460 report (8 November, 118 sessions passed, 3 failed: `certificate-host-mismatch` 2, `starttls-not-supported` 1), mailed to the signed inbound webhook, is stored; the same message again answers "duplicate". The tab reads 121 sessions, 3 failed, 2.47%, each result type explained, per receiving server, and the report's policy string. The MTA-STS hint goes once the scan reads MTA-STS. |
+| 5 | Release | **Pass** after copy fixes. BIMI: Stop hosting goes to Releasing, keeps serving, and shows the TXT to republish; Remove now deletes the TXT at once and the files answer 404 at the origin. MTA-STS: Stop hosting publishes `mode: none` under a new id (the Cloudflare write took 11 seconds) and keeps serving it until 11 November (the 1-day max_age plus a day); editing is gone. |
+| 6 | Roles and plan | **Pass** after a fix. A viewer's writes answer 403; an analyst can publish (analysts have domain update). On Fairway and Mooring every write answers 402 naming Harbor; TLS reports answer 402 on Mooring naming Fairway. Reading and Check now stay open on every plan, so a downgraded workspace can still leave. |
+| 7 | Screens | **Pass.** Both panels and the TLS tab at 1440 and 390, no sideways scroll; the long CNAME values wrap. |
+
+**Broken, fixed**
+
+- The DNS publishing limit (30 an hour per workspace) counted refused requests. A few tries at an SVG that failed the checks, a stale edit and an invalid MX locked the workspace out with "That workspace has published 30 DNS records this hour", when nothing had been published. A 4xx is now given back; a 5xx still counts, because the provider may have been called. Checked: four refused writes leave the count at 0, one real edit makes it 1.
+- TLS report periods were dated in the viewer's time zone: 8 November (00:00 to 23:59:59 UTC) read "8 Nov 2026 – 9 Nov 2026" in India. They are UTC days now, one day when they cover one, as the aggregate reports were in session 4.
+
+**Gap, fixed**
+
+- Releasing BIMI showed the same advice twice, and the API's copy named "DMARC Harbor", which a white-label host must not show. It also showed a second Check now (with the same test id) and a Stop hosting that did nothing.
+- The Remove now dialog said "nothing was delegated that we still need to serve" for a record whose CNAME is live.
+- A released BIMI record offered logo and certificate uploads ("No logo yet. Nothing is published until one is uploaded"), and every upload answered 409 "This record is being released". The uploads are hidden once released, and the API says hosting has stopped.
+- The MTA-STS release notice repeated the panel below it, and the panel said senders "cached the enforcing policy" for a testing one.
+
+**Open, for later sessions**
+
+- Gmail shows the logo only with a real VMC or CMC; the self-signed certificate proves the path, not the inbox.
+- The TLS-RPT record on `dmarcharbor.com` was published on 9 November and two messages were sent from Gmail. Google's first real report (for `dmarcharbor.com`, in Session One Test) should arrive about 10 November; check it lands and reads the same.
+- The office resolver (10.2.1.60) answers a TXT query at a CNAME with the CNAME alone and does not follow it, so the API's own scan read `_mta-sts` and `default._bimi` as missing. Public resolvers follow it. For this session the API ran with Node's resolvers pointed at 1.1.1.1; a production host's resolver follows CNAMEs.
+- One in-app scan straight after an API restart read BIMI as missing; the next found it, and it did not happen again.
+- Cloudflare's edge kept the released SVG for up to the hour the API allows, and its default browser TTL raised that to 4 hours. Added to the launch checklist: "Respect Existing Headers" on the hosting zone.
+- The session 10 set-up (tunnel, test records, fallback origin, custom hostname, the hosted rows and the env block) is removed with the rest of the test data.
 
 ## Session 2: workspace, team members, roles, invitations
 

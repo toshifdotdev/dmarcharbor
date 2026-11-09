@@ -22,16 +22,27 @@ function number(value: number): string {
   return value.toLocaleString("en-GB");
 }
 
-function shortDate(value: string): string {
-  return new Date(value).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+/**
+ * A report period's day, in UTC: senders report whole UTC days (RFC 8460
+ * section 4.4). In the viewer's zone, 8 November (00:00 to 23:59:59 UTC) read
+ * as "8 Nov 2026 – 9 Nov 2026" in India (session 10). An end at 00:00:00
+ * belongs to the day before, as an exclusive end.
+ */
+function utcDay(value: string, end = false): string {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  const at =
+    end && d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0
+      ? new Date(d.getTime() - 1000)
+      : d;
+  return at.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 }
 
+/** "8 Nov 2026", or "8 Nov 2026 – 9 Nov 2026" when the period covers more than one UTC day. */
 function period(begin: string, end: string): string {
-  return `${shortDate(begin)} – ${shortDate(end)}`;
+  const first = utcDay(begin);
+  const last = utcDay(end, true);
+  return first === last ? first : `${first} – ${last}`;
 }
 
 function policyTypes(policies: Array<{ policyType: string }>): string {

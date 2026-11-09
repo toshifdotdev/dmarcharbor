@@ -365,10 +365,6 @@ export function HostedBimi({
                 note={hosted.republish.note}
                 testId="hosted-bimi-republish"
               />
-              <p className="max-w-[72ch] text-ui text-fg-2">
-                This value points at files we serve. To keep the logo after leaving, host the SVG and the
-                certificate yourself and change the two URLs in it before the CNAME goes.
-              </p>
               <div className="flex flex-wrap items-center gap-3">
                 <Button data-testid="hosted-bimi-check" busy={busy === "check"} busyLabel="Checking" onClick={check}>
                   Check now
@@ -406,176 +402,189 @@ export function HostedBimi({
                   your side changes when the logo or certificate is replaced.
                 </p>
               ) : null}
-              <div className="flex flex-wrap items-center gap-3">
-                <Button data-testid="hosted-bimi-check" busy={busy === "check"} busyLabel="Checking" onClick={check}>
-                  Check now
-                </Button>
-                {canEdit ? (
-                  <Button
-                    data-testid="hosted-bimi-release"
-                    variant="danger-quiet"
-                    onClick={() => {
-                      setRemoveNow(false);
-                      setConfirmRelease(true);
-                    }}
-                  >
-                    Stop hosting
+              {/* While releasing, Check now and Remove now sit with the record to
+                  republish above; a second Check now (same test id) and a Stop
+                  hosting that did nothing were shown here too (session 10). */}
+              {hosted.status !== "RELEASING" ? (
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button data-testid="hosted-bimi-check" busy={busy === "check"} busyLabel="Checking" onClick={check}>
+                    Check now
                   </Button>
-                ) : null}
-              </div>
+                  {canEdit ? (
+                    <Button
+                      data-testid="hosted-bimi-release"
+                      variant="danger-quiet"
+                      onClick={() => {
+                        setRemoveNow(false);
+                        setConfirmRelease(true);
+                      }}
+                    >
+                      Stop hosting
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ) : null}
 
-          {/* The logo. Rendered from the BIMI origin as an image, never inlined:
-              an SVG in the DOM is markup this page did not write. */}
-          <div className="flex flex-col gap-3 border-t border-rule pt-3">
-            <p className="legend">Logo</p>
-            {hosted.logo ? (
-              <div className="flex flex-wrap items-center gap-4">
-                <img
-                  data-testid="hosted-bimi-logo"
-                  src={hosted.logo.url}
-                  alt={`BIMI logo for ${domainName}`}
-                  width={64}
-                  height={64}
-                  className="size-16 shrink-0 border border-rule bg-paper-2 object-contain p-1"
-                />
-                <dl className="flex flex-col text-meta text-fg-2">
-                  <div className="flex gap-2">
-                    <dt className="text-fg-3">SHA-256</dt>
-                    <dd className="data">{shortSha(hosted.logo.sha256)}</dd>
+          {/* A released record has no files and takes no uploads (the API
+              answers 409), so the logo and certificate parts are not shown.
+              They read "No logo yet. Nothing is published until one is
+              uploaded" with an upload that always failed (session 10). */}
+          {hosted.status !== "RELEASED" ? (
+            <>
+              {/* The logo. Rendered from the BIMI origin as an image, never inlined:
+                  an SVG in the DOM is markup this page did not write. */}
+              <div className="flex flex-col gap-3 border-t border-rule pt-3">
+                <p className="legend">Logo</p>
+                {hosted.logo ? (
+                  <div className="flex flex-wrap items-center gap-4">
+                    <img
+                      data-testid="hosted-bimi-logo"
+                      src={hosted.logo.url}
+                      alt={`BIMI logo for ${domainName}`}
+                      width={64}
+                      height={64}
+                      className="size-16 shrink-0 border border-rule bg-paper-2 object-contain p-1"
+                    />
+                    <dl className="flex flex-col text-meta text-fg-2">
+                      <div className="flex gap-2">
+                        <dt className="text-fg-3">SHA-256</dt>
+                        <dd className="data">{shortSha(hosted.logo.sha256)}</dd>
+                      </div>
+                      <div className="flex gap-2">
+                        <dt className="text-fg-3">Size</dt>
+                        <dd className="data">{hosted.logo.bytes.toLocaleString("en-GB")} bytes</dd>
+                      </div>
+                      <div className="flex gap-2">
+                        <dt className="text-fg-3">Uploaded</dt>
+                        <dd>{dateLabel(hosted.logo.uploadedAt)}</dd>
+                      </div>
+                    </dl>
                   </div>
-                  <div className="flex gap-2">
-                    <dt className="text-fg-3">Size</dt>
-                    <dd className="data">{hosted.logo.bytes.toLocaleString("en-GB")} bytes</dd>
-                  </div>
-                  <div className="flex gap-2">
-                    <dt className="text-fg-3">Uploaded</dt>
-                    <dd>{dateLabel(hosted.logo.uploadedAt)}</dd>
-                  </div>
-                </dl>
-              </div>
-            ) : (
-              <p className="text-ui text-fg-2" data-testid="hosted-bimi-no-logo">
-                No logo yet. Nothing is published until one is uploaded — a TXT pointing at a file that does not
-                exist is worse than no record at all.
-              </p>
-            )}
-
-            {canEdit && hosted.status !== "RELEASING" && !paused ? (
-              <label className="flex flex-col gap-1 text-ui text-fg-2">
-                <span className="font-semibold text-fg">{hosted.logo ? "Replace the logo" : "Upload the logo"}</span>
-                <input
-                  type="file"
-                  accept="image/svg+xml,.svg"
-                  data-testid="hosted-bimi-logo-input"
-                  disabled={busy === "logo"}
-                  onChange={(event) => {
-                    void uploadLogo(event.target.files?.[0]);
-                    event.target.value = "";
-                  }}
-                  className={fileInputClass}
-                />
-                <span className="text-meta text-fg-3">
-                  The file is stored exactly as uploaded. Do not edit it afterwards: your certificate authority
-                  approved those exact bytes.
-                </span>
-              </label>
-            ) : null}
-          </div>
-
-          {/* The certificate. */}
-          <div className="flex flex-col gap-3 border-t border-rule pt-3">
-            <p className="legend">Certificate</p>
-            {certificate ? (
-              <div className="flex flex-col gap-2">
-                <dl className="flex flex-col text-meta">
-                  <div className="flex justify-between gap-4 border-b border-rule py-1">
-                    <dt className="text-fg-3">Type</dt>
-                    <dd className="text-right font-semibold text-fg">
-                      {certificate.isMarkCertificate ? "Mark certificate (VMC or CMC)" : "Not a mark certificate"}
-                    </dd>
-                  </div>
-                  <div className="flex justify-between gap-4 border-b border-rule py-1">
-                    <dt className="text-fg-3">Issuer</dt>
-                    <dd className="text-right text-fg">{certificate.issuer ?? "not stated"}</dd>
-                  </div>
-                  <div className="flex justify-between gap-4 border-b border-rule py-1">
-                    <dt className="text-fg-3">Expires</dt>
-                    <dd className={certificate.expired ? "text-right font-semibold text-fail" : "text-right text-fg"}>
-                      {dateLabel(certificate.expiresAt)}
-                      {certificate.expired ? " — expired" : ""}
-                    </dd>
-                  </div>
-                  <div className="flex justify-between gap-4 border-b border-rule py-1">
-                    <dt className="text-fg-3">SHA-256</dt>
-                    <dd className="data text-right">{shortSha(certificate.sha256)}</dd>
-                  </div>
-                </dl>
-                {certificate.expired ? (
-                  <Notice tone="fail" title="This certificate has expired">
-                    We publish a= empty, so Gmail and Apple Mail stop showing the logo. Upload the renewed
-                    certificate your authority issued.
-                  </Notice>
-                ) : certificate.expiresSoon ? (
-                  <Notice tone="warn" title={`This certificate expires on ${dateLabel(certificate.expiresAt)}`}>
-                    Renew it with your certificate authority and upload the new file before then. When it expires we
-                    publish a= empty and the logo stops showing in Gmail and Apple Mail.
-                  </Notice>
-                ) : null}
-                {!certificate.isMarkCertificate ? (
-                  <p className="text-meta text-fg-3">
-                    Without the mark certificate extended key usage, Gmail and Apple Mail will not show this logo.
+                ) : (
+                  <p className="text-ui text-fg-2" data-testid="hosted-bimi-no-logo">
+                    No logo yet. Nothing is published until one is uploaded — a TXT pointing at a file that does not
+                    exist is worse than no record at all.
                   </p>
-                ) : null}
+                )}
+
                 {canEdit && hosted.status !== "RELEASING" && !paused ? (
-                  <div>
-                    <Button
-                      data-testid="hosted-bimi-certificate-remove"
-                      variant="danger-quiet"
-                      busy={busy === "certificate-remove"}
-                      busyLabel="Removing"
-                      onClick={removeCertificate}
-                    >
-                      Remove the certificate
-                    </Button>
-                  </div>
+                  <label className="flex flex-col gap-1 text-ui text-fg-2">
+                    <span className="font-semibold text-fg">{hosted.logo ? "Replace the logo" : "Upload the logo"}</span>
+                    <input
+                      type="file"
+                      accept="image/svg+xml,.svg"
+                      data-testid="hosted-bimi-logo-input"
+                      disabled={busy === "logo"}
+                      onChange={(event) => {
+                        void uploadLogo(event.target.files?.[0]);
+                        event.target.value = "";
+                      }}
+                      className={fileInputClass}
+                    />
+                    <span className="text-meta text-fg-3">
+                      The file is stored exactly as uploaded. Do not edit it afterwards: your certificate authority
+                      approved those exact bytes.
+                    </span>
+                  </label>
                 ) : null}
               </div>
-            ) : (
-              <p className="text-ui text-fg-2">
-                No certificate. The record publishes <code className="data">a=</code> empty, so clients that do not
-                require one still show the logo; Gmail and Apple Mail do not.
-              </p>
-            )}
 
-            {canEdit && hosted.status !== "RELEASING" && !paused ? (
-              <label className="flex flex-col gap-1 text-ui text-fg-2">
-                <span className="font-semibold text-fg">
-                  {certificate ? "Replace the certificate" : "Upload the certificate"}
-                </span>
-                <input
-                  type="file"
-                  accept="application/x-pem-file,application/pem-certificate-chain,text/plain,.pem,.crt,.cer"
-                  data-testid="hosted-bimi-certificate-input"
-                  disabled={busy === "certificate"}
-                  onChange={(event) => {
-                    void uploadCertificate(event.target.files?.[0]);
-                    event.target.value = "";
-                  }}
-                  className={fileInputClass}
-                />
-                <span className="text-meta text-fg-3">
-                  The .pem file your certificate authority sent. Never the private key.
-                </span>
-              </label>
-            ) : null}
+              {/* The certificate. */}
+              <div className="flex flex-col gap-3 border-t border-rule pt-3">
+                <p className="legend">Certificate</p>
+                {certificate ? (
+                  <div className="flex flex-col gap-2">
+                    <dl className="flex flex-col text-meta">
+                      <div className="flex justify-between gap-4 border-b border-rule py-1">
+                        <dt className="text-fg-3">Type</dt>
+                        <dd className="text-right font-semibold text-fg">
+                          {certificate.isMarkCertificate ? "Mark certificate (VMC or CMC)" : "Not a mark certificate"}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between gap-4 border-b border-rule py-1">
+                        <dt className="text-fg-3">Issuer</dt>
+                        <dd className="text-right text-fg">{certificate.issuer ?? "not stated"}</dd>
+                      </div>
+                      <div className="flex justify-between gap-4 border-b border-rule py-1">
+                        <dt className="text-fg-3">Expires</dt>
+                        <dd className={certificate.expired ? "text-right font-semibold text-fail" : "text-right text-fg"}>
+                          {dateLabel(certificate.expiresAt)}
+                          {certificate.expired ? " — expired" : ""}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between gap-4 border-b border-rule py-1">
+                        <dt className="text-fg-3">SHA-256</dt>
+                        <dd className="data text-right">{shortSha(certificate.sha256)}</dd>
+                      </div>
+                    </dl>
+                    {certificate.expired ? (
+                      <Notice tone="fail" title="This certificate has expired">
+                        We publish a= empty, so Gmail and Apple Mail stop showing the logo. Upload the renewed
+                        certificate your authority issued.
+                      </Notice>
+                    ) : certificate.expiresSoon ? (
+                      <Notice tone="warn" title={`This certificate expires on ${dateLabel(certificate.expiresAt)}`}>
+                        Renew it with your certificate authority and upload the new file before then. When it expires we
+                        publish a= empty and the logo stops showing in Gmail and Apple Mail.
+                      </Notice>
+                    ) : null}
+                    {!certificate.isMarkCertificate ? (
+                      <p className="text-meta text-fg-3">
+                        Without the mark certificate extended key usage, Gmail and Apple Mail will not show this logo.
+                      </p>
+                    ) : null}
+                    {canEdit && hosted.status !== "RELEASING" && !paused ? (
+                      <div>
+                        <Button
+                          data-testid="hosted-bimi-certificate-remove"
+                          variant="danger-quiet"
+                          busy={busy === "certificate-remove"}
+                          busyLabel="Removing"
+                          onClick={removeCertificate}
+                        >
+                          Remove the certificate
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="text-ui text-fg-2">
+                    No certificate. The record publishes <code className="data">a=</code> empty, so clients that do not
+                    require one still show the logo; Gmail and Apple Mail do not.
+                  </p>
+                )}
 
-            <p className="max-w-[72ch] text-meta text-fg-3">
-              {brand} does not check that the logo matches the one in the certificate. Upload the exact SVG your
-              certificate authority approved.
-            </p>
-          </div>
+                {canEdit && hosted.status !== "RELEASING" && !paused ? (
+                  <label className="flex flex-col gap-1 text-ui text-fg-2">
+                    <span className="font-semibold text-fg">
+                      {certificate ? "Replace the certificate" : "Upload the certificate"}
+                    </span>
+                    <input
+                      type="file"
+                      accept="application/x-pem-file,application/pem-certificate-chain,text/plain,.pem,.crt,.cer"
+                      data-testid="hosted-bimi-certificate-input"
+                      disabled={busy === "certificate"}
+                      onChange={(event) => {
+                        void uploadCertificate(event.target.files?.[0]);
+                        event.target.value = "";
+                      }}
+                      className={fileInputClass}
+                    />
+                    <span className="text-meta text-fg-3">
+                      The .pem file your certificate authority sent. Never the private key.
+                    </span>
+                  </label>
+                ) : null}
+
+                <p className="max-w-[72ch] text-meta text-fg-3">
+                  {brand} does not check that the logo matches the one in the certificate. Upload the exact SVG your
+                  certificate authority approved.
+                </p>
+              </div>
+            </>
+          ) : null}
 
           {/* The DMARC answer, from the latest scan. Never a blocker. */}
           <div className="flex flex-col gap-2 border-t border-rule pt-3">
@@ -672,8 +681,15 @@ export function HostedBimi({
               Removing BIMI never affects mail delivery — only the logo. The DMARC record is separate and is not
               touched.
             </p>
-            {hosted?.status === "PENDING" || hosted?.status === "RELEASING" ? (
-              <p>The record is removed at once; nothing was delegated that we still need to serve.</p>
+            {/* This said "nothing was delegated" for a releasing record too, whose
+                CNAME is still live (session 10). */}
+            {hosted?.status === "PENDING" ? (
+              <p>The record is removed at once: the CNAME was never seen, so nothing was delegated to us yet.</p>
+            ) : removeNow || hosted?.status === "RELEASING" ? (
+              <p>
+                The TXT and the files go at once. A mail client that fetches the logo after that shows none, until
+                you publish your own record.
+              </p>
             ) : (
               <p>
                 We keep serving the logo until a check sees the CNAME gone, so the logo does not vanish mid-fetch.

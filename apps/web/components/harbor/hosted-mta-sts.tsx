@@ -277,7 +277,7 @@ export function HostedMtaSts({
     setNotice(
       res.data.hosted?.status === "RELEASED"
         ? "Hosting stopped at once; the policy had never been served."
-        : "A 'none' policy is being served until every cached policy has expired. The date is below.",
+        : "Release started. We now publish mode: none with a new id.",
     );
     router.refresh();
   }
@@ -521,7 +521,7 @@ export function HostedMtaSts({
                 </div>
               </Notice>
               <p className="text-meta text-fg-3">
-                Senders that cached the enforcing policy keep applying it until its max_age expires, which is why the
+                Senders that cached the previous policy keep applying it until its max_age expires, which is why the
                 policy is not withdrawn at once.
               </p>
               <div>

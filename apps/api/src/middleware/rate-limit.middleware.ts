@@ -392,11 +392,19 @@ export const monthlyReportIssueRateLimiter = rateLimit({
  * Keyed on the workspace because the cost and the provider rate limit belong to
  * the account, not to one staff member or one office address. It runs after the
  * role check, so organizationId is the path's resolved value.
+ *
+ * A request refused with a 4xx (an SVG that fails the BIMI checks, a stale
+ * version, an invalid MX) publishes nothing and is given back. Counting them
+ * locked a workspace out after a few tries at fixing one logo, with a message
+ * saying it had published 30 records (session 10). A 5xx still counts, because
+ * it can mean the provider was called.
  */
 export const dnsPublishRateLimiter = rateLimit({
   ...SHARED_LIMITER_OPTIONS,
   windowMs: 60 * 60 * 1000,
   limit: 30,
+  skipFailedRequests: true,
+  requestWasSuccessful: (_request, response) => response.statusCode < 400 || response.statusCode >= 500,
   store: rateLimitStoreFor('dns-publish'),
   keyGenerator: (request) => `org:${String(request.params.organizationId ?? clientKey(request))}`,
   message: {
