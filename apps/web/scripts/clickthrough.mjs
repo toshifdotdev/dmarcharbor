@@ -625,8 +625,10 @@ console.log("\nshots:", shotSignIn, shotPortfolio);
 async function openDomain(matchText) {
   const escaped = matchText ? matchText.replace(/['\\]/g, "\\$&") : null;
   const rowExpr = escaped
-    ? `[...document.querySelectorAll('tbody tr')].find(tr => tr.textContent.includes('${escaped}'))`
-    : `document.querySelector('tbody tr')`;
+    ? `[...document.querySelectorAll('tbody tr[data-domain-id]')].find(tr => tr.textContent.includes('${escaped}'))`
+    : // A domain row, not the first row on the page: the portfolio's
+      // "Daily figures" table sits above the domain list.
+      `document.querySelector('tbody tr[data-domain-id]')`;
   await waitForEval(
     `(() => { const row = ${rowExpr}; return row ? Object.keys(row).some(k => k.startsWith('__react')) : false; })()`,
     (v) => v === true,
@@ -925,7 +927,9 @@ check(
   Boolean(
     spfTabAudit?.visible &&
       spfPanelText.includes("Managed SPF") &&
-      spfPanelText.includes("not set up on this deployment"),
+      // Either state of the deployment: hosting off says so; hosting on shows
+      // the panel. Only a failed load is a failure.
+      !/could not be (loaded|read)/i.test(spfPanelText),
   ),
   JSON.stringify({
     visible: spfTabAudit?.visible ?? false,
@@ -956,7 +960,7 @@ check(
   Boolean(
     bimiTabAudit?.visible &&
       bimiPanelText.includes("Logo in the inbox (BIMI)") &&
-      bimiPanelText.includes("not set up on this deployment"),
+      !/could not be (loaded|read)/i.test(bimiPanelText),
   ),
   JSON.stringify({
     visible: bimiTabAudit?.visible ?? false,
@@ -987,7 +991,7 @@ check(
   Boolean(
     mtaStsTabAudit?.visible &&
       mtaStsPanelText.includes("MTA-STS") &&
-      mtaStsPanelText.includes("not set up on this deployment"),
+      !/could not be (loaded|read)/i.test(mtaStsPanelText),
   ),
   JSON.stringify({
     visible: mtaStsTabAudit?.visible ?? false,
@@ -3068,6 +3072,9 @@ await fetch(`${FP}/__fail/off`, { method: "POST" }).catch(() => {});
 await navigate(WEB + "/settings/sessions");
 // The wait is the point here: focusable controls must exist before tabbing.
 await waitForEval(`document.querySelectorAll('button, a, input, select').length > 0`, (v) => v === true);
+// Tabbing before hydration lands one press on the body while React swaps the
+// tree (4 of 5 in the 10 November run; 6 of 6 by hand once loaded).
+await waitForHydration();
 await evalJs(`(() => { if (document.activeElement) document.activeElement.blur(); document.body.focus(); return true; })()`);
 let tabLandings = 0;
 let ringSeen = null;
@@ -3897,6 +3904,10 @@ check(
 // case is a fixture override on the fail-proxy: Paddle is unconfigured here,
 // so the real endpoint will not produce it, and the assertion is about the
 // page's wiring rather than the API's mood.
+// Pinned to the launch state (INR only) by the fail-proxy rather than read from
+// the API: a dev .env with Paddle keys reports both currencies (session 11).
+await fetch(`${FP}/__caps/on?currencies=INR`, { method: "POST" }).catch(() => null);
+await navigate(WEB + "/pricing");
 const currencyAudit = await waitForEval(
   `(() => {
     const toggle = document.querySelector('[data-testid="pricing-currency"]');
@@ -3934,7 +3945,7 @@ check(
   Boolean(twoCurrencyAudit && twoCurrencyAudit.inr && twoCurrencyAudit.usd),
   JSON.stringify(twoCurrencyAudit),
 );
-await fetch(`${FP}/__caps/off`, { method: "POST" }).catch(() => null);
+await fetch(`${FP}/__caps/on?currencies=INR`, { method: "POST" }).catch(() => null);
 await navigate(WEB + "/pricing");
 const restoredAudit = await waitForEval(
   `(() => ({
@@ -3949,6 +3960,7 @@ check(
   Boolean(restoredAudit && restoredAudit.singleChip && restoredAudit.noUsdTab),
   JSON.stringify(restoredAudit),
 );
+await fetch(`${FP}/__caps/off`, { method: "POST" }).catch(() => null);
 
 check(
   "pricing and homepage invent no evidence (no fake logos/counts/testimonials)",
@@ -4960,9 +4972,11 @@ const mfaOff = await waitForEval(
 );
 await waitForHydration();
 const mfaStarted = await clickMfaTestId("mfa-start");
-await waitForEval(`!!document.querySelector('input[type="password"]')`, (v) => v === true, 20000);
+// The setup step's own field: the change-password form above it has password
+// inputs too, and the first of those is not this one.
+await waitForEval(`!!document.querySelector('[data-testid="mfa-password"]')`, (v) => v === true, 20000);
 await waitForHydration();
-await fillInput('input[type="password"]', mfaPassword);
+await fillInput('[data-testid="mfa-password"]', mfaPassword);
 await clickMfaText("Continue");
 const setupReady = await waitForEval(
   `(() => {

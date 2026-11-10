@@ -333,8 +333,11 @@ export function AccountSecurityBoard({
         ) : security.hasPassword ? (
           phase === "setup-password" ? (
             <form onSubmit={beginSetup} className="flex max-w-[360px] flex-col gap-3">
-              <Field label="Your password">
+              {/* Not "Your password": that is the change-password section above, and
+                  two things of one name are one too many for a screen reader. */}
+              <Field label="Confirm your password">
                 <Input
+                  data-testid="mfa-password"
                   type="password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
