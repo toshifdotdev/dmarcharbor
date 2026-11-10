@@ -250,7 +250,9 @@ describe('subscription state machine', () => {
         plan: 'HARBOR',
         status: 'ACTIVE',
         provider: 'RAZORPAY',
-        providerSubscriptionId: `sub_period_${Date.now()}`,
+        // The same subscription the events below are about (see `event`): a
+        // different id is a new purchase and inherits nothing.
+        providerSubscriptionId: `sub_${fixtureId}`,
         currentPeriodEnd: periodEnd,
       },
     });
@@ -318,7 +320,7 @@ describe('subscription state machine', () => {
         plan: 'HARBOR',
         status: 'ACTIVE',
         provider: 'NONE',
-        providerSubscriptionId: `sub_keep_${Date.now()}`,
+        providerSubscriptionId: `sub_${fixtureId}`,
         currentPeriodEnd: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000),
         pendingPlan: 'FAIRWAY',
         pendingPlanInterval: 'MONTHLY',
