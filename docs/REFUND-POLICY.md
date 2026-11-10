@@ -23,11 +23,20 @@ refunds for those orders. We tell you which applies before you buy.
 | You paid in | Through | Requests go to |
 |---|---|---|
 | Indian rupees | Razorpay | **DMARC Harbor**, at `[SUPPORT EMAIL]` |
-| US dollars | Paddle | **Paddle**, from your subscription or billing portal |
+| US dollars | Paddle | **DMARC Harbor**, at `[SUPPORT EMAIL]`, or Paddle, from the link on your Paddle receipt |
 
 Paddle acts as merchant of record for payments made through them, which means
-they are the seller of record for that order and they authorise refunds. We cannot
-process a refund for an order you placed with them.
+they are the seller of record for that order. We ask Paddle to make the refund
+and it goes back to your original payment method; Paddle may also decide a
+request you send to them directly.
+
+## What a refund changes
+
+A refund under the guarantee ends the subscription straight away: the
+workspace moves to the free plan that day rather than at the end of the period.
+Nothing is deleted. Your clients, domains and reports stay, and choosing a paid
+plan again restores what it includes (a new subscription does not qualify for
+the guarantee again).
 
 ## 14-day money-back guarantee
 

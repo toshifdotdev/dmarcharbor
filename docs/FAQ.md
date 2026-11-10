@@ -253,6 +253,16 @@ There is a 14-day money-back guarantee on your first payment. It applies once pe
 customer. After that, refunds are considered case by case, for example for a
 double charge or a fault on our side. See the Refund Policy.
 
+A refund ends the subscription that day and the workspace moves to Mooring, with
+every client, domain and report kept. Cancelling without a refund keeps the plan
+until the end of the period you paid for.
+
+**Is tax added to the price?**
+Prices are shown before tax. Paying in dollars, Paddle is the reseller and
+handles tax: in the US and Canada it adds sales tax on its payment page, and in
+most other countries tax is included in the price. Paying in rupees, no GST is
+charged at present.
+
 **Which currency am I charged in?**
 Rupees are processed by Razorpay and US dollars by Paddle. You choose before your
 first payment, and it is fixed after that, because changing it would mean moving a

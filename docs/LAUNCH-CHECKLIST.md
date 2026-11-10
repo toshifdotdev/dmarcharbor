@@ -342,30 +342,38 @@ SVG uploads are safe here. Do not drop that header.
 Only after the app can boot and email works, because a webhook that arrives
 before the app is live is a webhook that is silently lost.
 
-**Razorpay**
+Everything below is explained in `docs/BILLING.md`, including the decisions
+behind it.
+
+**Razorpay (INR)**
 - Complete KYC, MSME/Udyam registration.
-- Create the products and plans, then run the plan sync so ids land in
-  `billing_plan`: three paid flat tiers on two intervals, and one monthly Fleet
-  plan per price band. Re-run it after any price change (Fairway moved to
-  $39 / ₹3,299); a stored price that differs from the catalog is refused at
-  checkout.
-- Set `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`.
-- Webhook URL: `https://api.dmarcharbor.com/api/billing/webhooks/razorpay`.
-- **Verify the subscription end date bound in a sandbox.** This is the single
-  riskiest unverified thing in the codebase. A value outside what the account
-  permits means subscriptions are rejected, or silently end early.
+- Recurring Payments enabled on the live account (cards, UPI Autopay,
+  eMandate). Requested from support in November 2026; INR checkout moves to it
+  once built (`docs/TESTING-PLAN.md`, "Razorpay Recurring Payments").
+- Set `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` (live).
+- Webhook URL: `https://api.dmarcharbor.com/api/webhooks/razorpay`, with
+  subscription.*, payment.failed, payment.captured, order.paid, invoice.paid,
+  invoice.expired, token.*, refund.* and payment.dispute.created/lost.
+- Run the plan sync for INR so plan ids land in `billing_plan`; re-run it after
+  any price change (a stored price that differs from the catalog is refused at
+  checkout).
 
-**Paddle**
-- Requires site approval, so **start this early** — it is the long pole.
-- Create the product and prices, set a webhook destination.
-- Set `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`.
-- **Confirm the plan change applies at cycle end.** The code asks for that and
-  the provider appears to apply it immediately; this is unverified and would
-  mean an upgrade is free until renewal.
+**Paddle (USD)**
+- Site approval (the long pole), then the live API key, webhook secret and a
+  `live_` client token (`NEXT_PUBLIC_PADDLE_CLIENT_TOKEN` in the web app).
+- Checkout > Default payment link: `https://dmarcharbor.com/pay` (already set
+  in the sandbox; the domain must be approved on live).
+- Notification destination `https://api.dmarcharbor.com/api/webhooks/paddle`,
+  subscription.*, transaction.* and adjustment.*.
+- Run the plan sync for USD: flat prices accept quantity 1 only, Fleet prices 1
+  to 5,000.
+- Payout settings: a bank account that accepts USD transfers, or Wise.
+- Verified in the sandbox in session 11: checkout, portal, prorated upgrade and
+  downgrade, cancel and keep, Fleet count and bands, renewal, failed renewal and
+  dunning, recovery, refund.
 
-**Payout** is separate and unresolved: a Paddle account cannot pay an Indian
-bank account directly. You need an FCRA-registered entity or Wise, and this
-affects whether INR customers can pay at all.
+**Before the first sale:** remove `STAFF_API_KEY`'s dev value and set a strong
+one (refunds use it), and read "Handling a refund request" in `docs/BILLING.md`.
 
 ### 8. The report mailbox, last
 

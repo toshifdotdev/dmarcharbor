@@ -202,7 +202,7 @@ A 402 for a full plan on a single create looks like this:
 {
   "error": {
     "code": "PLAN_LIMIT_REACHED",
-    "message": "Harbor includes 80 active domains and you have 80. Upgrade to Admiralty for 300 active domains, or remove one.",
+    "message": "Harbor includes 80 active domains and you have 80. Upgrade to Admiralty for 300 active domains, move to Fleet, billed per domain, for up to 5,000 active domains, or remove one.",
     "quota": "activeDomain",
     "label": "active domains",
     "used": 80,
@@ -590,7 +590,7 @@ curl -sS -X POST https://app.dmarcharbor.example/api/v1/clients/bulk \
     { "index": 1, "name": "Pellowyn Dental", "reason": "A client with the slug \"pellowyn-dental\" already exists." }
   ],
   "planLimitRejections": [
-    { "index": 2, "name": "Ollerbeck Vets", "quota": "activeDomain", "reason": "Harbor includes 80 active domains and only 1 remain. Upgrade to Admiralty for 300 active domains, or remove one." }
+    { "index": 2, "name": "Ollerbeck Vets", "quota": "activeDomain", "reason": "Harbor includes 80 active domains and only 1 remain. Upgrade to Admiralty for 300 active domains, move to Fleet, billed per domain, for up to 5,000 active domains, or remove one." }
   ],
   "limits": { "maxClients": 200, "maxDomains": 500 }
 }

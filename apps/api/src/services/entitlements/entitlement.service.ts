@@ -436,11 +436,35 @@ export function quotaUpgradeFor(plan: PlanTier, quota: QuotaKey): PlanTier | nul
  */
 export function quotaUpgradeSentence(plan: PlanTier, quota: QuotaKey): string {
   const upgradeTo = quotaUpgradeFor(plan, quota);
+  const fleet = fleetAlternativeFor(plan, quota);
+  const fleetText = fleet
+    ? `Fleet, billed per domain, for up to ${quotaLimitFor('FLEET', quota).toLocaleString('en-US')} ${quotaLabel(quota)}`
+    : null;
   // The upgrade names the limit that was hit; it used to quote active
   // domains whichever quota (clients, members) had been reached.
-  return upgradeTo
-    ? `Upgrade to ${planCatalog[upgradeTo].label} for ${limitText(quotaLimitFor(upgradeTo, quota))} ${quotaLabel(quota)}, or remove one.`
+  if (upgradeTo) {
+    const ladder = `${planCatalog[upgradeTo].label} for ${limitText(quotaLimitFor(upgradeTo, quota))} ${quotaLabel(quota)}`;
+    return fleetText ? `Upgrade to ${ladder}, move to ${fleetText}, or remove one.` : `Upgrade to ${ladder}, or remove one.`;
+  }
+  // Admiralty is the top of the ladder, but not of the domain count: Fleet
+  // goes to 5,000. Telling an Admiralty customer to "contact us" sent away a
+  // sale the product already had a plan for.
+  return fleetText
+    ? `Move to ${fleetText} (it does not include the custom domain or SSO), or remove one.`
     : 'Contact us to add more.';
+}
+
+/**
+ * Fleet, when it is the bigger plan for this limit.
+ *
+ * Only from Harbor and Admiralty, and only for clients and active domains:
+ * those are the limits Fleet raises, and below Harbor the flat plans are
+ * cheaper than Fleet's 75-domain minimum.
+ */
+export function fleetAlternativeFor(plan: PlanTier, quota: QuotaKey): 'FLEET' | null {
+  if (plan !== 'HARBOR' && plan !== 'ADMIRALTY') return null;
+  if (quota !== 'activeDomain' && quota !== 'client') return null;
+  return quotaLimitFor('FLEET', quota) > quotaLimitFor(plan, quota) ? 'FLEET' : null;
 }
 
 /**

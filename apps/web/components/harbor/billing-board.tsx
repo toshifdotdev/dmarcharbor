@@ -280,7 +280,25 @@ export function BillingBoard({
   );
 }
 
-function usageLine(u: UsageCount | null, limit: number, l: (typeof LIMITS)[number]): { text: string; over: boolean; near: boolean } {
+/**
+ * What a workspace at a limit can do next. Harbor and Admiralty are also below
+ * Fleet for clients and domains (it goes to 1,000 and 5,000), which a plain
+ * "a larger plan" never said; on Admiralty that sentence pointed nowhere.
+ */
+function atLimitFor(tier: string, usage: (typeof LIMITS)[number]["usage"]): string {
+  const fleetRaises = usage === "domains" || usage === "clients";
+  if (tier === "HARBOR" && fleetRaises) return "At the limit: adding another needs Admiralty, or Fleet, billed per domain.";
+  if (tier === "ADMIRALTY" && fleetRaises) return "At the limit: adding another needs Fleet, billed per domain.";
+  if (tier === "FLEET" || tier === "ADMIRALTY") return "At the limit: contact us to add more.";
+  return "At the limit: adding another needs a larger plan.";
+}
+
+function usageLine(
+  u: UsageCount | null,
+  limit: number,
+  l: (typeof LIMITS)[number],
+  atLimit = "At the limit: adding another needs a larger plan.",
+): { text: string; over: boolean; near: boolean } {
   if (!Number.isFinite(limit)) return { text: "No limit on this plan.", over: false, near: false };
   if (!u) return { text: `Up to ${limit} ${limit === 1 ? l.one : l.many}. The current count could not be read.`, over: false, near: false };
   if (l.usage === "domains" && !u.exact) {
@@ -303,7 +321,7 @@ function usageLine(u: UsageCount | null, limit: number, l: (typeof LIMITS)[numbe
       left < 0
         ? `${-left} over the limit. Nothing is removed, but a new one cannot be added until the count is under it.`
         : left === 0
-          ? "At the limit: adding another needs a larger plan."
+          ? atLimit
           : `Room for ${left} more.`,
     over: u.used > limit,
     near: u.used >= limit,
@@ -337,7 +355,7 @@ function UsagePanel({ plan, usage }: { plan: PlanDefinition; usage: Usage }) {
         {LIMITS.map((l) => {
           const limit = planLimit(plan[l.key]);
           const u = usage[l.usage];
-          const line = usageLine(u, limit, l);
+          const line = usageLine(u, limit, l, atLimitFor(plan.tier, l.usage));
           const tone = line.over ? "text-fail" : line.near ? "text-warn" : "text-fg";
           return (
             <div key={l.key} data-usage={l.usage} className="flex min-w-0 flex-col gap-1 pr-4">

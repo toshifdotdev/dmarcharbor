@@ -110,15 +110,80 @@ in 12 is tested just before production, with the production bucket.
 
 **Waiting on.** Check these at the start of each session until they are done.
 
-- [ ] **Google's first TLS report for `dmarcharbor.com`** (session 10). Due
-      about 10 November 2026, from `noreply-smtp-tls-reporting@google.com` to
-      `dmarc-reports@reports.dmarcharbor.com` (the Migadu mailbox), subject
-      "Report Domain: dmarcharbor.com Submitter: google.com", a `.json.gz`
-      attachment. The poller moves it to "DMARC Harbor processed" within 15
-      minutes of the API running. Check: Session One Test → Pellowyn Dental →
-      `dmarcharbor.com` → TLS reports shows one report from Google for one UTC
-      day. Keep `_smtp._tls.dmarcharbor.com` published until it has arrived. Billing (11) is last, once the Razorpay keys exist. Then one
-fast pass over every session not marked final.
+- [x] **Google's first TLS report for `dmarcharbor.com`** (session 10). Arrived
+      10 November 2026 at 16:21 UTC from `noreply-smtp-tls-reporting@google.com`
+      (`google.com!dmarcharbor.com!1794182400!1794268799!001.json.gz`), moved to
+      "DMARC Harbor processed" and stored at 16:27. The tab reads Google Inc.,
+      9 Nov 2026 (one UTC day), `no-policy-found`, 2 successful, 0 failed; the
+      detail opens; no sideways scroll at 390. It showed two gaps the crafted
+      report never did, both fixed: a failed count of 0 was red, and the two
+      failure tables were empty headers (now one sentence saying nothing
+      failed). `_smtp._tls.dmarcharbor.com` stays published, as it would in
+      production.
+- [ ] **Razorpay Recurring Payments** (session 11). A support ticket asks for
+      it on test and live; until it is on, a charge on a saved token answers
+      400 "The requested URL was not found on the server". The work it unblocks
+      is listed under "Razorpay Recurring Payments: what to do when it is on".
+
+Billing (11) is last. Then one fast pass over every session not marked final.
+
+### Razorpay Recurring Payments: what to do when it is on
+
+The design is in `docs/BILLING.md` ("Razorpay Recurring Payments"). In order:
+
+1. **Confirm it is on.** Charge the session 11 test token: `npx tsx
+   ../../.shots/s11-rzp-charge.mts cust_TyT1kBYYIN7HPb token_TyTCbbr1yk8dnT
+   329900` from `apps/api` should create a payment, not answer 400. Read
+   Razorpay's reply for the answers asked for: the highest `max_amount` per
+   method, who sends the pre-debit notice, eNACH confirmation and settlement
+   times, any extra pricing, and the webhook events available.
+2. **Webhooks.** Tick payment.captured, order.paid, invoice.paid,
+   invoice.expired and token.confirmed/rejected/paused/cancelled on the test
+   webhook, and add them to the event map.
+3. **Schema.** The mandate on the subscription: token id, method, maximum,
+   status, next charge date and amount (a migration, backed up first).
+4. **Provider.** A Razorpay Recurring adapter beside the Subscriptions one:
+   checkout by registration link (method chosen on our page: card or UPI up to
+   ₹15,000, eNACH by default above it, card with the approve-each-charge
+   warning; maximum the larger of ₹1,00,000 or twice the charge), the first
+   payment taken at once (eNACH cannot debit on its registration day), cancel
+   and undo, refund of the first payment, token webhooks.
+5. **Renewal job.** Each period: an order and a charge on the token; the 3-day
+   pre-debit email with the amount; eNACH's delayed result; a failure goes to
+   dunning as on Paddle.
+6. **Plan changes.** Upgrade at once with the prorated difference added to the
+   next charge; downgrade at the end of the period; Fleet's amount computed at
+   each charge; a "raise your maximum" notice 7 days before a charge that would
+   exceed it.
+7. **Screens.** The method choice at checkout, the mandate on the billing page
+   (method, maximum, next charge), the over-maximum notice, the pre-debit email.
+8. **Docs.** BILLING.md, the Terms and Refund Policy ("Paid in rupees": an
+   upgrade becomes immediate), the FAQ ("When does a plan change take
+   effect?"), the launch checklist.
+9. **Test as an MSP in the browser**, on the INR account
+   (`dmarcharbor+s11inr@gmail.com`): card, UPI and eNACH checkout; a renewal;
+   upgrade, downgrade, Fleet up and down a band; a failed charge through
+   dunning and recovery; cancel and undo; a refund; 390px screens. Then
+   session 11 is final.
+10. **Retire Razorpay Subscriptions** for new checkouts once INR works on
+    Recurring Payments; existing test subscriptions are cancelled.
+
+### Features that no session tests yet
+
+Found by checking every feature on the plan list and the product against the
+sessions above (10 November 2026). Each is added to the session it belongs to,
+and run with it.
+
+| Feature | Plan | Joins session | Needs |
+|---|---|---|---|
+| Forensic (failure) reports arriving, shown with recipients unnamed on Fairway and named on Harbor, and the viewer refused | Fairway, Harbor | 4 (a short add-on) | a sender that sends forensic reports to our `ruf` address; or a crafted RFC 6591 report through the signed inbound webhook, as session 10 did for TLS |
+| Report collection from the customer's own mailbox (IMAP): connect, a wrong password refused, a private host refused, reports picked up within 15 minutes, disconnect deletes the stored password | Harbor | 9 | a second mailbox (a spare Gmail with an app password, or Migadu) with DMARC reports forwarded into it |
+| Spoofing alerts: a forged sender produces the alert, by email, Slack and Teams | Fairway | 7 | a report with failing mail from an unknown source (crafted, as above) |
+| Sender owners: assigning a person to a sending service, and what it changes | Fairway | 3 | nothing |
+| SPF check for unused includes | Fairway | 9 | a domain whose SPF includes a service that sends nothing |
+| Notifications page (the bell and `/notifications`) | every plan | 7 | nothing |
+| Agency custom-domain hosting on a real host (built after session 14, tested in dev only) | Admiralty | 14 (a short add-on), just before production | the production host and a second agency domain |
+| The billing page's limit messages naming Fleet on Harbor and Admiralty | Harbor, Admiralty | 16 | a workspace at 80 domains |
 
 | # | Session | Set up first | State |
 |---|---|---|---|
@@ -132,7 +197,7 @@ fast pass over every session not marked final.
 | 8 | PSA tickets and every webhook feature: endpoints, deliveries, retries, suspension, replay, rotation, client limits, `/api/v1` | a HaloPSA trial, a webhook receiver, an API key | **final** (8 November 2026); ConnectWise and Autotask wait for a live account |
 | 9 | Publishing DNS: Cloudflare connection, hosted DMARC, managed SPF | a Cloudflare token | **re-run** (Gemini); zone import is in 20 |
 | 10 | Hosted BIMI, MTA-STS, TLS reports | a BIMI origin and Cloudflare for SaaS | **final** (9 November 2026), on `linkshift.in` through a tunnel; Gmail's logo needs a real VMC |
-| 11 | Billing: checkout, upgrade, downgrade, failed payment, refund | Razorpay test keys, Paddle sandbox, a tunnel | **not run**: last |
+| 11 | Billing: checkout, upgrade, downgrade, Fleet, failed payment, refund | Razorpay test keys, Paddle sandbox, a tunnel | **Paddle (USD) final** (10 November 2026); **INR waits** for Razorpay Recurring Payments (below) |
 | 12 | White label: logo, colours, support contact, branded client emails | S3 keys for logos | **re-run** (Gemini) |
 | 13* | Client portal, approvals, share links, Trust Center, compliance packs, verifier, monthly reports, digests | sessions 2, 3 and 12 | **re-run** (Gemini) |
 | 14 | Admiralty: custom domain, agency sending domain, single sign-on | a second domain, a full-access Resend key, an SSO provider | **final** (9 November 2026), Auth0 for SSO; custom-domain hosting built and tested in dev after it |
