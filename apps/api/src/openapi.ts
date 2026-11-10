@@ -1408,6 +1408,33 @@ export const openApiDocument = {
         responses: { 200: { description: 'The change is scheduled for the end of the current period.' }, ...standardErrors },
       },
     },
+    '/workspaces/{organizationId}/billing/plan/preview': {
+      post: {
+        tags: ['Billing'],
+        summary: 'Preview a plan change before confirming it',
+        description: [
+          'Read only: nothing changes at the provider. Answers what moving to the plan would charge now, what would be credited, what the next invoice would be and when, and when the change applies.',
+          'On Paddle the figures come from Paddle and include tax. Where the provider cannot quote, the figures come from the price list before tax and includesTax is false.',
+          'An account over the target plan\'s limits is refused with PLAN_CHANGE_OVER_QUOTA, with the same error.overage rows as the change itself.',
+        ].join(' '),
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['plan'],
+                properties: {
+                  plan: { type: 'string', enum: ['MOORING', 'FAIRWAY', 'HARBOR', 'ADMIRALTY', 'FLEET'] },
+                  interval: { type: 'string', enum: ['monthly', 'annual'], default: 'monthly' },
+                },
+              },
+            },
+          },
+        },
+        responses: { 200: { description: 'The quote: charge now, credit, next invoice and date, when it applies, and whether tax is included.' }, ...standardErrors },
+      },
+    },
     '/workspaces/{organizationId}/billing/cancel': {
       post: {
         tags: ['Billing'],
