@@ -536,7 +536,9 @@ export function MembersBoard({
               in through this workspace&rsquo;s single sign-on accepts it on the way in.
             </p>
             <ActionRefusal error={inviteError} />
-            {invited ? (
+            {/* Only while that invitation is still waiting: after a withdrawal it
+                said "It stays pending" about one that no longer existed. */}
+            {invited && (waiting === null || waiting.some((w) => w.email.toLowerCase() === invited.toLowerCase())) ? (
               <Notice tone="ok" title={`Invitation sent to ${invited}`}>
                 It stays pending until they accept it.
               </Notice>

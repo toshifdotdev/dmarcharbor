@@ -211,13 +211,36 @@ function inboxRules(scan: ScanResult, domain: string): ProspectFinding {
       fix: null,
     };
   }
-  const missing = [!hasSpf ? 'SPF' : null, !hasDkim ? 'DKIM' : null, !hasDmarc ? 'DMARC' : null].filter(Boolean);
+  // A lookup that failed is not a missing record. Counting it as missing made
+  // one report say "could not check" about SPF, DKIM and DMARC and "Fix now:
+  // not found" about the same three (session 15 fast pass, during a DNS
+  // timeout). Only what was actually observed missing is claimed.
+  const unread = [
+    scan.spf.status === 'error' ? 'SPF' : null,
+    scan.dkim.status === 'error' ? 'DKIM' : null,
+    scan.dmarc.status === 'error' ? 'DMARC' : null,
+  ].filter((x): x is string => x !== null);
+  const missing = [
+    !hasSpf && scan.spf.status !== 'error' ? 'SPF' : null,
+    !hasDkim && scan.dkim.status !== 'error' ? 'DKIM' : null,
+    !hasDmarc && scan.dmarc.status !== 'error' ? 'DMARC' : null,
+  ].filter((x): x is string => x !== null);
+  if (missing.length === 0) {
+    return {
+      key: 'inbox-rules',
+      area,
+      status: 'unknown',
+      headline: 'Whether mail meets Gmail, Yahoo and Microsoft requirements could not be checked.',
+      detail: `The DNS lookup for ${unread.join(', ')} failed when we checked, so this report makes no claim either way.`,
+      fix: null,
+    };
+  }
   return {
     key: 'inbox-rules',
     area,
     status: hasDmarc ? 'warn' : 'risk',
     headline: `Mail from ${domain} may be sent to spam or rejected by Gmail, Yahoo and Outlook.`,
-    detail: `Since 2024 these providers require SPF, DKIM and DMARC from anyone sending in bulk, and they have been rejecting non-compliant mail. Not found or not working: ${missing.join(', ')}.`,
+    detail: `Since 2024 these providers require SPF, DKIM and DMARC from anyone sending in bulk, and they have been rejecting non-compliant mail. Not found or not working: ${missing.join(', ')}.${unread.length ? ` ${unread.join(', ')} could not be read when we checked.` : ''}`,
     fix: `Put ${missing.join(' and ')} in place for every service that sends your mail.`,
   };
 }
