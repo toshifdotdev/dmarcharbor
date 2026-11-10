@@ -986,6 +986,32 @@ export function paymentFailedEmail(input: {
   });
 }
 
+/**
+ * The end of dunning: the payment was not recovered within the grace, the plan
+ * was withdrawn and the provider subscription cancelled (`runDunning`). Before
+ * session 11 this happened without a word to the customer.
+ */
+export function planWithdrawnEmail(input: {
+  workspaceName: string;
+  fromLabel: string;
+  toLabel: string;
+  graceEndedAt: string;
+  billingUrl: string;
+}): RenderedEmail {
+  return layout({
+    title: `${input.workspaceName} moved to ${input.toLabel}`,
+    preheader: `The payment for ${input.fromLabel} was not recovered. Nothing more will be charged.`,
+    heading: `${input.workspaceName} is now on ${input.toLabel}`,
+    paragraphs: [
+      `The payment for ${input.fromLabel} was still unpaid when the grace period ended on ${readableDate(input.graceEndedAt)}, so the workspace moved to ${input.toLabel} and the subscription was cancelled. Nothing more will be charged for it.`,
+      `Every client, domain and report is still here. Choosing a plan on the billing page starts a new subscription and restores what ${input.fromLabel} carried.`,
+    ],
+    action: { label: 'Choose a plan', url: input.billingUrl },
+    footer: 'You are receiving this because you had a paid subscription in DMARC Harbor.',
+    kind: 'Billing',
+  });
+}
+
 export function subscriptionCancelledEmail(input: {
   workspaceName: string;
   planLabel: string;

@@ -156,7 +156,7 @@ function WatchItem({
 
 const TROUBLE: Partial<Record<ResolvedEntitlements["status"], string>> = {
   PAST_DUE: "Payment for this workspace is past due.",
-  CANCELLED: "This workspace's subscription is cancelled.",
+  CANCELLED: "This workspace's subscription has been cancelled.",
   EXPIRED: "This workspace's subscription has ended.",
 };
 
@@ -177,11 +177,15 @@ export function PlanWatch({ organizationId }: { organizationId: string }) {
   const trouble = TROUBLE[ent.status];
   const ending = !trouble && ent.cancelAtPeriodEnd && ent.currentPeriodEnd;
   if (!trouble && !ending) return null;
+  // Red is for a payment that failed. A subscription that was cancelled or
+  // ran out (a refund, a cancel that took effect) is a state to act on, not
+  // a failure: the workspace keeps working on the free plan.
+  const failed = ent.status === "PAST_DUE";
 
   return (
     <div className="border-b border-rule bg-paper px-4 py-2 sm:px-6 lg:px-8">
       <Notice
-        tone={trouble ? "fail" : "warn"}
+        tone={failed ? "fail" : "warn"}
         testId="plan-watch"
         title={
           trouble ??

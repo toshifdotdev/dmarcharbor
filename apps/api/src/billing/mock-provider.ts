@@ -229,8 +229,12 @@ export class MockBillingProvider implements BillingProvider {
     return this.subscriptions.get(providerSubscriptionId) ?? null;
   }
 
-  async createBillingPortalSession(input: { providerCustomerId: string; returnUrl: string }): Promise<{ url: string }> {
-    return { url: `https://billing.mock.invalid/portal/${encodeURIComponent(input.providerCustomerId)}` };
+  async createBillingPortalSession(input: {
+    providerCustomerId: string | null;
+    providerSubscriptionId?: string | null;
+    returnUrl: string;
+  }): Promise<{ url: string }> {
+    return { url: `https://billing.mock.invalid/portal/${encodeURIComponent(input.providerCustomerId ?? input.providerSubscriptionId ?? 'none')}` };
   }
 
   findByOrganization(organizationId: string): (ProviderSubscription & { organizationId: string }) | null {

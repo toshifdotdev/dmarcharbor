@@ -99,13 +99,34 @@ updated by starting a new subscription.
 
 ## Configuring Paddle
 
-Blocked until the site is public and an application is approved, which is why
-this adapter is written but not verified against a sandbox.
+Verified end to end against the Paddle sandbox in session 11: checkout, the
+customer portal, upgrade and downgrade with proration, cancel and keep, Fleet
+quantity and band moves, a real renewal, a failed renewal through dunning and
+recovery, and a refund.
 
 ```bash
 PADDLE_API_KEY=...
 PADDLE_WEBHOOK_SECRET=...
+NEXT_PUBLIC_PADDLE_CLIENT_TOKEN=...   # apps/web; a test_ token opens the sandbox
 ```
+
+- **Checkout** opens on our own `/pay?_ptxn=` page (Paddle.js). Set Paddle >
+  Checkout > Default payment link to `https://<app host>/pay`. The CSP allows
+  Paddle's hosts on that page only.
+- **Webhook destination**: subscription.*, transaction.* and adjustment.*,
+  pointed at `/api/webhooks/paddle`.
+- **Quantity**: a flat plan's price accepts exactly 1, so the checkout shows no
+  quantity stepper. A Fleet price must accept 1 to 5,000 for the monthly sync,
+  so the checkout lets the customer edit the count; on `subscription.created`
+  the count is put back on the measured one and the difference for the started
+  period is billed or credited at once (`correctCheckoutQuantity`). A failed
+  correction is audited and the next sync before renewal fixes the count.
+- **Tax**: Paddle adds sales tax on top in the US and Canada and includes it in
+  the price elsewhere. The checkout box on the billing page says so.
+- **Plan changes** apply at once with `prorated_immediately`, after a preview
+  (`POST /billing/plan/preview`) and a confirmation dialog.
+- **Refunds** refund the subscription's first completed transaction in full and
+  then cancel the subscription immediately.
 
 Paddle is the merchant of record, so international sales tax is handled by them
 rather than by us. The trade off is settlement: Paddle pays in its supported
@@ -161,12 +182,22 @@ Two scheduled jobs, both in the alert scheduler on their own intervals.
 never destroys data:
 
 1. Paid period still running → untouched
-2. Period ended, inside the 7 day grace → `PAYMENT_FAILED` audit, access kept
+2. Period ended, inside the 7 day grace → `PAYMENT_FAILED` audit, the "Payment
+   failed" email, access kept
 3. Grace exhausted → downgraded to the free plan, **all clients, domains and
-   reports kept**, and upgrading restores the previous plan
+   reports kept**; the provider subscription is cancelled so it stops retrying,
+   and the owner gets a "moved to Mooring" email. Choosing a plan again starts a
+   new subscription and restores what the old plan carried.
 
 Nothing is ever charged by dunning. Retrying a payment method is the provider's
-job, since it is the only party that can safely do it.
+job, since it is the only party that can safely do it. Cancelling at step 3 is
+what keeps a customer from paying twice: without it, Paddle could still collect
+the old subscription after the billing page had offered a new checkout.
+
+Paddle opens the next period when it attempts a renewal, paid or not. A past
+due subscription is therefore stored as paid through the start of that unpaid
+period (`paddlePaidThrough`), otherwise the grace would only start a month
+later.
 
 **Reconciliation** (every 6 hours, `BILLING_RECONCILE_INTERVAL_MINUTES`) —
 compares every subscription against the provider. This is the safety net for
@@ -184,6 +215,7 @@ gives up:
 |---|---|
 | `GET /workspaces/{id}/billing` | Current plan, status, period end, price |
 | `POST /workspaces/{id}/billing/checkout` | Start a subscription |
+| `POST /workspaces/{id}/billing/plan/preview` | What a plan change would charge now and at the next invoice, before confirming |
 | `PATCH /workspaces/{id}/billing/plan` | Change plan: at period end on Razorpay, at once with proration on Paddle |
 | `POST /workspaces/{id}/billing/cancel` | Cancel, keeping the paid period |
 | `POST /workspaces/{id}/billing/resume` | Undo a pending cancellation |

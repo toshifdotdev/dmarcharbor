@@ -120,10 +120,16 @@ export class RazorpayBillingProvider implements BillingProvider {
       razorpay().customers.create({
         name: input.contact.name,
         email: input.contact.email,
+        // Returns the customer already holding this email instead of refusing.
+        // Without it a checkout retried after any failure (or a second
+        // workspace for the same owner) was refused with "Customer already
+        // exists for the merchant", because the id from the first attempt is
+        // only stored once a webhook confirms the subscription (session 11).
+        fail_existing: '0',
         // The organisation id travels with the customer so a webhook can be
         // attributed without trusting anything in the request path.
         notes: { organizationId: input.organizationId, taxId: input.contact.taxId ?? '' },
-      }),
+      } as never),
     );
 
     return { providerCustomerId: created.id };
@@ -146,19 +152,19 @@ export class RazorpayBillingProvider implements BillingProvider {
       band: bandIndexFor(input.plan, input.quantity),
     });
 
-    const { providerCustomerId } = await this.ensureCustomer({
-      organizationId: input.organizationId,
-      contact: input.contact,
-    });
+    // No customer_id. Razorpay's hosted page answers "Hosted page is not
+    // available" for every subscription created with one (session 11, test
+    // mode, the same body with and without it), so no customer could ever pay.
+    // The customer types their details on that page and Razorpay creates the
+    // customer itself; the webhook attributes the subscription through the
+    // notes below, then stores the customer id it carries.
+    void input.contact;
 
     const body = {
       plan_id: plan.providerPlanId,
-      customer_id: providerCustomerId,
-      // The subscription is bounded by a date rather than a cycle count, so it
-      // keeps charging every cycle until the customer cancels. A cycle count
-      // would quietly end the subscription when it ran out, which is a customer
-      // who paid and silently lost access.
-      end_at: subscriptionEndAt(),
+      // 99 years of cycles, so it keeps charging until the customer cancels
+      // (see subscriptionTotalCount for why not end_at).
+      total_count: subscriptionTotalCount(input.interval),
       // One unit for a flat plan; the measured domain count for FLEET.
       quantity: input.quantity,
       customer_notify: 1 as const,
@@ -171,7 +177,7 @@ export class RazorpayBillingProvider implements BillingProvider {
       },
     };
 
-    const subscription = await this.call(() => razorpay().subscriptions.create(withCustomerId(body) as never));
+    const subscription = await this.call(() => razorpay().subscriptions.create(subscriptionCreateBody(body) as never));
 
     if (!subscription.short_url) {
       throw new BillingProviderError('Razorpay did not return a checkout URL.', 'RAZORPAY_NO_URL', 502);
@@ -346,17 +352,29 @@ export class RazorpayBillingProvider implements BillingProvider {
   }
 
   /**
-   * Razorpay has no self service billing portal. A customer updates their card
-   * by authorising a new subscription, so this reports that rather than
-   * pretending a portal exists.
+   * Razorpay has no customer portal, but each subscription has a hosted page
+   * (its `short_url`, the one the customer paid on). Once active it shows the
+   * card in use, the next due date and Update Payment Method, which is what
+   * this button and the failed-payment notice ask the customer to do. Before
+   * session 11 this answered 501, and the page said "no billing account yet"
+   * to a customer who had just paid.
    */
-  async createBillingPortalSession(input: { providerCustomerId: string; returnUrl: string }): Promise<{ url: string }> {
-    void input;
-    throw new BillingProviderError(
-      'Razorpay does not offer a self service billing portal. A card is updated by starting a new subscription.',
-      'PORTAL_UNSUPPORTED',
-      501,
-    );
+  async createBillingPortalSession(input: {
+    providerCustomerId: string | null;
+    providerSubscriptionId?: string | null;
+    returnUrl: string;
+  }): Promise<{ url: string }> {
+    void input.returnUrl;
+    if (!input.providerSubscriptionId) {
+      throw new BillingProviderError('There is no Razorpay subscription to manage.', 'NO_SUBSCRIPTION', 404);
+    }
+    const subscription = (await this.call(() =>
+      razorpay().subscriptions.fetch(input.providerSubscriptionId as string),
+    )) as unknown as RazorpaySubscriptionLike;
+    if (!subscription.short_url) {
+      throw new BillingProviderError('Razorpay did not return a page for this subscription.', 'RAZORPAY_NO_URL', 502);
+    }
+    return { url: subscription.short_url };
   }
 
   /**
@@ -457,24 +475,21 @@ export class RazorpayBillingProvider implements BillingProvider {
 }
 
 /**
- * Razorpay's create subscription endpoint documents a `customer_id`, and
- * without it a subscription cannot be attributed to a workspace, but the SDK's
- * request type omits the field. The cast is therefore deliberate and narrow
- * rather than a way of smuggling anything past the type checker.
+ * The exact create body: a plan, a cycle count, a quantity and our notes.
+ *
+ * Exported so a unit test can assert it without an SDK or a network. It never
+ * carries `customer_id` (the hosted page refuses to open for one) or `end_at`
+ * (Razorpay answers its own 500), both found against test mode in session 11.
+ * The workspace is attributed by `notes.organizationId`.
  */
-type CreateSubscriptionBody = Omit<
-  Parameters<InstanceType<typeof Razorpay>['subscriptions']['create']>[0],
-  'total_count'
-> & {
-  customer_id: string;
-  end_at: number;
+type CreateSubscriptionBody = Parameters<InstanceType<typeof Razorpay>['subscriptions']['create']>[0] & {
+  total_count: number;
   quantity: number;
 };
 
-export function withCustomerId(body: {
+export function subscriptionCreateBody(body: {
   plan_id: string;
-  customer_id: string;
-  end_at: number;
+  total_count: number;
   quantity?: number;
   customer_notify: 0 | 1;
   notes: Record<string, string>;
@@ -504,18 +519,22 @@ export function razorpayQuantityUpdateBody(
  * How long a subscription runs before Razorpay stops charging it.
  *
  * Razorpay caps subscriptions at 100 years and rejects `total_count: 0`, so
- * there is no truly unlimited setting. The bound is set just inside the cap
- * because sitting exactly on the limit risks rejection, and a date is used
- * rather than a cycle count so the same value works for monthly and annual
- * plans without per-interval arithmetic.
+ * there is no truly unlimited setting. The bound is set just inside the cap.
+ *
+ * A cycle count, not `end_at`. The create body used to carry `end_at` alone,
+ * and Razorpay answers every such request with its own 500 ("The server
+ * encountered an error"), so no Razorpay checkout could start; `total_count`
+ * is accepted up to 100 years for both monthly and yearly plans (session 11,
+ * tried against test mode).
  *
  * In practice no customer reaches this. It exists so the subscription ends only
  * because the customer cancelled, and never because a counter ran out.
  */
 export const subscriptionMaxYears = 99;
 
-export function subscriptionEndAt(now = new Date()): number {
-  return Math.floor(new Date(now.getFullYear() + subscriptionMaxYears, now.getMonth(), now.getDate()).getTime() / 1000);
+/** The number of billing cycles in `subscriptionMaxYears` for a plan's interval. */
+export function subscriptionTotalCount(interval: BillingInterval): number {
+  return interval === 'annual' ? subscriptionMaxYears : subscriptionMaxYears * 12;
 }
 
 function toProviderSubscription(subscription: RazorpaySubscriptionLike, storedTier: PlanTier | null): ProviderSubscription {
@@ -549,8 +568,20 @@ function readStatusCode(error: unknown): number | null {
   return typeof candidate === 'number' ? candidate : null;
 }
 
+/**
+ * Razorpay's own reason. The SDK rejects with a plain object,
+ * `{ statusCode, error: { code, description } }`, not an Error, so reading only
+ * `Error.message` reported every refusal as "Unknown Razorpay error" and hid
+ * the one sentence that says what to fix (session 11).
+ */
 function readDescription(error: unknown): string {
-  if (error instanceof Error) {
+  if (typeof error === 'object' && error !== null) {
+    const inner = (error as { error?: { description?: unknown; code?: unknown } }).error;
+    if (inner && typeof inner.description === 'string' && inner.description) {
+      return inner.description;
+    }
+  }
+  if (error instanceof Error && error.message) {
     return error.message;
   }
   return 'Unknown Razorpay error.';

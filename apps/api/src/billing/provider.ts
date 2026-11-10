@@ -78,6 +78,13 @@ export interface ProviderSubscription {
   status: ProviderSubscriptionStatus;
   currentPeriodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
+  /**
+   * True when `cancelAtPeriodEnd` is the provider's whole answer, so `false`
+   * may clear a stored cancellation (Paddle's subscription always carries
+   * `scheduled_change`). Left out, a stored cancellation is never cleared by
+   * reconciliation (see `BillingEvent.cancelAtPeriodEndAuthoritative`).
+   */
+  cancelAtPeriodEndAuthoritative?: boolean;
   /** What the provider currently bills. Null when the provider does not say. */
   quantity: number | null;
   /** Present when the provider has already taken a payment that failed to settle. */
@@ -156,6 +163,13 @@ export interface BillingProvider {
      * Derived from the quantity when omitted (see `bandIndexFor`).
      */
     band?: number;
+    /**
+     * Bill or credit the difference for the current period now, instead of
+     * applying the count from the next one. Only the correction of a count
+     * edited in the provider's checkout asks for it (`correctCheckoutQuantity`):
+     * that period was bought at a number the customer typed, not the measured one.
+     */
+    prorateNow?: boolean;
   }): Promise<void>;
 
   /**
@@ -188,13 +202,33 @@ export interface BillingProvider {
     providerSubscriptionId: string;
     amountMinor: number;
     reason: string;
-  }): Promise<{ providerRefundId: string | null }>;
+  }): Promise<{ providerRefundId: string | null; /** What the provider actually refunds, when it says. */ amountMinor?: number }>;
+
+  /**
+   * What a plan change would charge or credit, from the provider itself, so
+   * the customer confirms a real figure. Optional: a provider that cannot say
+   * (or applies changes only at period end, with nothing charged now) omits it.
+   */
+  previewPlanChange?(input: {
+    providerSubscriptionId: string;
+    plan: PlanTier;
+    interval: BillingInterval;
+    quantity: number;
+  }): Promise<PlanChangePreview>;
 
   /** Current state as the provider sees it, used to reconcile drift. */
   fetchSubscription(providerSubscriptionId: string): Promise<ProviderSubscription | null>;
 
-  /** Hosted page where a customer can update their card, invoice or plan. */
-  createBillingPortalSession(input: { providerCustomerId: string; returnUrl: string }): Promise<{ url: string }>;
+  /**
+   * Hosted page where a customer can update their card, invoice or plan.
+   * Paddle's portal is per customer; Razorpay's equivalent is the
+   * subscription's own hosted page, so both ids are passed when known.
+   */
+  createBillingPortalSession(input: {
+    providerCustomerId: string | null;
+    providerSubscriptionId?: string | null;
+    returnUrl: string;
+  }): Promise<{ url: string }>;
 }
 
 /**
@@ -211,6 +245,18 @@ export type BillingEventType =
   | 'subscription.expired'
   | 'payment.failed';
 
+/** A provider's own answer to "what would this plan change cost", in minor units, tax included. */
+export interface PlanChangePreview {
+  currency: string;
+  /** Taken from the payment method now. Zero when credit covers it or nothing is due now. */
+  chargeNowMinor: number;
+  /** Credit added to the customer's balance by this change (a downgrade's unused time). */
+  creditMinor: number;
+  /** The next renewal's amount after the change, and when it is billed. */
+  nextAmountMinor: number | null;
+  nextBilledAt: Date | null;
+}
+
 export interface BillingEvent {
   /** Provider's unique event id. Retried deliveries reuse it, so this is the deduplication key. */
   providerEventId: string;
@@ -225,6 +271,13 @@ export interface BillingEvent {
   status: ProviderSubscriptionStatus | null;
   currentPeriodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
+  /**
+   * True when the event states the subscription's full scheduled state, so a
+   * `cancelAtPeriodEnd: false` is a fact and may clear a pending cancellation
+   * (a Paddle subscription event always carries `scheduled_change`, null when
+   * a cancellation was withdrawn). Absent, false is read as "not mentioned".
+   */
+  cancelAtPeriodEndAuthoritative?: boolean;
   /** What the provider says it bills, when the event carries it. */
   quantity: number | null;
   nextAttemptAt: Date | null;

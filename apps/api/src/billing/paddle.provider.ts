@@ -1,7 +1,7 @@
 import { env } from '../config/env.js';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { ApiError, Environment, Paddle as PaddleSdk } from '@paddle/paddle-node-sdk';
-import { bandIndexFor, bandSuffix, planOrder, type BillingCurrency } from '../services/entitlements/plan-catalog.js';
+import { bandIndexFor, bandSuffix, planCatalog, planOrder, type BillingCurrency } from '../services/entitlements/plan-catalog.js';
 import {
   assertValidQuantity,
   BillingProviderError,
@@ -11,6 +11,7 @@ import {
   type BillingProvider,
   type CheckoutRequest,
   type CheckoutSession,
+  type PlanChangePreview,
   type ProviderSubscription,
   type ProviderSubscriptionStatus,
 } from './provider.js';
@@ -124,8 +125,22 @@ export class PaddleBillingProvider implements BillingProvider {
       return { providerCustomerId: existing };
     }
 
+    // Paddle refuses a second customer with the same email, so one left by an
+    // earlier attempt (or another workspace of the same owner) is reused. The
+    // id is only stored on our row once a webhook confirms the subscription.
+    const email = input.contact.email.trim().toLowerCase();
+    const found = await this.call(async () => {
+      for await (const customer of paddle().customers.list({ email: [email] })) {
+        return customer.id;
+      }
+      return null;
+    });
+    if (found) {
+      return { providerCustomerId: found };
+    }
+
     const customer = await this.call(() =>
-      paddle().customers.create({ email: input.contact.email, name: input.contact.name }),
+      paddle().customers.create({ email, name: input.contact.name }),
     );
 
     return { providerCustomerId: customer.id };
@@ -296,7 +311,61 @@ export class PaddleBillingProvider implements BillingProvider {
   }
 
   /**
-   * Changes the quantity for the next period without proration.
+   * Paddle's preview of the same update `changePlan` sends: what the card is
+   * charged now (after any credit on the account), what is credited, and the
+   * next renewal. Read only; nothing changes at Paddle.
+   */
+  async previewPlanChange(input: {
+    providerSubscriptionId: string;
+    plan: PlanTier;
+    interval: BillingInterval;
+    quantity: number;
+  }): Promise<PlanChangePreview> {
+    assertValidQuantity(input.quantity);
+    const target = await this.targetPrice(input);
+    const preview = await this.call(() =>
+      paddle().subscriptions.previewUpdate(input.providerSubscriptionId, {
+        items: [{ priceId: target.providerPlanId, quantity: input.quantity }],
+        prorationBillingMode: 'prorated_immediately',
+      }),
+    );
+    const minor = (value: string | null | undefined) => (value ? Math.max(0, Math.round(Number(value))) : 0);
+    const result = preview.updateSummary?.result;
+    return {
+      currency: preview.currencyCode,
+      chargeNowMinor: minor(preview.immediateTransaction?.details?.totals?.grandTotal),
+      creditMinor: result?.action === 'credit' ? minor(result.amount) : 0,
+      nextAmountMinor: preview.nextTransaction ? minor(preview.nextTransaction.details?.totals?.grandTotal) : null,
+      nextBilledAt: preview.nextBilledAt ? new Date(preview.nextBilledAt) : null,
+    };
+  }
+
+  /** The stored price a plan change moves to, in the live subscription's own currency. */
+  private async targetPrice(input: { providerSubscriptionId: string; plan: PlanTier; interval: BillingInterval; quantity: number }) {
+    const remote = await this.call(() => paddle().subscriptions.get(input.providerSubscriptionId));
+    const remotePriceId = remote.items?.[0]?.price?.id ?? null;
+    const price = remotePriceId ? await this.priceRecord(remotePriceId) : null;
+    const currency = toBillingCurrency(price?.unitPrice?.currencyCode);
+    if (!currency) {
+      throw new BillingProviderError(
+        'That subscription is denominated in a currency we do not sell, so its plan cannot be changed automatically.',
+        'CURRENCY_UNSUPPORTED',
+        409,
+      );
+    }
+    return requireStoredPlan({
+      provider: this.name,
+      tier: input.plan,
+      interval: input.interval,
+      currency,
+      band: bandIndexFor(input.plan, input.quantity),
+    });
+  }
+
+  /**
+   * Changes the quantity for the next period without proration, or, with
+   * `prorateNow`, for the current one with the difference billed or credited
+   * at once.
    *
    * `do_not_bill` is the provider's name for "the current period was paid at
    * the old count and is not repriced". The price id is FLEET's stored monthly
@@ -309,6 +378,7 @@ export class PaddleBillingProvider implements BillingProvider {
     plan: PlanTier;
     quantity: number;
     band?: number;
+    prorateNow?: boolean;
   }): Promise<void> {
     assertValidQuantity(input.quantity);
     void input.plan;
@@ -339,43 +409,41 @@ export class PaddleBillingProvider implements BillingProvider {
       band: input.band ?? bandIndexFor('FLEET', input.quantity),
     });
 
-    await this.call(() =>
-      paddle().subscriptions.update(
-        input.providerSubscriptionId,
-        paddleQuantityUpdateBody(target.providerPlanId, input.quantity) as never,
-      ),
-    );
+    const body = input.prorateNow
+      ? { items: [{ priceId: target.providerPlanId, quantity: input.quantity }], prorationBillingMode: 'prorated_immediately' as const }
+      : paddleQuantityUpdateBody(target.providerPlanId, input.quantity);
+    await this.call(() => paddle().subscriptions.update(input.providerSubscriptionId, body as never));
   }
 
   /**
    * Cancels at the end of the paid period, so the customer keeps what they
    * already paid for.
    */
+  /**
+   * Paddle's own cancel operation. A scheduled change is created only by the
+   * cancel, pause and resume operations; `subscriptions.update` accepts
+   * `scheduled_change: null` and nothing else, so the update this used to
+   * send was refused (session 11, Paddle's update-subscription reference).
+   */
   async cancelAtPeriodEnd(providerSubscriptionId: string): Promise<void> {
-    const remote = await this.call(() => paddle().subscriptions.get(providerSubscriptionId));
-    const endsAt = remote.currentBillingPeriod?.endsAt ?? new Date().toISOString();
-
     await this.call(() =>
-      paddle().subscriptions.update(providerSubscriptionId, {
-        scheduledChange: { action: 'cancel', effectiveAt: endsAt },
-      }),
+      paddle().subscriptions.cancel(providerSubscriptionId, { effectiveFrom: 'next_billing_period' }),
     );
   }
 
+  /** Withdraws a scheduled cancellation: the scheduled change is removed. */
   async resume(providerSubscriptionId: string): Promise<void> {
-    await this.call(() =>
-      paddle().subscriptions.update(providerSubscriptionId, {
-        scheduledChange: { action: 'resume', effectiveAt: new Date().toISOString() },
-      }),
-    );
+    await this.call(() => paddle().subscriptions.update(providerSubscriptionId, { scheduledChange: null }));
   }
 
   async cancelImmediately(providerSubscriptionId: string): Promise<void> {
-    await this.call(() =>
-      paddle().subscriptions.update(providerSubscriptionId, {
-        scheduledChange: { action: 'cancel', effectiveAt: new Date().toISOString() },
-      }),
-    );
+    // Already ended (the customer cancelled in Paddle's portal, or Paddle's own
+    // dunning got there first): nothing to stop, and Paddle refuses the call.
+    const remote = await this.call(() => paddle().subscriptions.get(providerSubscriptionId));
+    if (remote.status === 'canceled') {
+      return;
+    }
+    await this.call(() => paddle().subscriptions.cancel(providerSubscriptionId, { effectiveFrom: 'immediately' }));
   }
 
 /**
@@ -396,19 +464,25 @@ async refund(input: {
     providerSubscriptionId: string;
     amountMinor: number;
     reason: string;
-  }): Promise<{ providerRefundId: string | null }> {
-    // `transactions.list` is synchronous in this SDK version, unlike the other
-    // resources, so it is wrapped to keep `this.call` uniform across the adapter.
-    const collection = (await this.call(async () =>
-      paddle().transactions.list({
+  }): Promise<{ providerRefundId: string | null; amountMinor?: number }> {
+    // The guarantee refunds the first payment, so the subscription's oldest
+    // completed transaction is the one refunded, in full: the checkout. The
+    // list is a paginated collection read by iterating; it has no `.data`, so
+    // reading `.data[0]` found nothing and every refund answered "no completed
+    // transaction". Newest first would also have refunded a later proration
+    // instead of the purchase (both found in session 11).
+    const first = await this.call(async () => {
+      for await (const transaction of paddle().transactions.list({
         subscriptionId: [input.providerSubscriptionId],
         status: ['completed'],
         perPage: 1,
-        orderBy: 'created_at DESC',
-      }),
-    )) as unknown as { data: Array<{ id?: string }> };
-
-    const transactionId = collection.data?.[0]?.id;
+        orderBy: 'created_at[ASC]',
+      })) {
+        return { id: transaction.id, grandTotal: transaction.details?.totals?.grandTotal ?? null };
+      }
+      return null;
+    });
+    const transactionId = first?.id;
     if (!transactionId) {
       throw new BillingProviderError('No completed transaction for that subscription.', 'PAYMENT_NOT_FOUND', 404);
     }
@@ -422,7 +496,10 @@ async refund(input: {
       }),
     )) as { id?: string };
 
-    return { providerRefundId: adjustment?.id ?? null };
+    return {
+      providerRefundId: adjustment?.id ?? null,
+      ...(first?.grandTotal ? { amountMinor: Math.round(Number(first.grandTotal)) } : {}),
+    };
   }
 
   async fetchSubscription(providerSubscriptionId: string): Promise<ProviderSubscription | null> {
@@ -444,7 +521,19 @@ async refund(input: {
    * Paddle does have a billing portal, so a customer can update their card,
    * download invoices and change plan without contacting support.
    */
-  async createBillingPortalSession(input: { providerCustomerId: string; returnUrl: string }): Promise<{ url: string }> {
+  async createBillingPortalSession(input: {
+    providerCustomerId: string | null;
+    providerSubscriptionId?: string | null;
+    returnUrl: string;
+  }): Promise<{ url: string }> {
+    if (!input.providerCustomerId) {
+      throw new BillingProviderError(
+        'This workspace has no Paddle customer yet, so there is no billing portal to open.',
+        'CUSTOMER_NOT_CREATED',
+        409,
+      );
+    }
+    const providerCustomerId = input.providerCustomerId;
     // Paddle's billing portal is a page it hosts, and it does not take a return
     // url. Opening it hands the customer over to Paddle's own site to change their
     // card, and Paddle sends them back to whatever it has on file rather than
@@ -452,7 +541,7 @@ async refund(input: {
     // as an oversight and assume the parameter is honoured.
     void input.returnUrl;
 
-    if (input.providerCustomerId.startsWith('pending:')) {
+    if (providerCustomerId.startsWith('pending:')) {
       throw new BillingProviderError(
         'This workspace has no Paddle customer yet, so there is no billing portal to open.',
         'CUSTOMER_NOT_CREATED',
@@ -460,22 +549,25 @@ async refund(input: {
       );
     }
 
-    // Paddle's portal is scoped to a subscription rather than a customer, so
-    // the most recent active one is the one a customer expects to see.
-    let active: { id: string } | undefined;
-    for await (const subscription of paddle().subscriptions.list({
-      customerId: [input.providerCustomerId],
-      status: ['active'],
-    })) {
-      active = subscription;
-      break;
+    // The workspace's own subscription when we know it; otherwise the most
+    // recent active one, which is the one a customer expects to see.
+    let subscriptionId = input.providerSubscriptionId ?? null;
+    if (!subscriptionId) {
+      for await (const subscription of paddle().subscriptions.list({
+        customerId: [providerCustomerId],
+        status: ['active', 'past_due'],
+      })) {
+        subscriptionId = subscription.id;
+        break;
+      }
     }
 
-    if (!active) {
+    if (!subscriptionId) {
       throw new BillingProviderError('There is no active subscription to manage.', 'NO_SUBSCRIPTION', 404);
     }
 
-    const session = await this.call(() => paddle().customerPortalSessions.create(input.providerCustomerId, [active.id]));
+    const ids = [subscriptionId];
+    const session = await this.call(() => paddle().customerPortalSessions.create(providerCustomerId, ids));
     return { url: session.urls.general.overview };
   }
 
@@ -497,7 +589,12 @@ async refund(input: {
         currency,
         band: entry.band,
       });
+      const quantity = paddleQuantityRange(entry.tier);
       if (existing) {
+        // A price made before session 11 kept Paddle's default range of 1 to
+        // 100: every Fleet count above 100 was refused, and a flat plan could
+        // be bought several times over in the checkout.
+        await this.call(() => paddle().prices.update(existing.providerPlanId, { quantity }));
         reused += 1;
         continue;
       }
@@ -516,6 +613,7 @@ async refund(input: {
           // 'account_setting' defers to that rather than overriding it.
           taxMode: 'account_setting',
           unitPrice: { amount: String(entry.priceMinor), currencyCode: currency },
+          quantity,
           ...(entry.interval === 'annual'
             ? { billingCycle: { interval: 'year', frequency: 1 } }
             : { billingCycle: { interval: 'month', frequency: 1 } }),
@@ -610,11 +708,16 @@ function toProviderError(error: unknown): BillingProviderError {
 }
 
 function toProviderSubscription(
-  subscription: { id: string; status: string; customerId?: string | null; items?: { price?: { id?: string }; quantity?: number | null }[]; currentBillingPeriod?: { endsAt?: string } | null; scheduledChange?: { action?: string } | null; nextBilledAt?: string | null; canceledAt?: string | null },
+  subscription: { id: string; status: string; customerId?: string | null; items?: { price?: { id?: string }; quantity?: number | null }[]; currentBillingPeriod?: { startsAt?: string; endsAt?: string } | null; scheduledChange?: { action?: string } | null; nextBilledAt?: string | null; canceledAt?: string | null },
   storedTier: PlanTier | null,
   currency: string | null,
 ): ProviderSubscription {
-  const periodEnd = subscription.currentBillingPeriod?.endsAt ?? subscription.canceledAt ?? null;
+  const periodEnd = paddlePaidThrough(
+    subscription.status,
+    subscription.currentBillingPeriod?.startsAt ?? null,
+    subscription.currentBillingPeriod?.endsAt ?? null,
+    subscription.canceledAt ?? null,
+  );
   const recognisedCurrency = toBillingCurrency(currency);
 
   return {
@@ -633,9 +736,49 @@ function toProviderSubscription(
     currentPeriodEnd: periodEnd ? new Date(periodEnd) : null,
     cancelAtPeriodEnd:
       subscription.scheduledChange?.action === 'cancel' || subscription.status === 'canceled' || subscription.status === 'cancelled',
+    // A fetched Paddle subscription always says whether a change is scheduled.
+    cancelAtPeriodEndAuthoritative: true,
     quantity: typeof subscription.items?.[0]?.quantity === 'number' ? subscription.items[0].quantity : null,
     nextAttemptAt: subscription.nextBilledAt ? new Date(subscription.nextBilledAt) : null,
   };
+}
+
+/**
+ * The date a Paddle subscription is paid through.
+ *
+ * Paddle opens the next billing period when it tries the renewal, paid or
+ * not: a past due subscription's current period is the one whose payment
+ * failed. Storing its end as the paid period gave the customer that whole
+ * month while Paddle retried, and dunning (which waits for the paid period to
+ * end) never warned (session 11). Past due, the paid period ends where the
+ * unpaid one starts. A subscription cancelled at once has no current period,
+ * only `canceled_at`.
+ */
+export function paddlePaidThrough(
+  status: string | null | undefined,
+  periodStartsAt: string | null,
+  periodEndsAt: string | null,
+  canceledAt: string | null,
+): string | null {
+  if (status === 'past_due' && periodStartsAt) {
+    return periodStartsAt;
+  }
+  return periodEndsAt ?? canceledAt ?? null;
+}
+
+/**
+ * The quantity a Paddle price accepts. Paddle's default is 1 to 100, which a
+ * per-domain plan passes at 101 domains; its range is the plan's own domain
+ * limit. A flat plan is bought exactly once: with a range of 1 to 1 Paddle's
+ * checkout shows no quantity stepper, so nobody can buy three Fairways.
+ *
+ * Paddle's checkout lets the customer edit any quantity the price's range
+ * allows, so a Fleet count typed there is corrected after payment (see
+ * `correctCheckoutQuantity`).
+ */
+export function paddleQuantityRange(tier: PlanTier): { minimum: number; maximum: number } {
+  const definition = planCatalog[tier];
+  return definition.pricing === 'per_domain' ? { minimum: 1, maximum: definition.maxActiveDomains } : { minimum: 1, maximum: 1 };
 }
 
 /**

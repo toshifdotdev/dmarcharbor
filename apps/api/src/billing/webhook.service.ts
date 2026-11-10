@@ -8,8 +8,13 @@ import {
 } from './provider.js';
 import { findStoredPlanByProviderPlanId } from './plans.js';
 import { applyBillingEvent } from './subscription-state.js';
+import { correctCheckoutQuantity } from './quantity.js';
 import { verifyRazorpaySignature } from './razorpay.provider.js';
-import { verifyPaddleSignature } from './paddle.provider.js';
+import { paddlePaidThrough, verifyPaddleSignature } from './paddle.provider.js';
+
+function dateOrNull(value: string | null): Date | null {
+  return value ? new Date(value) : null;
+}
 
 /**
  * Turns a verified provider webhook into a state change.
@@ -203,21 +208,31 @@ export async function handleRazorpayWebhook(input: {
 
 /* -------------------------------------------------------------------- Paddle */
 
+/**
+ * Paddle's event names, as its event-types list gives them (session 11).
+ *
+ * Subscription events carry the whole subscription and are the source of
+ * state. Only `transaction.completed` is read among transaction events: money
+ * has moved. `transaction.updated` and `transaction.created`/`ready` fire for
+ * a checkout before anything is paid, and were mapped here as "updated", which
+ * granted the plan on a transaction nobody had paid for yet.
+ *
+ * A failed renewal arrives as `subscription.past_due`; `transaction.payment_failed`
+ * also fires for a declined card inside a checkout the customer can still
+ * retry, so it is acknowledged and not acted on. `transaction.failed` and
+ * `subscription.expired`, which used to be mapped, are not Paddle events.
+ * Refunds (`adjustment.*`) are handled by `handlePaddleAdjustment`.
+ */
 const paddleEventMap: Record<string, BillingEventType> = {
   'subscription.created': 'subscription.activated',
   'subscription.activated': 'subscription.activated',
   'subscription.updated': 'subscription.updated',
   'subscription.trialing': 'subscription.activated',
+  'subscription.resumed': 'subscription.activated',
   'subscription.past_due': 'subscription.past_due',
   'subscription.paused': 'subscription.past_due',
   'subscription.canceled': 'subscription.cancelled',
-  'subscription.expired': 'subscription.expired',
   'transaction.completed': 'checkout.completed',
-  'transaction.updated': 'subscription.updated',
-  // Paddle's explicit failure event. Without it a declined card was only noticed by
-  // reconciliation, which runs on a schedule, so a customer could sit in a state we
-  // had already been told about and did nothing about.
-  'transaction.failed': 'subscription.past_due',
 };
 
 const paddleStatusMap: Record<string, ProviderSubscriptionStatus> = {
@@ -258,7 +273,14 @@ export async function handlePaddleWebhook(input: {
 
   const data = payload.data ?? {};
   const customData = (data.custom_data ?? {}) as Record<string, string | undefined>;
-  const subscriptionId = data.subscription_id ?? data.id ?? null;
+  const isTransaction = (payload.event_type ?? '').startsWith('transaction.');
+  // A transaction's own id is a txn_, never a subscription id: falling back to
+  // it stored the checkout's transaction as the subscription (session 11).
+  const subscriptionId = isTransaction ? (data.subscription_id ?? null) : (data.id ?? null);
+  if (isTransaction && !subscriptionId) {
+    // A one-off transaction with no subscription changes no plan.
+    return { accepted: false, duplicate: false, type, organizationId: null, detail: 'Transaction without a subscription.' };
+  }
 
   const organizationId = await resolveOrganizationId('PADDLE', {
     organizationId: customData.organizationId,
@@ -282,9 +304,26 @@ export async function handlePaddleWebhook(input: {
     providerCustomerId: data.customer_id ?? null,
     organizationId,
     plan: tier,
-    status: paddleStatusMap[data.status ?? 'active'] ?? 'active',
-    currentPeriodEnd: data.current_billing_period?.ends_at ? new Date(data.current_billing_period.ends_at) : null,
+    // A completed transaction is a paid period; its own status words
+    // (completed, paid) are not subscription statuses.
+    status: isTransaction ? 'active' : (paddleStatusMap[data.status ?? 'active'] ?? 'past_due'),
+    // A completed transaction names the period it paid for. A subscription's
+    // paid-through date follows `paddlePaidThrough`: past due, the current
+    // period is the unpaid one; cancelled at once, only canceled_at is left.
+    currentPeriodEnd: isTransaction
+      ? (data.billing_period?.ends_at ? new Date(data.billing_period.ends_at) : null)
+      : dateOrNull(
+          paddlePaidThrough(
+            data.status,
+            data.current_billing_period?.starts_at ?? null,
+            data.current_billing_period?.ends_at ?? null,
+            data.status === 'canceled' ? (data.canceled_at ?? null) : null,
+          ),
+        ),
     cancelAtPeriodEnd: data.scheduled_change?.action === 'cancel' || data.status === 'canceled',
+    // A subscription event always carries scheduled_change (null once a
+    // cancellation is withdrawn), so its word on cancelling is final.
+    cancelAtPeriodEndAuthoritative: !isTransaction && 'scheduled_change' in data,
     quantity: parseQuantity(data.items?.[0]?.quantity),
     nextAttemptAt: data.next_billed_at ? new Date(data.next_billed_at) : null,
     // Paddle Billing sends occurred_at; event_date is kept as a fallback.
@@ -292,7 +331,31 @@ export async function handlePaddleWebhook(input: {
     raw: payload,
   };
 
-  return commit(event);
+  const outcome = await commit(event);
+
+  // Paddle's checkout lets the customer edit a Fleet count; a new
+  // subscription is put back on the measured one. Not awaited: Paddle wants
+  // its answer within seconds, and the correction is several API calls.
+  if (
+    payload.event_type === 'subscription.created' &&
+    outcome.accepted &&
+    !outcome.duplicate &&
+    organizationId &&
+    subscriptionId &&
+    tier
+  ) {
+    void correctCheckoutQuantity({
+      organizationId,
+      provider: 'PADDLE',
+      providerSubscriptionId: subscriptionId,
+      plan: tier,
+      quantity: event.quantity ?? null,
+    }).catch((error: unknown) => {
+      console.error('[billing] correcting a Paddle checkout quantity failed:', error);
+    });
+  }
+
+  return outcome;
 }
 
 /* ------------------------------------------------------------------ shared */
@@ -449,7 +512,11 @@ interface PaddlePayload {
     custom_data?: Record<string, unknown>;
     items?: Array<{ quantity?: number; price_id?: string; price?: { id?: string } }>;
     scheduled_change?: { action?: string } | null;
-    current_billing_period?: { ends_at?: string } | null;
+    current_billing_period?: { starts_at?: string; ends_at?: string } | null;
+    /** On a transaction: the period it pays for. */
+    billing_period?: { ends_at?: string } | null;
+    /** On a cancelled subscription: when it ended. */
+    canceled_at?: string | null;
     next_billed_at?: string | null;
   };
 }

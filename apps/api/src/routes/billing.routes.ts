@@ -9,6 +9,7 @@ import {
   billingStatusController,
   cancelSubscriptionController,
   changePlanController,
+  previewPlanChangeController,
   planSyncStatusController,
   paddleWebhookController,
   razorpayWebhookController,
@@ -63,6 +64,14 @@ billingRouter.patch(
   requireSession,
   requireOrganizationPermission('billing', 'update'),
   changePlanController,
+);
+
+/** Read only, but it calls the provider, so it is limited to who can change the plan. */
+billingRouter.post(
+  '/workspaces/:organizationId/billing/plan/preview',
+  requireSession,
+  requireOrganizationPermission('billing', 'update'),
+  previewPlanChangeController,
 );
 
 billingRouter.post(

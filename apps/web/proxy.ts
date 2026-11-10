@@ -219,8 +219,15 @@ async function resolveHost(host: string): Promise<CacheEntry> {
  * Development adds 'unsafe-eval' because React uses eval to rebuild server error
  * stacks in the browser. Neither React nor Next use eval in production.
  */
-function contentSecurityPolicy(nonce: string): string {
+function contentSecurityPolicy(nonce: string, pathname = "/"): string {
   const isDev = process.env.NODE_ENV !== "production";
+  /**
+   * /pay opens Paddle's checkout: Paddle.js (admitted through 'strict-dynamic',
+   * since our own nonced code adds it) draws the form in a frame from
+   * buy.paddle.com and talks to its own services. Those origins are allowed on
+   * this route only, so no other page can frame or call Paddle.
+   */
+  const paddle = pathname === "/pay" ? " https://*.paddle.com https://*.paddle.io" : "";
   /**
    * Hosted BIMI logos are served from their own origin, so `img-src` has to
    * name it or the panel's `<img>` is blocked. Only `img-src`, and only when
@@ -243,15 +250,15 @@ function contentSecurityPolicy(nonce: string): string {
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ""}`,
     // This build serves its own domain and every agency's custom domain from the
     // same output, so connect-src cannot be pinned to one origin.
-    "style-src 'self' 'unsafe-inline'",
-    `img-src 'self' data: blob:${bimiOrigin ? ` ${bimiOrigin}` : ""}`,
-    "font-src 'self' data:",
-    "connect-src 'self'",
+    `style-src 'self' 'unsafe-inline'${paddle}`,
+    `img-src 'self' data: blob:${bimiOrigin ? ` ${bimiOrigin}` : ""}${paddle}`,
+    `font-src 'self' data:${paddle}`,
+    `connect-src 'self'${paddle}`,
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
     // An auditor may open a compliance verifier link; nothing else may frame us.
-    "frame-src 'self'",
+    `frame-src 'self'${paddle}`,
     "frame-ancestors 'none'",
     "upgrade-insecure-requests",
   ].join("; ");
@@ -262,7 +269,7 @@ export async function proxy(request: NextRequest) {
   // deployment host) still gets a nonce and a policy: those are the requests
   // that most need hydrating, and they used to be the ones that got none.
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
-  const csp = contentSecurityPolicy(nonce);
+  const csp = contentSecurityPolicy(nonce, request.nextUrl.pathname);
 
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-nonce", nonce);

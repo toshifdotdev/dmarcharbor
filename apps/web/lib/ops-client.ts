@@ -1273,12 +1273,40 @@ export const startCheckout = (
   call<{
     url?: string;
     checkoutUrl?: string;
+    /** The provider's id for this checkout: a Paddle transaction (txn_…) or a Razorpay subscription. */
+    checkoutId?: string;
+    provider?: "RAZORPAY" | "PADDLE";
     priceLabel?: string;
     priceMinor?: number;
     unitPriceMinor?: number;
     quantity?: number;
     currency?: string;
   }>(wsPath(orgId, "/billing/checkout"), {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+/** POST /billing/plan/preview: what a plan change would charge, credit and
+ *  refuse, priced by the provider where it can. Changes nothing. */
+export interface PlanChangeQuote {
+  plan: string;
+  interval: "monthly" | "annual";
+  effectiveAt: "immediate" | "cycle_end";
+  effectiveDate: string | null;
+  currency: "USD" | "INR";
+  chargeNowMinor: number;
+  chargeNowLabel: string;
+  creditMinor: number;
+  creditLabel: string | null;
+  nextAmountMinor: number | null;
+  nextAmountLabel: string | null;
+  nextBilledAt: string | null;
+  includesTax: boolean;
+  overage: PlanOverageRow[];
+}
+
+export const previewBillingPlan = (orgId: string, body: { plan: string; interval: "monthly" | "annual" }) =>
+  call<PlanChangeQuote>(wsPath(orgId, "/billing/plan/preview"), {
     method: "POST",
     body: JSON.stringify(body),
   });

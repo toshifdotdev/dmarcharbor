@@ -34,7 +34,7 @@
  */
 
 import { useRouter } from "next/navigation";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { clsx } from "clsx";
 import { DrawOnView } from "@/components/harbor/draw-on-view";
 import { formatMinor } from "@/lib/money";
@@ -50,7 +50,10 @@ import {
   soldFeatures,
   UNLISTED_FEATURES,
 } from "@/lib/plan-features";
-import { changeBillingPlan, startCheckout } from "@/lib/ops-client";
+import { changeBillingPlan, previewBillingPlan, startCheckout, type PlanChangeQuote } from "@/lib/ops-client";
+import { ConfirmDialog } from "@/components/ui/dialog";
+import { InlineWaiting } from "@/components/ui/states";
+import { useToast } from "@/components/ui/toast";
 import type { BillingStatus, PlanDefinition, PlanOverageRow } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/choice";
@@ -82,6 +85,13 @@ const LIMITS: Array<{ key: LimitKey; usage: keyof Usage; label: string; one: str
 ];
 
 const PROVIDER_FOR: Record<Currency, string> = { INR: "Razorpay", USD: "Paddle" };
+const PROVIDER_NAME: Record<string, string> = { RAZORPAY: "Razorpay", PADDLE: "Paddle" };
+
+function shortDate(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+}
 
 /**
  * The words for a refused downgrade's overage row, by the API's quota key. The
@@ -574,6 +584,29 @@ function Decision(props: RowProps & { action: Action; verb: string }) {
   const [email, setEmail] = useState(contact?.email ?? "");
   const [taxId, setTaxId] = useState("");
   const [ack, setAck] = useState(false);
+  const toast = useToast();
+  // A plan change is priced by the provider before it is confirmed, so the
+  // customer sees the real charge, credit and next invoice, and confirms that.
+  const [quote, setQuote] = useState<PlanChangeQuote | null>(null);
+  const [quoteError, setQuoteError] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  useEffect(() => {
+    if (action !== "change") return;
+    let live = true;
+    void previewBillingPlan(organizationId, { plan: plan.tier, interval }).then((res) => {
+      if (!live) return;
+      if (res.ok) {
+        setQuote(res.data);
+        if (res.data.overage.length > 0) setError({ message: "", overage: res.data.overage });
+      } else {
+        setQuoteError(res.error.message ?? "The new price could not be worked out just now.");
+      }
+    });
+    return () => {
+      live = false;
+    };
+  }, [action, organizationId, plan.tier, interval]);
 
   const now = current ? features(current) : new Set<string>();
   const next = features(plan);
@@ -595,7 +628,7 @@ function Decision(props: RowProps & { action: Action; verb: string }) {
 
   const timing =
     action === "checkout"
-      ? `You pay ${priceOf(plan, payCurrency, interval, props.fleetQuote)} ${interval === "annual" ? "a year" : "a month"} on ${PROVIDER_FOR[payCurrency]}'s page. The plan changes when ${PROVIDER_FOR[payCurrency]} confirms the payment.`
+      ? `You pay ${priceOf(plan, payCurrency, interval, props.fleetQuote)} ${interval === "annual" ? "a year" : "a month"} on ${PROVIDER_FOR[payCurrency]}'s page.${PROVIDER_FOR[payCurrency] === "Paddle" ? " Paddle, the reseller, handles tax: depending on your location it is included in that price or added on its page." : ""} The plan changes when ${PROVIDER_FOR[payCurrency]} confirms the payment.`
       : action === "cancel"
         ? `${currentLabel} stays until ${periodEnd ?? "the paid period ends"} and is not charged again; then the workspace moves to ${plan.label}. Every client, domain and report is kept.`
         : provider === "PADDLE"
@@ -621,6 +654,12 @@ function Decision(props: RowProps & { action: Action; verb: string }) {
         setError({ message: res.error.message ?? "The checkout could not be started.", overage: [] });
         return;
       }
+      // Paddle's checkout opens over our own /pay page (Paddle.js), on this
+      // origin, whatever default payment link the Paddle account holds.
+      if (res.data.provider === "PADDLE" && res.data.checkoutId?.startsWith("txn_")) {
+        window.location.href = `/pay?_ptxn=${encodeURIComponent(res.data.checkoutId)}`;
+        return;
+      }
       const url = res.data.url ?? res.data.checkoutUrl;
       if (url && url.startsWith("https://")) {
         window.location.href = url;
@@ -634,19 +673,36 @@ function Decision(props: RowProps & { action: Action; verb: string }) {
     const res = await changeBillingPlan(organizationId, { plan: plan.tier, interval });
     setBusy(false);
     if (!res.ok) {
+      setConfirmOpen(false);
       setError({ message: res.error.message ?? "The plan could not be changed.", overage: res.error.overage ?? [] });
       return;
     }
-    setDone(
+    setConfirmOpen(false);
+    const applied = res.data.status === "applied";
+    const paid =
+      applied && quote
+        ? quote.chargeNowMinor > 0
+          ? ` ${quote.chargeNowLabel} was charged to your card; ${PROVIDER_NAME[provider] ?? "the provider"} emails the receipt.`
+          : quote.creditMinor > 0
+            ? ` ${quote.creditLabel} of unused time is credited to your next invoice.`
+            : ""
+        : "";
+    const message =
       action === "cancel"
         ? `Cancelled. ${currentLabel} stays until ${periodEnd ?? "the period ends"}.`
         : action === "keep"
           ? `The scheduled change is withdrawn; ${plan.label} continues.`
-          : // The API now says which happened, rather than the screen inferring it from the provider.
-            res.data.status === "applied"
-            ? `Moved to ${plan.label}.`
-            : `${plan.label} applies from ${periodEnd ?? "the end of the period"}.`,
-    );
+          : // The API says which happened, rather than the screen inferring it from the provider.
+            applied
+            ? `You are now on ${plan.label}.${paid}`
+            : `${plan.label} applies from ${periodEnd ?? "the end of the period"}. Nothing is charged until then.`;
+    setDone(message);
+    // The panel closes on refresh, so the outcome is also said where it stays.
+    toast({
+      title: action === "change" ? (applied ? `You are now on ${plan.label}` : `${plan.label} is scheduled`) : message,
+      body: action === "change" ? message : undefined,
+      tone: "ok",
+    });
     router.refresh();
   }
 
@@ -728,6 +784,58 @@ function Decision(props: RowProps & { action: Action; verb: string }) {
 
       {action === "keep" || (action === "checkout" && !checkoutOpen) ? null : <p className="text-ui text-fg-2">{timing}</p>}
 
+      {action === "change" ? (
+        <div data-testid="plan-change-quote" className="border-y border-rule py-3">
+          {quote ? (
+            <>
+              <dl className="grid gap-x-8 gap-y-3 sm:grid-cols-3">
+                <div>
+                  <dt className="text-meta font-semibold text-fg-3">Charged now</dt>
+                  <dd className="tnum mt-0.5 text-body font-semibold text-fg" data-testid="quote-charge-now">
+                    {quote.chargeNowLabel}
+                  </dd>
+                  <dd className="text-meta text-fg-3">
+                    {quote.effectiveAt === "cycle_end"
+                      ? "Nothing until the change applies."
+                      : quote.chargeNowMinor > 0
+                        ? "To the card on file, for the rest of this period."
+                        : quote.creditMinor > 0
+                          ? `${quote.creditLabel} of unused time is credited to your next invoice.`
+                          : "Covered by credit already on your account."}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-meta font-semibold text-fg-3">Next invoice</dt>
+                  <dd className="tnum mt-0.5 text-body font-semibold text-fg" data-testid="quote-next">
+                    {quote.nextAmountLabel ?? "Not dated"}
+                  </dd>
+                  <dd className="text-meta text-fg-3">
+                    {shortDate(quote.nextBilledAt) ?? "At renewal."}
+                    {/* Paddle quotes the next invoice before the credit is spent on it. */}
+                    {quote.creditMinor > 0 && quote.nextAmountLabel ? ` Before the ${quote.creditLabel} credit.` : null}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-meta font-semibold text-fg-3">Applies</dt>
+                  <dd className="mt-0.5 text-body font-semibold text-fg">
+                    {quote.effectiveAt === "immediate" ? "As soon as you confirm" : (shortDate(quote.effectiveDate) ?? "At period end")}
+                  </dd>
+                </div>
+              </dl>
+              <p className="mt-2 text-meta text-fg-3">
+                {quote.includesTax
+                  ? `Figures from ${PROVIDER_NAME[provider] ?? "the provider"}, tax included.`
+                  : "From the price list, before any tax."}
+              </p>
+            </>
+          ) : quoteError ? (
+            <p className="text-meta text-fg-2">{quoteError} You can still change the plan; the provider shows the amount on its receipt.</p>
+          ) : (
+            <InlineWaiting>Working out what this costs</InlineWaiting>
+          )}
+        </div>
+      ) : null}
+
       {action === "checkout" ? (
         !checkoutOpen ? (
           <Notice tone="warn" title="Checkout is not open yet">
@@ -789,7 +897,16 @@ function Decision(props: RowProps & { action: Action; verb: string }) {
         )
       ) : (
         <div>
-          <Button variant={action === "cancel" ? "danger" : "primary"} onClick={go} busy={busy} busyLabel="Sending">
+          <Button
+            variant={action === "cancel" ? "danger" : "primary"}
+            // A plan change and a cancellation are confirmed in a dialog that
+            // says what is charged and when; "Keep" changes nothing and goes at once.
+            onClick={action === "keep" ? go : () => setConfirmOpen(true)}
+            busy={busy}
+            busyLabel="Sending"
+            disabled={action === "change" && ((!quote && !quoteError) || (quote?.overage.length ?? 0) > 0)}
+            data-testid="plan-change-submit"
+          >
             {action === "cancel"
               ? `Move to ${plan.label} at period end`
               : action === "keep"
@@ -834,6 +951,41 @@ function Decision(props: RowProps & { action: Action; verb: string }) {
           {done}
         </p>
       ) : null}
+      <ConfirmDialog
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={go}
+        busy={busy}
+        danger={action === "cancel"}
+        testId="plan-change-confirm"
+        title={action === "cancel" ? `Cancel ${currentLabel}?` : `Move to ${plan.label}?`}
+        confirmLabel={
+          action === "cancel"
+            ? "Cancel at period end"
+            : quote?.effectiveAt === "cycle_end" || provider !== "PADDLE"
+              ? `Schedule ${plan.label}`
+              : quote && quote.chargeNowMinor > 0
+                ? `Pay ${quote.chargeNowLabel} and move`
+                : `Move to ${plan.label}`
+        }
+        body={
+          action === "cancel"
+            ? `${currentLabel} keeps working until ${periodEnd ?? "the paid period ends"} and is not charged again. Then the workspace moves to ${plan.label}, keeping every client, domain and report.`
+            : quote
+              ? quote.effectiveAt === "cycle_end"
+                ? `Nothing is charged now. ${plan.label} applies on ${shortDate(quote.effectiveDate) ?? "the date this period ends"}, then renews at ${quote.nextAmountLabel ?? "its price"}.`
+                : `${
+                    quote.chargeNowMinor > 0
+                      ? `${quote.chargeNowLabel} is charged to the card on file now`
+                      : quote.creditMinor > 0
+                        ? `Nothing is charged now, and ${quote.creditLabel} of unused time is credited`
+                        : "Nothing is charged now"
+                  }. ${plan.label} starts at once, and the next invoice is ${quote.nextAmountLabel ?? "the new price"}${
+                    shortDate(quote.nextBilledAt) ? ` on ${shortDate(quote.nextBilledAt)}` : ""
+                  }.`
+              : `${plan.label} replaces ${currentLabel}. ${timing}`
+        }
+      />
       <button type="button" onClick={props.onClose} className="link self-start text-meta" disabled={busy}>
         Close
       </button>

@@ -10,7 +10,7 @@ import {
   saveStoredPlan,
 } from '../src/billing/plans.js';
 import { verifyPaddleSignature } from '../src/billing/paddle.provider.js';
-import { subscriptionEndAt, subscriptionMaxYears, verifyRazorpaySignature, withCustomerId } from '../src/billing/razorpay.provider.js';
+import { subscriptionCreateBody, subscriptionMaxYears, subscriptionTotalCount, verifyRazorpaySignature } from '../src/billing/razorpay.provider.js';
 import { SignatureVerificationError } from '../src/billing/provider.js';
 import { planCatalog } from '../src/services/entitlements/plan-catalog.js';
 
@@ -151,12 +151,10 @@ describe('stored provider plans', () => {
 });
 
 describe('razorpay subscription lifetime', () => {
-  it('bounds the subscription by a date rather than a cycle count', () => {
-    const now = new Date('2026-09-27T12:00:00.000Z');
-    const endAt = subscriptionEndAt(now);
-
-    const years = new Date(endAt * 1000).getUTCFullYear() - now.getUTCFullYear();
-    expect(years).toBe(subscriptionMaxYears);
+  it('bounds the subscription by a cycle count covering the same years on either interval', () => {
+    // Razorpay answers its own 500 to a create body bounded by end_at (session 11).
+    expect(subscriptionTotalCount('monthly')).toBe(subscriptionMaxYears * 12);
+    expect(subscriptionTotalCount('annual')).toBe(subscriptionMaxYears);
   });
 
   it('runs long enough that no realistic customer outlives it', () => {
@@ -168,19 +166,18 @@ describe('razorpay subscription lifetime', () => {
     expect(subscriptionMaxYears).toBeLessThanOrEqual(100);
   });
 
-  it('never sends a cycle count alongside the date, which Razorpay rejects', () => {
-    // Razorpay returns 400 if both total_count and end_at are supplied, so the
-    // create body must carry the date alone.
-    const body = withCustomerId({
+  it('sends the cycle count alone, with no date and no customer, which Razorpay refuses', () => {
+    const body = subscriptionCreateBody({
       plan_id: 'plan_00000000000001',
-      customer_id: 'cust_1',
-      end_at: subscriptionEndAt(),
+      total_count: subscriptionTotalCount('monthly'),
       customer_notify: 1,
-      notes: {},
+      notes: { organizationId: 'org_1' },
     });
 
-    expect('end_at' in body).toBe(true);
-    expect('total_count' in (body as Record<string, unknown>)).toBe(false);
+    expect(body.total_count).toBe(subscriptionMaxYears * 12);
+    expect('end_at' in body).toBe(false);
+    expect('customer_id' in body).toBe(false);
+    expect(body.notes).toEqual({ organizationId: 'org_1' });
   });
 });
 

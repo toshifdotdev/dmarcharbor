@@ -3,7 +3,7 @@ import { recordAuditEvent } from '../services/audit.service.js';
 import { providerFor } from './registry.js';
 import { applyDuePendingPlans, reconcileWithProvider, writePlan } from './subscription-state.js';
 import { effectivePlan } from '../services/entitlements/plan-catalog.js';
-import { sendPaymentFailedEmail } from '../email/mailer.js';
+import { sendPaymentFailedEmail, sendPlanWithdrawnEmail } from '../email/mailer.js';
 import { afterPlanChange } from '../services/entitlements/plan-change-effects.js';
 import type { PlanTier } from '@prisma/client';
 
@@ -130,6 +130,14 @@ export async function runDunning(now = new Date()): Promise<DunningOutcome> {
 
     await withdrawPlan(subscription.organizationId, subscription.plan, 'dunning');
     outcome.downgraded += 1;
+
+    // Told, not left to find out from a missing feature. Sent once: the row is
+    // WITHDRAWN now, which this loop never examines again.
+    void sendPlanWithdrawnEmail({
+      organizationId: subscription.organizationId,
+      fromPlan: subscription.plan,
+      graceEndedAt: graceEndsAt,
+    });
   }
 
   return outcome;
@@ -176,6 +184,46 @@ async function withdrawPlan(organizationId: string, previousPlan: string, reason
       note: 'The workspace keeps all of its clients, domains and reports. Upgrading restores the previous plan.',
     },
   });
+
+  if (reason === 'dunning') {
+    await stopProviderRetries(organizationId);
+  }
+}
+
+/**
+ * Ends the unpaid subscription at the provider once its plan is withdrawn.
+ *
+ * The provider keeps retrying a past due card on its own schedule, which can
+ * run for weeks after our grace ends. Left running, the billing page offered a
+ * new checkout ("Choose a plan below") while the old subscription could still
+ * collect: a customer who did both paid twice (session 11). Cancelling it here
+ * makes the withdrawal final at the provider too, and choosing a plan again is
+ * then the one way back. A failure is audited for support and does not undo
+ * the withdrawal.
+ */
+async function stopProviderRetries(organizationId: string): Promise<void> {
+  const row = await prisma.subscription.findUnique({
+    where: { organizationId },
+    select: { provider: true, providerSubscriptionId: true },
+  });
+  if (!row || row.provider === 'NONE' || !row.providerSubscriptionId) {
+    return;
+  }
+
+  try {
+    await providerFor(row.provider as 'RAZORPAY' | 'PADDLE').cancelImmediately(row.providerSubscriptionId);
+  } catch (error) {
+    await recordAuditEvent({
+      organizationId,
+      action: 'SUBSCRIPTION_UPDATED',
+      targetType: 'subscription',
+      targetId: row.providerSubscriptionId,
+      detail: {
+        event: 'dunning_cancel_failed',
+        message: (error instanceof Error ? error.message : 'The provider did not cancel the subscription.').slice(0, 240),
+      },
+    });
+  }
 }
 
 /**

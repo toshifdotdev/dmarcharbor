@@ -108,13 +108,14 @@ export function BillingStanding({
   const [pending, setPending] = useState<"cancel" | "resume" | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const hasSubscription = s.provider !== "NONE";
   const free = s.priceLabel === "Free";
   const interval = s.interval === "ANNUAL" ? "a year" : "a month";
   const perDomain = s.pricing === "per_domain";
   const failing = s.dunningStage === "WARNED" || s.status === "PAST_DUE";
   const withdrawn = s.dunningStage === "WITHDRAWN";
   const ended = s.status === "EXPIRED" || s.status === "CANCELLED";
+  // An ended subscription is history, not something to manage or cancel.
+  const hasSubscription = s.provider !== "NONE" && !ended;
 
   async function confirm() {
     setBusy(true);
@@ -129,15 +130,17 @@ export function BillingStanding({
     router.refresh();
   }
 
-  const renewal = s.cancelAtPeriodEnd
+  const renewal = ended && s.provider !== "NONE"
+    ? `The ${PROVIDER[s.provider] ?? ""} subscription has ended. Choose a plan below to start a new one; every client, domain and report is still here.`
+    : failing && hasSubscription
+    ? `The renewal${periodEnd ? ` on ${periodEnd}` : ""} did not go through. ${PROVIDER[s.provider] ?? "The provider"} retries the card on its own.`
+    : s.cancelAtPeriodEnd
     ? `Cancelled. ${currentLabel} stays until ${periodEnd ?? "the end of the paid period"}, then the workspace moves to ${freeLabel}. Nothing is deleted.`
     : !hasSubscription
       ? free
         ? "Free, with no payment and nothing to renew."
         : "This plan has no online subscription attached, so nothing renews or charges through this page."
-      : ended
-        ? `The subscription has ended${periodEnd ? ` (${periodEnd})` : ""}.`
-        : periodEnd
+      : periodEnd
           ? `Renews on ${periodEnd}${s.interval === "ANNUAL" ? ", for another year" : ""}.`
           : "Renews automatically.";
 
@@ -148,6 +151,8 @@ export function BillingStanding({
       ? { value: "None", note: free ? "Nothing is charged on this plan." : "Nothing charges through this page." }
       : s.cancelAtPeriodEnd || ended
         ? { value: "None", note: periodEnd ? `The plan ends ${periodEnd}.` : "The plan is not charged again." }
+        : failing
+        ? { value: "Unpaid", note: `${s.priceLabel} ${interval}, being retried by ${PROVIDER[s.provider] ?? "the provider"}.` }
         : {
             value: periodEnd ?? "Not dated",
             note: pendingLabel ? `For ${pendingLabel}, which applies from then.` : `${s.priceLabel} ${interval}.`,
@@ -239,7 +244,7 @@ export function BillingStanding({
                 <span className="font-semibold text-fg">{pendingLabel}</span> applies from {pendingAt ?? "the end of the paid period"}:
                 {" "}{currentLabel} until then, then {pendingLabel}.
               </p>
-            ) : s.cancelAtPeriodEnd ? (
+            ) : s.cancelAtPeriodEnd && !ended ? (
               <p className="text-fg-2">
                 The workspace moves to <span className="font-semibold text-fg">{freeLabel}</span>.
               </p>

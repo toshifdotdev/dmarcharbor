@@ -14,6 +14,7 @@ import {
   paymentFailedEmail,
   planChangedEmail,
   planPausedFeaturesEmail,
+  planWithdrawnEmail,
   policyApprovalRequestedEmail,
   policyProposalDecidedEmail,
   portalAccessGranted,
@@ -251,6 +252,27 @@ async function sendPaymentFailedEmailImpl(input: {
   }
 }
 
+async function sendPlanWithdrawnEmailImpl(input: {
+  organizationId: string;
+  fromPlan: Parameters<typeof planLabel>[0];
+  graceEndedAt: Date;
+}): Promise<void> {
+  const name = await workspaceName(input.organizationId);
+
+  for (const email of await ownersOf(input.organizationId)) {
+    queueEmail(
+      planWithdrawnEmail({
+        workspaceName: name,
+        fromLabel: planLabel(input.fromPlan),
+        toLabel: planLabel('MOORING'),
+        graceEndedAt: input.graceEndedAt.toISOString(),
+        billingUrl: appUrl('/billing'),
+      }),
+      email,
+    );
+  }
+}
+
 async function sendSubscriptionCancelledEmailImpl(input: {
   organizationId: string;
   plan: Parameters<typeof planLabel>[0];
@@ -412,6 +434,10 @@ export function sendDomainVerificationEmail(input: Parameters<typeof sendDomainV
 
 export function sendPaymentFailedEmail(input: Parameters<typeof sendPaymentFailedEmailImpl>[0]): void {
   fireAndForget(sendPaymentFailedEmailImpl(input), 'sendPaymentFailedEmail');
+}
+
+export function sendPlanWithdrawnEmail(input: Parameters<typeof sendPlanWithdrawnEmailImpl>[0]): void {
+  fireAndForget(sendPlanWithdrawnEmailImpl(input), 'sendPlanWithdrawnEmail');
 }
 
 export function sendSubscriptionCancelledEmail(input: Parameters<typeof sendSubscriptionCancelledEmailImpl>[0]): void {

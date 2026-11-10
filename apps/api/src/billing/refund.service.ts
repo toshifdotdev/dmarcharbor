@@ -329,14 +329,18 @@ export async function issueRefund(input: {
   }
 
   let providerRefundId: string | null;
+  // What the provider actually refunds (the first payment, tax included) when
+  // it says; the catalog's figure otherwise.
+  let refundedMinor = eligibility.amountMinor;
+  const provider = providerFor(subscription.provider as 'RAZORPAY' | 'PADDLE');
   try {
-    const provider = providerFor(subscription.provider as 'RAZORPAY' | 'PADDLE');
     const result = await provider.refund({
       providerSubscriptionId: subscription.providerSubscriptionId,
       amountMinor: eligibility.amountMinor,
       reason: input.reason,
     });
     providerRefundId = result.providerRefundId;
+    if (typeof result.amountMinor === 'number' && result.amountMinor > 0) refundedMinor = result.amountMinor;
   } catch (error) {
     const detail = error instanceof BillingProviderError ? error.message : 'The payment provider refused the refund.';
     // Recorded as a refusal. Nothing is claimed about money having moved, because
@@ -345,11 +349,33 @@ export async function issueRefund(input: {
     throw new RefundError(detail, 'REFUND_PROVIDER_FAILED', error instanceof BillingProviderError ? error.status : 502);
   }
 
-  await record(true, eligibility.amountMinor, providerRefundId, null);
+  await record(true, refundedMinor, providerRefundId, null);
+
+  /**
+   * A money-back refund ends the subscription: the customer has their payment
+   * back, so it must not renew and charge them again, and the plan goes when
+   * the provider confirms the cancellation. Best effort: the refund has
+   * happened either way, and a cancellation that fails is recorded for support.
+   */
+  try {
+    await provider.cancelImmediately(subscription.providerSubscriptionId);
+  } catch (error) {
+    await recordAuditEvent({
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId ?? undefined,
+      action: 'SUBSCRIPTION_UPDATED',
+      targetType: 'subscription',
+      targetId: subscription.providerSubscriptionId,
+      detail: {
+        event: 'refund_cancel_failed',
+        message: (error instanceof Error ? error.message : 'The provider refused the cancellation.').slice(0, 240),
+      },
+    });
+  }
 
   return {
     refunded: true,
-    amountMinor: eligibility.amountMinor,
+    amountMinor: refundedMinor,
     currency: eligibility.currency,
     providerRefundId,
     eligibility,

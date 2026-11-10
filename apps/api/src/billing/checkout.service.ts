@@ -123,7 +123,16 @@ export async function startCheckout(input: StartCheckoutInput): Promise<Checkout
     select: { provider: true, status: true, currentPeriodEnd: true },
   });
 
-  if (existing && (existing.status === 'ACTIVE' || existing.status === 'TRIALING' || existing.status === 'PAST_DUE')) {
+  // Only a provider subscription is something to "change plan instead" of. A
+  // `provider: NONE` row is an entitlement written by staff (a comped or pilot
+  // plan, or the free tier), with no period end. It read as "still paid" for
+  // ever, so a comped workspace could never buy, and `changePlan` refuses it
+  // too: the customer was stuck both ways (session 11).
+  if (
+    existing &&
+    existing.provider !== 'NONE' &&
+    (existing.status === 'ACTIVE' || existing.status === 'TRIALING' || existing.status === 'PAST_DUE')
+  ) {
     const stillPaid = existing.currentPeriodEnd ? existing.currentPeriodEnd.getTime() > Date.now() : true;
     if (stillPaid) {
       throw new CheckoutError(
@@ -488,6 +497,111 @@ export async function changePlan(input: {
     : { effectiveAt: 'cycle_end', effectiveDate: subscription.currentPeriodEnd ?? null };
 }
 
+export interface PlanChangeQuote {
+  plan: PlanTier;
+  interval: BillingInterval;
+  effectiveAt: 'immediate' | 'cycle_end';
+  effectiveDate: string | null;
+  currency: BillingCurrency;
+  /** Charged to the payment method when the change is confirmed. */
+  chargeNowMinor: number;
+  chargeNowLabel: string;
+  /** Unused time returned as credit against later invoices. */
+  creditMinor: number;
+  creditLabel: string | null;
+  /** The renewal after the change, and when. */
+  nextAmountMinor: number | null;
+  nextAmountLabel: string | null;
+  nextBilledAt: string | null;
+  /** Prices from the provider include tax; a catalog estimate does not. */
+  includesTax: boolean;
+  /** Non-empty when the change would be refused as over the target plan's limits. */
+  overage: PlanOverage[];
+}
+
+/**
+ * What a plan change would do, before the customer confirms it: the provider's
+ * own figures where it gives them (Paddle prices the proration and the tax),
+ * else the catalog's, and any overage that would make the change refused.
+ * Changes nothing anywhere.
+ */
+export async function previewPlanChange(input: {
+  organizationId: string;
+  plan: PlanTier;
+  interval: BillingInterval;
+}): Promise<PlanChangeQuote> {
+  const subscription = await prisma.subscription.findUnique({
+    where: { organizationId: input.organizationId },
+    select: { provider: true, providerSubscriptionId: true, currentPeriodEnd: true },
+  });
+  if (!subscription?.providerSubscriptionId || subscription.provider === 'NONE') {
+    throw new CheckoutError('This workspace has no subscription to change.', 'NO_SUBSCRIPTION', 409);
+  }
+  const definition = planCatalog[input.plan];
+  if (!definition.intervals.includes(input.interval)) {
+    throw new CheckoutError(`${definition.label} is not billed ${input.interval}.`, 'INTERVAL_NOT_OFFERED', 400);
+  }
+
+  const overage = await planOverageFor(input.organizationId, input.plan);
+  const provider = resolveProviderForCheckout({ currency: 'INR', existingProvider: subscription.provider });
+  const billable = await billableQuantity(input.organizationId, input.plan);
+  const preference = await prisma.organization.findUnique({
+    where: { id: input.organizationId },
+    select: { preferredCurrency: true },
+  });
+  const fallbackCurrency: BillingCurrency =
+    preference?.preferredCurrency ?? (subscription.provider === 'PADDLE' ? 'USD' : 'INR');
+
+  if (provider.appliesPlanChangeImmediately && provider.previewPlanChange) {
+    const quote = await provider.previewPlanChange({
+      providerSubscriptionId: subscription.providerSubscriptionId,
+      plan: input.plan,
+      interval: input.interval,
+      quantity: billable.quantity,
+    });
+    const currency: BillingCurrency = quote.currency === 'INR' || quote.currency === 'USD' ? quote.currency : fallbackCurrency;
+    return {
+      plan: input.plan,
+      interval: input.interval,
+      effectiveAt: 'immediate',
+      effectiveDate: new Date().toISOString(),
+      currency,
+      chargeNowMinor: quote.chargeNowMinor,
+      chargeNowLabel: formatLabel(quote.chargeNowMinor, currency).replace('Free', 'Nothing'),
+      creditMinor: quote.creditMinor,
+      creditLabel: quote.creditMinor > 0 ? formatLabel(quote.creditMinor, currency) : null,
+      nextAmountMinor: quote.nextAmountMinor,
+      nextAmountLabel: quote.nextAmountMinor === null ? null : formatLabel(quote.nextAmountMinor, currency),
+      nextBilledAt: quote.nextBilledAt?.toISOString() ?? null,
+      includesTax: true,
+      overage,
+    };
+  }
+
+  // At period end: nothing now, then the new plan's price from the catalog.
+  const unit = definition.pricing === 'per_domain'
+    ? perDomainBill(input.plan, billable.quantity, fallbackCurrency).totalMinor
+    : input.interval === 'annual'
+      ? definition.prices[fallbackCurrency].annualMinor
+      : definition.prices[fallbackCurrency].monthlyMinor;
+  return {
+    plan: input.plan,
+    interval: input.interval,
+    effectiveAt: 'cycle_end',
+    effectiveDate: subscription.currentPeriodEnd?.toISOString() ?? null,
+    currency: fallbackCurrency,
+    chargeNowMinor: 0,
+    chargeNowLabel: 'Nothing',
+    creditMinor: 0,
+    creditLabel: null,
+    nextAmountMinor: unit,
+    nextAmountLabel: formatLabel(unit, fallbackCurrency),
+    nextBilledAt: subscription.currentPeriodEnd?.toISOString() ?? null,
+    includesTax: false,
+    overage,
+  };
+}
+
 export async function cancelSubscription(input: { organizationId: string; actorUserId?: string | null }): Promise<void> {
   const subscription = await prisma.subscription.findUnique({
     where: { organizationId: input.organizationId },
@@ -557,16 +671,23 @@ export async function resumeSubscription(input: { organizationId: string; actorU
 export async function billingPortalUrl(input: { organizationId: string; returnUrl: string }): Promise<string> {
   const subscription = await prisma.subscription.findUnique({
     where: { organizationId: input.organizationId },
-    select: { provider: true, providerCustomerId: true },
+    select: { provider: true, providerCustomerId: true, providerSubscriptionId: true },
   });
 
-  if (!subscription?.providerCustomerId || subscription.provider === 'NONE') {
+  // A subscription is enough: Razorpay's page is per subscription, and its
+  // webhooks carry no customer id for a hosted-page checkout (session 11).
+  if (
+    !subscription ||
+    subscription.provider === 'NONE' ||
+    (!subscription.providerCustomerId && !subscription.providerSubscriptionId)
+  ) {
     throw new CheckoutError('This workspace has no billing account yet.', 'NO_BILLING_ACCOUNT', 409);
   }
 
   const provider = resolveProviderForCheckout({ currency: 'INR', existingProvider: subscription.provider });
   const session = await provider.createBillingPortalSession({
     providerCustomerId: subscription.providerCustomerId,
+    providerSubscriptionId: subscription.providerSubscriptionId,
     returnUrl: input.returnUrl,
   });
 
@@ -776,9 +897,11 @@ function formatLabel(minor: number, currency: BillingCurrency): string {
   const units = Math.trunc(absolute / 100);
   const cents = absolute % 100;
 
+  // Whole units only: the cents are appended below. Formatting the units with
+  // two decimals whenever there were cents printed "$162.00.19" (session 11).
   const formatter = new Intl.NumberFormat(currency === 'INR' ? 'en-IN' : 'en-US', {
-    minimumFractionDigits: cents === 0 ? 0 : 2,
-    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
   });
 
   const grouped = formatter.format(units);

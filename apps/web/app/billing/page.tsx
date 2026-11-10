@@ -123,7 +123,12 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
   };
 
   const chargeable = (["INR", "USD"] as const).filter((c) => capabilities?.currencies.includes(c));
-  const hasSubscription = s.provider !== "NONE";
+  // An ended subscription (cancelled or expired at the provider, for example
+  // after a refund) is not one to change: the next plan is a new checkout.
+  // It used to count as live, so the page offered "Keep Mooring" and plan
+  // changes the API then refused (session 11).
+  const ended = s.status === "CANCELLED" || s.status === "EXPIRED";
+  const hasSubscription = s.provider !== "NONE" && !ended;
   const periodEnd = dateLabel(s.currentPeriodEnd);
 
   return shell(

@@ -187,6 +187,85 @@ export async function syncPerDomainQuantities(now = new Date()): Promise<Quantit
   return outcome;
 }
 
+/**
+ * Puts a per-domain subscription bought through a provider's checkout back on
+ * the count measured here.
+ *
+ * Paddle's checkout shows a quantity stepper for any price whose range allows
+ * more than one unit, and a Fleet price has to allow 1 to 5,000 for the
+ * monthly sync to work. A customer could therefore buy 320 domains' worth of
+ * Fleet for the price of one (session 11). The count they typed is replaced by
+ * `billableQuantity`, and the difference for the period already started is
+ * billed or credited at once. Failure is audited, not thrown: the payment
+ * itself stands, and the next sync before renewal corrects the count anyway.
+ */
+export async function correctCheckoutQuantity(
+  input: {
+    organizationId: string;
+    provider: 'RAZORPAY' | 'PADDLE';
+    providerSubscriptionId: string;
+    plan: PlanTier;
+    quantity: number | null;
+  },
+  now = new Date(),
+): Promise<'unchanged' | 'corrected' | 'failed'> {
+  if (planCatalog[input.plan].pricing !== 'per_domain' || input.quantity === null) {
+    return 'unchanged';
+  }
+
+  let measured: Awaited<ReturnType<typeof billableQuantity>>;
+  try {
+    measured = await billableQuantity(input.organizationId, input.plan, now);
+  } catch (error) {
+    await auditFailure(input.organizationId, input.providerSubscriptionId, error, { reason: 'checkout_quantity' });
+    return 'failed';
+  }
+
+  if (measured.quantity === input.quantity) {
+    return 'unchanged';
+  }
+
+  try {
+    await providerFor(input.provider).updateQuantity({
+      providerSubscriptionId: input.providerSubscriptionId,
+      plan: input.plan,
+      quantity: measured.quantity,
+      band: measured.band,
+      prorateNow: true,
+    });
+  } catch (error) {
+    await auditFailure(input.organizationId, input.providerSubscriptionId, error, {
+      reason: 'checkout_quantity',
+      from: input.quantity,
+      to: measured.quantity,
+    });
+    return 'failed';
+  }
+
+  await prisma.subscription.updateMany({
+    where: { organizationId: input.organizationId, providerSubscriptionId: input.providerSubscriptionId },
+    data: { quantity: measured.quantity },
+  });
+
+  await recordAuditEvent({
+    organizationId: input.organizationId,
+    action: 'BILLING_QUANTITY_UPDATED',
+    targetType: 'subscription',
+    targetId: input.providerSubscriptionId,
+    detail: {
+      reason: 'checkout_quantity',
+      from: input.quantity,
+      to: measured.quantity,
+      activeDomains: measured.activeDomains,
+      minimum: measured.minimum,
+      band: measured.band,
+      effectiveAt: now.toISOString(),
+    },
+  });
+
+  return 'corrected';
+}
+
 async function releaseClaim(
   subscriptionId: string,
   claimedPeriodEnd: Date,

@@ -14,6 +14,7 @@ import {
   setBillingCurrencyPreference,
   cancelSubscription,
   changePlan,
+  previewPlanChange,
   resumeSubscription,
   startCheckout,
   syncStatus,
@@ -86,6 +87,26 @@ export async function startCheckoutController(request: Request, response: Respon
     // The browser is sent to the provider's hosted page. No card data ever
     // reaches this server, which is why there is nothing to store or protect.
     response.status(201).json(summary);
+  } catch (error) {
+    sendBillingError(response, error);
+  }
+}
+
+/** What a plan change would charge, credit and refuse, before it is confirmed. Changes nothing. */
+export async function previewPlanChangeController(request: Request, response: Response): Promise<void> {
+  const body = planChangeSchema.safeParse(request.body);
+  if (!body.success || body.data.plan === 'MOORING') {
+    response.status(400).json({ error: { code: 'INVALID_REQUEST', message: 'Choose a paid plan to preview.' } });
+    return;
+  }
+  try {
+    response.json(
+      await previewPlanChange({
+        organizationId: response.locals.organizationId,
+        plan: body.data.plan,
+        interval: body.data.interval,
+      }),
+    );
   } catch (error) {
     sendBillingError(response, error);
   }

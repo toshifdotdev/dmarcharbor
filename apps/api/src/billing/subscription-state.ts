@@ -179,6 +179,7 @@ export async function applyBillingEvent(event: BillingEvent): Promise<ApplyEvent
         pendingPlanInterval: true,
         lastEventAt: true,
         firstChargeAt: true,
+        providerSubscriptionId: true,
       },
     });
 
@@ -224,7 +225,20 @@ export async function applyBillingEvent(event: BillingEvent): Promise<ApplyEvent
      * future date, so the row said "paid until March" while the workspace had
      * already lost the plan.
      */
-    const currentPeriodEnd = event.currentPeriodEnd ?? existing?.currentPeriodEnd ?? null;
+    /**
+     * A different provider subscription is a new purchase, not a change to the
+     * stored one. It inherits nothing the old one carried: a customer who
+     * re-subscribed after a cancellation or refund was shown "cancelled, ends
+     * on ..." on the new subscription, because Paddle's subscription.created
+     * omits scheduled_change and the old row's flag was kept (session 11).
+     */
+    const replaced =
+      Boolean(event.providerSubscriptionId) &&
+      Boolean(existing?.providerSubscriptionId) &&
+      existing?.providerSubscriptionId !== event.providerSubscriptionId;
+    const prior = replaced ? null : existing;
+
+    const currentPeriodEnd = event.currentPeriodEnd ?? prior?.currentPeriodEnd ?? null;
 
     // A cancellation or expiry only reduces the plan once the period the
     // customer actually paid for has run out. Until then they keep it, because
@@ -238,11 +252,12 @@ export async function applyBillingEvent(event: BillingEvent): Promise<ApplyEvent
      * false`, so overwriting unconditionally undid a real cancellation. Only an
      * event that is genuinely about cancellation is allowed to clear it.
      */
-    const cancelAtPeriodEnd =
-      event.cancelAtPeriodEnd || (event.type === 'subscription.cancelled' ? false : existing?.cancelAtPeriodEnd ?? false);
+    const cancelAtPeriodEnd = event.cancelAtPeriodEndAuthoritative
+      ? event.cancelAtPeriodEnd
+      : event.cancelAtPeriodEnd || (event.type === 'subscription.cancelled' ? false : prior?.cancelAtPeriodEnd ?? false);
 
-    const pendingPlan = existing?.pendingPlan ?? null;
-    const pendingPlanInterval = existing?.pendingPlanInterval ?? null;
+    const pendingPlan = prior?.pendingPlan ?? null;
+    const pendingPlanInterval = prior?.pendingPlanInterval ?? null;
 
     /**
      * A pending change is cleared when the plan that arrives IS the one pending.
@@ -275,6 +290,7 @@ export async function applyBillingEvent(event: BillingEvent): Promise<ApplyEvent
         status,
         provider: event.provider,
         providerSubscriptionId: event.providerSubscriptionId,
+        providerCustomerId: event.providerCustomerId,
         currentPeriodEnd,
         cancelAtPeriodEnd,
         quantity: eventQuantity ?? 1,
@@ -284,6 +300,10 @@ export async function applyBillingEvent(event: BillingEvent): Promise<ApplyEvent
         status,
         provider: event.provider,
         ...(event.providerSubscriptionId ? { providerSubscriptionId: event.providerSubscriptionId } : {}),
+        // Never stored before session 11, so the Paddle billing portal always
+        // answered "no billing account yet", and a second checkout could not
+        // find the customer it had already created.
+        ...(event.providerCustomerId ? { providerCustomerId: event.providerCustomerId } : {}),
         ...(currentPeriodEnd ? { currentPeriodEnd } : {}),
         cancelAtPeriodEnd,
         ...(eventQuantity === null ? {} : { quantity: eventQuantity }),
@@ -291,7 +311,8 @@ export async function applyBillingEvent(event: BillingEvent): Promise<ApplyEvent
         // A payment that recovered ends dunning. Without this the row stayed
         // WARNED or WITHDRAWN, and dunning (which only looks at NONE and
         // WARNED) never acted on the next failed payment.
-        ...(status === 'ACTIVE' || status === 'TRIALING' ? { dunningStage: 'NONE' as const, graceEndsAt: null } : {}),
+        ...(status === 'ACTIVE' || status === 'TRIALING' || replaced ? { dunningStage: 'NONE' as const, graceEndsAt: null } : {}),
+        ...(replaced ? { quantitySyncedPeriodEnd: null } : {}),
         ...(keepPending
           ? {}
           : { pendingPlan: null, pendingPlanInterval: null }),
@@ -456,9 +477,12 @@ export async function setPlanByStaff(input: {
  */
 export function reconcileEventId(
   organizationId: string,
-  remote: { currentPeriodEnd: Date | null; status: ProviderSubscriptionStatus; quantity: number | null },
+  remote: { currentPeriodEnd: Date | null; status: ProviderSubscriptionStatus; quantity: number | null; cancelAtPeriodEnd?: boolean },
 ): string {
-  return `reconcile:${organizationId}:${remote.currentPeriodEnd?.toISOString() ?? 'none'}:${remote.status}:${remote.quantity ?? 'na'}`;
+  // A scheduled cancellation is part of the state too: without it, cancelling
+  // and keeping the plan within one period looked like one observation, and
+  // the second was dropped as a duplicate.
+  return `reconcile:${organizationId}:${remote.currentPeriodEnd?.toISOString() ?? 'none'}:${remote.status}:${remote.quantity ?? 'na'}${remote.cancelAtPeriodEnd ? ':cancelling' : ''}`;
 }
 
 /**
@@ -508,6 +532,7 @@ export async function reconcileWithProvider(
       currentPeriodEnd: remote.currentPeriodEnd,
       status: remote.status,
       quantity: remote.quantity,
+      cancelAtPeriodEnd: remote.cancelAtPeriodEnd,
     }),
     type: 'subscription.updated',
     provider: provider.name,
@@ -518,6 +543,7 @@ export async function reconcileWithProvider(
     status: remote.status,
     currentPeriodEnd: remote.currentPeriodEnd,
     cancelAtPeriodEnd: remote.cancelAtPeriodEnd,
+    cancelAtPeriodEndAuthoritative: remote.cancelAtPeriodEndAuthoritative ?? false,
     quantity: remote.quantity,
     nextAttemptAt: remote.nextAttemptAt ?? null,
     // Dated now rather than at the provider's event time: this is a fresh
