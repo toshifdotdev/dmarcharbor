@@ -175,7 +175,10 @@ export function TlsReports({
             </div>
             <div>
               <dt className="legend">Failed sessions</dt>
-              <dd className="tnum mt-1 text-body font-semibold text-fail">{number(summary.failedSessions)}</dd>
+              {/* Red is for failure; a count of none stays ink. */}
+              <dd className={`tnum mt-1 text-body font-semibold ${summary.failedSessions > 0 ? "text-fail" : "text-fg"}`}>
+                {number(summary.failedSessions)}
+              </dd>
             </div>
             <div>
               <dt className="legend">Failure share</dt>
@@ -193,6 +196,14 @@ export function TlsReports({
           {totalSessions > 0 ? <SessionSplit ok={summary.successfulSessions} failed={summary.failedSessions} /> : null}
           </div>
 
+          {summary.failedSessions === 0 ? (
+            // Two empty tables said nothing; Google's first real report (session
+            // 10) had no failures, so this is the usual first sight of the tab.
+            <p data-testid="tls-no-failures" className="text-ui text-fg-2">
+              No delivery failed over TLS in these {summary.days} days, so there is nothing to explain by result type or
+              mail server.
+            </p>
+          ) : (
           <div className="grid gap-8 lg:grid-cols-2">
             <div data-testid="tls-by-result">
               <p className="legend pb-1.5">Why deliveries failed</p>
@@ -244,6 +255,7 @@ export function TlsReports({
               </Table>
             </div>
           </div>
+          )}
 
           <div data-testid="tls-reports">
             <p className="legend pb-1.5">Recent reports</p>
