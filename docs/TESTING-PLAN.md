@@ -168,6 +168,20 @@ The design is in `docs/BILLING.md` ("Razorpay Recurring Payments"). In order:
 10. **Retire Razorpay Subscriptions** for new checkouts once INR works on
     Recurring Payments; existing test subscriptions are cancelled.
 
+### Fast pass results: sessions 1, 2, 3, 6 and 15 (10 November 2026)
+
+The browser clickthrough first, then by hand on the dev server for what it
+does not reach. Test data made during the pass was removed afterwards.
+
+| Session | Result |
+|---|---|
+| Clickthrough | **134 of 134** after fixes. Of the 12 first failures, all were the script's: domain rows found by `data-domain-id` (the portfolio's "Daily figures" table now comes first); the hosted panels accept either deployment state; the currency checks pin the launch state themselves (this `.env` has Paddle keys); the two-step setup fills its own password field; the keyboard check waits for hydration. |
+| 1 | **Pass.** Two-step setup, backup codes and a code-gated sign-in (clickthrough); password change signs other devices out. By hand: Forgot password sends "Reset your DMARC Harbor password"; Google and Microsoft start with our callback URLs. The setup field is now "Confirm your password", so it no longer shares a name with the change-password section. |
+| 2 | **Pass** after a fix. Invite as viewer: the email goes, the invitation lapses in 48 hours; Resend sends it again; Withdraw asks first and removes it. Fixed: the "Invitation sent … It stays pending" notice stayed after the invitation was withdrawn. |
+| 3 | **Pass.** A client created (the slug follows the name); a domain added from a URL (cleaned to the bare domain); rename keeps the slug and says DNS is untouched; Move previews what goes with it and moves it; Delete asks for the client's name and lists what goes; bulk "A list" counts duplicates and non-domains before sending and names the refused one with its reason, with the ownership records to copy or email. Sender owners: set, survives a reload, cleared. On this machine the list updated only when the dev server finished recompiling (up to 69 s); a reload shows it at once. |
+| 6 | **Pass.** "Run scan now" adds a scan and says what it found; the detail shows every record; a scan that timed out says nothing is concluded; Gmail, Yahoo and Outlook checks read the real reports (6 of 10 met, 4 only in the providers' tools). |
+| 15 | **Pass** after a fix. Prospect report created (1 of 200 used), opens signed out, `noindex`, no app chrome. Read API key: shown once, `GET /api/v1/clients` 200, a write 403, revoked asks first and then answers 401. Fixed: during a DNS timeout the report said "could not check" for SPF, DKIM and DMARC and "Fix now: not found" for the same three in the Gmail and Yahoo item. |
+
 ### Features that no session tests yet
 
 Found by checking every feature on the plan list and the product against the
@@ -179,7 +193,7 @@ and run with it.
 | Forensic (failure) reports arriving, shown with recipients unnamed on Fairway and named on Harbor, and the viewer refused | Fairway, Harbor | 4 (a short add-on) | a sender that sends forensic reports to our `ruf` address; or a crafted RFC 6591 report through the signed inbound webhook, as session 10 did for TLS |
 | Report collection from the customer's own mailbox (IMAP): connect, a wrong password refused, a private host refused, reports picked up within 15 minutes, disconnect deletes the stored password | Harbor | 9 | a second mailbox (a spare Gmail with an app password, or Migadu) with DMARC reports forwarded into it |
 | Spoofing alerts: a forged sender produces the alert, by email, Slack and Teams | Fairway | 7 | a report with failing mail from an unknown source (crafted, as above) |
-| Sender owners: assigning a person to a sending service, and what it changes | Fairway | 3 | nothing |
+| ~~Sender owners~~: done in the session 3 fast pass (10 November 2026) | Fairway | 3 | |
 | SPF check for unused includes | Fairway | 9 | a domain whose SPF includes a service that sends nothing |
 | Notifications page (the bell and `/notifications`) | every plan | 7 | nothing |
 | Agency custom-domain hosting on a real host (built after session 14, tested in dev only) | Admiralty | 14 (a short add-on), just before production | the production host and a second agency domain |
@@ -187,12 +201,12 @@ and run with it.
 
 | # | Session | Set up first | State |
 |---|---|---|---|
-| 1 | Accounts and sign-in | nothing | fast pass |
-| 2* | Workspace, team members, roles, invitations | nothing | fast pass |
-| 3* | Clients and domains: add, verify, bulk import, move, rename, delete | nothing | fast pass |
+| 1 | Accounts and sign-in | nothing | **fast pass done** (10 November 2026) |
+| 2* | Workspace, team members, roles, invitations | nothing | **fast pass done** (10 November 2026) |
+| 3* | Clients and domains: add, verify, bulk import, move, rename, delete, sender owners | nothing | **fast pass done** (10 November 2026) |
 | 4 | Report ingestion: real DMARC reports arriving and being measured | Migadu mailbox, `rua` on our `_dmarc` record, reports received | **final** (9 November 2026), on Google's first report for `dmarcharbor.com` |
 | 5* | Domain posture, senders (with setup-guide links), subdomains, readiness, the portfolio and domain page figures | real reports from session 4 | **final** (9 November 2026) |
-| 6* | DNS monitoring, change history, expiry, Gmail, Yahoo and Microsoft checks, the home-page checker | nothing | fast pass |
+| 6* | DNS monitoring, change history, expiry, Gmail, Yahoo and Microsoft checks, the home-page checker | nothing | **fast pass done** (10 November 2026) |
 | 7 | Alerts by email, Slack and Teams (single channel) | Slack and Teams test channels | **re-run** (Gemini); routing is in 19 |
 | 8 | PSA tickets and every webhook feature: endpoints, deliveries, retries, suspension, replay, rotation, client limits, `/api/v1` | a HaloPSA trial, a webhook receiver, an API key | **final** (8 November 2026); ConnectWise and Autotask wait for a live account |
 | 9 | Publishing DNS: Cloudflare connection, hosted DMARC, managed SPF | a Cloudflare token | **re-run** (Gemini); zone import is in 20 |
@@ -201,7 +215,7 @@ and run with it.
 | 12 | White label: logo, colours, support contact, branded client emails | S3 keys for logos | **re-run** (Gemini) |
 | 13* | Client portal, approvals, share links, Trust Center, compliance packs, verifier, monthly reports, digests | sessions 2, 3 and 12 | **re-run** (Gemini) |
 | 14 | Admiralty: custom domain, agency sending domain, single sign-on | a second domain, a full-access Resend key, an SSO provider | **final** (9 November 2026), Auth0 for SSO; custom-domain hosting built and tested in dev after it |
-| 15* | Prospect reports, switch kit, usage export, API keys and the API | nothing | fast pass; the webhook API is in 8 |
+| 15* | Prospect reports, switch kit, usage export, API keys and the API | nothing | **fast pass done** (10 November 2026); the webhook API is in 8 |
 | 16* | Data export, erasure, audit trail, plan limits on every plan | nothing | **re-run** (Gemini) |
 | 17 | Ask, public site, docs and SEO, one end-to-end run as a new MSP | an Anthropic API key | **re-run** (Gemini) |
 | 18* | Free tools, glossary and setup guides | nothing | **final** (8 November 2026); the agency-host check is repeated live in 14 |
