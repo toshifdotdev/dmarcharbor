@@ -17,7 +17,7 @@ import {
   type BillingCurrency,
   type PlanDefinition,
 } from '../src/services/entitlements/plan-catalog.js';
-import { requiredPlanFor } from '../src/services/entitlements/entitlement.service.js';
+import { fleetAlternativeFor, requiredPlanFor } from '../src/services/entitlements/entitlement.service.js';
 import { createApiKey } from '../src/services/api-key.service.js';
 import { encryptSensitive } from '../src/services/privacy.service.js';
 import { setProspectScannerForTests } from '../src/services/prospect/prospect-report.service.js';
@@ -246,6 +246,10 @@ function expectLimitRefusal(
   const message = String(error.message).toLowerCase();
   if (expected.upgradeTo) {
     expect(message, where).toContain(`upgrade to ${planCatalog[expected.upgradeTo].label.toLowerCase()}`);
+  } else if (error.plan && error.quota && fleetAlternativeFor(error.plan as PlanTier, error.quota)) {
+    // Admiralty's clients and domains: Fleet goes further, so the way past
+    // the limit is Fleet, not "contact us".
+    expect(message, where).toContain('move to fleet');
   } else {
     expect(message, where).toContain('contact us');
   }
