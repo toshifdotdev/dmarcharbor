@@ -229,7 +229,7 @@ and run with it.
 
 | Feature | Plan | Joins session | Needs |
 |---|---|---|---|
-| Forensic (failure) reports arriving, shown with recipients unnamed on Fairway and named on Harbor, and the viewer refused | Fairway, Harbor | 4 (a short add-on) | a sender that sends forensic reports to our `ruf` address; or a crafted RFC 6591 report through the signed inbound webhook, as session 10 did for TLS |
+| ~~Forensic (failure) reports~~: done in the session 4 add-on (11 November 2026); standard reports were being dropped, fixed | Fairway, Harbor | 4 | |
 | ~~Report collection from the customer's own mailbox~~: done in session 9 (11 November 2026) | Harbor | 9 | |
 | Spoofing alerts: a forged sender produces the alert, by email, Slack and Teams | Fairway | 7 | a report with failing mail from an unknown source (crafted, as above) |
 | ~~Sender owners~~: done in the session 3 fast pass (10 November 2026) | Fairway | 3 | |

@@ -432,22 +432,39 @@ function readMimeParts(rawEmail: string): MimePart[] {
   return collectParts(rawEmail);
 }
 
+/**
+ * The machine-readable part of a failure report.
+ *
+ * RFC 5965 registers it as `message/feedback-report`, and RFC 6591 failure
+ * reports use it with `Feedback-Type: auth-failure`: that is what receivers
+ * send. Only `application/feedback-report` used to be recognised, so every
+ * standard report was read as an aggregate report with no attachment and
+ * dropped without a word (session 4 add-on, 11 November 2026). The
+ * `application/` spelling is kept for senders that use it.
+ */
+const FEEDBACK_PART_TYPES = new Set(['message/feedback-report', 'application/feedback-report']);
+
+function isFeedbackPart(part: { contentType: string }): boolean {
+  return FEEDBACK_PART_TYPES.has(part.contentType);
+}
+
 export function containsForensicParts(rawEmail: string): boolean {
-  return readMimeParts(rawEmail).some((part) => part.contentType === 'application/feedback-report');
+  return readMimeParts(rawEmail).some(isFeedbackPart);
 }
 
 export function parseForensicReport(rawEmail: string): ParsedForensicReport {
   const parts = readMimeParts(rawEmail);
-  const feedbackPart = parts.find((part) => part.contentType === 'application/feedback-report');
+  const feedbackPart = parts.find(isFeedbackPart);
 
   if (!feedbackPart) {
-    throw new ForensicReportParseError('The message does not contain an application/feedback-report part.');
+    throw new ForensicReportParseError('The message does not contain a message/feedback-report part.');
   }
 
   const feedback = parseFieldBlocks(feedbackPart.body);
   const feedbackType = (firstField(feedback, 'feedback-type') ?? '').trim().toLowerCase();
 
-  if (feedbackType && feedbackType !== 'feedback-report' && !feedbackType.includes('dmarc')) {
+  // auth-failure is RFC 6591's type for DMARC, SPF and DKIM failure reports.
+  if (feedbackType && feedbackType !== 'auth-failure' && feedbackType !== 'feedback-report' && !feedbackType.includes('dmarc')) {
     throw new ForensicReportParseError(`Unsupported feedback type: ${truncate(feedbackType, 60)}.`);
   }
 
