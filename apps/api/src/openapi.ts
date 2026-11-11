@@ -2383,13 +2383,15 @@ export const openApiDocument = {
         description: [
           'Included on every plan, including the free one, because the right to erasure cannot be a paid feature.',
           'The request is held for seven days before it runs, so an accidental request can be cancelled. The workspace owner is the only role that can request one.',
-          'Scope to a client or a domain to erase only that data. Erasing a client or a domain never removes agency staff accounts or sessions.',
+          'Scope to a client or a domain to erase only that data. Erasing a client or a domain never removes agency staff accounts or sessions, never clears who did what elsewhere in the audit trail, and never touches the subscription.',
+          'Erasing the whole workspace is refused with SUBSCRIPTION_STILL_ACTIVE while a Paddle or Razorpay subscription can still bill, as deleting it is; a request made before a subscription started waits until it ends.',
         ].join(' '),
         parameters: [orgParam],
         responses: {
           ...standardErrors,
           202: { description: 'Request created, pending, with the preview attached.' },
           404: { description: 'The client or domain is not in this workspace.' },
+          409: { description: 'An erasure of this scope is already scheduled, or a workspace erasure while a subscription can bill.' },
         },
       },
     },
@@ -2457,7 +2459,8 @@ export const openApiDocument = {
         summary: 'Request a data export',
         description: [
           'Returns a signed, expiring download link. Included on every plan, including the free one, because the right to take your own data away cannot be a paid feature.',
-          'Scope the export to a single client to hand one customer only their own data, which is the usual agency request.',
+          'Owners and admins only (organization read), on every export route: an export holds forensic reports, every member\'s sessions, invitations, API keys and the audit trail.',
+          'Scope the export to a single client to hand one customer only their own data, which is the usual agency request. Team members, their sessions, invitations and API keys are in the workspace export only.',
           'Passwords, session tokens and OAuth tokens are never included. They are credentials, not data, and exporting them would hand over the ability to impersonate the account.',
           'Named forensic data is included when it exists, because it is the customer own data. Where nothing was stored, nothing is invented.',
           'Security records are included by action and time with identifying fields withheld, and the file says so.',

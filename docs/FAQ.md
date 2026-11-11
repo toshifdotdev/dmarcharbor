@@ -518,7 +518,8 @@ it. Your Trust Center and compliance packs state these figures, so the answer is
 never a guess.
 
 **How do I export or delete my data?**
-From the workspace settings, on every plan. An export covers everything we hold for
+From the workspace settings, on every plan, by the workspace's owner or an admin
+(erasure by the owner). An export covers everything we hold for
 the workspace except passwords and session tokens, and says what it left out.
 Erasure shows exactly what will be deleted first and then waits 7 days, so a mistake
 can be cancelled.

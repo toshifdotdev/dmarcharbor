@@ -518,7 +518,8 @@ async function quotaExceeded(
 
   return new EntitlementError(
     'PLAN_LIMIT_REACHED',
-    `${entitlements.label} includes ${usage.limit} ${label} and you have ${usage.used}. ${quotaUpgradeSentence(entitlements.plan, quota)}`,
+    // "Mooring includes 1 client", not "1 clients" (session 16).
+    `${entitlements.label} includes ${usage.limit} ${usage.limit === 1 ? label.replace(/s$/, '') : label} and you have ${usage.used}. ${quotaUpgradeSentence(entitlements.plan, quota)}`,
     {
       quota,
       label,

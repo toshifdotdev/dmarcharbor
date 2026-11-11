@@ -277,6 +277,28 @@ and the crafted failure report. The monthly schedule is switched off. The
 compliance pack, the October report and the three answered proposals stay:
 they are the record of what was issued and decided.
 
+### Session 16 results (11 November 2026): data export, erasure, audit trail, plan limits
+
+On Session One Test (Harbor) with `dmarcharbor+s11usd@gmail.com` as a
+temporary admin and then viewer; Thrandle IT Services (`dmarcharbor+s17msp`,
+Mooring); Quellmoor Digital (Admiralty on a live Paddle sandbox subscription).
+The probe is `.shots/s16.mts`.
+
+| # | Item | Result |
+|---|---|---|
+| 1 | Who may export | **Fixed.** Every export route was on `report: read`, which a viewer holds. A viewer, refused the forensic list in the app (403), downloaded the workspace export with the forensic report, 50 sessions with every member's IP address and browser, 10 invitations, the API keys and 222 audit rows. Exports are now for owners and admins (`organization: read`, as erasure is): a viewer gets 403, and `/settings/export` says who can request one. |
+| 2 | What a client export holds | **Fixed.** A domain export carried the agency's 5 users and 53 sessions, so the file an agency hands one client held its staff's names, addresses and IP addresses. Users, memberships and sessions are now in the workspace export only, like the invitations and API keys already were; a client export's audit rows are that client's. |
+| 3 | Export | **Pass.** Workspace JSON, client CSV and domain JSON prepare, email "Your data export is ready" and download; the domain export holds that domain only. No password, token or encrypted value in any file. Another workspace's client 404; no target 400; a wrong token 404; the id under another workspace 404; signed out 401; revoked 404 at once. Allowed on Mooring. |
+| 4 | Erasure of a domain | **Pass** after a fix. Preview (7-day grace), request, a second request 409, cancel, a cancelled request cannot run, an early run without confirmation 400, with it 200: the domain is gone, its sibling kept, the certificate written, "scheduled" and "complete" emails queued. **Fixed:** erasing one domain cleared who did what from the whole workspace's audit trail (7 attributed rows became 0) and cleared the subscription's Paddle or Razorpay ids, after which renewals and cancellations no longer matched the workspace. A client or domain erasure now scrubs personal data from that scope's audit rows only and leaves the subscription alone (re-run: 3 attributed rows became 7, nothing cleared). |
+| 5 | Erasure of a paid workspace | **Fixed.** Deleting Quellmoor was refused (409 `SUBSCRIPTION_STILL_ACTIVE`), but erasing the whole workspace was accepted for deletion in 7 days, which would have left Paddle charging for a workspace that no longer existed. The request (cancelled at once) is now refused the same way, and a request made before a subscription started waits until it ends. |
+| 6 | Audit trail | **Pass.** Entries name the person; filters by action, domain and `withinHours` work, and a bad window is ignored rather than an error. No route deletes, edits or replaces an entry (404); another workspace's member 403. |
+| 7 | Plan limits | **Pass** after a copy fix. Mooring: a second client 402 and a third domain 402, each naming Fairway. Harbor: the 81st domain 402, "Upgrade to Admiralty for 300 active domains, move to Fleet, billed per domain, for up to 5,000 active domains, or remove one"; the billing page reads "80 of 80. At the limit: adding another needs Admiralty, or Fleet, billed per domain." **Fixed:** "Mooring includes 1 clients" now reads "1 client". |
+
+Cleaned up: the 76 bulk domains and their client, the test domain on Thrandle
+(erased), the export links (revoked), the crafted failure report, and the
+temporary membership. Thrandle's audit trail lost its actor names to the first
+run of item 4, before the fix; it is test data.
+
 ### Features that no session tests yet
 
 Found by checking every feature on the plan list and the product against the
@@ -292,7 +314,7 @@ and run with it.
 | ~~SPF check for unused includes~~: done in session 9 (11 November 2026) | Fairway | 9 | |
 | ~~Notifications page~~: done in session 7 (11 November 2026) | every plan | 7 | |
 | Agency custom-domain hosting on a real host (built after session 14, tested in dev only) | Admiralty | 14 (a short add-on), just before production | the production host and a second agency domain |
-| The billing page's limit messages naming Fleet on Harbor and Admiralty | Harbor, Admiralty | 16 | a workspace at 80 domains |
+| ~~The billing page's limit messages naming Fleet on Harbor and Admiralty~~: done in session 16 (11 November 2026) | Harbor, Admiralty | 16 | |
 
 | # | Session | Set up first | State |
 |---|---|---|---|
@@ -311,7 +333,7 @@ and run with it.
 | 13* | Client portal, approvals, share links, Trust Center, compliance packs, verifier, monthly reports, digests | sessions 2, 3 and 12 | **final** (11 November 2026); branded portal mail is checked again with 12 |
 | 14 | Admiralty: custom domain, agency sending domain, single sign-on | a second domain, a full-access Resend key, an SSO provider | **final** (9 November 2026), Auth0 for SSO; custom-domain hosting built and tested in dev after it |
 | 15* | Prospect reports, switch kit, usage export, API keys and the API | nothing | **fast pass done** (10 November 2026); the webhook API is in 8 |
-| 16* | Data export, erasure, audit trail, plan limits on every plan | nothing | **re-run** (Gemini) |
+| 16* | Data export, erasure, audit trail, plan limits on every plan | nothing | **final** (11 November 2026) |
 | 17 | Ask, public site, docs and SEO, one end-to-end run as a new MSP | an Anthropic API key | **final** (11 November 2026) for links mode; written answers wait for an Anthropic key |
 | 18* | Free tools, glossary and setup guides | nothing | **final** (8 November 2026); the agency-host check is repeated live in 14 |
 | 19 | Routed Slack and Teams channels | 2 Slack and 2 Teams test channels | **final** (9 November 2026) |

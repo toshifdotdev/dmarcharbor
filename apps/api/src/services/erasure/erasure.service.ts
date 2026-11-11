@@ -295,9 +295,9 @@ export function scrubAuditDetail(value: unknown): unknown {
  * Only rows that actually change are written, so an audit trail that never held
  * personal data leaves no needless write churn behind.
  */
-async function scrubAuditTrailDetails(organizationId: string): Promise<number> {
+async function scrubAuditTrailDetails(organizationId: string, scope: Prisma.AuditLogWhereInput = {}): Promise<number> {
   const rows = await prisma.auditLog.findMany({
-    where: { organizationId, detail: { not: Prisma.DbNull } },
+    where: { ...scope, organizationId, detail: { not: Prisma.DbNull } },
     select: { id: true, detail: true },
   });
 
@@ -315,6 +315,45 @@ async function scrubAuditTrailDetails(organizationId: string): Promise<number> {
   }
 
   return scrubbed;
+}
+
+/**
+ * The audit rows about one client or one domain: rows filed against its
+ * domains, and rows whose target is the client, one of its domains or one of
+ * its portal grants (which carry the contact's address and name).
+ */
+async function scopedAuditRows(
+  scope: ErasureScope,
+  targetId: string | null,
+  domainIds: string[],
+): Promise<Prisma.AuditLogWhereInput> {
+  const grantIds =
+    scope === 'CLIENT' && targetId
+      ? (await prisma.clientPortalAccess.findMany({ where: { clientId: targetId }, select: { id: true } })).map((grant) => grant.id)
+      : [];
+  const targets = [...domainIds, ...grantIds, ...(scope === 'CLIENT' && targetId ? [targetId] : [])];
+  return { OR: [{ domainId: { in: domainIds } }, { targetId: { in: targets } }] };
+}
+
+/**
+ * A subscription that can still bill: the same test `deleteWorkspace` makes.
+ *
+ * Erasing the workspace while one runs deletes the workspace and clears the
+ * provider ids, so the provider goes on charging a customer who has no
+ * workspace and no order left to refund against. Session 16 found an
+ * Admiralty workspace on a live Paddle subscription accepted for erasure,
+ * seven days from deletion, while the delete button for the same workspace
+ * refused.
+ */
+export async function hasBilledSubscription(organizationId: string): Promise<boolean> {
+  const count = await prisma.subscription.count({
+    where: {
+      organizationId,
+      status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE'] },
+      provider: { in: ['RAZORPAY', 'PADDLE'] },
+    },
+  });
+  return count > 0;
 }
 
 async function anonymiseSubscription(organizationId: string): Promise<number> {
@@ -344,6 +383,18 @@ export async function executeErasure(
   options: { now?: Date } = {},
 ): Promise<ErasureOutcome | null> {
   const now = options.now ?? new Date();
+
+  // A whole-workspace erasure waits while a subscription can still bill. The
+  // request is refused on creation for the same reason; this covers one
+  // started afterwards. Left PENDING, so the scheduler runs it once the paid
+  // period has ended, and the owner can still cancel it.
+  const pending = await prisma.erasureRequest.findFirst({
+    where: { id: requestId, state: 'PENDING' },
+    select: { scope: true, organizationId: true },
+  });
+  if (pending?.scope === 'ORGANIZATION' && pending.organizationId && (await hasBilledSubscription(pending.organizationId))) {
+    return null;
+  }
 
   // Claimed before any deletion happens. The read and the claim are one
   // conditional update, so when several instances find the same due erasure only
@@ -421,12 +472,27 @@ export async function executeErasure(
         ? { clientId: request.targetId, client: { organizationId } }
         : { client: { organizationId } };
 
-  const anonymous = await anonymiseAuditTrail(organizationId);
-  const anonymisedSubscriptions = await anonymiseSubscription(organizationId);
-
   const domainIds = (
     await prisma.domain.findMany({ where: domainFilter, select: { id: true } })
   ).map((domain) => domain.id);
+
+  /**
+   * Only the workspace scope anonymises the whole trail and the subscription.
+   *
+   * Both ran for every scope, so erasing one domain removed who did what from
+   * every row of the workspace's audit trail (session 16: 7 attributed rows
+   * became 0) and cleared the subscription's provider ids, after which the
+   * provider's renewals and cancellations no longer matched the workspace.
+   * Erasing a client or a domain scrubs personal data from that scope's rows
+   * (the portal contacts' addresses and names, recipients) and keeps the staff
+   * who acted: the agency's people are outside a client's request, as the
+   * certificate already says.
+   */
+  const anonymous =
+    request.scope === 'ORGANIZATION'
+      ? await anonymiseAuditTrail(organizationId)
+      : await scrubAuditTrailDetails(organizationId, await scopedAuditRows(request.scope, request.targetId ?? null, domainIds));
+  const anonymisedSubscriptions = request.scope === 'ORGANIZATION' ? await anonymiseSubscription(organizationId) : 0;
   const [hosted, spf, bimi, mtaSts] = await Promise.all([
     hostedSnapshotsForDomainIds(domainIds),
     managedSpfSnapshotsForDomainIds(domainIds),

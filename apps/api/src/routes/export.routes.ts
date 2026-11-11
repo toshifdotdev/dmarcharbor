@@ -11,40 +11,26 @@ import { requireOrganizationPermission } from '../middleware/organization-permis
 
 export const exportRouter = Router();
 
-exportRouter.post(
-  '/workspaces/:organizationId/exports',
-  requireSession,
-  requireOrganizationPermission('report', 'read'),
-  createExportController,
-);
-exportRouter.get(
-  '/workspaces/:organizationId/exports',
-  requireSession,
-  requireOrganizationPermission('report', 'read'),
-  listExportsController,
-);
-exportRouter.get(
-  '/workspaces/:organizationId/exports/:exportId',
-  requireSession,
-  requireOrganizationPermission('report', 'read'),
-  getExportController,
-);
-exportRouter.get(
-  '/workspaces/:organizationId/exports/:exportId/download',
-  requireSession,
-  requireOrganizationPermission('report', 'read'),
-  downloadExportController,
-);
 /**
- * Delete is gated on `report: update`, not `report: read`.
+ * Every export route is for owners and admins (`organization: read`).
  *
- * Revoking is destructive: it nulls the token and every link already emailed to
- * the customer stops working. `read` is the permission a viewer holds, so a
- * member who could only look at reports could end another member's export.
+ * They were on `report: read`, which a viewer holds, and an export is not a
+ * report view: it carries the forensic reports (named recipients where they
+ * are kept), every member's sessions with their IP address and browser, the
+ * invitations, the API keys and the audit trail. Session 16 found a viewer,
+ * refused the forensic list in the app (403), downloading all of it in the
+ * workspace export. The right of access is the data subject's, exercised by
+ * the workspace's owner or admin on their behalf; it never meant every staff
+ * role may take a copy of everyone else's data. Erasure is guarded the same way.
  */
-exportRouter.delete(
-  '/workspaces/:organizationId/exports/:exportId',
-  requireSession,
-  requireOrganizationPermission('report', 'update'),
-  revokeExportController,
-);
+const canExport = requireOrganizationPermission('organization', 'read');
+
+exportRouter.post('/workspaces/:organizationId/exports', requireSession, canExport, createExportController);
+exportRouter.get('/workspaces/:organizationId/exports', requireSession, canExport, listExportsController);
+exportRouter.get('/workspaces/:organizationId/exports/:exportId', requireSession, canExport, getExportController);
+exportRouter.get('/workspaces/:organizationId/exports/:exportId/download', requireSession, canExport, downloadExportController);
+/**
+ * Revoking stops every link already emailed, so it stays with the same people
+ * who can request one.
+ */
+exportRouter.delete('/workspaces/:organizationId/exports/:exportId', requireSession, canExport, revokeExportController);

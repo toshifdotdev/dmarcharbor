@@ -7,9 +7,18 @@ import {
   cancelErasure,
   erasureCertificateRetentionDays,
   executeErasure,
+  hasBilledSubscription,
   previewErasure,
   requestErasure,
 } from '../services/erasure/erasure.service.js';
+
+const subscriptionStillActive = {
+  error: {
+    code: 'SUBSCRIPTION_STILL_ACTIVE',
+    message:
+      'Cancel the subscription before erasing this workspace. Erasing it would strand a period you have already been charged for. A client or a domain can be erased at any time.',
+  },
+};
 
 async function targetExists(organizationId: string, scope: string, targetId: string | undefined) {
   if (scope === 'CLIENT' && targetId) {
@@ -74,6 +83,13 @@ export async function requestErasureController(request: Request, response: Respo
 
   // Erasure is a statutory right and is never paywalled.
   await assertFeature(organizationId, 'data.erase');
+
+  // The workspace's erasure deletes it, so it is refused while a subscription
+  // can still bill, exactly as DELETE /workspaces/:id is.
+  if (body.data.scope === 'ORGANIZATION' && (await hasBilledSubscription(organizationId))) {
+    response.status(409).json(subscriptionStillActive);
+    return;
+  }
 
   // One scheduled erasure per scope. A second would only run the same deletion
   // twice, and each one has to be cancelled separately to stop it: a repeated
@@ -195,6 +211,11 @@ export async function executeErasureController(request: Request, response: Respo
 
   if (record.state !== 'PENDING') {
     response.status(409).json({ error: { code: 'CONFLICT', message: `That request is already ${record.state.toLowerCase()}.` } });
+    return;
+  }
+
+  if (record.scope === 'ORGANIZATION' && (await hasBilledSubscription(organizationId))) {
+    response.status(409).json(subscriptionStillActive);
     return;
   }
 

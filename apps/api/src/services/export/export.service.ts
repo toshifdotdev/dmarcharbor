@@ -213,8 +213,18 @@ export async function buildExportPayload(input: {
         orderBy: { name: 'asc' },
         take: exportTableLimit,
       }),
+      /**
+       * The agency's people, their memberships and their sessions are in the
+       * workspace export only, like the invitations and API keys below.
+       *
+       * They were in every scope, so the export an agency hands one client
+       * ("scope it to a single client to hand one customer only their own
+       * data") carried every staff member's name, address, linked sign-in
+       * accounts and each session's IP address and browser (session 16: a
+       * domain export held 5 users and 53 sessions).
+       */
       prisma.user.findMany({
-        where: { members: { some: { organizationId: org } } },
+        where: { members: { some: { organizationId: input.scope === 'ORGANIZATION' ? org : '__none__' } } },
         select: {
           id: true,
           name: true,
@@ -228,12 +238,12 @@ export async function buildExportPayload(input: {
         take: exportTableLimit,
       }),
       prisma.member.findMany({
-        where: { organizationId: org },
+        where: { organizationId: input.scope === 'ORGANIZATION' ? org : '__none__' },
         select: { id: true, userId: true, role: true, createdAt: true },
         take: exportTableLimit,
       }),
       prisma.session.findMany({
-        where: { user: { members: { some: { organizationId: org } } } },
+        where: { user: { members: { some: { organizationId: input.scope === 'ORGANIZATION' ? org : '__none__' } } } },
         select: {
           id: true,
           userId: true,
@@ -869,7 +879,14 @@ export async function buildExportPayload(input: {
         take: exportTableLimit,
       }),
       prisma.auditLog.findMany({
-        where: input.scope === 'DOMAIN' && input.targetId ? { domainId: input.targetId } : { organizationId: org },
+        // A client's export holds that client's rows, not the workspace's whole
+        // trail with every other client's targets in it.
+        where:
+          input.scope === 'DOMAIN' && input.targetId
+            ? { domainId: input.targetId }
+            : input.scope === 'CLIENT' && input.targetId
+              ? { organizationId: org, OR: [{ domain: { clientId: input.targetId } }, { targetId: input.targetId }] }
+              : { organizationId: org },
         select: { id: true, action: true, targetType: true, targetId: true, createdAt: true },
         orderBy: { createdAt: 'asc' },
         take: 20_000,

@@ -236,7 +236,8 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
         label: "Data export",
         does: "A copy of the data held here, as JSON or CSV. Free on every plan.",
         tasks: ["download our data", "gdpr access request", "subject access", "csv", "json", "backup"],
-        who: "anyone",
+        // Owners and admins: an export holds everyone's data here (session 16).
+        who: "admin",
       }),
       s({
         key: "erasure",
