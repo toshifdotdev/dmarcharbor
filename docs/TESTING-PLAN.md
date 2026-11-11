@@ -200,6 +200,27 @@ The test channels and rule were removed afterwards. Check by eye: the alert
 in `#dh-pellowyn` and the Teams channel, and the email in
 `dmarcharbor+s11usd@gmail.com`.
 
+### Session 9 results (11 November 2026): publishing DNS, own mailbox, SPF sources
+
+On Wistholm IT (`dmarcharbor+colour`, Admiralty) and the real zone
+`linkshift.in`, through a real Cloudflare token (the session 20 one, connected
+for the session and removed after). `_dmarc.linkshift.in` before:
+`v=DMARC1; p=quarantine; adkim=r; aspf=r; rua=mailto:dmarc_rua@onsecureserver.net;`
+
+| # | Item | Result |
+|---|---|---|
+| 1 | Cloudflare connection | **Pass.** The token is checked with Cloudflare before saving; the list shows only its last four characters. |
+| 2 | Publish through Cloudflare | **Pass.** From the setup page: the preview read the current record from Cloudflare and proposed keeping `p=quarantine` and adding only our `rua` (the page warns that the plain suggested record would relax it to `p=none`). Published; 1.1.1.1 and 8.8.8.8 showed it within seconds. "Restore previous value" put back the exact original. With two connections the dialog first chose the stand-in one, which has no rights, and said so in words; choosing the real one worked. |
+| 3 | Hosted DMARC | **Pass.** "Host this record" wrote the record to our zone (`ojftfhrxdo57h2u4.dmarcharbor.com` answered the merged record publicly) and showed the CNAME to publish and the TXT to remove. "Stop hosting" asks first, says a never-delegated record goes at once, and removed it from our zone. |
+| 4 | Managed SPF | **Pass.** "Manage SPF" wrote `v=spf1 ~all` under `4srcrubgjtwua5tj.spf.dmarcharbor.com` and showed the apex `redirect=` record to publish; "Stop managing" removed it at once. |
+| 5 | SPF sources in use | **Pass.** On `linkshift.in` (no SPF): "Nothing to check". On `dmarcharbor.com`: `include:_spf.mx.cloudflare.net`, 1 lookup, status "insufficient data" (3 report days, 46 messages; not enough to call it unused). |
+| 6 | Own report mailbox | **Pass** after a fix. A private host (`10.0.0.5`) and port 25 are refused in words. The Migadu mailbox connected, Collect now read it (0 messages), Disconnect deleted the stored password. Fixed: a wrong password answered **500 "The mailbox could not be reached"**; it now answers 400 "The mail server refused that username and password…", and an unreachable server 502 with what to check. |
+
+`linkshift.in` is as it was; the session 9 connection and mailbox are removed.
+
+**Open:** the password is still not tried when the mailbox is saved (the
+Cloudflare token is): a wrong one is only found by Collect now or the next run.
+
 ### Features that no session tests yet
 
 Found by checking every feature on the plan list and the product against the
@@ -209,10 +230,10 @@ and run with it.
 | Feature | Plan | Joins session | Needs |
 |---|---|---|---|
 | Forensic (failure) reports arriving, shown with recipients unnamed on Fairway and named on Harbor, and the viewer refused | Fairway, Harbor | 4 (a short add-on) | a sender that sends forensic reports to our `ruf` address; or a crafted RFC 6591 report through the signed inbound webhook, as session 10 did for TLS |
-| Report collection from the customer's own mailbox (IMAP): connect, a wrong password refused, a private host refused, reports picked up within 15 minutes, disconnect deletes the stored password | Harbor | 9 | a second mailbox (a spare Gmail with an app password, or Migadu) with DMARC reports forwarded into it |
+| ~~Report collection from the customer's own mailbox~~: done in session 9 (11 November 2026) | Harbor | 9 | |
 | Spoofing alerts: a forged sender produces the alert, by email, Slack and Teams | Fairway | 7 | a report with failing mail from an unknown source (crafted, as above) |
 | ~~Sender owners~~: done in the session 3 fast pass (10 November 2026) | Fairway | 3 | |
-| SPF check for unused includes | Fairway | 9 | a domain whose SPF includes a service that sends nothing |
+| ~~SPF check for unused includes~~: done in session 9 (11 November 2026) | Fairway | 9 | |
 | Notifications page (the bell and `/notifications`) | every plan | 7 | nothing |
 | Agency custom-domain hosting on a real host (built after session 14, tested in dev only) | Admiralty | 14 (a short add-on), just before production | the production host and a second agency domain |
 | The billing page's limit messages naming Fleet on Harbor and Admiralty | Harbor, Admiralty | 16 | a workspace at 80 domains |
@@ -227,7 +248,7 @@ and run with it.
 | 6* | DNS monitoring, change history, expiry, Gmail, Yahoo and Microsoft checks, the home-page checker | nothing | **fast pass done** (10 November 2026) |
 | 7 | Alerts by email, Slack and Teams (single channel), spoofing alerts, notifications | Slack and Teams test channels | **final** (11 November 2026); routing is in 19 |
 | 8 | PSA tickets and every webhook feature: endpoints, deliveries, retries, suspension, replay, rotation, client limits, `/api/v1` | a HaloPSA trial, a webhook receiver, an API key | **final** (8 November 2026); ConnectWise and Autotask wait for a live account |
-| 9 | Publishing DNS: Cloudflare connection, hosted DMARC, managed SPF | a Cloudflare token | **re-run** (Gemini); zone import is in 20 |
+| 9 | Publishing DNS: Cloudflare connection, hosted DMARC, managed SPF, SPF sources in use, own report mailbox | a Cloudflare token | **final** (11 November 2026); zone import is in 20 |
 | 10 | Hosted BIMI, MTA-STS, TLS reports | a BIMI origin and Cloudflare for SaaS | **final** (9 November 2026), on `linkshift.in` through a tunnel; Gmail's logo needs a real VMC |
 | 11 | Billing: checkout, upgrade, downgrade, Fleet, failed payment, refund | Razorpay test keys, Paddle sandbox, a tunnel | **Paddle (USD) final** (10 November 2026); **INR waits** for Razorpay Recurring Payments (below) |
 | 12 | White label: logo, colours, support contact, branded client emails | S3 keys for logos | **re-run** (Gemini) |

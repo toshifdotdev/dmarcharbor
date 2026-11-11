@@ -256,7 +256,16 @@ export async function pollInbox(organizationId: string): Promise<PollOutcome> {
   let highestUid: number | null = startAfter;
 
   try {
-    await client.connect();
+    try {
+      await client.connect();
+    } catch (error) {
+      // Said apart, because the fix is different: a refused login is the
+      // username or password, an unreachable server is the host or port. Both
+      // used to answer 500 "could not be reached", including a wrong password
+      // on a server that had just answered (session 9).
+      await prisma.reportInbox.updateMany({ where: { organizationId }, data: { pollClaimedAt: null } });
+      throw imapConnectError(error);
+    }
     const lock = await client.getMailboxLock('INBOX');
     try {
       // Resuming from the last UID is what keeps the cost flat regardless of how
@@ -348,6 +357,29 @@ export async function pollInbox(organizationId: string): Promise<PollOutcome> {
 export function readPolicyDomain(xml: string): string | null {
   const match = xml.match(/<policy_published>[\s\S]*?<domain>([^<\s]+)<\/domain>/i);
   return match?.[1]?.trim().toLowerCase() ?? null;
+}
+
+/**
+ * What a failed IMAP connection means to the person who set it up.
+ *
+ * imapflow marks a refused LOGIN with `authenticationFailed` (and the server's
+ * AUTHENTICATIONFAILED response code); anything else is the network: the host,
+ * the port, TLS or a timeout. Exported for its unit test.
+ */
+export function imapConnectError(error: unknown): InboxError {
+  const e = (error ?? {}) as { authenticationFailed?: boolean; serverResponseCode?: string; responseText?: string };
+  if (e.authenticationFailed || e.serverResponseCode === 'AUTHENTICATIONFAILED' || /authenticat|invalid credentials|login failed/i.test(e.responseText ?? '')) {
+    return new InboxError(
+      'The mail server refused that username and password. Check them, or an app password if the mailbox uses two-step sign-in, and save again.',
+      'INBOX_AUTH_FAILED',
+      400,
+    );
+  }
+  return new InboxError(
+    'The mail server could not be reached on that host and port. Check both, and that it accepts IMAP over TLS.',
+    'INBOX_UNREACHABLE',
+    502,
+  );
 }
 
 /** Records a poll failure without throwing, so one bad mailbox cannot stop the rest. */
