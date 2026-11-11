@@ -182,6 +182,24 @@ does not reach. Test data made during the pass was removed afterwards.
 | 6 | **Pass.** "Run scan now" adds a scan and says what it found; the detail shows every record; a scan that timed out says nothing is concluded; Gmail, Yahoo and Outlook checks read the real reports (6 of 10 met, 4 only in the providers' tools). |
 | 15 | **Pass** after a fix. Prospect report created (1 of 200 used), opens signed out, `noindex`, no app chrome. Read API key: shown once, `GET /api/v1/clients` 200, a write 403, revoked asks first and then answers 401. Fixed: during a DNS timeout the report said "could not check" for SPF, DKIM and DMARC and "Fix now: not found" for the same three in the Gmail and Yahoo item. |
 
+### Session 7 results (11 November 2026): alerts, spoofing alerts, notifications
+
+On the session 11 USD workspace (Admiralty), with the session 19 Slack and
+Teams test channels. A crafted aggregate report (40 aligned messages from
+Google, 60 failing both SPF and DKIM from 203.0.113.77 claiming
+`forger.example`) went through the signed inbound webhook.
+
+| # | Item | Result |
+|---|---|---|
+| 1 | Channels | **Pass.** A Slack and a Teams channel connected; each "Send test message" answers "Sent. Check the channel" beside the button. |
+| 2 | Spoofing alert | **Pass.** A "New unauthenticated source" rule on the domain triggered on the next evaluation: "1 sending source seen in the last 7 days failed both SPF and DKIM: forger.example". Delivered by email (`[DMARC Harbor] <domain>: <rule>`, sent directly rather than through the queue), Slack and Teams, all three recorded SENT. |
+| 3 | Alerts page | **Pass** after a fix. The event shows the domain, client, who it tells and "Reminder 1 of 3; next not before …"; Acknowledge records it once (a second press answers "already acknowledged"). Fixed: the rule form's Domain list was in creation order, so with 210 domains the one wanted was hard to find; it is in name order within each client now. |
+| 4 | Notifications | **Pass.** The bell counts 1 unread; `/notifications` lists the alert with links to the domain and to Alerts; Mark read clears the count to "Inbox clear" without acknowledging the alert for anyone else. |
+
+The test channels and rule were removed afterwards. Check by eye: the alert
+in `#dh-pellowyn` and the Teams channel, and the email in
+`dmarcharbor+s11usd@gmail.com`.
+
 ### Features that no session tests yet
 
 Found by checking every feature on the plan list and the product against the

@@ -113,7 +113,15 @@ export default async function AlertsPage() {
   const enabled = ruleViews.filter((r) => r.enabled).length;
   const domainGroups = (clients ?? [])
     .filter((c) => c.domains.length > 0)
-    .map((c) => ({ clientName: c.name, domains: c.domains.map((d) => ({ id: d.id, name: d.name })) }));
+    // In name order within each client: the API lists them as they were
+    // created, so with a few hundred domains the one wanted was somewhere in
+    // an unsorted list (session 7).
+    .map((c) => ({
+      clientName: c.name,
+      domains: c.domains
+        .map((d) => ({ id: d.id, name: d.name }))
+        .sort((a, b) => a.name.localeCompare(b.name, "en", { numeric: true })),
+    }));
   // Which domains no enabled rule is watching: the gap an MSP closes first.
   const allDomains = (clients ?? []).flatMap((c) => c.domains);
   const watchedIds = new Set(ruleViews.filter((r) => r.enabled).map((r) => r.domainId));
