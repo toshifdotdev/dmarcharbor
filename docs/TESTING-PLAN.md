@@ -221,6 +221,33 @@ for the session and removed after). `_dmarc.linkshift.in` before:
 **Open:** the password is still not tried when the mailbox is saved (the
 Cloudflare token is): a wrong one is only found by Collect now or the next run.
 
+### Session 4 add-on results (11 November 2026): forensic reports
+
+On `dmarcharbor.com` (Session One Test, Harbor; collection on, names off). A
+standard RFC 6591 failure report (`multipart/report; report-type=feedback-report`,
+a `message/feedback-report` part with `Feedback-Type: auth-failure`, the
+original headers as `text/rfc822-headers`) through the signed inbound webhook.
+
+| # | Item | Result |
+|---|---|---|
+| 1 | Arrival | **Broken, fixed.** The report was answered "aggregate, 0 candidates" and dropped without a word: only `application/feedback-report` was recognised, and RFC 5965 registers `message/feedback-report`, which is what receivers send. After the fix it is stored as `auth-failure`, source 203.0.113.77, SPF fail (forger.example), DKIM none. |
+| 2 | Unnamed by default | **Pass.** Recipient, subject and sender are pseudonyms; Settings → Forensic reports lists the sample ("Pseudonyms"), Open shows the checks and when it is deleted on its own (30 days). |
+| 3 | On the domain page | **Pass.** Sources lists 203.0.113.77 with Forensic 1. |
+| 4 | Delete | **Pass.** Delete asks first and removes the sample. |
+
+Named recipients (Harbor, owner opt-in with two confirmations) were not
+switched on; the role boundary for them is checked in session 2.
+
+### Session 17 results (11 November 2026): Ask, public site, a new MSP end to end
+
+| # | Item | Result |
+|---|---|---|
+| 1 | Ask | **Pass** in links mode (no Anthropic key in dev, so written answers are off and Ask says so). "How is Fleet priced…" links the FAQ and Pricing Fleet sections; "If a customer asks for a refund…" links the FAQ and Refund Policy; "Which of my client domains failed DMARC yesterday?" is refused: it cannot see workspace data; "What is the capital of France?" answers "I don't know… I will not guess". **Not tested:** written answers, which need `ANTHROPIC_API_KEY`. |
+| 2 | Public site | **Pass.** `/`, `/pricing`, `/faq`, `/refunds`, `/guide` and `/tools` at phone width: the page never scrolls sideways (wide tables scroll inside themselves). SEO, legal pages and pricing are covered by the clickthrough (134 of 134). |
+| 3 | A new MSP | **Pass.** Pricing → Sign up (`dmarcharbor+s17msp@gmail.com`) → "Check your inbox" names the address and the 24 hours → "Verify your DMARC Harbor email" sent → the link signs in on `/welcome` ("Email verified") → workspace "Thrandle IT Services" with three unticked agreement boxes → first client and domain (`corriwick-fp.example`) → the two TXT records with copy, email and zone-file options → "Check DNS now" says it is waiting for DNS and that this is normal, not an error. The route shows step 5 of 6 throughout. |
+
+The new account is left in place as test data, like the other sessions'.
+
 ### Features that no session tests yet
 
 Found by checking every feature on the plan list and the product against the
@@ -231,10 +258,10 @@ and run with it.
 |---|---|---|---|
 | ~~Forensic (failure) reports~~: done in the session 4 add-on (11 November 2026); standard reports were being dropped, fixed | Fairway, Harbor | 4 | |
 | ~~Report collection from the customer's own mailbox~~: done in session 9 (11 November 2026) | Harbor | 9 | |
-| Spoofing alerts: a forged sender produces the alert, by email, Slack and Teams | Fairway | 7 | a report with failing mail from an unknown source (crafted, as above) |
+| ~~Spoofing alerts~~: done in session 7 (11 November 2026) | Fairway | 7 | |
 | ~~Sender owners~~: done in the session 3 fast pass (10 November 2026) | Fairway | 3 | |
 | ~~SPF check for unused includes~~: done in session 9 (11 November 2026) | Fairway | 9 | |
-| Notifications page (the bell and `/notifications`) | every plan | 7 | nothing |
+| ~~Notifications page~~: done in session 7 (11 November 2026) | every plan | 7 | |
 | Agency custom-domain hosting on a real host (built after session 14, tested in dev only) | Admiralty | 14 (a short add-on), just before production | the production host and a second agency domain |
 | The billing page's limit messages naming Fleet on Harbor and Admiralty | Harbor, Admiralty | 16 | a workspace at 80 domains |
 
@@ -243,7 +270,7 @@ and run with it.
 | 1 | Accounts and sign-in | nothing | **fast pass done** (10 November 2026) |
 | 2* | Workspace, team members, roles, invitations | nothing | **fast pass done** (10 November 2026) |
 | 3* | Clients and domains: add, verify, bulk import, move, rename, delete, sender owners | nothing | **fast pass done** (10 November 2026) |
-| 4 | Report ingestion: real DMARC reports arriving and being measured | Migadu mailbox, `rua` on our `_dmarc` record, reports received | **final** (9 November 2026), on Google's first report for `dmarcharbor.com` |
+| 4 | Report ingestion: real DMARC reports arriving and being measured | Migadu mailbox, `rua` on our `_dmarc` record, reports received | **final** (9 November 2026), on Google's first report for `dmarcharbor.com`; forensic reports added 11 November 2026 |
 | 5* | Domain posture, senders (with setup-guide links), subdomains, readiness, the portfolio and domain page figures | real reports from session 4 | **final** (9 November 2026) |
 | 6* | DNS monitoring, change history, expiry, Gmail, Yahoo and Microsoft checks, the home-page checker | nothing | **fast pass done** (10 November 2026) |
 | 7 | Alerts by email, Slack and Teams (single channel), spoofing alerts, notifications | Slack and Teams test channels | **final** (11 November 2026); routing is in 19 |
@@ -256,7 +283,7 @@ and run with it.
 | 14 | Admiralty: custom domain, agency sending domain, single sign-on | a second domain, a full-access Resend key, an SSO provider | **final** (9 November 2026), Auth0 for SSO; custom-domain hosting built and tested in dev after it |
 | 15* | Prospect reports, switch kit, usage export, API keys and the API | nothing | **fast pass done** (10 November 2026); the webhook API is in 8 |
 | 16* | Data export, erasure, audit trail, plan limits on every plan | nothing | **re-run** (Gemini) |
-| 17 | Ask, public site, docs and SEO, one end-to-end run as a new MSP | an Anthropic API key | **re-run** (Gemini) |
+| 17 | Ask, public site, docs and SEO, one end-to-end run as a new MSP | an Anthropic API key | **final** (11 November 2026) for links mode; written answers wait for an Anthropic key |
 | 18* | Free tools, glossary and setup guides | nothing | **final** (8 November 2026); the agency-host check is repeated live in 14 |
 | 19 | Routed Slack and Teams channels | 2 Slack and 2 Teams test channels | **final** (9 November 2026) |
 | 20 | Cloudflare zone import | a Cloudflare token that can read several zones | **final** (9 November 2026); several zones checked against stand-in answers, the account has one |
