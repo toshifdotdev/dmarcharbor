@@ -248,6 +248,35 @@ switched on; the role boundary for them is checked in session 2.
 
 The new account is left in place as test data, like the other sessions'.
 
+### Session 13 results (11 November 2026): client portal, approvals, share links, Trust Center, packs, monthly reports, digests
+
+On Session One Test (Harbor), client Pellowyn Dental and its domain
+`dmarcharbor.com` (real reports, forensic collection on, one crafted failure
+report added for the test). `dmarcharbor+s11usd@gmail.com` was a temporary
+admin; a second client, Haskerley Law (s13), was the other client to cross
+into; Quellmoor Digital was the other workspace; `dmarcharbor+s17msp@gmail.com`
+was someone with no grant. The probe is `.shots/s13.mts`.
+
+| # | Item | Result |
+|---|---|---|
+| 1 | Invite a contact | **Pass.** The grant for `dmarcharbor+portal13@gmail.com` queued "You can now see DMARC reports for Pellowyn Dental". Sign-up with that address could not sign in before the address was verified (403 `EMAIL_NOT_VERIFIED`), so nobody can claim a grant with someone else's address. After verifying, the grant showed as accepted (`firstSeenAt`). |
+| 2 | What a contact can reach | **Pass** after a fix. `/api/portal` lists Pellowyn only. The other client's domain and a Quellmoor domain answer 404; `?organizationId=` for Quellmoor 403; the other client's monthly reports 404. Every workspace route (clients, domains, forensics, portal access, shares, packs, audit) 403; issuing a pack or granting access 403. A made-up `x-harbor-portal-host` changes nothing. No forensic data, raw addresses or subjects anywhere in the portal payloads. Someone with no grant: 403 on the portal and the workspace; signed out 401. **Fixed:** `GET /workspaces/:id/members` answered 500 to a non-member (Better Auth's refusal reached the error handler); it now answers 403 like every other workspace route. |
+| 3 | Signing in from the main page | **Fixed.** A contact who signs in at `/sign-in` (not through the invitation's `/portal` link) landed on "Name your workspace", with the way to their report in a footnote under the form. `/welcome` now opens with "A client report is shared with you" naming the client and an "Open your client reports" button, and keeps the form for someone who is also an agency. |
+| 4 | Share links | **Pass** after a fix. Both links open signed out, show `dmarcharbor.com` only, and carry no internal ids, raw addresses, subjects or other domains. With forensic data included the page shows counts only (1 report, 1 recipient). A share for another workspace's domain 404; an altered token 404; revoking one and bulk revoke both give 404 at once; audit rows for each. **Fixed:** the drawing of how the mail was handled was built from the ten addresses in the sources table, so it read "Resend: 63 messages passed" beside "68 messages observed". The share now carries every sender's totals (`senders`) and the drawing reads 68. |
+| 5 | Trust Center | **Pass.** Publishes a 32-character slug; the page opens signed out with `X-Robots-Tag: noindex`, names only Pellowyn and its verified domain, and carries no internal ids, people or other clients. Another workspace's client 404. Withdrawn, it answers exactly like a slug that never existed (404 `TRUST_CENTER_NOT_FOUND`). |
+| 6 | Compliance pack and verifier | **Pass.** A 326 KB PDF whose `X-DMARC-Pack-Sha256` is the SHA-256 of the bytes; the public verifier returns the same digest for its reference; a file with one bit changed does not match; an unknown reference 404. Another workspace's client 404. |
+| 7 | Monthly report | **Pass.** October was refused at first as before the client existed (Pellowyn was created on 4 November), which is right; with the creation date moved back for one call and put back, October 2026 was issued (2 pages, reference `RPT-202610-…`). The contact lists it and downloads the identical bytes; under the other client 404. November (not ended) and `2026-13` refused with plain reasons. The schedule saves; day 31 refused. |
+| 8 | Approvals | **Pass.** p=quarantine (trial) proposed with the open points listed; the contact sees it, approves, and the agency is told "approved, ready for you to publish". The domain is not on a hosted record, so nothing was changed in DNS or in our stored record. A second approval 409; someone with no grant 403. p=reject declined with a reason (agency told); a withdrawn request cannot be approved (409). Proposals on an unverified domain 409 and on another workspace's domain 404. |
+| 9 | Digests | **Pass.** Weekly digest created, Send now answered `sent: true` with the subject "[Session One Test] dmarcharbor.com DMARC summary". A digest for another workspace's domain 404. Digests go straight to the provider rather than through the email queue, so the outbox has no row for them. |
+| 10 | Revoke | **Pass.** After revoking, the contact's existing session is refused at once (403) for the portal and for the report download. |
+| 11 | Screens | **Pass.** `/portal`, a domain page, the share page, the Trust Center and `/welcome` at 1440 and 390: no sideways scroll; the share page is `noindex, nofollow, nocache`. |
+
+Cleaned up: the grant (removed outright), the contact's account, the digest,
+the three share links, the Trust Center link (withdrawn), the second client,
+and the crafted failure report. The monthly schedule is switched off. The
+compliance pack, the October report and the three answered proposals stay:
+they are the record of what was issued and decided.
+
 ### Features that no session tests yet
 
 Found by checking every feature on the plan list and the product against the
@@ -279,7 +308,7 @@ and run with it.
 | 10 | Hosted BIMI, MTA-STS, TLS reports | a BIMI origin and Cloudflare for SaaS | **final** (9 November 2026), on `linkshift.in` through a tunnel; Gmail's logo needs a real VMC |
 | 11 | Billing: checkout, upgrade, downgrade, Fleet, failed payment, refund | Razorpay test keys, Paddle sandbox, a tunnel | **Paddle (USD) final** (10 November 2026); **INR waits** for Razorpay Recurring Payments (below) |
 | 12 | White label: logo, colours, support contact, branded client emails | S3 keys for logos | **re-run** (Gemini) |
-| 13* | Client portal, approvals, share links, Trust Center, compliance packs, verifier, monthly reports, digests | sessions 2, 3 and 12 | **re-run** (Gemini) |
+| 13* | Client portal, approvals, share links, Trust Center, compliance packs, verifier, monthly reports, digests | sessions 2, 3 and 12 | **final** (11 November 2026); branded portal mail is checked again with 12 |
 | 14 | Admiralty: custom domain, agency sending domain, single sign-on | a second domain, a full-access Resend key, an SSO provider | **final** (9 November 2026), Auth0 for SSO; custom-domain hosting built and tested in dev after it |
 | 15* | Prospect reports, switch kit, usage export, API keys and the API | nothing | **fast pass done** (10 November 2026); the webhook API is in 8 |
 | 16* | Data export, erasure, audit trail, plan limits on every plan | nothing | **re-run** (Gemini) |

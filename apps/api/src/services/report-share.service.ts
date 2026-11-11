@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { prisma } from '../database/prisma.js';
 import { hasAggregateReporting, readDmarcRecord } from '../scanner/dmarc-tags.js';
-import { getDomainInsights } from './report-intelligence.service.js';
+import { getDomainInsights, type DomainInsights } from './report-intelligence.service.js';
 import { resolveLimit } from '../utils/pagination.js';
 import { domainRef } from './domain-ref.js';
 import { assessPolicyReadiness } from './onboarding.service.js';
@@ -250,6 +250,15 @@ export interface PublicReportView {
     service: { id: string; name: string; category: string } | null;
     confidence: string;
   }[];
+  /** Every sender's totals over all the mail; `sources` stops at ten addresses. */
+  senders: {
+    senderKey: string;
+    senderDomain: string | null;
+    totalMessages: number;
+    dmarcFailedMessages: number;
+    service: DomainInsights['senders'][number]['service'];
+    confidence: string;
+  }[];
   forensic: { included: boolean; reportCount: number; rejectedMessages: number; affectedRecipients: number } | null;
 }
 
@@ -354,6 +363,26 @@ export async function getPublicReport(token: string, now = new Date()): Promise<
           topSendingDomain: source.topSendingDomain,
           service: source.service,
           confidence: source.confidence,
+        }))
+      : [],
+    /**
+     * Every sender's totals, for the drawing of how the mail was handled.
+     *
+     * The drawing was built from `sources`, which is cut at ten addresses for
+     * the table, so a service sending from twelve addresses was drawn with
+     * the mail of ten: the session 13 share said "Resend: 63 messages passed"
+     * beside "68 messages observed". These rows cover all the mail, as the
+     * portal's own drawing does. Counts and names only, under the same
+     * `includeSources` choice as the table.
+     */
+    senders: share.includeSources
+      ? insights.senders.map((sender) => ({
+          senderKey: sender.senderKey,
+          senderDomain: sender.senderDomain,
+          totalMessages: sender.totalMessages,
+          dmarcFailedMessages: sender.dmarcFailedMessages,
+          service: sender.service,
+          confidence: sender.confidence,
         }))
       : [],
     forensic: share.includeForensics

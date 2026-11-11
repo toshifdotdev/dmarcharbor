@@ -205,10 +205,30 @@ export async function readWorkspaceAllowance(request: Request, response: Respons
   response.json(allowance);
 }
 
-export async function listWorkspaceMembers(request: Request, response: Response): Promise<void> {  const parsed = workspaceIdSchema.safeParse(request.params.organizationId);
+export async function listWorkspaceMembers(request: Request, response: Response): Promise<void> {
+  const parsed = workspaceIdSchema.safeParse(request.params.organizationId);
 
   if (!parsed.success) {
     response.status(400).json({ error: { message: 'A valid workspace identifier is required.' } });
+    return;
+  }
+
+  const session = response.locals.session as { user?: { id?: string } } | undefined;
+  const callerId = session?.user?.id;
+  const caller = callerId
+    ? await prisma.member.findUnique({
+        where: { organizationId_userId: { organizationId: parsed.data, userId: callerId } },
+        select: { role: true },
+      })
+    : null;
+
+  /**
+   * A non-member is refused here, with the same answer every other workspace
+   * route gives. Better Auth's listMembers throws for them, and that throw
+   * reached the error handler as a 500 (found with a client portal contact).
+   */
+  if (!caller) {
+    response.status(403).json({ error: { message: 'You are not a member of this workspace.' } });
     return;
   }
 
@@ -226,14 +246,6 @@ export async function listWorkspaceMembers(request: Request, response: Response)
    * has not enrolled, and the field is omitted entirely for them - not sent as
    * false, which would be a claim.
    */
-  const session = response.locals.session as { user?: { id?: string } } | undefined;
-  const callerId = session?.user?.id;
-  const caller = callerId
-    ? await prisma.member.findUnique({
-        where: { organizationId_userId: { organizationId: parsed.data, userId: callerId } },
-        select: { role: true },
-      })
-    : null;
   const callerRoles = (caller?.role ?? '').split(',').map((role) => role.trim());
   const maySee = callerRoles.includes('owner') || callerRoles.includes('admin');
 

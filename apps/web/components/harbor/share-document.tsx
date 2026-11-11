@@ -30,6 +30,7 @@ import { Badge, type Tone } from "@/components/ui/badge";
 import { Nil, Table, TBody, Td, Th, THead, Tr } from "@/components/ui/table";
 import { Readout, ReadoutStrip } from "@/components/ui/readout";
 import { STALE_AFTER_DAYS } from "@/lib/posture";
+import { senderName } from "@/lib/portal-verdict";
 import { LineKey, MailRoute, routeModel, StateMark, type Flow, type MarkShape, type PolicyOutcome } from "./document-route";
 import { VolumeChart } from "./volume-chart";
 
@@ -87,13 +88,29 @@ export function ShareDocument({ report, today }: { report: PublicShareReport; to
   const flowKey = (s: PublicShareReport["sources"][number]) =>
     s.service && (s.confidence === "confirmed" || s.confidence === "likely") ? `service:${s.service.name}` : `ip:${s.sourceIp}`;
   const flows = new Map<string, Flow>();
-  for (const s of sources) {
-    const key = flowKey(s);
-    const known = key.startsWith("service:");
-    const flow = flows.get(key) ?? { key, name: known ? s.service!.name : s.sourceIp, mono: !known, passed: 0, failed: 0 };
-    flow.passed += Math.max(0, s.totalMessages - s.failedMessages);
-    flow.failed += s.failedMessages;
-    flows.set(key, flow);
+  if (report.senders && report.senders.length > 0) {
+    // Every sender over all the mail. `sources` stops at ten addresses, so a
+    // line drawn from it undercounted a service that sends from more.
+    for (const s of report.senders) {
+      const who = senderName(s);
+      const service = Boolean(s.service && (s.confidence === "confirmed" || s.confidence === "likely"));
+      flows.set(s.senderKey, {
+        key: s.senderKey,
+        name: who.name,
+        mono: who.known && !service,
+        passed: Math.max(0, s.totalMessages - s.dmarcFailedMessages),
+        failed: s.dmarcFailedMessages,
+      });
+    }
+  } else {
+    for (const s of sources) {
+      const key = flowKey(s);
+      const known = key.startsWith("service:");
+      const flow = flows.get(key) ?? { key, name: known ? s.service!.name : s.sourceIp, mono: !known, passed: 0, failed: 0 };
+      flow.passed += Math.max(0, s.totalMessages - s.failedMessages);
+      flow.failed += s.failedMessages;
+      flows.set(key, flow);
+    }
   }
   const route = routeModel([...flows.values()], ["source", "sources"]);
   const outcome: PolicyOutcome = !published

@@ -4600,6 +4600,7 @@ export const openApiDocument = {
           'The only unauthenticated read endpoint. Rate limited to 30 requests per minute.',
           'Never returns recipient pseudonyms, subject lines, addresses or alert history.',
           'health.passRatePercent is the DMARC pass rate. Source failedMessages count DMARC failures: both aligned checks failed.',
+          'sources lists at most ten sending addresses; senders gives every sender\'s totals over all the mail, and is empty when the share excludes sources.',
           'publishedBy names the workspace that shared it; its logo and colours are present only on a plan with white label.',
         ].join(' '),
         parameters: [idParam('token', 'Share token from the created share link.')],

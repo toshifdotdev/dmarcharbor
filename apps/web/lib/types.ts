@@ -1388,6 +1388,17 @@ export interface PublicShareReport {
     service: { id: string; name: string; category: string } | null;
     confidence: string;
   }>;
+  /** Every sender's totals over all the mail (sources stops at ten addresses).
+   *  Optional so the page still renders against an older API. */
+  senders?: Array<{
+    senderKey: string;
+    senderDomain: string | null;
+    totalMessages: number;
+    /** DMARC failures: both aligned checks failed. */
+    dmarcFailedMessages: number;
+    service: { id: string; name: string; category: string } | null;
+    confidence: string;
+  }>;
   forensic: { included: boolean; reportCount: number; rejectedMessages: number; affectedRecipients: number } | null;
 }
 

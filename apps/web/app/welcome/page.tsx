@@ -3,6 +3,8 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { Fragment } from "react";
 import { ApiError, getSessionUser, listWorkspaces, readWorkspaceAllowance, type WorkspaceAllowance } from "@/lib/api";
+import { getPortalOverview, PortalError } from "@/lib/api-portal";
+import { buttonClass } from "@/components/ui/button";
 import { signInRedirect } from "@/lib/session";
 import type { WorkspaceSummary } from "@/lib/types";
 import { AuthFrame } from "@/components/harbor/auth-frame";
@@ -106,6 +108,20 @@ export default async function WelcomePage({ searchParams }: { searchParams: Prom
   // a Microsoft one whose address had not been confirmed.
   const user = await getSessionUser();
   const workspacesFull = allowance !== null && !allowance.allowed;
+  /**
+   * A client contact who signs in on the main sign-in page (not through the
+   * invitation's /portal link) has no workspace and lands here. Session 13
+   * found that they met "Name your workspace", with the way to their report
+   * in a footnote under the form. When their address holds a portal grant the
+   * report is offered first; the form stays for someone who is also an agency.
+   * The clients named, or an empty list when several providers share them.
+   */
+  const reportFor: string[] | null = hasOne
+    ? null
+    : await getPortalOverview().then(
+        (overview) => overview.clients.map((client) => client.name),
+        (error: unknown) => (error instanceof PortalError && error.code === "CHOOSE_WORKSPACE" ? [] : null),
+      );
 
   // At the allowance the form is not offered: the API would refuse it. The
   // limit is said in its place, with the way to Billing.
@@ -126,6 +142,31 @@ export default async function WelcomePage({ searchParams }: { searchParams: Prom
       <AuthFrame width="route">
         <SetupLayout current="workspace">
           <div className="flex flex-col gap-8">
+            {reportFor ? (
+              <section
+                aria-labelledby="welcome-portal-head"
+                className="flex flex-col items-start gap-3 border-b border-rule pb-8"
+                data-testid="welcome-portal"
+              >
+                <h2 id="welcome-portal-head" className="text-h3 font-bold text-fg">
+                  A client report is shared with you
+                </h2>
+                <p className="text-body text-fg-2">
+                  {reportFor.length > 0 ? (
+                    <>
+                      The company that manages your email security shares the report for{" "}
+                      <span className="font-semibold text-fg">{reportFor.join(", ")}</span> with this address.
+                    </>
+                  ) : (
+                    "More than one company that manages your email security shares a report with this address."
+                  )}{" "}
+                  You do not need a workspace to read it.
+                </p>
+                <Link href="/portal" className={buttonClass("primary", "md")}>
+                  Open your client reports
+                </Link>
+              </section>
+            ) : null}
             <InvitationsForYou explainLapsed />
             {user && !user.emailVerified ? <VerifyEmailNotice email={user.email} /> : null}
             <div>
@@ -144,7 +185,9 @@ export default async function WelcomePage({ searchParams }: { searchParams: Prom
             {form}
             {/* A client's contact who signs in here (a portal grant, no
                 membership) has no workspace and lands on this page from any
-                agency screen. They need the portal, not a workspace. */}
+                agency screen. They need the portal, not a workspace. Said at
+                the top instead when their grant could be read. */}
+            {reportFor ? null : (
             <p className="text-ui text-fg-3">
               Here to read a report that the company managing your email security shares with you? You do not need a
               workspace:{" "}
@@ -153,6 +196,7 @@ export default async function WelcomePage({ searchParams }: { searchParams: Prom
               </Link>
               .
             </p>
+            )}
           </div>
         </SetupLayout>
       </AuthFrame>
