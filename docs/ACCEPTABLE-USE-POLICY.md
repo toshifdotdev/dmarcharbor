@@ -2,7 +2,7 @@
 
 **Effective date:** `[EFFECTIVE DATE]`
 **Version:** `1.0`
-**Legal entity:** `[YOUR LEGAL ENTITY NAME]`, trading as DMARC Harbor
+**Legal entity:** [YOUR LEGAL ENTITY NAME], trading as DMARC Harbor
 
 ---
 
@@ -108,5 +108,5 @@ Report a problem, or report someone abusing the Service, to `[SUPPORT EMAIL]` or
 
 ## Contact
 
-`[YOUR LEGAL ENTITY NAME]`
+[YOUR LEGAL ENTITY NAME]
 Email: `[SUPPORT EMAIL]`

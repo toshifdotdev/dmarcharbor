@@ -4,7 +4,7 @@ import { LEGAL_DOCS, SUPPORT_EMAIL, SUPPORT_PHONE_PLACEHOLDER } from "@/lib/lega
 import { requestOrigin } from "@/lib/metadata-origin";
 import { publicMetadata } from "@/lib/seo";
 import { DocumentFrame } from "@/components/harbor/legal-document";
-import { LEGAL_TEXT, LegalHeading2, PENDING_MARK } from "@/components/harbor/legal-render";
+import { LEGAL_TEXT, LegalHeading2 } from "@/components/harbor/legal-render";
 import { buttonClass } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy";
 
@@ -105,10 +105,15 @@ export default function SupportPage() {
           Phone
         </LegalHeading2>
         <div className={`mt-6 ${LEGAL_TEXT}`}>
-          <p role="status">
-            <mark className={PENDING_MARK}>{SUPPORT_PHONE_PLACEHOLDER}</mark>
+          <p>
+            <a href={`tel:${SUPPORT_PHONE_PLACEHOLDER.replace(/\s+/g, "")}`} className="link data font-semibold">
+              {SUPPORT_PHONE_PLACEHOLDER}
+            </a>
           </p>
-          <p>Phone support hours are published with the number. Email support runs every working day regardless.</p>
+          <p>
+            Working days, during office hours in India (IST). For anything about an account or a payment, email is faster
+            and leaves a record we can act on.
+          </p>
         </div>
       </section>
 

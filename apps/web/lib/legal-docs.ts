@@ -46,14 +46,20 @@ export const LEGAL_VERSION = "1.0";
  *  The launch date lands here when the business confirms it. */
 export const LEGAL_EFFECTIVE_DATE = "to be set at launch";
 
-/** The legal entity name. Supplied by the business, never invented here: an
- *  invented entity on a legal page is a worse defect than a visible
- *  placeholder. */
-export const LEGAL_ENTITY_PLACEHOLDER = "[legal entity name: supplied by the business before launch]";
+/** The legal entity: a sole proprietorship registered under Udyam (MSME) with
+ *  the unit name DMARC Harbor. Supplied by the business (12 November 2026);
+ *  changes when a company is registered. The names keep their old
+ *  `_PLACEHOLDER` suffix so every page that reads them is unchanged. */
+export const LEGAL_ENTITY_PLACEHOLDER = "Mohd Toshif, sole proprietor";
 
-/** The support phone and registered address, same rule as the entity name. */
-export const SUPPORT_PHONE_PLACEHOLDER = "[phone number: supplied by the business before launch]";
-export const REGISTERED_ADDRESS_PLACEHOLDER = "[registered address: supplied by the business before launch]";
+/** Where the business is registered, for "registered in …". */
+export const LEGAL_JURISDICTION = "India";
+
+/** The support phone and the official address of the enterprise, as on the
+ *  Udyam registration, which is what the payment providers check against. */
+export const SUPPORT_PHONE_PLACEHOLDER = "+91 89797 37466";
+export const REGISTERED_ADDRESS_PLACEHOLDER =
+  "House No. 89, Makka Wala, Rajpur Road, near DIT, Bhagwantpur, Dehradun, Uttarakhand 248009, India";
 
 /** The support email: supplied, so it substitutes as a real value. */
 export const SUPPORT_EMAIL = "support@dmarcharbor.com";
@@ -91,6 +97,7 @@ const LEGAL_SUBSTITUTIONS: Array<[RegExp, string]> = [
   [/\[SECURITY EMAIL\]/g, SECURITY_EMAIL],
   [/\[SUPPORT PHONE\]/g, SUPPORT_PHONE_PLACEHOLDER],
   [/\[REGISTERED ADDRESS\]/g, REGISTERED_ADDRESS_PLACEHOLDER],
+  [/\[JURISDICTION\]/g, LEGAL_JURISDICTION],
 ];
 
 export interface LegalDoc {

@@ -2,7 +2,7 @@
 
 **Effective date:** `[EFFECTIVE DATE]`
 **Version:** `1.0`
-**Legal entity:** `[YOUR LEGAL ENTITY NAME]`, trading as DMARC Harbor
+**Legal entity:** [YOUR LEGAL ENTITY NAME], trading as DMARC Harbor
 
 ---
 
@@ -40,7 +40,7 @@ get it resolved and will coordinate with them.
 If you are unhappy with our response, reply to the same thread and ask for it to
 be escalated. It will go to someone who was not part of the original handling.
 
-Email `[ESCALATION EMAIL]` for a second-line escalation.
+Email escalations@dmarcharbor.com for a second-line escalation.
 
 ## External redress
 
@@ -81,8 +81,8 @@ why.
 
 ## Contact
 
-`[YOUR LEGAL ENTITY NAME]`, registered in `[JURISDICTION]`
-Registered address: `[REGISTERED ADDRESS]`
+[YOUR LEGAL ENTITY NAME], registered in [JURISDICTION]
+Registered address: [REGISTERED ADDRESS]
 Support: `[SUPPORT EMAIL]`
-Escalation: `[ESCALATION EMAIL]`
+Escalation: escalations@dmarcharbor.com
 Security: `[SECURITY EMAIL]`

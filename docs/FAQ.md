@@ -1,7 +1,7 @@
 # Frequently asked questions
 
 **Effective date:** `[EFFECTIVE DATE]`
-**Legal entity:** `[YOUR LEGAL ENTITY NAME]`, trading as DMARC Harbor
+**Legal entity:** [YOUR LEGAL ENTITY NAME], trading as DMARC Harbor
 
 For a step-by-step setup, read the Setup guide. This page answers the questions
 people ask most, one feature at a time, and says which plan each one starts on.

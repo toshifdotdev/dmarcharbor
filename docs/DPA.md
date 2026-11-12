@@ -264,8 +264,19 @@ records that demonstrate compliance.
 
 ## 11. Governing law
 
-**TBD**: to be completed. Note that processing governed by UK or EU GDPR must
-name a law and forum capable of satisfying those regulations.
+This agreement is governed by the laws of India, and the courts having
+jurisdiction over the Processor's registered address in India have jurisdiction
+over any dispute arising from it, with these exceptions, which prevail:
+
+- **Where the EU Standard Contractual Clauses apply** (Controller-to-Processor,
+  Module 2), the Clauses are governed by the law of Ireland, and disputes arising
+  from them are resolved by the courts of Ireland, as Clauses 17 and 18 require.
+  A data subject may also bring proceedings in the EU member state where they live.
+- **Where the UK International Data Transfer Addendum applies**, it is governed by
+  the laws of England and Wales, and disputes arising from it are resolved by the
+  courts of England and Wales.
+- Nothing in this section limits the powers of a supervisory authority, or a data
+  subject's right to complain to one.
 
 ---
 
@@ -274,6 +285,8 @@ name a law and forum capable of satisfying those regulations.
 1. Hosting platform, region, and the resulting transfer mechanism
 2. Payment processor
 3. Backup schedule and recovery objectives
-4. Governing law and jurisdiction
-5. Company legal name and registered address
+4. ~~Governing law and jurisdiction~~: done (section 11)
+5. ~~Company legal name and registered address~~: done (Mohd Toshif, sole
+   proprietor trading as DMARC Harbor, Udyam registered; the address as on the
+   Udyam registration)
 6. Legal review

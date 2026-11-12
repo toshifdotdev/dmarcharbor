@@ -2,7 +2,7 @@
 
 **Effective date:** `[EFFECTIVE DATE]`
 **Version:** `1.0`
-**Legal entity:** `[YOUR LEGAL ENTITY NAME]`, registered in `[JURISDICTION]`
+**Legal entity:** [YOUR LEGAL ENTITY NAME], registered in [JURISDICTION]
 **Trading as:** DMARC Harbor
 
 ---
@@ -11,7 +11,7 @@
 
 These Terms of Service ("the Terms") govern your use of DMARC Harbor, a software
 service for collecting and interpreting DMARC email authentication reports
-("the Service"), operated by `[YOUR LEGAL ENTITY NAME]` ("DMARC Harbor", "we",
+("the Service"), operated by [YOUR LEGAL ENTITY NAME] ("DMARC Harbor", "we",
 "us").
 
 By creating a workspace or using the Service you accept these Terms. If you are
@@ -98,7 +98,7 @@ same company, and the distinction decides who you contact about a payment.
 
 **Purchases in Indian rupees, through Razorpay:** Razorpay processes the payment as
 our payment gateway. Razorpay is not the seller and does not handle your purchase.
-The contracting party is `[YOUR LEGAL ENTITY NAME]`, and enquiries and returns for
+The contracting party is [YOUR LEGAL ENTITY NAME], and enquiries and returns for
 these orders go to `[SUPPORT EMAIL]`.
 
 Razorpay is the default for rupee payments and Paddle is used for dollar payments,
@@ -155,8 +155,9 @@ to the claim.
 
 Nothing in this section limits liability for death or personal injury caused by
 negligence, for fraud or fraudulent misrepresentation, or for anything else that
-cannot lawfully be limited. `[YOUR JURISDICTION] law may impose further
-limitations that we cannot exclude, and where it does those apply instead.]`
+cannot lawfully be limited. The law that applies to you may give you rights that
+cannot be excluded or limited by contract, such as consumer protection law in
+your country of residence; where it does, those rights apply instead.
 
 ## 12. Term and termination
 
@@ -177,15 +178,24 @@ which version you agreed to.
 
 ## 14. Governing law
 
-These Terms are governed by the laws of `[YOUR JURISDICTION]`, without regard to
-its conflict of laws rules. The courts of `[YOUR JURISDICTION]` have exclusive
-jurisdiction, except that consumers retain any right to bring proceedings in their
-own country of residence where that right cannot lawfully be waived.
+These Terms are governed by the laws of India, without regard to its conflict of
+laws rules. The courts having jurisdiction over our registered address in India
+have exclusive jurisdiction over any dispute arising from them, except that:
+
+- a consumer keeps any right to bring proceedings in their own country of
+  residence, and to rely on the mandatory consumer protection law of that country,
+  where that right cannot lawfully be waived; and
+- the Data Processing Agreement has its own governing law clause for the matters
+  it covers.
+
+Before going to court, either party will first raise the dispute in writing with
+the other and allow 30 days to resolve it in good faith. This does not stop
+either party seeking urgent relief from a court.
 
 ---
 
 ## Contact
 
-`[YOUR LEGAL ENTITY NAME]`
-`[REGISTERED ADDRESS]`
+[YOUR LEGAL ENTITY NAME]
+[REGISTERED ADDRESS]
 Email: `[SUPPORT EMAIL]`

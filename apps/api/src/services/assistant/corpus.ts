@@ -91,7 +91,11 @@ const SUBSTITUTIONS: Array<[RegExp, string]> = [
   [/`?\[SUPPORT EMAIL\]`?/g, SUPPORT_EMAIL],
   [/`?\[SECURITY EMAIL\]`?/g, SECURITY_EMAIL],
   [/`?\[EFFECTIVE DATE\]`?/g, 'to be set at launch'],
-  [/`?\[YOUR LEGAL ENTITY NAME\]`?/g, '(legal entity name not yet published)'],
+  // The same values apps/web/lib/legal-docs.ts substitutes (12 November 2026).
+  [/`?\[YOUR LEGAL ENTITY NAME\]`?/g, 'Mohd Toshif, sole proprietor'],
+  [/`?\[JURISDICTION\]`?/g, 'India'],
+  [/`?\[REGISTERED ADDRESS\]`?/g, 'House No. 89, Makka Wala, Rajpur Road, near DIT, Bhagwantpur, Dehradun, Uttarakhand 248009, India'],
+  [/`?\[SUPPORT PHONE\]`?/g, '+91 89797 37466'],
   [/`?\[[A-Z][A-Z0-9 _-]{2,}\]`?/g, '(not yet published)'],
 ];
 
