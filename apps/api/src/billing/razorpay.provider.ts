@@ -28,9 +28,19 @@ import {
   subtractInterval,
   upgradeCarryOverMinor,
 } from './recurring-terms.js';
-import { closeOtherCheckouts, endRecurringSubscription, recurringChargeFor, withdrawScheduledRenewals } from './recurring.service.js';
-
 export { razorpayConfigured, razorpayWebhookSecret, verifyRazorpaySignature } from './razorpay-client.js';
+
+/**
+ * The renewal service, loaded on first use.
+ *
+ * A static import closes a cycle: registry → this file → recurring.service →
+ * quantity and subscription-state → registry. Whichever module loads first,
+ * the registry could then run before this class exists ("is not a
+ * constructor"). Nothing here needs the service at load time.
+ */
+const recurring = () => import('./recurring.service.js');
+const recurringChargeFor = async (...args: Parameters<Awaited<ReturnType<typeof recurring>>['recurringChargeFor']>) =>
+  (await recurring()).recurringChargeFor(...args);
 
 /**
  * Razorpay adapter, on Recurring Payments (INR).
@@ -105,7 +115,7 @@ export class RazorpayBillingProvider implements BillingProvider {
 
     // A checkout started earlier and left unpaid is closed, so the owner can
     // never pay two and start two subscriptions.
-    await closeOtherCheckouts(input.organizationId, null);
+    await (await recurring()).closeOtherCheckouts(input.organizationId, null);
 
     const now = new Date();
     const link = await createRegistrationLink({
@@ -210,12 +220,12 @@ export class RazorpayBillingProvider implements BillingProvider {
         data: { carryOverMinor: { increment: owed } },
       });
     }
-    await withdrawScheduledRenewals(input.organizationId);
+    await (await recurring()).withdrawScheduledRenewals(input.organizationId);
   }
 
   /** A renewal already announced at the old plan's price is withdrawn and priced again. */
   async afterScheduledPlanChange(organizationId: string): Promise<void> {
-    await withdrawScheduledRenewals(organizationId);
+    await (await recurring()).withdrawScheduledRenewals(organizationId);
   }
 
   async previewPlanChange(input: {
@@ -288,7 +298,7 @@ export class RazorpayBillingProvider implements BillingProvider {
   /** Ends the plan now: used after a refund, and by dunning once the grace is over. */
   async cancelImmediately(providerSubscriptionId: string): Promise<void> {
     const row = await this.rowFor(providerSubscriptionId);
-    await endRecurringSubscription(row.organizationId, { reason: 'cancelled', endAt: new Date() });
+    await (await recurring()).endRecurringSubscription(row.organizationId, { reason: 'cancelled', endAt: new Date() });
   }
 
   /** Refunds the first payment: the one the 14-day guarantee covers. */
