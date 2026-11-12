@@ -6,6 +6,7 @@ import { recordAuditEvent } from './audit.service.js';
 import { decryptSensitive, encryptSensitive } from './privacy.service.js';
 import { isPrivateOrReservedHost } from './net-guard.js';
 import { guardedRequest, type GuardedRequester } from './net/guarded-request.js';
+import { retryAfterSeconds } from './psa/provider.js';
 
 let requesterOverride: GuardedRequester | null = null;
 
@@ -716,6 +717,8 @@ export async function deliverDueWebhooks(now = new Date()): Promise<DeliveryOutc
 
     let responseCode: number | undefined;
     let error: string | undefined;
+    let retryAfter: number | undefined;
+    let rateLimited = false;
 
     try {
       /**
@@ -776,12 +779,23 @@ export async function deliverDueWebhooks(now = new Date()): Promise<DeliveryOutc
         continue;
       }
       error = `Endpoint responded ${result.statusCode}.`;
+      // A receiver that says how long to wait is asked again then, as the PSA
+      // queue already does (session 8).
+      if (result.statusCode === 429 || result.statusCode === 503) {
+        retryAfter = retryAfterSeconds(result.headers['retry-after']);
+        rateLimited = result.statusCode === 429;
+        if (retryAfter !== undefined) {
+          error = `Endpoint responded ${result.statusCode} and asked to wait ${retryAfter} seconds.`;
+        }
+      }
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'The endpoint could not be reached.';
     }
 
     const exhausted = attempt >= maxAttempts;
-    const nextDelay = retryDelaysMinutes[Math.min(attempt - 1, retryDelaysMinutes.length - 1)] ?? 720;
+    const scheduledDelay = retryDelaysMinutes[Math.min(attempt - 1, retryDelaysMinutes.length - 1)] ?? 720;
+    // Retry-After wins over the schedule, held between one minute and twelve hours.
+    const nextDelay = retryAfter !== undefined ? Math.min(Math.max(retryAfter / 60, 1), 720) : scheduledDelay;
     const nextAttemptAt = new Date(now.getTime() + nextDelay * 60 * 1000);
 
     await prisma.webhookDelivery.update({
@@ -801,14 +815,16 @@ export async function deliverDueWebhooks(now = new Date()): Promise<DeliveryOutc
     // request. Two instances failing the same endpoint at the same time would
     // otherwise both write the same count and a genuinely broken endpoint would
     // take twice as long as it should to reach the suspension threshold.
+    // A 429 is a receiver that is up and busy, not a broken one: it does not
+    // count towards suspension. The delivery itself still uses an attempt.
     const bumped = await prisma.webhookEndpoint.update({
       where: { id: delivery.endpoint.id },
-      data: { failureCount: { increment: 1 } },
+      data: rateLimited ? {} : { failureCount: { increment: 1 } },
       select: { failureCount: true },
     });
 
     const failureCount = bumped.failureCount;
-    const shouldSuspend = failureCount >= failureThreshold;
+    const shouldSuspend = !rateLimited && failureCount >= failureThreshold;
 
     // Only the delivery that crosses the threshold suspends: one that fails on
     // another instance after it finds the endpoint already suspended.

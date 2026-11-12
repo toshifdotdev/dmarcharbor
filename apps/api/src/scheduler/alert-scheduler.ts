@@ -1,5 +1,5 @@
 ﻿import { env } from '../config/env.js';
-import { evaluateAlertRules, runAlertRollups } from '../services/alert.service.js';
+import { evaluateAlertRules, retryAlertDeliveries, runAlertRollups } from '../services/alert.service.js';
 import { runReportDigests } from '../services/report-digest.service.js';
 import { runMonthlyReportSchedules } from '../services/reports/monthly-report-schedule.service.js';
 import { runSenderIntelPass } from '../services/senders/ip-intel.service.js';
@@ -78,6 +78,12 @@ async function runAlertEvaluationPass(): Promise<{ completed: true }> {
     const notified = rollups.filter((result) => result.notified).length;
     if (notified > 0) {
       console.info(`[alerts] sent ${notified} owner rollup(s)`);
+    }
+
+    // A delivery a restart interrupted, or one a channel refused, goes again.
+    const retried = await retryAlertDeliveries();
+    if (retried.retried > 0) {
+      console.info(`[alerts] retried ${retried.retried} undelivered alert message(s), ${retried.sent} sent`);
     }
 
     const erasures = await executeDueErasures();

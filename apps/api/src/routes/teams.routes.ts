@@ -9,7 +9,7 @@ import {
 import { teamsDestinations } from '../controllers/chat-destinations.controller.js';
 import { requireSession } from '../middleware/auth.middleware.js';
 import { onlyDisables, requireFeature, requireFeatureUnless } from '../middleware/entitlement.middleware.js';
-import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
+import { requireOrganizationPermission, requireWorkspaceTeam } from '../middleware/organization-permission.middleware.js';
 import { teamsTestRateLimiter } from '../middleware/rate-limit.middleware.js';
 
 /**
@@ -35,7 +35,8 @@ export const teamsRouter = Router();
 teamsRouter.get(
   '/workspaces/:organizationId/teams-destination',
   requireSession,
-  requireOrganizationPermission('organization', 'read'),
+  // Every team member may see where alerts go (addresses masked); changing it is owner or admin.
+  requireWorkspaceTeam(),
   getTeamsDestinationController,
 );
 
@@ -82,7 +83,8 @@ teamsRouter.post(
 teamsRouter.get(
   '/workspaces/:organizationId/teams-destinations',
   requireSession,
-  requireOrganizationPermission('organization', 'read'),
+  // Every team member may see where alerts go (addresses masked); changing it is owner or admin.
+  requireWorkspaceTeam(),
   teamsDestinations.list,
 );
 

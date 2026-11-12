@@ -12,7 +12,7 @@ import { ErrorState, PermissionState } from "@/components/ui/states";
 export const metadata: Metadata = { title: "Microsoft Teams alerts" };
 
 /**
- * /settings/teams — reading it needs owner or admin. Adding, changing, switching
+ * /settings/teams — every team member can read it (addresses masked), so an analyst can see where alerts go; changing it needs owner or admin. Adding, changing, switching
  * on and the test message need alerts.email; reading, pausing and removing a
  * kept channel stay on every plan, so a downgrade never strands an address
  * nobody can delete. The clients are loaded to route channels by client.

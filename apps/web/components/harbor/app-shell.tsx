@@ -132,7 +132,10 @@ export async function AppShell({
 
           <nav aria-label="Location" className="flex min-w-0 flex-1 items-center">
             <ol className="flex min-w-0 items-center gap-0.5">
-              <li className="min-w-0 shrink-0">
+              {/* Shrinks, not shrink-0: a long workspace name truncates inside
+                  the switcher. Kept from shrinking, it ran under the alert and
+                  inbox counts on a phone. */}
+              <li className="flex min-w-0">
                 <WorkspaceMenu workspaces={workspaces} active={activeWorkspace} />
               </li>
               {trail.map((t, i) => {

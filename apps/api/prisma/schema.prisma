@@ -816,6 +816,9 @@ model AlertDelivery {
   lastError     String?
   sentAt        DateTime?
   createdAt     DateTime            @default(now())
+  /// What was sent, as rendered: subject and body, plus what a chat post needs.
+  /// Kept so `retryAlertDeliveries` can send a pending or failed row again.
+  message       Json?
 
   @@unique([eventId, userId, channel, kind, reminderLevel])
   @@index([userId, status])

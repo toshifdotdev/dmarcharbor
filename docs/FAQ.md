@@ -252,6 +252,62 @@ annual, takes effect at the end of the period you have paid for. Paying in
 dollars through Paddle, any change applies straight away and Paddle prorates the
 difference. The billing page says which applies to you before you confirm.
 
+**If I upgrade, do I pay the full price of the new plan?**
+No, you pay only the difference for the days left. Nothing you have paid is lost.
+For example, you pay for Fairway (₹3,299 a month) from 1 November and move to
+Harbor (₹12,499) on 16 November, with half the month left:
+
+- Paying in rupees: you have Harbor at once and nothing is charged that day. Your
+  renewal on 1 December is ₹12,499 for December plus ₹4,600, half of the ₹9,200
+  difference, for the rest of November: ₹17,099. From 1 January it is ₹12,499.
+- Paying in dollars: Paddle charges the difference for the rest of the month
+  straight away, and the next invoice on the same date is the new price.
+
+The billing page shows the exact amounts before you confirm.
+
+**If I downgrade, do I get money back?**
+Paying in rupees, no: you keep the plan you paid for until the end of the period,
+then the smaller plan starts and renews at its own price. Nothing is refunded for
+the rest of the period, because you still have everything until then. Paying in
+dollars, the change applies at once and Paddle credits the unused time against
+your next invoices. Either way nothing is deleted, and a downgrade is refused only
+while you use more than the smaller plan allows.
+
+**I upgraded, then downgraded in the same month. What do I pay?**
+The difference for the days you spent on the bigger plan is still owed, and is
+added to your next renewal with the smaller plan's price. You never pay twice for
+the same days.
+
+**When does my billing month start and end?**
+On the day and at the time you pay. A plan bought on 15 November at 3pm runs to
+15 December at 3pm, then renews for 15 December to 15 January, and so on. A plan
+bought on the 31st renews on the last day of shorter months (30 April, 28
+February) and goes back to the 31st when the month has one. An annual plan runs
+to the same date next year. There is no charge for a part month.
+
+**Can I switch between monthly and annual?**
+Yes. Paying in rupees, the switch applies when the current period ends, and the
+first charge on the new interval is the new price. Paying in dollars, it applies
+at once and Paddle prorates it like any other change. Annual costs ten months'
+price for twelve. Fleet is monthly only. The billing page shows when the switch applies before you confirm.
+
+**I added domains in the middle of the month on Fleet. Am I charged now?**
+No. Fleet is counted when each period starts and billed for that month, with no
+charge in between. A domain you add in the month is billed from the next renewal;
+one that stops reporting stops counting 30 days after its last report. You are
+always billed for at least the minimum of your band.
+
+**If I cancel, can I change my mind?**
+Yes, until the period ends: choose "Keep" on the billing page and nothing changes.
+After it ends the workspace moves to the free plan with everything kept, and
+buying a plan again begins a new period from that day.
+
+**Can I change the card or UPI account I pay with?**
+Paying in dollars, change it in Paddle's billing portal, from the billing page.
+Paying in rupees, write to support and we send you a payment link for your next
+renewal; the method you pay it with becomes the saved one. If a renewal cannot be
+charged to your saved method, the link comes to you by itself.
+
 **How are renewals paid in rupees?**
 At checkout you choose a card, UPI Autopay or a bank mandate (eNACH), pay the
 first period and approve automatic renewals up to a maximum. We email you three

@@ -182,7 +182,7 @@ export async function drainEmailQueue(limit = 25, now = new Date()): Promise<Ema
     const row = await prisma.emailDelivery.findUniqueOrThrow({ where: { id: due.id } });
 
     try {
-      await sendEmail({
+      const sent = await sendEmail({
         to: row.to,
         subject: row.subject,
         html: row.html,
@@ -192,9 +192,16 @@ export async function drainEmailQueue(limit = 25, now = new Date()): Promise<Ema
         ...(row.replyToHeader ? { replyTo: row.replyToHeader } : {}),
       });
 
+      // The row says what actually left: a message the provider refused from
+      // the agency's own address went from the shared one (session 14).
       await prisma.emailDelivery.update({
         where: { id: row.id },
-        data: { state: 'SENT', sentAt: new Date(), lastError: null },
+        data: {
+          state: 'SENT',
+          sentAt: new Date(),
+          lastError: sent?.fellBack ? `Sent from the shared address; the provider refused ${row.fromHeader ?? 'the agency address'}.` : null,
+          ...(sent?.fellBack ? { fromHeader: sent.sentFrom } : {}),
+        },
       });
       summary.sent += 1;
     } catch (error) {

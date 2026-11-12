@@ -382,7 +382,7 @@ and run with it.
 | ~~Sender owners~~: done in the session 3 fast pass (10 November 2026) | Fairway | 3 | |
 | ~~SPF check for unused includes~~: done in session 9 (11 November 2026) | Fairway | 9 | |
 | ~~Notifications page~~: done in session 7 (11 November 2026) | every plan | 7 | |
-| Agency custom-domain hosting on a real host (built after session 14, tested in dev only) | Admiralty | 14 (a short add-on), just before production | the production host and a second agency domain |
+| Agency custom-domain hosting with an agency zone outside our Cloudflare account (built after session 14; tested in dev on `portal.linkshift.in`, which is in our own account, so Cloudflare followed the CNAME by itself) | Admiralty | 14 (a short add-on), before production, through the tunnel | a domain whose DNS is not in our Cloudflare account: a cheap test domain on the registrar's own DNS, or a second Cloudflare account |
 | ~~The billing page's limit messages naming Fleet on Harbor and Admiralty~~: done in session 16 (11 November 2026) | Harbor, Admiralty | 16 | |
 
 | # | Session | Set up first | State |
@@ -398,8 +398,8 @@ and run with it.
 | 9 | Publishing DNS: Cloudflare connection, hosted DMARC, managed SPF, SPF sources in use, own report mailbox | a Cloudflare token | **final** (11 November 2026); zone import is in 20 |
 | 10 | Hosted BIMI, MTA-STS, TLS reports | a BIMI origin and Cloudflare for SaaS | **final** (9 November 2026), on `linkshift.in` through a tunnel; Gmail's logo needs a real VMC |
 | 11 | Billing: checkout, upgrade, downgrade, Fleet, failed payment, refund | Razorpay test keys, Paddle sandbox, a tunnel | **final** (12 November 2026): Paddle (USD) on 10 November, Razorpay Recurring Payments (INR) on 12 November |
-| 12 | White label: logo, colours, support contact, branded client emails | S3 keys for logos | **re-run** (Gemini) |
-| 13* | Client portal, approvals, share links, Trust Center, compliance packs, verifier, monthly reports, digests | sessions 2, 3 and 12 | **final** (11 November 2026); branded portal mail is checked again with 12 |
+| 12 | White label: logo, colours, support contact, branded client emails, and the branded portal mail left over from 13 (portal invitation, approval request, digest and monthly report, each with the logo) | S3 keys for logos | **re-run** (Gemini), just before production with the production bucket |
+| 13* | Client portal, approvals, share links, Trust Center, compliance packs, verifier, monthly reports, digests | sessions 2, 3 and 12 | **final** (11 November 2026); branded portal mail moved to 12 |
 | 14 | Admiralty: custom domain, agency sending domain, single sign-on | a second domain, a full-access Resend key, an SSO provider | **final** (9 November 2026), Auth0 for SSO; custom-domain hosting built and tested in dev after it |
 | 15* | Prospect reports, switch kit, usage export, API keys and the API | nothing | **fast pass done** (10 November 2026); the webhook API is in 8 |
 | 16* | Data export, erasure, audit trail, plan limits on every plan | nothing | **final** (11 November 2026) |
@@ -567,8 +567,8 @@ critical DNS changes were recorded as the monitor records them.
 
 **Open, for later sessions**
 
-- A role changed directly in the database took effect only after signing in again. Check in session 2 that a role changed under Members applies at once.
-- A receiver's 429 counts as a failure and its Retry-After is not honoured (the PSA queue honours it).
+- A role changed directly in the database took effect only after signing in again. Check in session 2 that a role changed under Members applies at once. **Checked (12 November):** it applies at once. A signed-in analyst was refused an export (403), was made admin in the database, and the same session's next request was allowed (200); made analyst again, refused again.
+- A receiver's 429 counts as a failure and its Retry-After is not honoured (the PSA queue honours it). **Fixed (12 November):** a 429 or 503 with Retry-After is retried after that wait (between one minute and twelve hours) instead of the schedule, and a 429 no longer counts towards suspending the endpoint; it still uses one of the delivery's attempts.
 - ConnectWise and Autotask are early access until run against a live account (launch checklist).
 
 ## Session 18: free tools, glossary and setup guides
@@ -692,9 +692,10 @@ The screens have no sideways scroll at 390 and 1440.
 
 **Open, for later sessions**
 
+- **Fixed (12 November):** every alert delivery now stores the message it carries, and each alert pass sends again any delivery a restart left pending for ten minutes, or one that failed, up to three attempts within a day, while the alert is still open. Rows are claimed before sending, so two instances never send one twice. Checked: an interrupted email row was sent on the next pass (attempt 2), one still in flight was left alone, and a second pass sent nothing. The note as found:
 - Haskerley Law's first reminder reached nobody: the API restarted (a code edit, under `tsx watch`) while it was being sent. The alert's level had already moved on, so the email row stayed pending and the Teams post was never made, and the next reminder came at the next level. A deploy during a reminder would do the same. Look at it in the session 7 re-run: record the level after sending, so a restart sends the same reminder again.
 - DNS changes and expiry warnings that happen while a workspace is on a plan without alerts are not sent after an upgrade. **Decided (9 November): kept.** A notice is about the moment; a backlog posted at upgrade would page people about changes that may be long fixed. The changes stay in the domain's DNS history, and an expiry still close after the upgrade is warned at its next rung.
-- An analyst cannot read the Slack and Teams screens (403), as for PSA and webhooks in session 8.
+- An analyst cannot read the Slack and Teams screens (403), as for PSA and webhooks in session 8. **Decided and fixed (12 November):** every team member (owner, admin, analyst, viewer) can now read where alerts go, with the addresses masked, because an analyst works the alerts and needs to know which channel has them. Changing a channel stays owner and admin. Client contacts (the portal role) are still refused. PSA and webhooks stay owner and admin: their screens hold delivery history and signing secrets, and nobody outside an admin acts on them. Checked: an analyst reads both channel lists (200) and is refused adding one (403).
 
 ## Session 20: Cloudflare zone import
 
@@ -930,8 +931,8 @@ with two users, `sso.staff@linkshift.in` (allowed domain) and
 **Open, for later sessions**
 
 - There is no single sign-on button or email lookup on the sign-in page: staff use the connection's own link ("Your team signs in at"), which the administrator has to hand out.
-- Agency domains are created in Resend's default region (`us-east-1`), our own in `ap-northeast-1`. There is no setting for it; decide with the sub-processor regions.
-- A message that fell back to the shared address keeps the agency's address in its queue row, so the record does not show the fallback.
+- Agency domains are created in Resend's default region (`us-east-1`), our own in `ap-northeast-1`. There is no setting for it; decide with the sub-processor regions. **Decided and fixed (12 November):** `RESEND_DOMAIN_REGION`, Ireland (`eu-west-1`) by default, beside the Frankfurt hosting. Our own `mail.dmarcharbor.com` is recreated in `eu-west-1` before launch (launch checklist). The Sub-processors page still says the United States, because Resend keeps account data and logs there whatever the sending region.
+- A message that fell back to the shared address keeps the agency's address in its queue row, so the record does not show the fallback. **Fixed (12 November):** the row now records the address it actually left from, with a note naming the refused one.
 - Session 14 sent with the full-access key (a second `RESEND_API_KEY` in the env block); remove it with the rest of the session's set-up.
 
 ## Session 2: workspace, team members, roles, invitations

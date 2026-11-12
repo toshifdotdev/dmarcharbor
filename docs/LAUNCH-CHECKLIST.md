@@ -154,6 +154,8 @@ Optional, for agencies with white label:
 CLIENT_EMAIL_FROM_ADDRESS=reports@mail-relay.example
 # Full-access Resend key, used only for agency sending domains (step 5b).
 RESEND_DOMAINS_API_KEY=...
+# Region agency sending domains are created in; matches our own.
+RESEND_DOMAIN_REGION=eu-west-1
 ```
 
 Client facing email from a white-labelled workspace (portal invitations,
@@ -236,6 +238,11 @@ verification and billing mail all go through it and all silently no-op
 otherwise.
 
 - Create a Resend account, verify the sending domain on DNS.
+- Sending region: `RESEND_DOMAIN_REGION` defaults to `eu-west-1` (Ireland) for
+  agencies' own sending domains. `mail.dmarcharbor.com` was created in
+  `ap-northeast-1` during testing; delete it in Resend and add it again in
+  `eu-west-1`, then publish the new DKIM record, so our mail and the agencies'
+  leave from one region.
 - Set `EMAIL_FROM` to a subdomain you can afford to have a DMARC record on.
 - Send one real message from a scratch account and confirm it arrives.
 - Add a DMARC record for the sending subdomain, starting at `p=none`.

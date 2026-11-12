@@ -10,7 +10,7 @@ import { slackDestinations } from '../controllers/chat-destinations.controller.j
 import { requireSession } from '../middleware/auth.middleware.js';
 import { slackTestRateLimiter } from '../middleware/rate-limit.middleware.js';
 import { onlyDisables, requireFeature, requireFeatureUnless } from '../middleware/entitlement.middleware.js';
-import { requireOrganizationPermission } from '../middleware/organization-permission.middleware.js';
+import { requireOrganizationPermission, requireWorkspaceTeam } from '../middleware/organization-permission.middleware.js';
 
 /**
  * Slack alerts.
@@ -39,7 +39,8 @@ export const slackRouter = Router();
 slackRouter.get(
   '/workspaces/:organizationId/slack-destination',
   requireSession,
-  requireOrganizationPermission('organization', 'read'),
+  // Every team member may see where alerts go (addresses masked); changing it is owner or admin.
+  requireWorkspaceTeam(),
   getSlackDestinationController,
 );
 
@@ -86,7 +87,8 @@ slackRouter.post(
 slackRouter.get(
   '/workspaces/:organizationId/slack-destinations',
   requireSession,
-  requireOrganizationPermission('organization', 'read'),
+  // Every team member may see where alerts go (addresses masked); changing it is owner or admin.
+  requireWorkspaceTeam(),
   slackDestinations.list,
 );
 

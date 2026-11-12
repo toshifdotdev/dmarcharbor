@@ -155,7 +155,11 @@ export function resendSendingDomainProvider(): SendingDomainProvider {
   return {
     async create(name) {
       const data = await call('domains.create', (resend) =>
-        resend.domains.create({ name, capabilities: { sending: 'enabled', receiving: 'disabled' } }),
+        resend.domains.create({
+        name,
+        region: env.RESEND_DOMAIN_REGION,
+        capabilities: { sending: 'enabled', receiving: 'disabled' },
+      } as Parameters<typeof resend.domains.create>[0]),
       );
       return { id: data.id, status: data.status, records: toRecords(data.records as ResendRecord[], data.name ?? name) };
     },

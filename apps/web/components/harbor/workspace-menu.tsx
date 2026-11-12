@@ -77,11 +77,11 @@ export function WorkspaceMenu({
         aria-label={`Workspace: ${active.name}. Switch workspace`}
         aria-busy={pending || undefined}
         className={clsx(
-          "group flex h-9 min-w-0 items-center gap-1.5 rounded-full px-3 text-left hover:bg-paper-3 data-[state=open]:bg-paper-3",
+          "group flex h-9 min-w-0 max-w-full items-center gap-1.5 rounded-full px-3 text-left hover:bg-paper-3 data-[state=open]:bg-paper-3",
           pending && "opacity-60",
         )}
       >
-        <span className={clsx("truncate text-ui font-semibold text-fg", compact ? "max-w-[30vw]" : "max-w-[260px]")}>
+        <span className={clsx("min-w-0 truncate text-ui font-semibold text-fg", compact ? "max-w-[30vw]" : "max-w-[260px]")}>
           {active.name}
         </span>
         <ChevronDown size={13} className="shrink-0 text-fg-3 transition-transform group-data-[state=open]:rotate-180" />

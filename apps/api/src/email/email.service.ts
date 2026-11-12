@@ -65,7 +65,14 @@ export function isUnverifiedSenderDomain(error: { message?: string | null; name?
   return /is not verified/i.test(message) || (error.name === 'validation_error' && /verif/i.test(message));
 }
 
-export async function sendEmail(message: EmailMessage): Promise<void> {
+/** What left: the From header the provider accepted, which may be the shared one. */
+export interface EmailSent {
+  sentFrom: string;
+  /** True when the agency's own address was refused and the shared one used. */
+  fellBack: boolean;
+}
+
+export async function sendEmail(message: EmailMessage): Promise<EmailSent> {
   if (env.EMAIL_PROVIDER === 'resend') {
     // A reserved address has no mailbox behind it; handing it to the provider
     // only earns a bounce (reserved-recipient.ts). The queue records it as SKIPPED.
@@ -109,7 +116,9 @@ export async function sendEmail(message: EmailMessage): Promise<void> {
         'Resend',
       );
 
-    let result = await attempt(message.from || env.EMAIL_FROM, message.idempotencyKey);
+    let sentFrom = message.from || env.EMAIL_FROM;
+    let fellBack = false;
+    let result = await attempt(sentFrom, message.idempotencyKey);
 
     /**
      * An agency's own sending domain that the provider no longer accepts.
@@ -132,6 +141,8 @@ export async function sendEmail(message: EmailMessage): Promise<void> {
           `[email] the provider refused ${refused} (${result.error.message}); sending from the shared address instead.`,
         );
         result = await attempt(fallback, message.idempotencyKey ? `${message.idempotencyKey}:shared-from` : undefined);
+        sentFrom = fallback;
+        fellBack = true;
       }
     }
 
@@ -139,7 +150,7 @@ export async function sendEmail(message: EmailMessage): Promise<void> {
       throw new Error(`Resend email delivery failed: ${result.error.message}`);
     }
 
-    return;
+    return { sentFrom, fellBack };
   }
 
   if (env.NODE_ENV === 'production') {
@@ -151,6 +162,7 @@ export async function sendEmail(message: EmailMessage): Promise<void> {
       message.replyTo ? ` reply-to ${message.replyTo}` : ''
     }\n${message.text}`,
   );
+  return { sentFrom: message.from || env.EMAIL_FROM, fellBack: false };
 }
 
 /**

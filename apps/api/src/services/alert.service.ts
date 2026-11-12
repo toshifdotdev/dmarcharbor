@@ -1,10 +1,5 @@
-import type {
-  AlertDeliveryKind,
-  AlertDeliveryStatus,
-  AlertMetric,
-  AlertOperator,
-  Prisma,
-} from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import type { AlertDeliveryKind, AlertDeliveryStatus, AlertMetric, AlertOperator } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
 import { env } from '../config/env.js';
 import { sendAuthEmail } from '../email/email.service.js';
@@ -627,6 +622,7 @@ const users = await prisma.user.findMany({
   for (const user of users) {
     await deliverToUser(user, {
       eventId,
+      organizationId,
       kind: 'ALERT',
       subject,
       body,
@@ -715,6 +711,14 @@ async function deliverToSlack(input: {
     return;
   }
 
+  const message: DeliveryMessage = {
+    organizationId: input.organizationId,
+    subject: input.subject,
+    body: input.body,
+    risk: input.risk,
+    domainName: input.domainName,
+    route: input.route,
+  };
   const created = await prisma.alertDelivery.createManyAndReturn({
     data: [
       {
@@ -724,6 +728,7 @@ async function deliverToSlack(input: {
         kind: input.kind,
         status: 'PENDING',
         reminderLevel: input.reminderLevel,
+        message: message as unknown as Prisma.InputJsonValue,
       },
     ],
     skipDuplicates: true,
@@ -734,35 +739,168 @@ async function deliverToSlack(input: {
     return;
   }
 
+  // A failed post is recorded FAILED and sent again by `retryAlertDeliveries`.
+  await sendSlackDelivery(delivery.id, message, 1);
+}
+
+/**
+ * What an alert delivery carries, stored on its row so the row can be sent
+ * again without the rule evaluation that produced it.
+ */
+interface DeliveryMessage {
+  organizationId: string;
+  subject: string;
+  body: string;
+  risk: 'high' | 'medium';
+  domainName?: string;
+  domainSlug?: string;
+  organizationName?: string;
+  route?: { kind: ChatKind; clientId: string | null };
+}
+
+async function sendSlackDelivery(deliveryId: string, message: DeliveryMessage, attempts: number): Promise<void> {
   const result = await deliverSlackAlert({
-    organizationId: input.organizationId,
-    scope: input.route,
+    organizationId: message.organizationId,
+    scope: message.route ?? { kind: 'failures', clientId: null },
     message: {
-      subject: input.subject,
-      body: input.body,
-      domainName: input.domainName,
-      risk: input.risk,
+      subject: message.subject,
+      body: message.body,
+      domainName: message.domainName ?? '',
+      risk: message.risk,
     },
   });
+  await settleDelivery(deliveryId, attempts, result);
+}
 
-  if (!result.delivered) {
-    // The row is still written when a destination exists but the post failed, so
-    // the reminder level does not advance and re-send on the next tick.
-    await prisma.alertDelivery.update({
-      where: { id: delivery.id },
-      data: {
-        status: result.error ? 'FAILED' : 'SKIPPED_DISABLED',
-        attempts: 1,
-        lastError: result.error ?? null,
-      },
+async function sendTeamsDelivery(deliveryId: string, message: DeliveryMessage, attempts: number): Promise<void> {
+  const result = await deliverTeamsAlert({
+    organizationId: message.organizationId,
+    scope: message.route ?? { kind: 'failures', clientId: null },
+    message: {
+      subject: message.subject,
+      body: message.body,
+      domainName: message.domainName ?? '',
+      workspaceName: message.organizationName ?? '',
+      risk: message.risk,
+      linkPath: message.domainSlug ? `/domains/${message.domainSlug}` : '/alerts',
+    },
+  });
+  await settleDelivery(deliveryId, attempts, result);
+}
+
+async function sendEmailDelivery(deliveryId: string, to: string, message: DeliveryMessage, kind: AlertDeliveryKind, attempts: number): Promise<void> {
+  try {
+    // The text is the body as written; the HTML sets it in our layout with a
+    // way to the alerts page, where it can be acknowledged.
+    const rendered = alertEmail({ subject: message.subject, body: message.body, kind, appUrl: env.APP_URL });
+    await sendAuthEmail({ to, subject: message.subject, text: message.body, html: rendered.html });
+    await settleDelivery(deliveryId, attempts, { delivered: true });
+  } catch (error) {
+    await settleDelivery(deliveryId, attempts, {
+      delivered: false,
+      error: error instanceof Error ? error.message : 'Unknown delivery error.',
     });
-    return;
+  }
+}
+
+/** Records how a send went. A channel removed since is SKIPPED_DISABLED, not a failure. */
+async function settleDelivery(
+  deliveryId: string,
+  attempts: number,
+  result: { delivered: boolean; error?: string | null },
+): Promise<void> {
+  await prisma.alertDelivery.update({
+    where: { id: deliveryId },
+    data: result.delivered
+      ? { status: 'SENT', attempts, sentAt: new Date(), lastError: null }
+      : { status: result.error ? 'FAILED' : 'SKIPPED_DISABLED', attempts, lastError: result.error ?? null },
+  });
+}
+
+/** A row the process left PENDING is taken to be interrupted after this long. */
+const interruptedAfterMs = 10 * 60 * 1000;
+/** Every delivery is tried at most this many times, including the first. */
+const maxDeliveryAttempts = 3;
+/** Older than this, a notice is about a moment that has passed, and is left alone. */
+const retryWindowMs = 24 * 60 * 60 * 1000;
+
+/**
+ * Sends again every alert delivery that did not go out: one a restart or
+ * deploy interrupted (still PENDING after ten minutes) and one that failed
+ * (Slack, Teams or the mail provider refused it), up to three attempts in
+ * all, within a day, and only while the alert is still open.
+ *
+ * Session 7: the API restarted while a reminder was going out. The reminder
+ * level had already moved on, so the email row stayed PENDING, the Teams post
+ * was never made, and the next notice was a level later; the reminder in
+ * between reached nobody. The level still moves first (the unique key on the
+ * level is what stops two instances sending the same reminder), and this pass
+ * makes sure every delivery that level created is sent.
+ *
+ * Each row is claimed by a conditional update before sending, so two
+ * instances never send it twice. A send that succeeded but whose result was
+ * not recorded before a crash can go out twice: at least once, by design,
+ * because a missed security alert is worse than a duplicate.
+ */
+export async function retryAlertDeliveries(now = new Date()): Promise<{ retried: number; sent: number }> {
+  const rows = await prisma.alertDelivery.findMany({
+    where: {
+      message: { not: Prisma.DbNull },
+      attempts: { lt: maxDeliveryAttempts },
+      createdAt: { gt: new Date(now.getTime() - retryWindowMs) },
+      OR: [
+        { status: 'FAILED' },
+        { status: 'PENDING', createdAt: { lt: new Date(now.getTime() - interruptedAfterMs) } },
+      ],
+      event: { acknowledgedAt: null, resolvedAt: null },
+    },
+    select: {
+      id: true,
+      status: true,
+      attempts: true,
+      channel: true,
+      kind: true,
+      message: true,
+      user: { select: { email: true } },
+    },
+    orderBy: { createdAt: 'asc' },
+    take: 200,
+  });
+
+  let retried = 0;
+  for (const row of rows) {
+    const message = row.message as unknown as DeliveryMessage;
+    const attempts = row.attempts + 1;
+    const claim = await prisma.alertDelivery.updateMany({
+      where: { id: row.id, status: row.status, attempts: row.attempts },
+      data: { status: 'PENDING', attempts },
+    });
+    if (claim.count !== 1) {
+      continue;
+    }
+    retried += 1;
+
+    if (row.channel === 'EMAIL') {
+      // Someone removed from the workspace since is not emailed its alerts.
+      const stillMember = await prisma.member.count({
+        where: { organizationId: message.organizationId, user: { email: row.user.email } },
+      });
+      if (!stillMember) {
+        await settleDelivery(row.id, attempts, { delivered: false });
+        continue;
+      }
+      await sendEmailDelivery(row.id, row.user.email, message, row.kind, attempts);
+    } else if (row.channel === 'SLACK') {
+      await sendSlackDelivery(row.id, message, attempts);
+    } else if (row.channel === 'TEAMS') {
+      await sendTeamsDelivery(row.id, message, attempts);
+    }
   }
 
-  await prisma.alertDelivery.update({
-    where: { id: delivery.id },
-    data: { status: 'SENT', attempts: 1, sentAt: new Date() },
-  });
+  const sent = retried
+    ? await prisma.alertDelivery.count({ where: { id: { in: rows.map((row) => row.id) }, status: 'SENT' } })
+    : 0;
+  return { retried, sent };
 }
 
 /**
@@ -804,6 +942,16 @@ async function deliverToTeams(input: {
     return;
   }
 
+  const message: DeliveryMessage = {
+    organizationId: input.organizationId,
+    organizationName: input.organizationName,
+    subject: input.subject,
+    body: input.body,
+    risk: input.risk,
+    domainName: input.domainName,
+    domainSlug: input.domainSlug,
+    route: input.route,
+  };
   const created = await prisma.alertDelivery.createManyAndReturn({
     data: [
       {
@@ -813,6 +961,7 @@ async function deliverToTeams(input: {
         kind: input.kind,
         status: 'PENDING',
         reminderLevel: input.reminderLevel,
+        message: message as unknown as Prisma.InputJsonValue,
       },
     ],
     skipDuplicates: true,
@@ -823,35 +972,7 @@ async function deliverToTeams(input: {
     return;
   }
 
-  const result = await deliverTeamsAlert({
-    organizationId: input.organizationId,
-    scope: input.route,
-    message: {
-      subject: input.subject,
-      body: input.body,
-      domainName: input.domainName,
-      workspaceName: input.organizationName,
-      risk: input.risk,
-      linkPath: `/domains/${input.domainSlug}`,
-    },
-  });
-
-  if (!result.delivered) {
-    await prisma.alertDelivery.update({
-      where: { id: delivery.id },
-      data: {
-        status: result.error ? 'FAILED' : 'SKIPPED_DISABLED',
-        attempts: 1,
-        lastError: result.error ?? null,
-      },
-    });
-    return;
-  }
-
-  await prisma.alertDelivery.update({
-    where: { id: delivery.id },
-    data: { status: 'SENT', attempts: 1, sentAt: new Date() },
-  });
+  await sendTeamsDelivery(delivery.id, message, 1);
 }
 
 async function deliverToUser(
@@ -868,6 +989,7 @@ async function deliverToUser(
   },
   options: {
     eventId: string;
+    organizationId: string;
     kind: 'ALERT' | 'ROLLUP';
     subject: string;
     body: string;
@@ -900,8 +1022,20 @@ async function deliverToUser(
   // createManyAndReturn rather than create, because create throws on the unique
   // violation that is the expected outcome here, and because the returned row is
   // needed to mark the delivery sent.
+  const message: DeliveryMessage = { organizationId: options.organizationId, subject, body, risk };
   const created = await prisma.alertDelivery.createManyAndReturn({
-    data: [{ eventId, userId: user.id, channel: 'EMAIL', kind, status, reminderLevel }],
+    data: [
+      {
+        eventId,
+        userId: user.id,
+        channel: 'EMAIL',
+        kind,
+        status,
+        reminderLevel,
+        // Only a row that is meant to be sent is ever sent again.
+        ...(status === 'PENDING' ? { message: message as unknown as Prisma.InputJsonValue } : {}),
+      },
+    ],
     skipDuplicates: true,
   });
 
@@ -914,25 +1048,7 @@ async function deliverToUser(
     return;
   }
 
-  try {
-    // The text is the body as written; the HTML sets it in our layout with a
-    // way to the alerts page, where it can be acknowledged.
-    const rendered = alertEmail({ subject, body, kind, appUrl: env.APP_URL });
-    await sendAuthEmail({ to: user.email, subject, text: body, html: rendered.html });
-    await prisma.alertDelivery.update({
-      where: { id: delivery.id },
-      data: { status: 'SENT', attempts: 1, sentAt: new Date() },
-    });
-  } catch (error) {
-    await prisma.alertDelivery.update({
-      where: { id: delivery.id },
-      data: {
-        status: 'FAILED',
-        attempts: 1,
-        lastError: error instanceof Error ? error.message : 'Unknown delivery error.',
-      },
-    });
-  }
+  await sendEmailDelivery(delivery.id, user.email, message, kind, 1);
 }
 
 export interface RuleEvaluationResult {
@@ -1435,6 +1551,7 @@ export async function runAlertRollups(now = new Date()): Promise<RollupResult[]>
       for (const member of admins) {
         await deliverToUser(member.user, {
           eventId: event.id,
+          organizationId,
           kind: 'ROLLUP',
           subject,
           body,

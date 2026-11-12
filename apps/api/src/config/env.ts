@@ -96,6 +96,14 @@ const envSchema = z.object({
   ),
   RESEND_API_KEY: optionalSecret,
   /**
+   * The Resend region an agency's own sending domain is created in. Ours and
+   * theirs should match, so every message leaves from the one region the
+   * Sub-processors page names. Ireland by default, the EU region, beside the
+   * Frankfurt hosting (session 14 found agency domains in us-east-1 and ours
+   * in ap-northeast-1, because nothing chose).
+   */
+  RESEND_DOMAIN_REGION: z.enum(['us-east-1', 'eu-west-1', 'sa-east-1', 'ap-northeast-1']).default('eu-west-1'),
+  /**
    * A full-access Resend key used only to add, check and remove an agency's
    * own sending domain (services/branding/sending-domain-provider.ts).
    *

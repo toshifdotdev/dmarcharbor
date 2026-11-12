@@ -121,15 +121,21 @@ export function mandateMaxFor(method: MandateMethod, chargeMinor: number): numbe
 }
 
 /**
- * The same day one interval later, in UTC, clamped to the month's last day
- * (31 January plus a month is 28 or 29 February, never 3 March).
+ * One billing period on from `start`: the same day next month (or next year),
+ * in UTC, clamped to the month's last day (31 January plus a month is 28 or 29
+ * February, never 3 March).
+ *
+ * `anchorDay` is the day of the month the subscription started on. Without it
+ * a plan bought on 31 January renews on 28 February and then on the 28th for
+ * ever; with it the renewal goes back to the 31st (or the month's last day)
+ * each month, the way Paddle bills and the way people expect.
  */
-export function addInterval(start: Date, interval: BillingInterval): Date {
+export function addInterval(start: Date, interval: BillingInterval, anchorDay?: number): Date {
   const months = interval === 'annual' ? 12 : 1;
   const year = start.getUTCFullYear();
   const month = start.getUTCMonth() + months;
   const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-  const day = Math.min(start.getUTCDate(), lastDay);
+  const day = Math.min(anchorDay ?? start.getUTCDate(), lastDay);
   return new Date(
     Date.UTC(year, month, day, start.getUTCHours(), start.getUTCMinutes(), start.getUTCSeconds(), start.getUTCMilliseconds()),
   );

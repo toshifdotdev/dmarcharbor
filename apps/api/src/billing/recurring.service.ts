@@ -457,6 +457,19 @@ async function renewOne(row: RenewableRow, now: Date): Promise<keyof Omit<Renewa
 }
 
 /**
+ * The day of the month the subscription first started, in UTC, so every later
+ * period ends on that day (or the month's last day when it is shorter). Null
+ * for a subscription with no captured first payment.
+ */
+async function anchorDayFor(subscriptionKey: string): Promise<number | undefined> {
+  const first = await prisma.billingCharge.findFirst({
+    where: { subscriptionKey, kind: 'FIRST', status: 'CAPTURED' },
+    select: { periodStart: true },
+  });
+  return first?.periodStart.getUTCDate();
+}
+
+/**
  * A receipt unique to one renewal attempt: the subscription, the period it
  * pays and the attempt. Razorpay refuses a registration link whose receipt it
  * has seen before, so the period date has to be in it. Within 40 characters.
@@ -500,7 +513,7 @@ async function scheduleTokenRenewal(
         interval: toStored(input.interval),
         quantity: input.quantity,
         periodStart: end,
-        periodEnd: addInterval(end, input.interval),
+        periodEnd: addInterval(end, input.interval, await anchorDayFor(key)),
         status: 'SCHEDULED',
         attempt: input.attempt,
         // Cleared from the subscription when this charge is captured, not now.
@@ -650,7 +663,7 @@ async function sendRenewalLink(
         interval: toStored(input.interval),
         quantity: input.quantity,
         periodStart: end,
-        periodEnd: addInterval(end, input.interval),
+        periodEnd: addInterval(end, input.interval, await anchorDayFor(key)),
         status: 'PENDING',
         attempt: input.attempt,
         carryOverMinor: input.carryOverMinor,
