@@ -102,7 +102,9 @@ export const subProcessors: SubProcessor[] = [
     name: 'Migadu',
     purpose: 'Hosted mailbox that receives aggregate and forensic reports',
     data: 'Inbound report messages, which may contain recipient email addresses',
-    region: 'Not confirmed yet',
+    // Migadu support, 12 November 2026: stored and processed only in the EEA
+    // and Switzerland, on OVHcloud in France, Germany and the Netherlands.
+    region: 'EEA and Switzerland (OVHcloud: France, Germany, Netherlands)',
   },
   {
     name: 'Razorpay',

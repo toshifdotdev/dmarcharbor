@@ -18,7 +18,7 @@ work in good faith to resolve it, including discussing alternatives.
 | **Cloudflare** | Email routing and the report ingress Worker; the DNS zone that serves records you delegate to us (hosted DMARC, SPF and BIMI); Cloudflare for SaaS, which serves hosted MTA-STS policy files | Raw DMARC report messages in transit only, which the Worker forwards and does not store. Public DNS values and policy files | Global edge |
 | **Amazon Web Services** | Hosts the application and API servers, and object storage for workspace logos (S3) | All data the application processes while it runs, and the logo files you upload | European Union (Frankfurt) |
 | **Neon** | Primary PostgreSQL database, including its backups | All stored data | European Union (Frankfurt) |
-| **Migadu** | Hosted mailbox that receives aggregate and forensic reports | Inbound report messages, which may contain recipient email addresses | **TBD**: confirm before publication |
+| **Migadu** | Hosted mailbox that receives aggregate and forensic reports | Inbound report messages, which may contain recipient email addresses | EEA and Switzerland (OVHcloud data centres in France, Germany and the Netherlands) |
 | **Razorpay** | Subscription billing in Indian rupees, as payment gateway | Company name, billing contact email, plan and amount. **Not your DMARC data** | India |
 | **Paddle** | Subscription billing in US dollars, as merchant of record | Company name, billing contact email, plan and amount. **Not your DMARC data** | Provider's region |
 | **Google and Microsoft** (optional sign-in) | Federated sign-in | Name, email address, and provider identifier. Only if you use social sign-in | Provider's region |
@@ -67,10 +67,5 @@ lookups to each domain's registry over RDAP, send only the domain name.
 | Pseudonymised recipient identifiers | Never leave our database |
 | Passwords and session tokens | Never transmitted to any third party |
 
-## Before launch
-
-One item is still open: the country where Migadu stores the report mailbox. It is
-marked **TBD** in the table until Migadu confirms it, and must be filled before this
-page is published.
 
 

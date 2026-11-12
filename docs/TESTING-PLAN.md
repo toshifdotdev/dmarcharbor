@@ -163,7 +163,33 @@ re-price an announced renewal, and "Keep" scheduled the same plan instead of
 clearing it; a charge whose webhook never arrives now settles from Razorpay.
 
 Not covered in test mode: a real bank's decline on a token charge (simulated
-with a signed webhook), and the bank's own approval step above ₹15,000.
+with a signed webhook), and the bank's own approval step above ₹15,000. Both
+need the live account, so they run on the deployed staging host with live keys,
+after Razorpay confirms Recurring Payments on live:
+
+1. **Live setup.** Recurring Payments on for cards, UPI and eMandate; the live
+   webhook with the events in `docs/BILLING.md`; the business name on the
+   payment page reads "DMARC Harbor". One signed webhook reaches the API.
+2. **Real decline.** A staff test workspace buys Fairway monthly by card with
+   our own debit card. Its period end is moved to 2 days ahead so the renewal
+   is announced; the bank's pre-debit SMS is checked. Before the charge, turn
+   off online or e-commerce use for that card in the bank's app. The charge
+   must fail with a real `payment.failed`, the row go PAST_DUE, and a payment
+   link be emailed. Turn the card back on and pay the link: the plan renews
+   and the mandate is replaced.
+3. **Approval above ₹15,000.** In the same workspace, upgrade to Harbor: the
+   next renewal is ₹12,499 plus the carried difference, above ₹15,000. Bring
+   the period end forward again. The bank must send its approval request with
+   the notice. Approve it once: the charge captures. On a second run, leave it
+   unapproved: the charge must stay pending, settle as failed (or after three
+   days fall back), and a payment link go out.
+4. **eNACH on live.** One eNACH mandate through netbanking, to see how many
+   days the bank takes to confirm it (`token.confirmed`) and when the first
+   payment lands.
+5. **Clean up.** Refund the first payment through the staff route, the
+   renewals from the Razorpay dashboard, cancel the subscription, and check
+   the mandates are cancelled at the bank. Razorpay keeps its fee on a refund
+   (about 2%), so the whole check costs roughly ₹500.
 
 ### Razorpay Recurring Payments: the build list (done)
 

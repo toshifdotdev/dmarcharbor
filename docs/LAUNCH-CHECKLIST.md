@@ -514,8 +514,9 @@ Neon; the Sub-processors page, the Trust Center list, the Privacy Policy
 
 - [x] Name each sub-processor and its jurisdiction: Resend United States, AWS
       and Neon Frankfurt, Razorpay India.
-- [ ] Migadu's data-centre country: asked by email; fill it on the
-      Sub-processors page and in `trust/trust-center.service.ts` when they answer.
+- [x] Migadu's data-centre country: the EEA and Switzerland, on OVHcloud in
+      France, Germany and the Netherlands (Migadu support, 12 November 2026).
+      Filled on the Sub-processors page, the DPA and the Trust Center.
 - [x] EU-only residency as a feature: no; everything is in the EU already.
 - [ ] Set `DATA_RESIDENCY_REGION=European Union (Frankfurt)` in production, which
       replaces "Not confirmed yet" on the Trust Center and compliance packs.

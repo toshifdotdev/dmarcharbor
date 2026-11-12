@@ -149,7 +149,8 @@ within **90 days**, except as retained under section 6.
 Personal Data is stored in the European Union (Frankfurt). It leaves the EU only
 where a sub-processor listed on the Sub-processors page is elsewhere (for example
 Resend, in the United States, for email), and where the Processor itself acts
-from India.
+from India. Report messages held by Migadu stay in the EEA and Switzerland;
+Switzerland has an adequacy decision, so no further safeguard is needed for it.
 
 For each such transfer of Personal Data from the EU, the EEA or Switzerland, the
 EU Standard Contractual Clauses (Commission Decision 2021/914, Module 2 for this
@@ -304,8 +305,8 @@ over any dispute arising from it, with these exceptions, which prevail:
 ## Items that must be completed before signature
 
 1. ~~Hosting platform, region, and the resulting transfer mechanism~~: done
-   (AWS and Neon in Frankfurt; section 5.10). Migadu's data-centre country is
-   still to be confirmed on the Sub-processors page
+   (AWS and Neon in Frankfurt; section 5.10). Migadu confirmed the EEA and
+   Switzerland (OVHcloud in France, Germany and the Netherlands)
 2. ~~Payment processor~~: done (Razorpay for INR, Paddle for USD, both on the
    Sub-processors page)
 3. ~~Backup schedule and recovery objectives~~: done (section 7)

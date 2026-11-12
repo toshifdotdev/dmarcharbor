@@ -53,7 +53,8 @@ team cannot use it.
 **To resolve:**
 
 1. Done (12 November 2026): sub-processors named with regions; data is in the
-   EU (Frankfurt) on AWS and Neon. Migadu's data-centre country is still asked.
+   EU (Frankfurt) on AWS and Neon; Migadu keeps report mail in the EEA and
+   Switzerland (OVHcloud in France, Germany and the Netherlands).
 2. Decided: no separate EU-only tier; everything is in the EU.
 3. Set `DATA_RESIDENCY_REGION=European Union (Frankfurt)` at deployment.
 
