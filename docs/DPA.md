@@ -11,9 +11,6 @@ is written to satisfy equivalent requirements elsewhere.
 Where this agreement conflicts with the Terms of Service, this agreement prevails
 for the subject matter of Processing.
 
-> **Reviewer note:** this is a technically accurate draft built from what the
-> product actually does. It requires legal review before signature.
-
 ---
 
 ## 1. Definitions
@@ -299,19 +296,3 @@ over any dispute arising from it, with these exceptions, which prevail:
   courts of England and Wales.
 - Nothing in this section limits the powers of a supervisory authority, or a data
   subject's right to complain to one.
-
----
-
-## Items that must be completed before signature
-
-1. ~~Hosting platform, region, and the resulting transfer mechanism~~: done
-   (AWS and Neon in Frankfurt; section 5.10). Migadu confirmed the EEA and
-   Switzerland (OVHcloud in France, Germany and the Netherlands)
-2. ~~Payment processor~~: done (Razorpay for INR, Paddle for USD, both on the
-   Sub-processors page)
-3. ~~Backup schedule and recovery objectives~~: done (section 7)
-4. ~~Governing law and jurisdiction~~: done (section 11)
-5. ~~Company legal name and registered address~~: done (Mohd Toshif, sole
-   proprietor trading as DMARC Harbor, Udyam registered; the address as on the
-   Udyam registration)
-6. Legal review

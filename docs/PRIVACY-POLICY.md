@@ -1,12 +1,10 @@
 # DMARC Harbor: Privacy Policy
 
-**Status:** draft for legal review. Effective date to be set at launch.
+**Effective date:** [EFFECTIVE DATE]
 **Applies to:** the DMARC Harbor API and the dmarcharbor.com service.
 
-> **Reviewer note:** this document describes what the software actually does. The
-> technical statements are derived from the running configuration, not from
-> marketing. A privacy policy that guesses is worse than no privacy policy, so
-> every statement here is checked against the product before it changes.
+This policy describes what the software actually does, checked against the
+product each time either changes.
 
 ---
 
@@ -183,12 +181,3 @@ We will notify you by email **30 days** before a material change to this policy.
 ## 13. Contact
 
 Privacy questions: privacy@dmarcharbor.com
-
----
-
-## Items that must be completed before publication
-
-1. Hosting region and international transfer mechanism
-2. Effective date and company legal name
-3. Supervisory authority, if one applies
-4. Legal review

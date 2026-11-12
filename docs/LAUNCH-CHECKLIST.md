@@ -527,6 +527,12 @@ Neon; the Sub-processors page, the Trust Center list, the Privacy Policy
 - [x] EU-only residency as a feature: no; everything is in the EU already.
 - [ ] Set `DATA_RESIDENCY_REGION=European Union (Frankfurt)` in production, which
       replaces "Not confirmed yet" on the Trust Center and compliance packs.
+- [ ] Fill `[EFFECTIVE DATE]` in `docs/PRIVACY-POLICY.md` on launch day.
+- [ ] Optional: a lawyer's review of the DPA and Privacy Policy. Not required to
+      launch; worth doing before signing an enterprise customer's own DPA.
+- [ ] Decide whether an EU Art. 27 representative is needed. It applies only to
+      a business outside the EU that serves EU customers regularly; revisit
+      once EU customers sign up.
 
 A non-EU sub-processor is not automatically unlawful. Standard Contractual
 Clauses plus a signed DPA make a transfer lawful. The gap is paperwork and

@@ -214,6 +214,7 @@ export function BillingBoard({
 
   const shared = {
     current,
+    currentInterval,
     pendingTier,
     organizationId,
     provider,
@@ -442,6 +443,8 @@ interface RowProps {
   canChange: boolean;
   contact: { name: string; email: string } | null;
   fleetQuote: BillingStatus["perDomainQuote"] | null;
+  /** The interval the workspace is billed on now. */
+  currentInterval: Interval;
   /** The plan ladder through this row: the line above and below its station. */
   ladder: { above: Segment; below: Segment; station: "passed" | "here" | "ahead" };
 }
@@ -462,10 +465,23 @@ function PlanRow(props: RowProps) {
   const quoteTotal = quote.totalMinor;
   const measuredDomains = props.fleetQuote?.activeDomains ?? 0;
 
+  // The plan already held, on the other billing period: a switch between
+  // monthly and annual (rupees: at the period end; dollars: at once, prorated).
+  const switching =
+    isCurrent && hasSubscription && !free && interval !== props.currentInterval && plan.intervals.includes(interval);
+  // A pending change to the same plan is a scheduled switch of period.
+  const intervalPending = isCurrent && hasSubscription && pendingTier === plan.tier;
+
   const action: Action = isCurrent
-    ? pendingTier && pendingTier !== plan.tier && hasSubscription
-      ? "keep"
-      : "current"
+    ? intervalPending
+      ? interval === props.currentInterval
+        ? "keep"
+        : "current"
+      : pendingTier && pendingTier !== plan.tier && hasSubscription
+        ? "keep"
+        : switching
+          ? "change"
+          : "current"
     : hasSubscription
       ? free
         ? "cancel"
@@ -474,7 +490,16 @@ function PlanRow(props: RowProps) {
         ? "blocked"
         : "checkout";
 
-  const verb = action === "checkout" ? `Choose ${plan.label}` : action === "keep" ? `Keep ${plan.label}` : `Move to ${plan.label}`;
+  const verb =
+    action === "checkout"
+      ? `Choose ${plan.label}`
+      : action === "keep"
+        ? intervalPending
+          ? `Keep ${props.currentInterval === "annual" ? "annual" : "monthly"} billing`
+          : `Keep ${plan.label}`
+        : switching
+          ? `Switch to ${interval === "annual" ? "annual" : "monthly"} billing`
+          : `Move to ${plan.label}`;
 
   return (
     <article
@@ -623,6 +648,8 @@ function Decision(props: RowProps & { action: Action; verb: string }) {
   const router = useRouter();
   const id = useId();
   const { plan, current, action, provider, periodEnd, currency, interval, chargeable, capabilitiesKnown, organizationId, contact } = props;
+  /** A switch between monthly and annual on the plan already held. */
+  const samePlan = current?.tier === plan.tier;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ message: string; overage: PlanOverageRow[] } | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -776,9 +803,20 @@ function Decision(props: RowProps & { action: Action; verb: string }) {
 
   return (
     <div className="flex flex-col gap-4 rounded-sheet border border-rule-2 px-4 py-4 sm:px-5" data-testid={`plan-decision-${plan.tier}`}>
-      <p className="text-body font-bold text-fg">{action === "keep" ? `Keep ${plan.label}` : `From ${currentLabel} to ${plan.label}`}</p>
+      <p className="text-body font-bold text-fg">
+        {action === "keep"
+          ? props.verb
+          : samePlan
+            ? `${plan.label}, from ${props.currentInterval === "annual" ? "annual" : "monthly"} to ${interval === "annual" ? "annual" : "monthly"} billing`
+            : `From ${currentLabel} to ${plan.label}`}
+      </p>
 
-      {action !== "keep" ? (
+      {samePlan && action === "change" ? (
+        <p className="text-meta text-fg-2">
+          The same plan, features and limits; only how often it is billed changes.
+          {interval === "annual" ? " Annual is billed once a year at ten months' price." : " Monthly is billed every month at the monthly price."}
+        </p>
+      ) : action !== "keep" ? (
         <div className="grid gap-x-10 gap-y-4 md:grid-cols-2">
           <div className="flex flex-col gap-3">
             {gains.length ? (

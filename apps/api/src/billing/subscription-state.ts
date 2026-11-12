@@ -270,9 +270,15 @@ export async function applyBillingEvent(event: BillingEvent): Promise<ApplyEvent
      * told "scheduled for cycle end" and kept paying the higher price for ever.
      */
     const arrivingMatchesPending = pendingPlan !== null && resolvedPlan === pendingPlan;
+    // A pending change to the plan already held is a switch of billing period
+    // (monthly to annual or back). Every event names that plan, a routine
+    // reconciliation included, so "the pending plan arrived" says nothing about
+    // it: it is cleared when it takes effect at the period end
+    // (`applyDuePendingPlans`), never by an event.
+    const intervalSwitch = pendingPlan !== null && pendingPlan === prior?.plan;
     const keepPending =
       pendingPlan !== null &&
-      !arrivingMatchesPending &&
+      (!arrivingMatchesPending || intervalSwitch) &&
       resolvedPlan !== 'MOORING';
 
     // Only an integer of at least one is a quantity. Anything else is left out
@@ -653,6 +659,9 @@ export async function applyDuePendingPlans(now = new Date()): Promise<{ applied:
           pendingPlanInterval: null,
           quantity: billable.quantity,
           quantitySyncedPeriodEnd: null,
+          // The interval the change was for is now the one billed, so a renewal
+          // priced after this point uses it too.
+          ...(subscription.pendingPlanInterval ? { billingInterval: subscription.pendingPlanInterval } : {}),
         },
       });
 
