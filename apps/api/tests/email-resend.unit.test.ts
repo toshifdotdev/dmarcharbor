@@ -227,7 +227,8 @@ describe('the Resend sending domain provider', () => {
 
     expect(resend.domainCalls[0]).toEqual({
       method: 'create',
-      argument: { name: 'mail.wistholm.example', capabilities: { sending: 'enabled', receiving: 'disabled' } },
+      // In the configured region (RESEND_DOMAIN_REGION, Ireland by default), beside our own.
+      argument: { name: 'mail.wistholm.example', region: 'eu-west-1', capabilities: { sending: 'enabled', receiving: 'disabled' } },
     });
     expect(created.id).toBe('d_123');
     expect(created.status).toBe('not_started');
