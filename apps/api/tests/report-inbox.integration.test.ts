@@ -1,10 +1,15 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { ingestDmarcReport, ingestDmarcReportByPolicyDomain } from '../src/services/report.service.js';
 import { grantPlan } from './helpers/plan.js';
-import { configureInbox, inboxStatus, InboxError } from '../src/services/report/imap-inbox.service.js';
+import {
+  configureInbox,
+  inboxStatus,
+  InboxError,
+  setInboxLoginCheckForTests,
+} from '../src/services/report/imap-inbox.service.js';
 
 /**
  * Emailed report collection and the deduplication it depends on.
@@ -205,6 +210,9 @@ describe('report identity deduplication', () => {
 describe('mailbox settings', () => {
   beforeAll(resetDatabase);
   beforeEach(resetDatabase);
+  // Saving signs in to the mailbox first; these fixtures use made-up passwords.
+  beforeEach(() => setInboxLoginCheckForTests(async () => undefined));
+  afterAll(() => setInboxLoginCheckForTests(null));
 
   it('stores the password encrypted and never returns it', async () => {
     const { organizationId } = await setup();

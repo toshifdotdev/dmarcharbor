@@ -137,6 +137,66 @@ export async function configureInbox(organizationId: string, settings: InboxSett
   });
 }
 
+/**
+ * Signs in to the mailbox once and opens INBOX, then signs out.
+ *
+ * Run before the settings are saved, the way a Cloudflare token is checked
+ * when it is added. Without it a wrong password was accepted silently and
+ * only showed up on "Collect now" or the next scheduled poll, possibly days
+ * later as a gap in reports (session 9). The host is resolved and pinned
+ * exactly as the poll does, so the check cannot be pointed somewhere the poll
+ * would refuse.
+ */
+async function defaultLoginCheck(settings: Required<Pick<InboxSettings, 'host' | 'username' | 'password'>> & { port: number; secure: boolean }): Promise<void> {
+  const checked = await assertPublicHostForPoll(settings.host);
+  const client = new ImapFlow({
+    host: checked[0]?.address ?? settings.host,
+    port: settings.port,
+    secure: settings.secure,
+    auth: { user: settings.username, pass: settings.password },
+    logger: false,
+    socketTimeout: 20_000,
+    servername: settings.host,
+  });
+  try {
+    await client.connect();
+  } catch (error) {
+    throw imapConnectError(error);
+  }
+  try {
+    // Read-only (EXAMINE): checking a mailbox must not change it.
+    const lock = await client.getMailboxLock('INBOX', { readOnly: true });
+    lock.release();
+  } catch {
+    throw new InboxError('Signed in, but the mailbox has no INBOX folder to read reports from.', 'INBOX_NO_FOLDER', 400);
+  } finally {
+    await client.logout().catch(() => undefined);
+  }
+}
+
+let loginCheck = defaultLoginCheck;
+
+/** Tests replace the live sign-in; `null` restores it. */
+export function setInboxLoginCheckForTests(impl: typeof defaultLoginCheck | null): void {
+  loginCheck = impl ?? defaultLoginCheck;
+}
+
+/** The settings route's check: refuses a mailbox that will not let us in. */
+export async function verifyInboxLogin(settings: InboxSettings): Promise<void> {
+  assertAllowedHost(settings.host);
+  const port = settings.port ?? (settings.secure === false ? 143 : 993);
+  if (port !== 993 && port !== 143 && port !== 2525) {
+    throw new InboxError('Use port 993 for implicit TLS, 143 for STARTTLS, or 2525.', 'INBOX_PORT_INVALID', 400);
+  }
+  await loginCheck({
+    host: settings.host.trim(),
+    port,
+    secure: settings.secure !== false,
+    username: settings.username.trim(),
+    password: settings.password,
+  });
+}
+
 export async function disableInbox(organizationId: string): Promise<void> {
   await prisma.reportInbox.updateMany({ where: { organizationId }, data: { enabled: false } });
 }

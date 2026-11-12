@@ -218,8 +218,11 @@ for the session and removed after). `_dmarc.linkshift.in` before:
 
 `linkshift.in` is as it was; the session 9 connection and mailbox are removed.
 
-**Open:** the password is still not tried when the mailbox is saved (the
-Cloudflare token is): a wrong one is only found by Collect now or the next run.
+**Closed (12 November 2026):** saving a mailbox now signs in to it first, as a
+Cloudflare token is checked when it is added: a wrong password is refused with
+`INBOX_AUTH_FAILED` and nothing is stored. With two Cloudflare connections the
+publish dialog now opens on the one whose last check passed, and moves to the
+next by itself if the first cannot read the zone, until you choose one.
 
 ### Session 4 add-on results (11 November 2026): forensic reports
 

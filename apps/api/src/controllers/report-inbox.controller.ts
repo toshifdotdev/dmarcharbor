@@ -1,7 +1,15 @@
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../database/prisma.js';
-import { InboxError, configureInbox, disableInbox, inboxStatus, pollInbox, recordInboxFailure } from '../services/report/imap-inbox.service.js';
+import {
+  InboxError,
+  configureInbox,
+  disableInbox,
+  inboxStatus,
+  pollInbox,
+  recordInboxFailure,
+  verifyInboxLogin,
+} from '../services/report/imap-inbox.service.js';
 import { recordAuditEvent } from '../services/audit.service.js';
 import { assertFeature, resolveEntitlements } from '../services/entitlements/entitlement.service.js';
 
@@ -55,6 +63,9 @@ export async function configureInboxController(request: Request, response: Respo
   const organizationId = response.locals.organizationId;
 
   try {
+    // Signed in once before anything is stored: a wrong password is refused
+    // here, by name, instead of surfacing at the next poll.
+    await verifyInboxLogin(body.data);
     await configureInbox(organizationId, body.data);
   } catch (error) {
     sendError(response, error);

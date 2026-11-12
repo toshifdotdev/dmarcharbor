@@ -66,7 +66,10 @@ Add a Cloudflare connection with an API token that can edit DNS. You can then
 preview and publish the verification record and the DMARC record from the domain's
 page, and put a previous value back. Import domains on the connection lists the
 zones the token can see and adds the ones you choose to a client, so you do not
-type them. A workspace can hold up to 5 Cloudflare connections. Starts on Fairway.
+type them. A workspace can hold up to 5 Cloudflare connections; with more than
+one, publishing starts on the one whose last check passed, moves to the next if
+that one cannot read the domain's zone, and you can pick another. Starts on
+Fairway.
 
 **My domain publishes reports to a web address instead of a mailbox. Do you collect those?**
 Not yet. A `rua=https://` address means reports go to a web endpoint we do not read,
@@ -386,8 +389,9 @@ appear afterwards.
 **Can my clients see their own data?**
 Yes. The client portal gives a contact you invite read-only access to their own
 verified domains, senders and monthly reports, and lets them answer approval
-requests. They sign in with their email address, or with Google or Microsoft. It
-never shows forensic data. Starts on Harbor.
+requests. They sign in with their email address, or with Google or Microsoft, from
+the invitation link or the ordinary sign-in page, which offers them their report
+rather than a workspace. It never shows forensic data. Starts on Harbor.
 
 **Can I share a report without giving portal access?**
 Yes. A share link opens a read-only report for one domain in a browser, with no

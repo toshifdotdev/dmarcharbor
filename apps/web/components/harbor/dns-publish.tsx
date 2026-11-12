@@ -54,10 +54,24 @@ export function DnsPublishButton({
   purpose: string;
 }) {
   const router = useRouter();
-  const usable = context.connections.filter((connection) => !connection.paused);
+  // The healthiest connection first: one whose last check passed, then the
+  // most recently verified. With two connections the dialog used to open on
+  // whichever was added first, which in session 9 was a stand-in with no
+  // rights on the zone.
+  const usable = context.connections
+    .filter((connection) => !connection.paused)
+    .sort(
+      (a, b) =>
+        Number(a.lastError !== null) - Number(b.lastError !== null) ||
+        (Date.parse(b.lastVerifiedAt ?? "") || 0) - (Date.parse(a.lastVerifiedAt ?? "") || 0),
+    );
   const initial = usable[0] ?? context.connections[0] ?? null;
   const [open, setOpen] = useState(false);
   const [connectionId, setConnectionId] = useState(initial?.id ?? "");
+  // Until the person picks one, a connection that cannot read this domain's
+  // zone hands over to the next usable one.
+  const [chosenByHand, setChosenByHand] = useState(false);
+  const [tried, setTried] = useState<string[]>([]);
   const [preview, setPreview] = useState<DnsPublishPreview | null>(null);
   const [published, setPublished] = useState<{ message: string; publication: DnsPublicationRow | null } | null>(null);
   const [restoreMessage, setRestoreMessage] = useState<string | null>(null);
@@ -78,6 +92,18 @@ export function DnsPublishButton({
       record,
     });
     setBusy(null);
+    // Only a failed read moves on: a "refused" preview is about the record
+    // (a CNAME at the name, duplicates) and would be the same on any token.
+    const unusable = !result.ok && result.error.code !== "FEATURE_NOT_IN_PLAN";
+    if (unusable && !chosenByHand) {
+      const seen = [...tried, id];
+      const next = usable.find((connection) => !seen.includes(connection.id));
+      if (next) {
+        setTried(seen);
+        setConnectionId(next.id);
+        return;
+      }
+    }
     if (!result.ok) {
       if (result.error.code === "FEATURE_NOT_IN_PLAN") {
         setPlanRefused(true);
@@ -96,6 +122,7 @@ export function DnsPublishButton({
     setError(null);
     setPlanRefused(false);
     setPreview(null);
+    setTried([]);
   }
 
   useEffect(() => {
@@ -204,6 +231,7 @@ export function DnsPublishButton({
               <Select
                 value={connectionId}
                 onChange={(event) => {
+                  setChosenByHand(true);
                   setConnectionId(event.target.value);
                   setPreview(null);
                   setError(null);

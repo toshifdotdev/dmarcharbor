@@ -1,8 +1,9 @@
 import request from 'supertest';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { app } from '../src/index.js';
 import { prisma } from '../src/database/prisma.js';
 import { bulkImportClients } from '../src/services/bulk-onboarding.service.js';
+import { setInboxLoginCheckForTests } from '../src/services/report/imap-inbox.service.js';
 import { afterPlanChange, SSO_DOWNGRADE_GRACE_DAYS } from '../src/services/entitlements/plan-change-effects.js';
 import { completeSignIn } from '../src/services/sso/sso-flow.service.js';
 import { createSsoConnection } from '../src/services/sso/sso.service.js';
@@ -17,6 +18,10 @@ import { grantPlan } from './helpers/plan.js';
  * day of the downgrade. Each case is checked again after an upgrade, so a pass
  * shows the plan is what made the difference.
  */
+
+// Saving a mailbox signs in to it first; these fixtures use made-up passwords.
+beforeAll(() => setInboxLoginCheckForTests(async () => undefined));
+afterAll(() => setInboxLoginCheckForTests(null));
 
 let fixtureId = 0;
 const password = 'correct-horse-battery-staple';

@@ -254,6 +254,60 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-12-18 — Exports for owners and admins, scoped erasures, mailbox checked on save
+
+Browser routes under `/api` only; `/api/v1` is unchanged. Found in sessions 4,
+9, 13 and 16.
+
+### Changes an integration might notice
+
+- **Every `/api/workspaces/{id}/exports` route needs `organization: read`**
+  (owners and admins), as erasure does. They were on `report: read`, so a
+  viewer could download the workspace export with its forensic reports,
+  every member's sessions and IP addresses, invitations, API keys and the
+  audit trail. An analyst or viewer now gets 403, and `/settings/export` says
+  who can request one.
+- **A client or domain export no longer carries the agency's people.** Users,
+  memberships and sessions are in the workspace export only, like invitations
+  and API keys. A client export's `auditLog` holds that client's rows.
+- **Erasing a client or a domain stays in its scope.** It used to clear
+  `actorUserId`, `ipAddress` and `requestId` on every audit row in the
+  workspace and the subscription's provider ids. It now scrubs personal data
+  (addresses, names, recipients) from the rows about that client or domain
+  only; `anonymised.subscriptions` is 0.
+- **Erasing the whole workspace is refused while a Paddle or Razorpay
+  subscription can bill**: `POST …/erasures` with `scope: ORGANIZATION` and
+  `POST …/erasures/{id}/execute` answer 409 `SUBSCRIPTION_STILL_ACTIVE`, as
+  `DELETE /api/workspaces/{id}` already did. A request made before the
+  subscription started waits in `PENDING` until it ends. Clients and domains
+  can be erased at any time.
+- **`PUT …/report-inbox` signs in to the mailbox before saving.** A refused
+  login answers 400 `INBOX_AUTH_FAILED`, a host that does not resolve 400
+  `INBOX_HOST_UNRESOLVED`, an unreachable server 502 `INBOX_UNREACHABLE`, a
+  mailbox with no INBOX 400 `INBOX_NO_FOLDER`, and nothing is stored. INBOX is
+  opened read-only, so the check changes nothing in the mailbox. The same two codes replace the 500 "could not be reached"
+  on `POST …/report-inbox/poll`.
+- **`GET /api/workspaces/{id}/members` answers 403 to a non-member**, with the
+  message every other workspace route gives. It answered 500.
+- **Plan-limit messages use the singular for a limit of one**: "Mooring
+  includes 1 client", not "1 clients".
+
+### Additive changes
+
+- **`GET /api/reports/share/{token}` carries `senders`**: every sender's
+  totals over all the mail (`senderKey`, `senderDomain`, `totalMessages`,
+  `dmarcFailedMessages`, `service`, `confidence`), empty when the share
+  excludes sources. `sources` still lists at most ten addresses; the share
+  page draws its route from `senders`, so a service sending from more than
+  ten addresses is no longer drawn short.
+- **Forensic reports in the standard form are accepted.** The ingest path
+  recognised only `application/feedback-report`; it now also takes
+  `message/feedback-report` (RFC 5965) and `Feedback-Type: auth-failure`
+  (RFC 6591). Before, a receiver's standard failure report was treated as an
+  aggregate report with no attachment and dropped.
+
+---
+
 ## 2026-12-17 — Agency custom domains go live before client links use them
 
 Browser routes under `/api` only; `/api/v1` is unchanged. Found in session 14:

@@ -18,6 +18,14 @@ Tick boxes as you go. Nothing here is done because it was written down.
 
 ## Decisions taken
 
+- **Data export is for owners and admins** (12 November 2026, after session 16).
+  An export holds everyone's data in the workspace (forensic reports, sessions
+  and IP addresses, invitations, API keys, the audit trail), so it follows the
+  same permission as erasure. A cut-down export per role was rejected: it would
+  have to mirror every in-app permission, and any drift between the two would
+  leak. An analyst or viewer asks an owner or admin. The right of access is the
+  client's, and the agency exercises it.
+
 Four questions this checklist once listed as open are settled. Recorded here so
 they are not asked again, and because each one removes a sub-processor
 obligation or a false option.
@@ -775,6 +783,13 @@ correctly in the Workflows chat.
       arrive (session 4), and `alert.triggered` from a real alert. Session 8
       sent only test events; the real paths are covered by the CI integration
       tests (`webhook`, `dns-monitoring`).
+
+- [ ] Ask's written answers. Decided (12 November 2026): launch in links mode,
+      which session 17 passed, and leave `ANTHROPIC_API_KEY` unset. Set it only
+      after one run with a real key: answers cite the FAQ and docs, refuse
+      workspace data, say "I don't know" rather than guess, and the daily cap
+      holds. Anthropic is already listed as a sub-processor "only when written
+      answers are enabled".
 
 - [ ] Logo upload (session 12): the S3 account in `apps/api/.env` is closed.
       With working keys, a logo uploads and shows on the portal, share page and
