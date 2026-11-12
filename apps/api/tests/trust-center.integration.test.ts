@@ -453,7 +453,7 @@ describe('Trust Center evidence', () => {
       'Resend',
       'Cloudflare',
       'Amazon Web Services',
-      'Managed PostgreSQL provider',
+      'Neon',
       'Migadu',
       'Razorpay',
       'Paddle',

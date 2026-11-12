@@ -14,10 +14,10 @@ work in good faith to resolve it, including discussing alternatives.
 
 | Provider | What it does | Data it touches | Region |
 |---|---|---|---|
-| **Resend** | Transactional and alert email | Your users' email addresses, names, and notification content. Alert content may include domain names, sender sources and counts | **TBD**: confirm before publication |
+| **Resend** | Transactional and alert email | Your users' email addresses, names, and notification content. Alert content may include domain names, sender sources and counts | United States |
 | **Cloudflare** | Email routing and the report ingress Worker; the DNS zone that serves records you delegate to us (hosted DMARC, SPF and BIMI); Cloudflare for SaaS, which serves hosted MTA-STS policy files | Raw DMARC report messages in transit only, which the Worker forwards and does not store. Public DNS values and policy files | Global edge |
-| **Amazon Web Services** | Object storage for workspace logos (S3) | The logo files you upload | **TBD**: region set at launch |
-| **Managed PostgreSQL provider** | Primary database | All stored data | **TBD**: hosting not finalised |
+| **Amazon Web Services** | Hosts the application and API servers, and object storage for workspace logos (S3) | All data the application processes while it runs, and the logo files you upload | European Union (Frankfurt) |
+| **Neon** | Primary PostgreSQL database, including its backups | All stored data | European Union (Frankfurt) |
 | **Migadu** | Hosted mailbox that receives aggregate and forensic reports | Inbound report messages, which may contain recipient email addresses | **TBD**: confirm before publication |
 | **Razorpay** | Subscription billing in Indian rupees, as payment gateway | Company name, billing contact email, plan and amount. **Not your DMARC data** | India |
 | **Paddle** | Subscription billing in US dollars, as merchant of record | Company name, billing contact email, plan and amount. **Not your DMARC data** | Provider's region |
@@ -69,9 +69,8 @@ lookups to each domain's registry over RDAP, send only the domain name.
 
 ## Before launch
 
-The **TBD** items are genuine open decisions, not oversights. The privacy policy and
-the DPA both reference them, and they must be resolved before either document is
-published or signed.
+One item is still open: the country where Migadu stores the report mailbox. It is
+marked **TBD** in the table until Migadu confirms it, and must be filled before this
+page is published.
 
-**Recommendation:** resolving these is part of the domain and hosting decision, so
-it should not be done separately.
+

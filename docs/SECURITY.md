@@ -27,6 +27,19 @@ after 7 days regardless of plan.** No tier of our product extends that.
 encrypted values. We keep the surrounding evidence: which sender failed, how
 many messages, when. That contains no recipient data.
 
+## Our domains
+
+We use exactly two domains, and their subdomains:
+
+- **dmarcharbor.com**, for the website, the app, our email and the report
+  mailboxes (`reports.dmarcharbor.com`).
+- **dmarcharbour.com** (British spelling), for the records we host for you:
+  hosted DMARC, SPF, BIMI and MTA-STS records point at names under it. Opening
+  it in a browser takes you to dmarcharbor.com.
+
+Mail, links or DNS instructions that claim to be from DMARC Harbor on any other
+domain are not from us. Forward them to [SECURITY EMAIL].
+
 ## Access control
 
 | Role | Clients | Domains | Reports | Forensic evidence | Named recipients | People | Billing |

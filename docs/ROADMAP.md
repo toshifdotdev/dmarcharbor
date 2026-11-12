@@ -52,12 +52,10 @@ team cannot use it.
 
 **To resolve:**
 
-1. Name the sub processors and their jurisdictions, rather than the generic
-   categories currently listed. Outstanding: object storage for logos, the
-   report mailbox, the transactional email provider, and the payment processors.
-2. Decide whether EU-only data residency is offered as a feature. Probably not
-   at current scale.
-3. Replace the placeholder region string once hosting is chosen.
+1. Done (12 November 2026): sub-processors named with regions; data is in the
+   EU (Frankfurt) on AWS and Neon. Migadu's data-centre country is still asked.
+2. Decided: no separate EU-only tier; everything is in the EU.
+3. Set `DATA_RESIDENCY_REGION=European Union (Frankfurt)` at deployment.
 
 **Note on lawfulness:** a non EU sub processor is not automatically a problem.
 Standard Contractual Clauses plus a signed DPA make a transfer lawful, and every

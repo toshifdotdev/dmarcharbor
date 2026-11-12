@@ -207,7 +207,7 @@ async function collectFacts(clientId: string, asOf: Date, reference: string): Pr
     noTracking: noTrackingStatement,
     residency: {
       region: dataResidencyRegion(process.env),
-      hosting: 'A managed PostgreSQL database for records; object storage for workspace logos only',
+      hosting: 'Application servers on Amazon Web Services and a Neon PostgreSQL database for records; object storage for workspace logos only',
     },
     erasures: erasures.map((request) => ({
       scope: request.scope === 'ORGANIZATION' ? 'Whole workspace' : 'Single client',

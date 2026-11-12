@@ -5,9 +5,8 @@
 
 > **Reviewer note:** this document describes what the software actually does. The
 > technical statements are derived from the running configuration, not from
-> marketing. Items marked **TBD** are decisions not yet made: they must be
-> filled in before this is published, and a privacy policy that guesses is worse
-> than no privacy policy.
+> marketing. A privacy policy that guesses is worse than no privacy policy, so
+> every statement here is checked against the product before it changes.
 
 ---
 
@@ -148,9 +147,24 @@ so it can be cancelled if it was a mistake.
 
 ## 9. International transfers
 
-**TBD**: our hosting region is not yet finalised. This section must state the
-region and the transfer mechanism, such as Standard Contractual Clauses, before
-publication.
+Your data is stored in the **European Union (Frankfurt)**: the application runs
+on Amazon Web Services there, and the database is Neon PostgreSQL in the same
+region.
+
+Some of it leaves the EU in these cases:
+
+- **Email** is sent through Resend, which keeps its records in the United States.
+- **Payments** are handled by Razorpay in India (rupees) and Paddle (US dollars).
+- **We** are based in India, so when we look into a support request, a
+  complaint or a security issue, the data is accessed from India.
+
+Each provider is listed with its region on our
+[Sub-processors](/sub-processors) page. Where personal data goes from the EU,
+the EEA, Switzerland or the UK to a country without an adequacy decision, we
+rely on the EU Standard Contractual Clauses, with the UK International Data
+Transfer Addendum for UK data, or on the provider's EU-US Data Privacy
+Framework certification where it has one. Ask us at privacy@dmarcharbor.com
+for a copy of the safeguards that apply.
 
 ## 10. Security
 

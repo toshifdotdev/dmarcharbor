@@ -13,7 +13,7 @@ analytics or advertising cookies.
 
 | Cookie | Purpose | Type | Lifetime |
 |---|---|---|---|
-| `better-auth.session_token` | Keeps you signed in | Strictly necessary | Until you sign out, or `[SESSION LENGTH]` days |
+| `better-auth.session_token` | Keeps you signed in | Strictly necessary | Until you sign out, or 7 days from your last visit |
 
 That is the complete list.
 

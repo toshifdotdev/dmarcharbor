@@ -50,7 +50,7 @@ finds; what you do about it is yours.
 
 The Service is sold on subscription. Plan names, prices, and the limits attached
 to each plan (number of clients, active domains, team members, workspaces and
-prospect reports) are published at `[PRICING URL]`.
+prospect reports) are published at https://dmarcharbor.com/pricing.
 
 Plans are charged monthly or annually, except Fleet, which is charged monthly per
 active domain. Clients, active domains and workspaces are counted across every
@@ -164,8 +164,10 @@ your country of residence; where it does, those rights apply instead.
 These Terms apply while your subscription is active. Sections 9, 10, 11, 12 and
 13 survive termination, as does anything by its nature intended to survive.
 
-On termination you may export your data for a period of `[EXPORT RETENTION]`
-days, after which we may delete it. See the Privacy Policy for retention periods.
+When a paid subscription ends, your workspace moves to the free plan and its data
+is kept: nothing is deleted because a payment stopped. You can export it at any
+time, and it is deleted when you ask for erasure, or as the retention periods in
+the Privacy Policy provide. See the Privacy Policy for retention periods.
 
 ## 13. Changes to these Terms
 

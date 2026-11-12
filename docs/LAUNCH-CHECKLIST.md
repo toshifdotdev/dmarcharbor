@@ -30,9 +30,12 @@ Four questions this checklist once listed as open are settled. Recorded here so
 they are not asked again, and because each one removes a sub-processor
 obligation or a false option.
 
-**The domain is `dmarcharbor.com`.** Chosen, not yet bought: it is the last
-infrastructure purchase rather than the first, so the code is finished against
-it and the DNS is a short task once it is owned. `app.dmarcharbor.com` and
+**The domain is `dmarcharbor.com`.** Bought and on Cloudflare; its mail (Resend
+on `mail.`, Migadu on `reports.`, Email Routing for the role addresses) is in
+use. `dmarcharbour.com` is the second domain, bought before launch: the hosting
+zone for customers' delegated records, with its root redirecting to
+`dmarcharbor.com` (see "Before deployment: what to buy and set up"). Both are named as ours on the Security page and in
+the FAQ, so a customer can tell a lookalike from us. `app.dmarcharbor.com` and
 `api.dmarcharbor.com` are the two subdomains, which is what the CI job already
 assumes (`ci.yml`). WHOIS privacy on. Registrar is Spaceship.
 
@@ -50,11 +53,26 @@ Migadu and Cloudflare stay two sub-processors because they do two jobs:
 Cloudflare answers the DNS question and does not store, Migadu holds the
 mailbox. Neither can do the other's.
 
-**Data residency: one region, no EU-only tier.** The region is Singapore. See
-the note in step 2 for why customer reach decided it rather than latency.
+**Data residency: one region, the EU (Frankfurt), no separate tiers**
+(12 November 2026; replaces Singapore). App and API on AWS `eu-central-1`, Neon
+Postgres in `aws-eu-central-1`, the logo bucket in `eu-central-1`. Chosen because
+the dollar customers (UK, EU, US, Australia) ask where data is hosted in every
+security review and "the EU" settles it; Indian law (DPDP Act) does not require
+data to stay in India, and Singapore gave no legal advantage. Set
+`DATA_RESIDENCY_REGION=European Union (Frankfurt)` in production. Set Neon's
+history window to 7 days (the DPA promises it; the free plan keeps 6 hours).
+Apply for the AWS Activate, Neon and Kiro startup programmes once the site is
+live; none of them changes the region.
 
-**Still open, and still blocking:** the legal entity name, the hosting platform,
-the payment accounts, the transactional email domain, and the report mailbox.
+**The legal entity is Mohd Toshif, sole proprietor, trading as DMARC Harbor**
+(12 November 2026), registered under Udyam with the unit name DMARC Harbor. The
+address and phone on the legal and support pages are the Udyam ones, which is
+what Razorpay and Paddle check against. When a company is registered, change the
+constants in `apps/web/lib/legal-docs.ts` and the matching lines in
+`apps/api/src/services/assistant/corpus.ts`, and re-verify both payment accounts.
+Governing law is India (Terms, DPA section 11).
+
+**Still open, and still blocking:** the hosting platform and its region details.
 
 ---
 
@@ -123,6 +141,7 @@ FORENSIC_PSEUDONYM_SECRET=...
 EMAIL_PROVIDER=resend
 RESEND_API_KEY=...
 EMAIL_FROM=DMARC Harbor <alerts@dmarcharbor.com>
+DATA_RESIDENCY_REGION=European Union (Frankfurt)
 STAFF_API_KEY=...
 ```
 
@@ -391,11 +410,12 @@ you have not made yet.
 - The report address needs a mailbox that holds mail while the API is down,
   read over IMAP with `REPORT_MAILBOX_HOST`, `REPORT_MAILBOX_USERNAME` and
   `REPORT_MAILBOX_PASSWORD` (`REPORT_MAILBOX_PORT`, default 993). Each report
-  goes to the workspace holding the verified domain it names. During testing
-  this is Cloudflare Email Routing forwarding `dmarc-reports@dmarcharbor.com`
-  to `dmarcharbor.reports@gmail.com`. For launch, decide between keeping that
-  (free, but a consumer Gmail holds customer report data) and a business
-  mailbox such as Migadu Micro, about $19/year, on `reports.dmarcharbor.com`.
+  goes to the workspace holding the verified domain it names. Decided: Migadu
+  (Micro plan) on `reports.dmarcharbor.com`, mailboxes
+  `dmarc-reports@reports.dmarcharbor.com` and
+  `dmarc-forensics@reports.dmarcharbor.com`. The early test route
+  `dmarc-reports@dmarcharbor.com` → Gmail (Cloudflare Email Routing) is unused
+  and is removed (12 November 2026), so no consumer Gmail holds report data.
 - Point `REPORT_AGGREGATE_ADDRESS` and `REPORT_FORENSIC_ADDRESS` at it.
 - Set `REPORT_ADDRESS_SUBADDRESSING=plus`. The guide and FAQ promise each
   client its own report address (`agg+<token>@reports.dmarcharbor.com`); with
@@ -486,15 +506,17 @@ under load and has produced spurious failures on a busy machine.
 
 ### 10. Data residency and sub-processors
 
-Revisit after the frontend, as agreed. The blocker is step 2: the region is the
-answer, and the Trust Center and compliance pack both publish a placeholder
-string that is honest but not usable by a procurement team.
+Mostly done (12 November 2026). The region is the EU (Frankfurt), on AWS and
+Neon; the Sub-processors page, the Trust Center list, the Privacy Policy
+(section 9) and the DPA (sections 5.10 and 7) say so.
 
-- Name each sub-processor and its jurisdiction. Outstanding: object storage,
-  the report mailbox, the transactional email provider, the payment processors.
-- Decide whether EU-only residency is offered as a feature. Probably not at
-  this scale.
-- Replace the placeholder in the compliance pack and the Trust Center.
+- [x] Name each sub-processor and its jurisdiction: Resend United States, AWS
+      and Neon Frankfurt, Razorpay India.
+- [ ] Migadu's data-centre country: asked by email; fill it on the
+      Sub-processors page and in `trust/trust-center.service.ts` when they answer.
+- [x] EU-only residency as a feature: no; everything is in the EU already.
+- [ ] Set `DATA_RESIDENCY_REGION=European Union (Frankfurt)` in production, which
+      replaces "Not confirmed yet" on the Trust Center and compliance packs.
 
 A non-EU sub-processor is not automatically unlawful. Standard Contractual
 Clauses plus a signed DPA make a transfer lawful. The gap is paperwork and

@@ -204,7 +204,7 @@ export const LEGAL_DOCS: LegalDoc[] = [
       {
         heading: "How to complain",
         paragraphs: [
-          "Write to complaints@dmarcharbor.com with what happened, when, and what you would like done. We acknowledge within two working days and answer within fifteen.",
+          "Write to support@dmarcharbor.com with what happened, when, and what you would like done. We acknowledge within 48 hours and answer within fifteen working days.",
           `If you paid through Paddle, you can also raise a complaint through Paddle's own dispute process: Paddle is the Merchant of Record for those orders.`,
         ],
       },

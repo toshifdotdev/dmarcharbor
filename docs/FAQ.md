@@ -329,7 +329,10 @@ Yes, on every plan. Each domain's page shows which of the bulk sender requiremen
 it meets and what is missing.
 
 **Can alerts open tickets in my PSA?**
-Yes. HaloPSA is supported. ConnectWise PSA and Autotask are in early access: they\nare built to each vendor's published API but not yet run against a live account, so\nwe set them up with you and check the first tickets together. Map each client to a\nPSA company,
+Yes. HaloPSA is supported. ConnectWise PSA and Autotask are in early access: they
+are built to each vendor's published API but not yet run against a live account, so
+we set them up with you and check the first tickets together. Map each client to a
+PSA company,
 and alerts open, update and close tickets there. Starts on Harbor.
 
 **Can I get events in my own systems?**
@@ -463,6 +466,12 @@ client emails come from our shared address with your agency's name.
 
 ## Team and security
 
+**Which domains are yours?**
+Two: dmarcharbor.com, for the website, the app and our email, and dmarcharbour.com
+(British spelling), which holds the records we host for you, so your CNAMEs point
+there. Opening dmarcharbour.com in a browser takes you to dmarcharbor.com. Anything
+on another domain that claims to be us is not; forward it to [SECURITY EMAIL].
+
 **Can colleagues work in the same workspace?**
 Yes. Invite them by email as an admin, analyst or viewer. Admins run the workspace
 but cannot change the plan or delete the workspace. Analysts can change domains and
@@ -534,10 +543,11 @@ Slack and Teams addresses alerts post to. We never show a stored secret in full
 again.
 
 **Where is my data stored?**
-The hosting region is not confirmed yet, so it is not stated here. Your Trust
-Center and compliance packs say "Not confirmed yet" until it is, rather than
-guess. The Sub-processors notice lists who processes the data, with each region
-where it is confirmed.
+In the European Union, in Frankfurt: the application runs on Amazon Web Services
+and the database is Neon PostgreSQL, both in that region, for every customer and
+every plan. Email goes through Resend in the United States. The Sub-processors
+notice lists everyone who processes the data, with each one's region, and your
+Trust Center and compliance packs state the same.
 
 **How do I bill my clients for what they used?**
 On the Clients page, choose a month and download the usage CSV. It has one row per

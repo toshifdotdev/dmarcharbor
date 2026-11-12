@@ -12,8 +12,7 @@ Where this agreement conflicts with the Terms of Service, this agreement prevail
 for the subject matter of Processing.
 
 > **Reviewer note:** this is a technically accurate draft built from what the
-> product actually does. It requires legal review before signature. Items marked
-> **TBD** must be completed first.
+> product actually does. It requires legal review before signature.
 
 ---
 
@@ -146,6 +145,21 @@ On termination of the subscription, the Processor will, at the Controller's
 choice, delete or return the Controller's DMARC Data, and delete existing copies,
 within **90 days**, except as retained under section 6.
 
+### 5.10 International transfers
+Personal Data is stored in the European Union (Frankfurt). It leaves the EU only
+where a sub-processor listed on the Sub-processors page is elsewhere (for example
+Resend, in the United States, for email), and where the Processor itself acts
+from India.
+
+For each such transfer of Personal Data from the EU, the EEA or Switzerland, the
+EU Standard Contractual Clauses (Commission Decision 2021/914, Module 2 for this
+agreement and Module 3 onward to sub-processors) apply and are incorporated by
+reference; for the UK, the UK International Data Transfer Addendum to those
+Clauses applies. Where a recipient is certified under the EU-US Data Privacy
+Framework, that certification may be relied on instead. Annexes I and II of the
+Clauses are completed by sections 2, 3 and 7 of this agreement, and Annex III by
+the Sub-processors page.
+
 ## 6. Retention
 
 The following periods apply, and they are the same on every plan: plans differ in
@@ -228,8 +242,15 @@ description, not a guarantee, and is not a substitute for a compliance audit.
 
 ### Availability and recovery
 - Liveness and readiness probes separate process health from dependency health
-- **TBD**: the production hosting platform, backup schedule and recovery time
-  objective are not yet finalised, and must be stated here before signature
+- Application and API servers run on Amazon Web Services in the EU (Frankfurt,
+  `eu-central-1`); the database is Neon PostgreSQL in the same region
+- The database keeps a continuous change history for **7 days**, so it can be
+  restored to any moment in that window (point-in-time recovery); the storage
+  layer is replicated across availability zones by the provider
+- Recovery point objective: a few seconds of writes. Recovery time objective:
+  **4 hours** to restore service after a loss of the database or the servers
+- Restores are rehearsed on a separate database branch before they are needed,
+  so production is never the first place a restore is tried
 
 ### Secure development
 - Type checking, linting and a test suite of over 300 automated tests gate every
@@ -282,9 +303,12 @@ over any dispute arising from it, with these exceptions, which prevail:
 
 ## Items that must be completed before signature
 
-1. Hosting platform, region, and the resulting transfer mechanism
-2. Payment processor
-3. Backup schedule and recovery objectives
+1. ~~Hosting platform, region, and the resulting transfer mechanism~~: done
+   (AWS and Neon in Frankfurt; section 5.10). Migadu's data-centre country is
+   still to be confirmed on the Sub-processors page
+2. ~~Payment processor~~: done (Razorpay for INR, Paddle for USD, both on the
+   Sub-processors page)
+3. ~~Backup schedule and recovery objectives~~: done (section 7)
 4. ~~Governing law and jurisdiction~~: done (section 11)
 5. ~~Company legal name and registered address~~: done (Mohd Toshif, sole
    proprietor trading as DMARC Harbor, Udyam registered; the address as on the

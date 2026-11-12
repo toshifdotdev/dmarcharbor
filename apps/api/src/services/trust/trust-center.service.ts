@@ -71,7 +71,9 @@ export const subProcessors: SubProcessor[] = [
     name: 'Resend',
     purpose: 'Transactional and alert email',
     data: 'Email addresses and names of the people notified, and the notification content. Alert content may include domain names, sender sources and counts.',
-    region: 'Not confirmed yet',
+    // Resend stores account data, message metadata and logs in the US whatever
+    // the sending region (resend.com/docs/dashboard/domains/regions).
+    region: 'United States',
   },
   {
     // Reports pass through its email routing on the way in, and the records an
@@ -85,15 +87,15 @@ export const subProcessors: SubProcessor[] = [
   },
   {
     name: 'Amazon Web Services',
-    purpose: 'Object storage for workspace logos (S3)',
-    data: 'The logo files a workspace uploads',
-    region: 'Not confirmed yet',
+    purpose: 'Application and API servers, and object storage for workspace logos (S3)',
+    data: 'All data the application processes while it runs, and the logo files a workspace uploads',
+    region: 'European Union (Frankfurt)',
   },
   {
-    name: 'Managed PostgreSQL provider',
-    purpose: 'Primary database',
+    name: 'Neon',
+    purpose: 'Primary PostgreSQL database, including its backups',
     data: 'All stored data',
-    region: 'Not confirmed yet',
+    region: 'European Union (Frankfurt)',
   },
   {
     // Named because report collection depends on it, as the document does.
@@ -460,7 +462,7 @@ export async function buildTrustCenter(slug: string): Promise<TrustCenterPayload
     retentionDetail: retentionLines(),
     residency: {
       region: dataResidencyRegion(process.env),
-      hosting: 'A managed PostgreSQL database for records; object storage for workspace logos only',
+      hosting: 'Application servers on Amazon Web Services and a Neon PostgreSQL database for records; object storage for workspace logos only',
     },
     subProcessors,
     connectedServices: connectedServicesStatement,

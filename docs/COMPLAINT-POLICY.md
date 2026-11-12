@@ -17,14 +17,13 @@ Email `[SUPPORT EMAIL]` with:
 - what you expected and what happened instead,
 - anything you have already tried.
 
-We will acknowledge every complaint within 2 business
-days.
+We will acknowledge every complaint within 48 hours, and usually sooner.
 
 ## How we handle it
 
 | Stage | Target |
 |---|---|
-| Acknowledge | 2 business days |
+| Acknowledge | 48 hours |
 | Tell you what we are doing | 5 business days |
 | Resolve, or tell you it is taking longer | 15 business days |
 
@@ -42,25 +41,26 @@ be escalated. It will go to someone who was not part of the original handling.
 
 Email escalations@dmarcharbor.com for a second-line escalation.
 
-## External redress
+## Grievance Officer
 
-If we cannot resolve your complaint, you may take it to your national consumer
-authority. We will give you the details for the country you live in on request,
-and we will not treat you badly for using them.
+For customers in India, and for anyone who prefers to write to a named person,
+our Grievance Officer is:
 
-| Where you live | Body | Where to look |
-|---|---|---|
-| United Kingdom | Citizens Advice | `[CITIZENS ADVICE JURISDICTION]` |
-| European Union | Your national consumer centre | European Consumer Centre Network, `https://www.eccnet.eu` |
-| India | National Consumer Helpline, Department of Consumer Affairs | `https://consumerhelpline.gov.in` |
-| Australia | State or territory consumer affairs body | `[ACCC JURISDICTION]` |
-| United States | State attorney general or federal trade commission | `[US AG JURISDICTION]` |
+- **Name:** Mohd Toshif, proprietor
+- **Email:** escalations@dmarcharbor.com
+- **Phone:** +91 89797 37466
+- **Address:** [REGISTERED ADDRESS]
 
-`[TRADE OMBUDSMAN JURISDICTION]`: our nominated trade ombudsman for customers in
-`[TRADE OMBUDSMAN REGION]`, reachable through the body listed above.
+The Grievance Officer acknowledges a complaint within 48 hours and resolves it
+within one month of receiving it, as the Consumer Protection (E-Commerce) Rules,
+2020 ask. In practice we aim for the shorter targets above.
 
-We do not require you to exhaust this process before contacting us, and doing so
-does not affect any other right you have.
+## If we cannot resolve it
+
+You can contact the consumer authority where you live. In India that is the
+National Consumer Helpline (https://consumerhelpline.gov.in, or 1915). Elsewhere,
+ask us and we will tell you which body covers you. Using one does not affect how
+we treat you, and you do not need to finish this process before contacting one.
 
 ## Complaints about a service issue
 
