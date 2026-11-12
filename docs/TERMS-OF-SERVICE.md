@@ -112,7 +112,7 @@ The Service is provided on an ongoing basis. We do not offer a service level
 agreement unless one is separately agreed in writing.
 
 Support is provided at `[SUPPORT EMAIL]`. We aim to respond to a support request
-within `[RESPONSE TARGET]` business days, but we do not warrant that response
+within 2 business days, but we do not warrant that response
 times will be met. See the Complaint Policy for how to escalate.
 
 ## 8. Data protection

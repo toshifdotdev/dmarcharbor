@@ -17,16 +17,16 @@ Email `[SUPPORT EMAIL]` with:
 - what you expected and what happened instead,
 - anything you have already tried.
 
-We will acknowledge every complaint within `[COMPLAINT ACKNOWLEDGEMENT]` business
+We will acknowledge every complaint within 2 business
 days.
 
 ## How we handle it
 
 | Stage | Target |
 |---|---|
-| Acknowledge | `[COMPLAINT ACKNOWLEDGEMENT]` business days |
-| Tell you what we are doing | `[COMPLAINT FIRST RESPONSE]` business days |
-| Resolve, or tell you it is taking longer | `[COMPLAINT RESOLUTION]` business days |
+| Acknowledge | 2 business days |
+| Tell you what we are doing | 5 business days |
+| Resolve, or tell you it is taking longer | 15 business days |
 
 If we cannot meet a target we will tell you before the target passes rather than
 after, and say why.

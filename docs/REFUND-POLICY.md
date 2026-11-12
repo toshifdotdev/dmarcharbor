@@ -104,8 +104,8 @@ Send `[SUPPORT EMAIL]` with:
 - the workspace or client name the payment relates to
 - a short description of the problem
 
-We aim to acknowledge within `[RESPONSE TARGET]` business days and to tell you the
-outcome within `[REFUND DECISION TARGET]` business days.
+We aim to acknowledge within 2 business days and to tell you the
+outcome within 5 business days.
 
 You do not need to provide your card details, and we will never ask you for them.
 We cannot issue a refund to a different account than the one charged, for
