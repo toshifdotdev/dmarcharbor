@@ -252,6 +252,7 @@ model Organization {
   notifications         Notification[]
   AuditLog              AuditLog[]
   subscription          Subscription?
+  billingCharges        BillingCharge[]
   entitlementOverrides  EntitlementOverride[]
   erasureRequests       ErasureRequest[]
   refunds               RefundRecord[]
@@ -1201,6 +1202,25 @@ model Subscription {
   /// null until then. Null means "no completed purchase on record", which is the
   /// honest answer rather than "not eligible, no reason given".
   firstChargeAt          DateTime?
+  /// The interval being billed, recorded where the provider has no plan object
+  /// to read it from (Razorpay Recurring Payments). Null on older rows.
+  billingInterval        BillingInterval?
+  /// Razorpay Recurring Payments: the saved mandate each renewal is charged on.
+  ///
+  /// A mandate is the customer's standing permission to debit a card, UPI
+  /// account or bank account up to `mandateMaxMinor`. Null on Paddle rows and
+  /// on Razorpay Subscriptions rows from before November 2026.
+  mandateTokenId         String?
+  /// `card`, `upi` or `emandate`, as Razorpay names the method.
+  mandateMethod          String?
+  /// The most one charge on the mandate may be, in paise.
+  mandateMaxMinor        Int?
+  /// Razorpay's token state: `initiated`, `confirmed`, `paused`, `cancelled`,
+  /// `rejected`. Anything but `confirmed` means the next renewal goes by link.
+  mandateStatus          String?
+  /// Owed on top of the next renewal: the prorated difference of an upgrade
+  /// made part way through a paid period. Zero when nothing is owed.
+  carryOverMinor         Int                @default(0)
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt
 
@@ -1208,6 +1228,55 @@ model Subscription {
   @@index([provider])
   @@index([status])
   @@map("subscription")
+}
+
+/// One payment we asked a provider to take, for providers where we schedule
+/// the charges ourselves (Razorpay Recurring Payments).
+///
+/// Each charge is an order at Razorpay, so a webhook about the order or its
+/// payment is matched here by `providerOrderId` before anything else is read
+/// from it. The row records what the charge was for (plan, interval, quantity
+/// and the period it pays), which no provider object holds.
+model BillingCharge {
+  id                String          @id @default(cuid())
+  organizationId    String
+  organization      Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// The subscription this charge pays, as `Subscription.providerSubscriptionId`.
+  subscriptionKey   String
+  provider          BillingProvider
+  /// `FIRST` (the checkout) or `RENEWAL` (a period after it).
+  kind              String
+  /// `TOKEN` when charged on the saved mandate, `LINK` when paid on a hosted page.
+  channel           String          @default("TOKEN")
+  providerOrderId   String          @unique
+  providerPaymentId String?
+  /// The hosted registration link, when the charge is paid through one.
+  providerInvoiceId String?
+  paymentUrl        String?
+  amountMinor       Int
+  currency          BillingCurrency
+  plan              PlanTier
+  interval          BillingInterval
+  quantity          Int             @default(1)
+  /// The part of `amountMinor` that pays an upgrade's carried difference. Taken
+  /// off `Subscription.carryOverMinor` only when this charge is captured, so a
+  /// renewal withdrawn and priced again does not lose it.
+  carryOverMinor    Int             @default(0)
+  /// The period this charge pays for. A first charge's period is fixed when it
+  /// is captured, so these hold the expected dates until then.
+  periodStart       DateTime
+  periodEnd         DateTime
+  /// `PENDING`, `CAPTURED`, `FAILED` or `EXPIRED`.
+  status            String          @default("PENDING")
+  failureReason     String?
+  attempt           Int             @default(1)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@unique([subscriptionKey, kind, periodStart, attempt])
+  @@index([organizationId, createdAt])
+  @@index([status])
+  @@map("billing_charge")
 }
 
 /// A refund we issued, or refused to.

@@ -10,7 +10,18 @@ import {
   saveStoredPlan,
 } from '../src/billing/plans.js';
 import { verifyPaddleSignature } from '../src/billing/paddle.provider.js';
-import { subscriptionCreateBody, subscriptionMaxYears, subscriptionTotalCount, verifyRazorpaySignature } from '../src/billing/razorpay.provider.js';
+import { normalisePhone, verifyRazorpaySignature } from '../src/billing/razorpay.provider.js';
+import {
+  addInterval,
+  defaultMandateMethod,
+  isRecurringKey,
+  mandateMaxFor,
+  methodAllowed,
+  methodOptions,
+  recurringSubscriptionKey,
+  subtractInterval,
+  upgradeCarryOverMinor,
+} from '../src/billing/recurring-terms.js';
 import { SignatureVerificationError } from '../src/billing/provider.js';
 import { planCatalog } from '../src/services/entitlements/plan-catalog.js';
 
@@ -150,34 +161,47 @@ describe('stored provider plans', () => {
   });
 });
 
-describe('razorpay subscription lifetime', () => {
-  it('bounds the subscription by a cycle count covering the same years on either interval', () => {
-    // Razorpay answers its own 500 to a create body bounded by end_at (session 11).
-    expect(subscriptionTotalCount('monthly')).toBe(subscriptionMaxYears * 12);
-    expect(subscriptionTotalCount('annual')).toBe(subscriptionMaxYears);
+describe('razorpay recurring terms', () => {
+  it('offers UPI only up to ₹15,000 and defaults to eNACH above it', () => {
+    // Harbor monthly (₹12,499) debits on its own by card or UPI.
+    expect(defaultMandateMethod(1_249_900)).toBe('card');
+    expect(methodAllowed('upi', 1_249_900)).toBe(true);
+    // Admiralty monthly (₹33,999) needs approval each time on a card, and UPI cannot carry it.
+    expect(defaultMandateMethod(3_399_900)).toBe('emandate');
+    expect(methodAllowed('upi', 3_399_900)).toBe(false);
+    expect(methodAllowed('card', 3_399_900)).toBe(true);
+    expect(methodOptions(3_399_900).find((option) => option.method === 'card')?.note).toMatch(/approve each charge/);
   });
 
-  it('runs long enough that no realistic customer outlives it', () => {
-    // The failure this prevents is a subscription that quietly ends when a
-    // counter runs out, leaving a customer who paid without access. There is no
-    // unlimited setting, because Razorpay rejects total_count of 0 and caps
-    // subscriptions at 100 years, so the bound is set just inside that cap.
-    expect(subscriptionMaxYears).toBeGreaterThanOrEqual(99);
-    expect(subscriptionMaxYears).toBeLessThanOrEqual(100);
+  it('registers a mandate for at least ₹1,00,000 or twice the charge, and UPI at ₹15,000', () => {
+    expect(mandateMaxFor('card', 329_900)).toBe(10_000_000);
+    expect(mandateMaxFor('emandate', 33_999_000)).toBe(67_998_000);
+    expect(mandateMaxFor('upi', 329_900)).toBe(1_500_000);
   });
 
-  it('sends the cycle count alone, with no date and no customer, which Razorpay refuses', () => {
-    const body = subscriptionCreateBody({
-      plan_id: 'plan_00000000000001',
-      total_count: subscriptionTotalCount('monthly'),
-      customer_notify: 1,
-      notes: { organizationId: 'org_1' },
-    });
+  it('adds a month by calendar day, clamped to the shorter month, and a year for annual', () => {
+    expect(addInterval(new Date('2026-01-31T10:00:00Z'), 'monthly').toISOString()).toBe('2026-02-28T10:00:00.000Z');
+    expect(addInterval(new Date('2026-11-12T10:00:00Z'), 'monthly').toISOString()).toBe('2026-12-12T10:00:00.000Z');
+    expect(addInterval(new Date('2026-11-12T10:00:00Z'), 'annual').toISOString()).toBe('2027-11-12T10:00:00.000Z');
+    expect(subtractInterval(new Date('2026-12-12T10:00:00Z'), 'monthly').toISOString()).toBe('2026-11-12T10:00:00.000Z');
+  });
 
-    expect(body.total_count).toBe(subscriptionMaxYears * 12);
-    expect('end_at' in body).toBe(false);
-    expect('customer_id' in body).toBe(false);
-    expect(body.notes).toEqual({ organizationId: 'org_1' });
+  it('owes the price difference for the rest of the period on an upgrade, and nothing on a downgrade', () => {
+    const periodStart = new Date('2026-11-01T00:00:00Z');
+    const periodEnd = new Date('2026-12-01T00:00:00Z');
+    const halfway = new Date('2026-11-16T00:00:00Z');
+    // Fairway (₹3,299) to Harbor (₹12,499), half the period left: half of ₹9,200.
+    expect(upgradeCarryOverMinor({ fromMinor: 329_900, toMinor: 1_249_900, periodStart, periodEnd, now: halfway })).toBe(460_000);
+    expect(upgradeCarryOverMinor({ fromMinor: 1_249_900, toMinor: 329_900, periodStart, periodEnd, now: halfway })).toBe(0);
+    expect(upgradeCarryOverMinor({ fromMinor: 329_900, toMinor: 1_249_900, periodStart, periodEnd, now: periodEnd })).toBe(0);
+  });
+
+  it('tells a recurring subscription from a Razorpay Subscription by its id', () => {
+    expect(isRecurringKey(recurringSubscriptionKey('order_ABC'))).toBe(true);
+    expect(isRecurringKey('sub_TyQprHlKWBa70P')).toBe(false);
+    expect(normalisePhone('98190 12345')).toBe('+919819012345');
+    expect(normalisePhone('+91-9819012345')).toBe('+919819012345');
+    expect(normalisePhone('12345')).toBeNull();
   });
 });
 

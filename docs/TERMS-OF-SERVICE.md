@@ -57,8 +57,10 @@ active domain. Clients, active domains and workspaces are counted across every
 workspace your account owns; team members are counted per workspace.
 
 **Changing plan.** When a change takes effect depends on how you pay. Paid in
-rupees through Razorpay, an upgrade or a downgrade takes effect at the end of the
-period you have already paid for, with no mid-period charge. Paid in US dollars
+rupees through Razorpay, an upgrade takes effect at once and the difference for
+the rest of the period is added to your next renewal, with no mid-period charge;
+a downgrade, or a change between monthly and annual billing, takes effect at the
+end of the period you have already paid for. Paid in US dollars
 through Paddle, a change applies at once and Paddle charges or credits the
 difference for the rest of the period. The billing page says which applies before
 you confirm. A downgrade is refused while you use more than the smaller plan

@@ -374,16 +374,18 @@ behind it.
 
 **Razorpay (INR)**
 - Complete KYC, MSME/Udyam registration.
-- Recurring Payments enabled on the live account (cards, UPI Autopay,
-  eMandate). Requested from support in November 2026; INR checkout moves to it
-  once built (`docs/TESTING-PLAN.md`, "Razorpay Recurring Payments").
+- Recurring Payments enabled on the live account for cards, UPI Autopay and
+  eMandate (enabled on test on 12 November 2026; confirm live separately). INR
+  checkout uses it (`docs/BILLING.md`, "Razorpay Recurring Payments").
 - Set `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` (live).
 - Webhook URL: `https://api.dmarcharbor.com/api/webhooks/razorpay`, with
-  subscription.*, payment.failed, payment.captured, order.paid, invoice.paid,
-  invoice.expired, token.*, refund.* and payment.dispute.created/lost.
-- Run the plan sync for INR so plan ids land in `billing_plan`; re-run it after
-  any price change (a stored price that differs from the catalog is refused at
-  checkout).
+  payment.captured, payment.failed, order.paid, invoice.paid, invoice.expired
+  and token.* (subscription.* cannot be ticked beside token.*, and is not read).
+- No plan sync is needed for INR: Recurring Payments charges catalog prices.
+- The `billing-recurring-renewals` job runs hourly in the scheduler; the
+  heartbeat alarms if it has not run for 6 hours.
+- The registration-link page shows the business name from the Razorpay account
+  settings; check it reads "DMARC Harbor" on live.
 
 **Paddle (USD)**
 - Site approval (the long pole), then the live API key, webhook secret and a

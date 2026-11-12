@@ -28,6 +28,12 @@ export interface BillingContact {
    */
   taxId?: string | null;
   country?: string | null;
+  /**
+   * A mobile number. Razorpay requires one on every recurring registration
+   * link ("The contact field is required for recurring links"); Paddle asks on
+   * its own page and ignores this.
+   */
+  phone?: string | null;
 }
 
 export interface CheckoutRequest {
@@ -53,6 +59,12 @@ export interface CheckoutRequest {
    * to a workspace without trusting anything in the request body.
    */
   reference: string;
+  /**
+   * How the customer chose to pay where the provider sets up a mandate
+   * (Razorpay Recurring: card, UPI or eNACH). Omitted, the provider picks the
+   * default for the amount. Ignored by Paddle.
+   */
+  mandateMethod?: 'card' | 'upi' | 'emandate';
 }
 
 export interface CheckoutSession {
@@ -117,6 +129,45 @@ export interface BillingProvider {
    * whether a marker should be left for `applyDuePendingPlans` to apply later.
    */
   readonly appliesPlanChangeImmediately: boolean;
+
+  /**
+   * False when the provider has no plan objects and charges amounts we compute
+   * from the catalog (Razorpay Recurring). Omitted means true: checkout then
+   * requires the synced provider plan, as Paddle does.
+   */
+  readonly usesStoredPlans?: boolean;
+
+  /**
+   * When one particular plan change takes effect, for a provider whose answer
+   * depends on the change. Razorpay Recurring applies an upgrade at once (the
+   * difference is added to the next charge) and a downgrade or an interval
+   * change at the end of the paid period. Omitted, `appliesPlanChangeImmediately`
+   * answers for every change.
+   */
+  planChangeTiming?(input: {
+    organizationId: string;
+    fromPlan: PlanTier;
+    toPlan: PlanTier;
+    toInterval: BillingInterval;
+  }): Promise<'immediate' | 'cycle_end'>;
+
+  /**
+   * Called after an immediate plan change is written, so a provider that
+   * schedules its own charges can record what the change owes.
+   */
+  afterImmediatePlanChange?(input: {
+    organizationId: string;
+    fromPlan: PlanTier;
+    toPlan: PlanTier;
+    interval: BillingInterval;
+  }): Promise<void>;
+
+  /**
+   * Called after a change scheduled for the period end is recorded (or a
+   * scheduled change is withdrawn), so a provider that has already priced the
+   * next renewal can price it again.
+   */
+  afterScheduledPlanChange?(organizationId: string): Promise<void>;
 
   /**
    * Creates or reuses a customer record. Idempotent by organisation, so calling

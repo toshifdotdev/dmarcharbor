@@ -69,9 +69,10 @@ already provided the service for it.
 **Plan changes are not refunds.** When a change takes effect depends on how you
 pay, as the Terms of Service set out:
 
-- **Paid in rupees through Razorpay:** an upgrade or a downgrade takes effect at
-  the end of the period you have already paid for. Nothing is charged or
-  refunded mid-period.
+- **Paid in rupees through Razorpay:** an upgrade takes effect at once, and the
+  difference for the rest of the period is added to your next renewal; nothing
+  is charged mid-period. A downgrade takes effect at the end of the period you
+  have already paid for, and nothing is refunded for it.
 - **Paid in US dollars through Paddle:** a change applies at once, and Paddle
   charges or credits the difference for the rest of the period. A charge for an
   upgrade is not refundable except under the 14-day guarantee above.

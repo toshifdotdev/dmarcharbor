@@ -57,6 +57,9 @@ const staleness: Record<string, number> = {
   // Runs every six hours and only inside a renewal window, so a day of silence
   // still means it had several chances.
   'billing-quantity-sync': 24 * 60 * 60 * 1000,
+  // Hourly; a renewal is scheduled three days ahead, so six hours of silence
+  // is worth a look long before any charge is late.
+  'billing-recurring-renewals': 6 * 60 * 60 * 1000,
   // The tick is ten minutes; two hours allows several missed ticks before a
   // monitor that has stopped working reads as stale.
   'dns-monitor': 2 * 60 * 60 * 1000,

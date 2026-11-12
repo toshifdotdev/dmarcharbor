@@ -12,6 +12,11 @@
  * to fix it: the card is changed in the provider's billing portal. There is no
  * charge-retry endpoint, so no retry button is offered.
  *
+ * On Razorpay (paid in rupees) we charge a saved mandate ourselves: there is
+ * no provider portal, and a renewal that cannot go on the mandate, or failed
+ * on it, is paid through a payment link. The page names the saved method, the
+ * next charge once it is announced, and offers the link when one is open.
+ *
  * Test hooks: pending-plan (always rendered), dunning-panel, dunning-portal,
  * retry-by-provider (says who retries the charge; no retry is promised),
  * dunning-withdrawn, fleet-quantity, fleet-next-quantity, billing-portal,
@@ -23,11 +28,31 @@ import { useState, type ReactNode } from "react";
 import { cancelSubscription, openBillingPortal, resumeSubscription } from "@/lib/ops-client";
 import type { BillingStatus } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonClass } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { Notice } from "@/components/ui/notice";
 
 const PROVIDER: Record<string, string> = { RAZORPAY: "Razorpay", PADDLE: "Paddle", NONE: "None" };
+
+function shortDate(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+}
+
+/** A renewal waiting on the customer: Razorpay's hosted page, opened directly. */
+function PayLink({ due, testId }: { due: NonNullable<BillingStatus["paymentDue"]>; testId: string }) {
+  if (!due.payUrl.startsWith("https://")) return null;
+  return (
+    <a
+      href={due.payUrl}
+      data-testid={testId}
+      className={buttonClass("primary", "md", "self-start")}
+    >
+      Pay {due.amountLabel}
+    </a>
+  );
+}
 
 function PortalButton({
   organizationId,
@@ -116,6 +141,13 @@ export function BillingStanding({
   const ended = s.status === "EXPIRED" || s.status === "CANCELLED";
   // An ended subscription is history, not something to manage or cancel.
   const hasSubscription = s.provider !== "NONE" && !ended;
+  // Razorpay Recurring: we charge a saved mandate ourselves, so there is no
+  // provider portal and no provider retry. A renewal that cannot go on the
+  // mandate arrives as a payment link instead.
+  const mandate = hasSubscription ? (s.mandate ?? null) : null;
+  const due = mandate ? (s.paymentDue ?? null) : null;
+  const scheduled = mandate ? (s.nextCharge ?? null) : null;
+  const mandateUsable = mandate?.status === "confirmed";
 
   async function confirm() {
     setBusy(true);
@@ -132,6 +164,8 @@ export function BillingStanding({
 
   const renewal = ended && s.provider !== "NONE"
     ? `The ${PROVIDER[s.provider] ?? ""} subscription has ended. Choose a plan below to start a new one; every client, domain and report is still here.`
+    : failing && mandate
+    ? `The renewal${periodEnd ? ` on ${periodEnd}` : ""} did not go through. ${due ? "Pay it with the link below." : "A payment link is on its way by email."}`
     : failing && hasSubscription
     ? `The renewal${periodEnd ? ` on ${periodEnd}` : ""} did not go through. ${PROVIDER[s.provider] ?? "The provider"} retries the card on its own.`
     : s.cancelAtPeriodEnd
@@ -140,6 +174,12 @@ export function BillingStanding({
       ? free
         ? "Free, with no payment and nothing to renew."
         : "This plan has no online subscription attached, so nothing renews or charges through this page."
+      : mandate
+        ? due
+          ? `The renewal${periodEnd ? ` on ${periodEnd}` : ""} needs a payment from you: use the link below.`
+          : mandateUsable
+            ? `Renews${periodEnd ? ` on ${periodEnd}` : ""}${s.interval === "ANNUAL" ? " for another year" : ""}, charged to the saved ${mandate.methodLabel}. We email you 3 days before each charge.`
+            : `Renews${periodEnd ? ` on ${periodEnd}` : ""}. The saved ${mandate.methodLabel} cannot be charged, so we email a payment link a week before.`
       : periodEnd
           ? `Renews on ${periodEnd}${s.interval === "ANNUAL" ? ", for another year" : ""}.`
           : "Renews automatically.";
@@ -151,11 +191,29 @@ export function BillingStanding({
       ? { value: "None", note: free ? "Nothing is charged on this plan." : "Nothing charges through this page." }
       : s.cancelAtPeriodEnd || ended
         ? { value: "None", note: periodEnd ? `The plan ends ${periodEnd}.` : "The plan is not charged again." }
+        : due
+        ? { value: due.amountLabel, note: due.payBy ? `Due by payment link, before ${shortDate(due.payBy) ?? "the grace ends"}.` : "Due by payment link." }
+        : failing && mandate
+        ? { value: "Unpaid", note: "A payment link is on its way by email." }
         : failing
         ? { value: "Unpaid", note: `${s.priceLabel} ${interval}, being retried by ${PROVIDER[s.provider] ?? "the provider"}.` }
+        : scheduled
+        ? {
+            value: scheduled.amountLabel,
+            note: `Charged to the ${mandate?.methodLabel ?? "saved method"} on ${shortDate(scheduled.chargeOn) ?? periodEnd ?? "the renewal date"} or shortly after.${
+              scheduled.needsApproval ? " It is above ₹15,000, so your bank will ask you to approve it." : ""
+            }`,
+          }
+        : mandate?.carryOverLabel && !pendingLabel
+        ? {
+            value: periodEnd ?? "Not dated",
+            note: `${s.priceLabel} ${interval}, plus ${mandate.carryOverLabel} for the upgrade.`,
+          }
         : {
             value: periodEnd ?? "Not dated",
-            note: pendingLabel ? `For ${pendingLabel}, which applies from then.` : `${s.priceLabel} ${interval}.`,
+            note: pendingLabel
+              ? `For ${pendingLabel}, which applies from then${mandate?.carryOverLabel ? `, plus ${mandate.carryOverLabel} for the upgrade` : ""}.`
+              : `${s.priceLabel} ${interval}.`,
           };
 
   return (
@@ -169,16 +227,30 @@ export function BillingStanding({
           <p className="max-w-[72ch] text-ui text-fg-2">
             The workspace still works: every client, domain, alert and report keeps running
             {graceUntil ? ` until ${graceUntil}` : " for a short grace period after the paid period ends"}. If it is still
-            unpaid then, the workspace moves to {freeLabel}, with all its data kept. To fix it, update the card in the
-            provider&rsquo;s billing portal; the provider then retries the charge on its own.
+            unpaid then, the workspace moves to {freeLabel}, with all its data kept.{" "}
+            {mandate
+              ? "To fix it, pay the renewal through the payment link. Paying it also sets up the payment method again, so the next renewal goes through on its own."
+              : "To fix it, update the card in the provider\u2019s billing portal; the provider then retries the charge on its own."}
           </p>
-          {canChange ? (
+          {mandate ? (
+            canChange ? (
+              due ? (
+                <PayLink due={due} testId="dunning-portal" />
+              ) : (
+                <p className="text-ui font-semibold text-fg">The payment link is on its way to the owner&rsquo;s email.</p>
+              )
+            ) : (
+              <p className="text-ui font-semibold text-fg">Only the workspace owner can pay the renewal. Let them know.</p>
+            )
+          ) : canChange ? (
             <PortalButton organizationId={organizationId} label="Update the card in the billing portal" testId="dunning-portal" variant="primary" />
           ) : (
             <p className="text-ui font-semibold text-fg">Only the workspace owner can update the card. Let them know.</p>
           )}
           <p data-testid="retry-by-provider" className="text-meta text-fg-3">
-            This page cannot retry the charge. The provider retries it on its own once the card is updated.
+            {mandate
+              ? "A failed charge is not retried on the saved method. The payment link is the way to pay it."
+              : "This page cannot retry the charge. The provider retries it on its own once the card is updated."}
           </p>
         </div>
       ) : null}
@@ -214,8 +286,15 @@ export function BillingStanding({
                 <span className="tnum font-semibold text-fg">{s.priceLabel}</span> a month.
                 {s.nextPeriodQuantity != null && s.nextPeriodQuantity !== s.quantity ? (
                   <span className="mt-0.5 block text-meta text-fg-3" data-testid="fleet-next-quantity">
-                    From the next renewal: <span className="tnum font-semibold text-fg-2">{s.nextPeriodQuantity}</span> active
-                    domains.
+                    From the next renewal: <span className="tnum font-semibold text-fg-2">{s.nextPeriodQuantity}</span> domains
+                    billed
+                    {s.perDomainQuote && s.perDomainQuote.activeDomains !== s.nextPeriodQuantity ? (
+                      <>
+                        {" "}
+                        (<span className="tnum">{s.perDomainQuote.activeDomains}</span> active, below this band&rsquo;s minimum)
+                      </>
+                    ) : null}
+                    .
                   </span>
                 ) : null}
               </p>
@@ -226,7 +305,13 @@ export function BillingStanding({
             <Figure
               label="Paid through"
               value={hasSubscription ? (PROVIDER[s.provider] ?? s.provider) : "None"}
-              note={hasSubscription ? "Invoices and the card are kept there." : "No payment provider is attached."}
+              note={
+                mandate
+                  ? `Saved ${mandate.methodLabel}${mandate.maxLabel ? `, up to ${mandate.maxLabel} a charge` : ""}${mandateUsable ? "." : ` (${(mandate.status ?? "not confirmed").replace(/_/g, " ")}).`}`
+                  : hasSubscription
+                    ? "Invoices and the card are kept there."
+                    : "No payment provider is attached."
+              }
             />
             <Figure
               label="Charged in"
@@ -259,7 +344,11 @@ export function BillingStanding({
           ) : null}
           {canChange && hasSubscription ? (
             <div className="mt-1 flex flex-wrap items-start gap-2">
-              <PortalButton organizationId={organizationId} label="Invoices and payment method" testId="billing-portal" />
+              {mandate ? (
+                due && !failing ? <PayLink due={due} testId="billing-portal" /> : null
+              ) : (
+                <PortalButton organizationId={organizationId} label="Invoices and payment method" testId="billing-portal" />
+              )}
               {s.cancelAtPeriodEnd ? (
                 <Button onClick={() => setPending("resume")} data-testid="resume-subscription">
                   Keep {currentLabel}

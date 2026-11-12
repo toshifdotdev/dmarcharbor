@@ -14,8 +14,9 @@ import { workspaceAllowanceFor } from '../services/entitlements/workspace-allowa
 import { billableQuantity, billedQuantity } from './quantity.js';
 import type { BillingInterval, ProviderName } from './provider.js';
 import { resolveProviderForCheckout } from './registry.js';
-import { planSyncReport, requireStoredPlan } from './plans.js';
+import { catalogPriceMinor, planSyncReport, requireStoredPlan } from './plans.js';
 import { resolveBillingInterval } from './interval.js';
+import { isRecurringKey, methodLabel } from './recurring-terms.js';
 import { writePlan } from './subscription-state.js';
 import { dunningGraceDays, graceEndFor } from './dunning.js';
 import { sendPlanChangedEmail, sendSubscriptionCancelledEmail } from '../email/mailer.js';
@@ -83,8 +84,10 @@ export interface StartCheckoutInput {
    * wrong one.
    */
   currency?: BillingCurrency;
-  contact: { name: string; email: string; taxId?: string | null };
+  contact: { name: string; email: string; taxId?: string | null; phone?: string | null };
   provider?: Exclude<ProviderName, 'NONE'>;
+  /** Razorpay Recurring: card, UPI Autopay or eNACH. Ignored by Paddle. */
+  mandateMethod?: 'card' | 'upi' | 'emandate';
 }
 
 export interface CheckoutSummary {
@@ -164,13 +167,18 @@ export async function startCheckout(input: StartCheckoutInput): Promise<Checkout
   // that band's minimum.
   const billable = await billableQuantity(input.organizationId, input.plan);
 
-  const plan = await requireStoredPlan({
-    provider: provider.name,
-    tier: input.plan,
-    interval: input.interval,
-    currency,
-    band: billable.band,
-  });
+  // A provider without plan objects (Razorpay Recurring) charges the catalog
+  // price itself, so there is no stored plan to require.
+  const plan =
+    provider.usesStoredPlans === false
+      ? { priceMinor: catalogPriceMinor(input.plan, input.interval, currency, billable.band) }
+      : await requireStoredPlan({
+          provider: provider.name,
+          tier: input.plan,
+          interval: input.interval,
+          currency,
+          band: billable.band,
+        });
   const totalMinor = definition.pricing === 'per_domain' ? plan.priceMinor * billable.quantity : plan.priceMinor;
 
   const session = await provider.createCheckout({
@@ -188,6 +196,7 @@ export async function startCheckout(input: StartCheckoutInput): Promise<Checkout
     // Carried through to the webhook so the event can be attributed to a
     // workspace without trusting the payload body.
     reference: input.organizationId,
+    ...(input.mandateMethod ? { mandateMethod: input.mandateMethod } : {}),
   });
 
   /**
@@ -333,7 +342,7 @@ export async function changePlan(input: {
 }): Promise<{ effectiveAt: 'immediate' | 'cycle_end'; effectiveDate: Date | null }> {
   const subscription = await prisma.subscription.findUnique({
     where: { organizationId: input.organizationId },
-    select: { provider: true, providerSubscriptionId: true, plan: true, status: true, currentPeriodEnd: true },
+    select: { provider: true, providerSubscriptionId: true, plan: true, status: true, currentPeriodEnd: true, billingInterval: true },
   });
 
   if (!subscription?.providerSubscriptionId || subscription.provider === 'NONE') {
@@ -409,6 +418,17 @@ export async function changePlan(input: {
   });
 
   const billable = await billableQuantity(input.organizationId, input.plan);
+  const immediate = await changeIsImmediate(provider, {
+    organizationId: input.organizationId,
+    fromPlan: subscription.plan,
+    toPlan: input.plan,
+    toInterval: input.interval,
+  });
+  // Asking for the plan and interval already billed ("Keep") withdraws a
+  // scheduled change rather than scheduling the same plan again.
+  const unchanged =
+    input.plan === subscription.plan &&
+    (subscription.billingInterval === null || subscription.billingInterval === toStoredInterval(input.interval));
 
   await provider.changePlan({
     providerSubscriptionId: subscription.providerSubscriptionId,
@@ -433,7 +453,7 @@ export async function changePlan(input: {
    * Paddle sees the plan change immediately instead of waiting for a delivery we
    * do not control.
    */
-    if (provider.appliesPlanChangeImmediately) {
+    if (immediate) {
       await prisma.$transaction(async (tx) => {
         await writePlan(tx, input.organizationId, input.plan);
         await tx.subscription.update({
@@ -446,6 +466,13 @@ export async function changePlan(input: {
           },
         });
       });
+      // A provider that schedules its own charges records what the change owes.
+      await provider.afterImmediatePlanChange?.({
+        organizationId: input.organizationId,
+        fromPlan: subscription.plan,
+        toPlan: input.plan,
+        interval: input.interval,
+      });
       await afterPlanChange(input.organizationId, { from: subscription.plan, to: input.plan });
     } else {
     // Recorded only after the provider accepted the change, so our row can never
@@ -454,21 +481,23 @@ export async function changePlan(input: {
     await prisma.subscription.update({
       where: { organizationId: input.organizationId },
       data: {
-        pendingPlan: input.plan,
-        pendingPlanInterval: toStoredInterval(input.interval),
+        pendingPlan: unchanged ? null : input.plan,
+        pendingPlanInterval: unchanged ? null : toStoredInterval(input.interval),
       },
     });
+    // A renewal already priced and announced for the old plan is withdrawn.
+    await provider.afterScheduledPlanChange?.(input.organizationId);
   }
 
   // Told at the moment of the request, not when it takes effect, so nobody
-  // discovers a plan change by losing a feature.
-  if (subscription.currentPeriodEnd) {
+  // discovers a plan change by losing a feature. "Keep" changes no plan.
+  if (subscription.currentPeriodEnd && !unchanged) {
     void sendPlanChangedEmail({
       organizationId: input.organizationId,
       fromPlan: subscription.plan,
       toPlan: input.plan,
-      effectiveAt: provider.appliesPlanChangeImmediately ? new Date() : subscription.currentPeriodEnd,
-      timing: provider.appliesPlanChangeImmediately ? 'immediate' : 'cycle_end',
+      effectiveAt: immediate ? new Date() : subscription.currentPeriodEnd,
+      timing: immediate ? 'immediate' : 'cycle_end',
     });
   }
 
@@ -486,15 +515,30 @@ export async function changePlan(input: {
       interval: input.interval,
       quantity: billable.quantity,
       provider: provider.name,
-      effectiveAt: provider.appliesPlanChangeImmediately ? 'immediate' : 'cycle_end',
+      effectiveAt: immediate ? 'immediate' : 'cycle_end',
     },
   });
 
   // Said back to the caller as it is, so a screen never promises "at period
   // end" for a change Paddle has already applied.
-  return provider.appliesPlanChangeImmediately
+  return immediate
     ? { effectiveAt: 'immediate', effectiveDate: new Date() }
     : { effectiveAt: 'cycle_end', effectiveDate: subscription.currentPeriodEnd ?? null };
+}
+
+/**
+ * Whether this change takes effect now: the provider decides per change when
+ * it can (Razorpay Recurring: an upgrade now, a downgrade at period end),
+ * otherwise its one flag answers for every change.
+ */
+async function changeIsImmediate(
+  provider: ReturnType<typeof resolveProviderForCheckout>,
+  input: { organizationId: string; fromPlan: PlanTier; toPlan: PlanTier; toInterval: BillingInterval },
+): Promise<boolean> {
+  if (provider.planChangeTiming) {
+    return (await provider.planChangeTiming(input)) === 'immediate';
+  }
+  return provider.appliesPlanChangeImmediately;
 }
 
 export interface PlanChangeQuote {
@@ -532,7 +576,7 @@ export async function previewPlanChange(input: {
 }): Promise<PlanChangeQuote> {
   const subscription = await prisma.subscription.findUnique({
     where: { organizationId: input.organizationId },
-    select: { provider: true, providerSubscriptionId: true, currentPeriodEnd: true },
+    select: { provider: true, providerSubscriptionId: true, currentPeriodEnd: true, plan: true, carryOverMinor: true },
   });
   if (!subscription?.providerSubscriptionId || subscription.provider === 'NONE') {
     throw new CheckoutError('This workspace has no subscription to change.', 'NO_SUBSCRIPTION', 409);
@@ -552,7 +596,14 @@ export async function previewPlanChange(input: {
   const fallbackCurrency: BillingCurrency =
     preference?.preferredCurrency ?? (subscription.provider === 'PADDLE' ? 'USD' : 'INR');
 
-  if (provider.appliesPlanChangeImmediately && provider.previewPlanChange) {
+  const immediate = await changeIsImmediate(provider, {
+    organizationId: input.organizationId,
+    fromPlan: subscription.plan,
+    toPlan: input.plan,
+    toInterval: input.interval,
+  });
+
+  if (immediate && provider.previewPlanChange) {
     const quote = await provider.previewPlanChange({
       providerSubscriptionId: subscription.providerSubscriptionId,
       plan: input.plan,
@@ -573,17 +624,19 @@ export async function previewPlanChange(input: {
       nextAmountMinor: quote.nextAmountMinor,
       nextAmountLabel: quote.nextAmountMinor === null ? null : formatLabel(quote.nextAmountMinor, currency),
       nextBilledAt: quote.nextBilledAt?.toISOString() ?? null,
-      includesTax: true,
+      // Paddle prices tax into its figures; Razorpay's are our catalog prices.
+      includesTax: provider.name === 'PADDLE',
       overage,
     };
   }
 
-  // At period end: nothing now, then the new plan's price from the catalog.
-  const unit = definition.pricing === 'per_domain'
+  // At period end: nothing now, then the new plan's price from the catalog,
+  // plus anything an earlier upgrade this period still owes (Razorpay only).
+  const unit = (definition.pricing === 'per_domain'
     ? perDomainBill(input.plan, billable.quantity, fallbackCurrency).totalMinor
     : input.interval === 'annual'
       ? definition.prices[fallbackCurrency].annualMinor
-      : definition.prices[fallbackCurrency].monthlyMinor;
+      : definition.prices[fallbackCurrency].monthlyMinor) + subscription.carryOverMinor;
   return {
     plan: input.plan,
     interval: input.interval,
@@ -740,6 +793,12 @@ export async function billingStatus(organizationId: string): Promise<{
   graceDays: number;
   /** The interval actually being billed, so the price below matches it. */
   interval: StoredBillingInterval;
+  /** Razorpay Recurring: the saved card, UPI or bank mandate. Null otherwise. */
+  mandate: { method: string | null; methodLabel: string; status: string | null; maxLabel: string | null; carryOverLabel: string | null } | null;
+  /** Razorpay Recurring: the renewal scheduled on the mandate, once announced. */
+  nextCharge: { amountLabel: string; chargeOn: string; plan: PlanTier; needsApproval: boolean } | null;
+  /** Razorpay Recurring: a renewal waiting on the customer, with its payment link. */
+  paymentDue: { amountLabel: string; payUrl: string; payBy: string | null; plan: PlanTier } | null;
 }> {
   const organization = await prisma.organization.findUniqueOrThrow({
     where: { id: organizationId },
@@ -758,6 +817,12 @@ export async function billingStatus(organizationId: string): Promise<{
           firstChargeAt: true,
           dunningStage: true,
           graceEndsAt: true,
+          providerSubscriptionId: true,
+          billingInterval: true,
+          mandateMethod: true,
+          mandateMaxMinor: true,
+          mandateStatus: true,
+          carryOverMinor: true,
         },
       },
     },
@@ -791,9 +856,11 @@ export async function billingStatus(organizationId: string): Promise<{
     new Date(),
   );
   const definition = planCatalog[organization.plan];
+  // Recorded where the provider has no plan object to read it from; inferred otherwise.
   const interval: StoredBillingInterval =
-    definition.pricing === 'per_domain' ? 'MONTHLY' : toStoredInterval(resolved.interval);
-
+    definition.pricing === 'per_domain'
+      ? 'MONTHLY'
+      : (organization.subscription?.billingInterval ?? toStoredInterval(resolved.interval));
   const prices = definition.prices[currency];
   const storedQuantity = organization.subscription?.quantity ?? 1;
   const quantity = billedQuantity(organization.plan, storedQuantity);
@@ -804,11 +871,12 @@ export async function billingStatus(organizationId: string): Promise<{
       ? prices.annualMinor
       : prices.monthlyMinor;
 
-  const [nextBillable, fleetBillable] = await Promise.all([
+  const [nextBillable, fleetBillable, recurring] = await Promise.all([
     billableQuantity(organizationId, organization.plan),
     definition.pricing === 'per_domain'
       ? Promise.resolve(null)
       : billableQuantity(organizationId, 'FLEET'),
+    recurringStanding(organization.subscription ?? null, organizationId),
   ]);
   const fleet = definition.pricing === 'per_domain' ? nextBillable : fleetBillable!;
   const fleetBill = perDomainBill('FLEET', fleet.activeDomains, currency);
@@ -871,6 +939,69 @@ export async function billingStatus(organizationId: string): Promise<{
         ? graceEndFor(periodEnd).toISOString()
         : null),
     graceDays: dunningGraceDays,
+    ...recurring,
+  };
+}
+
+/**
+ * The Razorpay Recurring part of the billing screen: the saved payment method,
+ * the next charge we have scheduled on it, and a payment link when a renewal
+ * is waiting on the customer. All null for Paddle and the free plan.
+ */
+async function recurringStanding(
+  subscription: {
+    providerSubscriptionId: string | null;
+    mandateMethod: string | null;
+    mandateMaxMinor: number | null;
+    mandateStatus: string | null;
+    carryOverMinor: number;
+  } | null,
+  organizationId: string,
+): Promise<{
+  mandate: { method: string | null; methodLabel: string; status: string | null; maxLabel: string | null; carryOverLabel: string | null } | null;
+  nextCharge: { amountLabel: string; chargeOn: string; plan: PlanTier; needsApproval: boolean } | null;
+  paymentDue: { amountLabel: string; payUrl: string; payBy: string | null; plan: PlanTier } | null;
+}> {
+  if (!subscription?.providerSubscriptionId || !isRecurringKey(subscription.providerSubscriptionId)) {
+    return { mandate: null, nextCharge: null, paymentDue: null };
+  }
+  const open = await prisma.billingCharge.findMany({
+    where: {
+      organizationId,
+      subscriptionKey: subscription.providerSubscriptionId,
+      kind: 'RENEWAL',
+      status: { in: ['SCHEDULED', 'CHARGING', 'PENDING'] },
+    },
+    orderBy: { createdAt: 'desc' },
+    select: { amountMinor: true, channel: true, paymentUrl: true, periodStart: true, plan: true, status: true },
+  });
+  const scheduled = open.find((charge) => charge.channel === 'TOKEN');
+  const link = open.find((charge) => charge.channel === 'LINK' && charge.paymentUrl);
+  return {
+    mandate: {
+      method: subscription.mandateMethod,
+      methodLabel: methodLabel(subscription.mandateMethod),
+      status: subscription.mandateStatus,
+      maxLabel: subscription.mandateMaxMinor ? formatLabel(subscription.mandateMaxMinor, 'INR') : null,
+      carryOverLabel: subscription.carryOverMinor > 0 ? formatLabel(subscription.carryOverMinor, 'INR') : null,
+    },
+    nextCharge: scheduled
+      ? {
+          amountLabel: formatLabel(scheduled.amountMinor, 'INR'),
+          chargeOn: scheduled.periodStart.toISOString(),
+          plan: scheduled.plan,
+          // Above ₹15,000 a card or UPI bank asks the customer to approve the debit.
+          needsApproval: subscription.mandateMethod !== 'emandate' && scheduled.amountMinor > 1_500_000,
+        }
+      : null,
+    paymentDue: link?.paymentUrl
+      ? {
+          amountLabel: formatLabel(link.amountMinor, 'INR'),
+          payUrl: link.paymentUrl,
+          payBy: new Date(link.periodStart.getTime() + dunningGraceDays * 24 * 60 * 60 * 1000).toISOString(),
+          plan: link.plan,
+        }
+      : null,
   };
 }
 

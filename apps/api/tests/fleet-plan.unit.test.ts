@@ -23,7 +23,6 @@ import { assertValidQuantity, BillingProviderError } from '../src/billing/provid
 import {
   paddleQuantityUpdateBody,
 } from '../src/billing/paddle.provider.js';
-import { razorpayQuantityUpdateBody } from '../src/billing/razorpay.provider.js';
 import { reconcileEventId } from '../src/billing/subscription-state.js';
 import { parseQuantity } from '../src/billing/webhook.service.js';
 
@@ -239,14 +238,6 @@ describe('billable quantity', () => {
 });
 
 describe('provider quantity payloads', () => {
-  it('schedules a Razorpay quantity change at cycle end', () => {
-    expect(razorpayQuantityUpdateBody(140, 'plan_fleet_band0')).toEqual({
-      plan_id: 'plan_fleet_band0',
-      quantity: 140,
-      schedule_change_at: 'cycle_end',
-    });
-  });
-
   it('sends Paddle a quantity change with no proration', () => {
     expect(paddleQuantityUpdateBody('pri_fleet_monthly', 140)).toEqual({
       items: [{ priceId: 'pri_fleet_monthly', quantity: 140 }],

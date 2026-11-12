@@ -1587,6 +1587,18 @@ export interface BillingStatus {
   graceEnds?: string | null;
   /** How long the failed-payment grace runs after the paid period ends. */
   graceDays?: number;
+  /** Razorpay Recurring: the saved card, UPI or bank mandate. Null otherwise. */
+  mandate?: {
+    method: string | null;
+    methodLabel: string;
+    status: string | null;
+    maxLabel: string | null;
+    carryOverLabel: string | null;
+  } | null;
+  /** Razorpay Recurring: the renewal scheduled on the mandate, once announced. */
+  nextCharge?: { amountLabel: string; chargeOn: string; plan: string; needsApproval?: boolean } | null;
+  /** Razorpay Recurring: a renewal waiting on the customer, with its payment link. */
+  paymentDue?: { amountLabel: string; payUrl: string; payBy: string | null; plan: string } | null;
 }
 
 export type AlertMetric =

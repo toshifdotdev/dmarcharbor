@@ -120,14 +120,52 @@ in 12 is tested just before production, with the production bucket.
       failure tables were empty headers (now one sentence saying nothing
       failed). `_smtp._tls.dmarcharbor.com` stays published, as it would in
       production.
-- [ ] **Razorpay Recurring Payments** (session 11). A support ticket asks for
-      it on test and live; until it is on, a charge on a saved token answers
-      400 "The requested URL was not found on the server". The work it unblocks
-      is listed under "Razorpay Recurring Payments: what to do when it is on".
+- [x] **Razorpay Recurring Payments** (session 11). Enabled on the test account
+      on 12 November 2026, built and tested the same day (results below).
+      Still to confirm on the live account before launch.
 
 Billing (11) is last. Then one fast pass over every session not marked final.
 
-### Razorpay Recurring Payments: what to do when it is on
+### Razorpay Recurring Payments: results (12 November 2026)
+
+Tested in the browser as the INR owner (`dmarcharbor+s11inr@gmail.com`), against
+Razorpay test mode through the `billing-dev` tunnel, with every webhook signed by
+the s11 secret. Test data is cleaned up afterwards: links closed, mandates
+cancelled and deleted, the workspace back on Mooring with one domain.
+
+| Check | Result |
+|---|---|
+| Card checkout, Fairway monthly ₹3,299 | Registration link (max ₹1,00,000), subscription test card 4718 6091 0820 4366; `payment.captured` activated Fairway, key `rr_…`, mandate card / confirmed, period +1 month |
+| UPI checkout, Fairway | Link with max ₹15,000; paid by UPI QR in test mode; mandate upi / confirmed |
+| eNACH checkout, Harbor annual ₹1,24,990 | UPI refused above ₹15,000 (`METHOD_NOT_ALLOWED`); eNACH by default, max ₹2,49,980; mandate authorised on the mock bank, first payment captured, period +1 year |
+| Renewal on the mandate | Order with pre-debit notice made 3 days ahead, notice email sent, notice delivered; a charge before 36 h answers "Debit can be attempted 36 hours after…" and waits; on eNACH (no notice) the token was charged at the period end, captured a few minutes later, period +1 month |
+| Mandate paused | Renewal sent as a payment link 7 days ahead; the page says the renewal needs a payment and offers "Pay ₹3,299"; paying it renewed the plan and replaced the mandate, and the old token was deleted |
+| Failed charge | Signed `payment.failed` made the row PAST_DUE; the next run sent a link (attempt 2); dunning warned with grace to the link's pay-by date; the dunning panel offers the link; paying it cleared dunning |
+| Upgrade Fairway → Harbor | Applied at once; ₹9,200 carried to the next renewal; confirmation says nothing is charged now |
+| Downgrade Harbor → Fairway | Scheduled for the period end; an announced renewal was withdrawn and re-priced for Fairway plus the carry; "Keep Harbor" cleared it and re-priced again (₹21,699) |
+| Fleet | Harbor → Fleet at once at 75 × ₹169; at 250 active domains the renewal was priced at band 2's minimum (320 × ₹106) plus the carry |
+| Above ₹15,000 on a card | Page and notice email say the bank will ask the owner to approve the charge |
+| Cancel and undo | Both through the page; undo restores the renewal |
+| Refund | Staff route refunded the first payment (`rfnd_…`), ended the plan at once and the mandate with it |
+| Signatures | A bad signature answers 401; token events for an unknown token are acknowledged and ignored |
+| 390px | No sideways scroll; the method choice fits on one line |
+
+Fixed while testing: a mailbox socket timeout crashed the whole API (no
+`error` listener on ImapFlow); renewal receipts were reused, which Razorpay
+refuses; eNACH renewals waited 36 hours for a notice they do not need; the
+carried upgrade amount was cleared when a renewal was only scheduled, so
+withdrawing it lost the amount (now stored on the charge and cleared on
+capture); a link payment kept the old mandate because the customer id was
+overwritten before it was read; deleting a UPI or eNACH token without
+cancelling it first left the mandate active at the bank; earlier unpaid
+checkouts stayed payable after one was paid; a scheduled downgrade did not
+re-price an announced renewal, and "Keep" scheduled the same plan instead of
+clearing it; a charge whose webhook never arrives now settles from Razorpay.
+
+Not covered in test mode: a real bank's decline on a token charge (simulated
+with a signed webhook), and the bank's own approval step above ₹15,000.
+
+### Razorpay Recurring Payments: the build list (done)
 
 The design is in `docs/BILLING.md` ("Razorpay Recurring Payments"). In order:
 
@@ -166,7 +204,9 @@ The design is in `docs/BILLING.md` ("Razorpay Recurring Payments"). In order:
    dunning and recovery; cancel and undo; a refund; 390px screens. Then
    session 11 is final.
 10. **Retire Razorpay Subscriptions** for new checkouts once INR works on
-    Recurring Payments; existing test subscriptions are cancelled.
+    Recurring Payments; existing test subscriptions are cancelled. Done: the
+    adapter no longer creates Subscriptions, and a legacy `sub_…` row lapses
+    at the end of its period.
 
 ### Fast pass results: sessions 1, 2, 3, 6 and 15 (10 November 2026)
 
@@ -331,7 +371,7 @@ and run with it.
 | 8 | PSA tickets and every webhook feature: endpoints, deliveries, retries, suspension, replay, rotation, client limits, `/api/v1` | a HaloPSA trial, a webhook receiver, an API key | **final** (8 November 2026); ConnectWise and Autotask wait for a live account |
 | 9 | Publishing DNS: Cloudflare connection, hosted DMARC, managed SPF, SPF sources in use, own report mailbox | a Cloudflare token | **final** (11 November 2026); zone import is in 20 |
 | 10 | Hosted BIMI, MTA-STS, TLS reports | a BIMI origin and Cloudflare for SaaS | **final** (9 November 2026), on `linkshift.in` through a tunnel; Gmail's logo needs a real VMC |
-| 11 | Billing: checkout, upgrade, downgrade, Fleet, failed payment, refund | Razorpay test keys, Paddle sandbox, a tunnel | **Paddle (USD) final** (10 November 2026); **INR waits** for Razorpay Recurring Payments (below) |
+| 11 | Billing: checkout, upgrade, downgrade, Fleet, failed payment, refund | Razorpay test keys, Paddle sandbox, a tunnel | **final** (12 November 2026): Paddle (USD) on 10 November, Razorpay Recurring Payments (INR) on 12 November |
 | 12 | White label: logo, colours, support contact, branded client emails | S3 keys for logos | **re-run** (Gemini) |
 | 13* | Client portal, approvals, share links, Trust Center, compliance packs, verifier, monthly reports, digests | sessions 2, 3 and 12 | **final** (11 November 2026); branded portal mail is checked again with 12 |
 | 14 | Admiralty: custom domain, agency sending domain, single sign-on | a second domain, a full-access Resend key, an SSO provider | **final** (9 November 2026), Auth0 for SSO; custom-domain hosting built and tested in dev after it |

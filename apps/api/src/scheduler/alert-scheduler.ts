@@ -9,6 +9,7 @@ import { reverifyUnverifiedDomains } from '../services/domain-reverify.service.j
 import { purgeExpiredIdempotencyRecords } from '../services/api-key.service.js';
 import { runDunning, runReconciliation } from '../billing/dunning.js';
 import { syncPerDomainQuantities } from '../billing/quantity.js';
+import { runRecurringRenewals } from '../billing/recurring.service.js';
 import { repairWebhookEndpoints } from '../services/webhook.service.js';
 import { withDueLease, withJobLease } from './job-lease.service.js';
 import { recordJobFailure, recordJobSuccess } from './heartbeat.js';
@@ -131,6 +132,27 @@ async function runAlertEvaluationPass(): Promise<{ completed: true }> {
       },
     );
 
+    /**
+     * Razorpay Recurring renewals: schedules each charge three days ahead with
+     * the pre-debit notice, charges the mandate once the notice has run, sends
+     * a payment link when the mandate cannot carry it, and ends cancelled
+     * plans. Hourly, leased, and wrapped so one failure cannot stop the rest.
+     */
+    try {
+      await withDueLease('billing-recurring-renewals', 60 * 60 * 1000, async () => {
+        const renewals = await runRecurringRenewals();
+        recordJobSuccess('billing-recurring-renewals');
+        if (renewals.scheduled + renewals.charged + renewals.linksSent + renewals.ended + renewals.failed > 0) {
+          console.info(
+            `[billing] recurring renewals examined ${renewals.examined}: ${renewals.scheduled} scheduled, ${renewals.charged} charged, ${renewals.linksSent} links sent, ${renewals.ended} ended, ${renewals.failed} failed`,
+          );
+        }
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Unknown recurring renewal error.';
+      console.error(`[billing] recurring renewals failed: ${detail}`);
+      recordJobFailure('billing-recurring-renewals');
+    }
     /**
      * Pushes next period's domain count for per-domain plans.
      *

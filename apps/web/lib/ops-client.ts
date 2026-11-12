@@ -1267,7 +1267,9 @@ export const startCheckout = (
     plan: string;
     interval: "monthly" | "annual";
     currency: "USD" | "INR";
-    contact: { name: string; email: string; taxId?: string | null };
+    contact: { name: string; email: string; taxId?: string | null; phone?: string | null };
+    /** INR only: how the Razorpay mandate is set up. */
+    method?: "card" | "upi" | "emandate";
   },
 ) =>
   call<{

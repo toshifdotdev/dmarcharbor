@@ -158,6 +158,8 @@ async function defaultLoginCheck(settings: Required<Pick<InboxSettings, 'host' |
     socketTimeout: 20_000,
     servername: settings.host,
   });
+  // Without a listener, an 'error' event (a socket timeout) exits the process.
+  client.on('error', () => undefined);
   try {
     await client.connect();
   } catch (error) {
@@ -289,6 +291,12 @@ export async function pollInbox(organizationId: string): Promise<PollOutcome> {
     // SNI and the advertised login still use the real name, so the certificate
     // matches what the customer configured even though the socket is pinned.
     servername: inbox.host,
+  });
+  // ImapFlow emits 'error' on a socket timeout; with no listener Node treats it
+  // as uncaught and the whole API exits. The pending command rejects too, so
+  // the poll still records the failure.
+  client.on('error', (error: Error) => {
+    console.error(`[inbox] connection error for ${organizationId}: ${error.message}`);
   });
 
   // Claimed before connecting. Every instance starts the inbox scheduler on

@@ -12,6 +12,8 @@ import {
   erasureScheduledEmail,
   exportReadyEmail,
   paymentFailedEmail,
+  renewalLinkEmail,
+  renewalNoticeEmail,
   planChangedEmail,
   planPausedFeaturesEmail,
   planWithdrawnEmail,
@@ -235,6 +237,7 @@ async function sendPaymentFailedEmailImpl(input: {
   organizationId: string;
   plan: Parameters<typeof planLabel>[0];
   graceEndsAt: Date;
+  recovery?: 'provider_retries' | 'payment_link';
 }): Promise<void> {
   const name = await workspaceName(input.organizationId);
   const billingUrl = appUrl('/billing');
@@ -246,8 +249,67 @@ async function sendPaymentFailedEmailImpl(input: {
         planLabel: planLabel(input.plan),
         graceEndsAt: input.graceEndsAt.toISOString(),
         billingUrl,
+        ...(input.recovery ? { recovery: input.recovery } : {}),
       }),
       email,
+    );
+  }
+}
+
+/** Rupees, as the billing page prints them. */
+function inrLabel(minor: number): string {
+  return `₹${new Intl.NumberFormat('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(minor / 100)}`;
+}
+
+async function sendRenewalNoticeEmailImpl(input: {
+  organizationId: string;
+  plan: Parameters<typeof planLabel>[0];
+  amountMinor: number;
+  chargeOn: Date;
+  method: string | null;
+}): Promise<void> {
+  const name = await workspaceName(input.organizationId);
+  const methodName =
+    input.method === 'upi' ? 'UPI Autopay mandate' : input.method === 'emandate' ? 'bank mandate (eNACH)' : 'saved card';
+  for (const email of await ownersOf(input.organizationId)) {
+    queueEmail(
+      renewalNoticeEmail({
+        workspaceName: name,
+        planLabel: planLabel(input.plan),
+        amountLabel: inrLabel(input.amountMinor),
+        chargeOn: input.chargeOn.toISOString(),
+        methodLabel: methodName,
+        billingUrl: appUrl('/billing'),
+        needsApproval: input.method !== 'emandate' && input.amountMinor > 1_500_000,
+      }),
+      email,
+      // One notice per scheduled renewal, however often the job runs.
+      `renewal-notice:${input.organizationId}:${input.chargeOn.toISOString()}:${email}`,
+    );
+  }
+}
+
+async function sendRenewalLinkEmailImpl(input: {
+  organizationId: string;
+  plan: Parameters<typeof planLabel>[0];
+  amountMinor: number;
+  payUrl: string;
+  payBy: Date;
+  reason: 'mandate_unusable' | 'above_maximum' | 'charge_failed';
+}): Promise<void> {
+  const name = await workspaceName(input.organizationId);
+  for (const email of await ownersOf(input.organizationId)) {
+    queueEmail(
+      renewalLinkEmail({
+        workspaceName: name,
+        planLabel: planLabel(input.plan),
+        amountLabel: inrLabel(input.amountMinor),
+        payUrl: input.payUrl,
+        payBy: input.payBy.toISOString(),
+        reason: input.reason,
+      }),
+      email,
+      `renewal-link:${input.payUrl}:${email}`,
     );
   }
 }
@@ -430,6 +492,14 @@ export function sendPolicyProposalDecidedEmail(input: Parameters<typeof sendPoli
 
 export function sendDomainVerificationEmail(input: Parameters<typeof sendDomainVerificationEmailImpl>[0]): void {
   fireAndForget(sendDomainVerificationEmailImpl(input), 'sendDomainVerificationEmail');
+}
+
+export function sendRenewalNoticeEmail(input: Parameters<typeof sendRenewalNoticeEmailImpl>[0]): void {
+  fireAndForget(sendRenewalNoticeEmailImpl(input), 'sendRenewalNoticeEmail');
+}
+
+export function sendRenewalLinkEmail(input: Parameters<typeof sendRenewalLinkEmailImpl>[0]): void {
+  fireAndForget(sendRenewalLinkEmailImpl(input), 'sendRenewalLinkEmail');
 }
 
 export function sendPaymentFailedEmail(input: Parameters<typeof sendPaymentFailedEmailImpl>[0]): void {

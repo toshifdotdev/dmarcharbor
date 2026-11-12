@@ -11,7 +11,8 @@ with its reason in view.
 | Decision | Why |
 |---|---|
 | **INR on Razorpay, USD on Paddle.** | Paddle on INR costs about 5% + $0.50 a payment; Razorpay about 2%. Stripe is invite-only for Indian businesses. |
-| **INR moves from Razorpay Subscriptions to Razorpay Recurring Payments** (a mandate we charge ourselves each period). Waiting on Razorpay to enable it; see "Razorpay Recurring Payments" below. | Razorpay Subscriptions cannot change plan or quantity on an Indian card or UPI subscription, and a cancel cannot be undone, so Fleet and plan changes cannot work on it. |
+| **INR is on Razorpay Recurring Payments** (a mandate we charge ourselves each period), not Razorpay Subscriptions. Live from 12 November 2026; see "Razorpay Recurring Payments" below. | Razorpay Subscriptions cannot change plan or quantity on an Indian card or UPI subscription, and a cancel cannot be undone, so Fleet and plan changes cannot work on it. |
+| **An INR upgrade applies at once; the difference is added to the next renewal**, never charged mid-period. A downgrade or an interval change waits for the period end. | RBI requires a pre-debit notice at least 24 hours before a card or UPI mandate debit, so an immediate charge would need the customer on a payment page again. |
 | **Plan changes on Paddle apply at once and are prorated both ways** (`prorated_immediately`), after a preview and a confirmation. | Paddle cannot schedule a price change. A customer sees the exact charge or credit before confirming. |
 | **Moving to Mooring is a cancellation**, at the end of the paid period. | The customer keeps what they paid for. |
 | **A cancellation can be undone** until the period ends ("Keep plan"). | |
@@ -159,58 +160,90 @@ RAZORPAY_KEY_SECRET=...
 RAZORPAY_WEBHOOK_SECRET=...   # separate from the API key secret
 ```
 
-Then create the plans:
+No Razorpay plans are created: Recurring Payments charges the catalog price in
+`plan-catalog.ts`, so a price change needs no sync for INR.
 
-```ts
-await new RazorpayBillingProvider().syncPlans('INR');
-```
+Webhook URL `/api/webhooks/razorpay`. The events read are payment.captured,
+payment.failed, order.paid, invoice.paid, invoice.expired and
+token.confirmed/rejected/paused/cancelled/cancellation_initiated/authenticated.
+Razorpay does not allow subscription.* and token.* on one webhook, and
+subscription.* is no longer read. refund.* and payment.dispute.* are
+acknowledged and not acted on (a refund is made from our own staff route).
 
-Webhook URL `/api/webhooks/razorpay`, with subscription.*, payment.failed,
-refund.* and payment.dispute.created/lost ticked. Recurring Payments also needs
-payment.captured, order.paid, invoice.paid, invoice.expired and token.*.
+Razorpay has **no self service billing portal**. "Invoices and payment method"
+is not offered for INR; when a renewal waits on the customer, the billing page
+offers its payment link instead, and paying it also sets up a new mandate.
 
-**Today the code uses Razorpay Subscriptions.** Razorpay has no plan change
-endpoint, but it does support a scheduled change, so an upgrade or downgrade is
-applied at the end of the current cycle. Tested in session 11: checkout of a
-Fairway subscription works, but on an Indian card or UPI subscription Razorpay
-refuses any change except offers ("Only offers can be updated for subscriptions
-when payment mode is domestic card"), and a cancellation cannot be undone. That
-is why INR is moving to Recurring Payments.
+## Razorpay Recurring Payments (INR)
 
-Razorpay has **no self service billing portal**. The billing page links to the
-subscription's own Razorpay page; a card is changed by a new mandate.
+Live from 12 November 2026, and tested end to end in test mode as an MSP owner
+(session 11): card, UPI and eNACH checkout, renewals, upgrade, downgrade, Fleet,
+a failed charge through dunning and recovery, cancel and undo, and a refund.
 
-## Razorpay Recurring Payments (INR, planned)
+Razorpay holds no subscription. We hold the schedule, and charge a saved
+mandate (a "token") each period.
 
-Waiting on Razorpay to enable the feature on the account (ticket raised,
-November 2026). Until then `POST /v1/payments/create/recurring` answers 400
-"The requested URL was not found on the server". A card mandate registration
-and its first payment already work in test mode (session 11). The build list is
-in `docs/TESTING-PLAN.md` under "Razorpay Recurring Payments".
-
-How it will work:
-
-- **Checkout** creates a registration link (`subscription_registration`,
-  `frequency: as_presented`) that takes the first payment and authorises a
-  mandate up to a maximum. The plan starts when Razorpay confirms the payment.
-- **Mandate maximum:** the larger of ₹1,00,000 or twice the current charge.
-- **Method, by RBI's ₹15,000 rule** (above it, a card or UPI charge needs the
+- **Checkout** creates a registration link (`subscriptions.createRegistrationLink`,
+  `type: link`) that takes the first payment and authorises the mandate in one
+  step. The plan starts when the payment is captured (`payment.captured`,
+  `order.paid` or `invoice.paid`, deduplicated by the order). The link is open
+  for 2 days; the mandate lasts 10 years. A phone number is required (Razorpay
+  refuses a recurring link without one). Starting a checkout closes any earlier
+  unpaid one, and paying one closes the rest, so two can never both be paid.
+- **The subscription key** is `rr_<first order id>`. A legacy `sub_…` row from
+  Razorpay Subscriptions reads as gone and lapses at the end of its period.
+- **Mandate maximum:** the larger of ₹1,00,000 or twice the charge; UPI's is
+  ₹15,000.
+- **Method, by RBI's ₹15,000 rule** (above it, a card or UPI debit needs the
   customer's approval each time):
-  - up to ₹15,000 a charge: card or UPI Autopay;
-  - above it: eNACH (netbanking or debit card) by default; a card is offered
-    with a warning that the bank will ask the customer to approve each charge;
-    UPI is not offered.
-  - eNACH cannot debit on the day it is registered, so the first payment is
-    taken separately and the plan starts at once.
-- **Each renewal** our job creates an order and charges the saved token. A
-  pre-debit email goes 3 days ahead with the amount.
-- **Upgrade:** at once; the prorated difference is added to the next charge.
-  **Downgrade:** at the end of the paid period.
-- **Fleet:** the amount is computed at each charge (count × band, at least the
-  band's minimum). If it would exceed the mandate maximum, the owner is asked to
-  raise it 7 days ahead; if they do not, the charge fails and dunning applies.
-- **Cancel** stops future charges; it can be undone until the period ends.
-- **Refund** goes through Razorpay's refund API on the first payment.
+  - up to ₹15,000 a charge: card (the default) or UPI Autopay;
+  - above it: eNACH by default; a card is offered with a warning that the bank
+    will ask the customer to approve each charge; UPI is refused
+    (`METHOD_NOT_ALLOWED`).
+  - eNACH carries the first payment as `first_payment_amount`, taken once the
+    mandate is authorised.
+- **Each renewal** is run by the hourly job `billing-recurring-renewals`
+  (`runRecurringRenewals`):
+  - 3 days before the period end, on a confirmed mandate that covers the
+    amount: an order is created with Razorpay's pre-debit `notification`
+    (card and UPI), the charge is recorded as `SCHEDULED`, and the owner gets
+    our notice email with the amount, the date and, above ₹15,000 on a card or
+    UPI, a line saying the bank will ask them to approve it.
+  - At the period end, and no sooner than 36 hours 15 minutes after the bank
+    received the notice, the token is charged (`CHARGING`). The result arrives
+    by webhook; a charge with no answer after an hour is read from Razorpay by
+    the job, and after three days falls back to a payment link.
+  - 7 days before the period end, when the mandate is not confirmed (paused,
+    cancelled, rejected) or is below the amount, or straight after a charge on
+    it failed: a payment link for the renewal is emailed instead, open until
+    the failed-payment grace ends. Razorpay does not retry a charge made with a
+    pre-debit notice, so a failure always goes to a link. Paying the link
+    renews the plan and replaces the mandate (the old one is cancelled).
+- **A failed charge** makes the subscription `PAST_DUE` and dunning runs as on
+  Paddle (warn, grace, withdraw). The billing page's dunning panel offers the
+  payment link instead of a card portal.
+- **Upgrade** (same interval, higher price): at once. The prorated difference
+  for the rest of the period goes to `carryOverMinor` and is added to the next
+  renewal; a renewal already announced at the old price is withdrawn and
+  priced again. The carried amount is cleared only when the renewal carrying
+  it is captured, and when the subscription ends.
+- **Downgrade, or a change of interval:** at the period end, through
+  `pendingPlan`. "Keep" clears it and re-prices an announced renewal.
+- **Fleet:** each charge is billed for the active domains at that moment (at
+  least the band's minimum) × the band's unit price. There is no quantity to
+  push to Razorpay.
+- **Cancel** sets the row's flag only, so it can be undone. At the period end
+  the job ends the plan and cancels the mandate. `cancelImmediately` (refund,
+  dunning withdrawal) does the same at once.
+- **Ending a mandate** cancels it at Razorpay first (`PUT
+  /customers/:id/tokens/:id/cancel`, which reaches NPCI or the bank), then
+  deletes the token. Deleting alone leaves a UPI or eNACH mandate active at the
+  bank, and Razorpay refuses it.
+- **Refund** is of the first captured payment, through `payments.refund`.
+- **Records:** every charge is a `billing_charge` row (kind FIRST or RENEWAL,
+  channel TOKEN or LINK, status PENDING, SCHEDULED, CHARGING, CAPTURED, FAILED
+  or EXPIRED), unique by order and by subscription, kind, period and attempt.
+  A receipt is unique to one renewal attempt: Razorpay refuses a reused one.
 
 ## Configuring Paddle
 
@@ -417,9 +450,9 @@ limits.
 
 ## Not built yet
 
-- **Razorpay Recurring Payments** (above), which brings an immediate INR
-  upgrade with the difference on the next charge. Until it ships, an INR change
-  is scheduled for the end of the period.
+- **Raising an INR mandate maximum in place.** A Fleet bill that grows past the
+  mandate's maximum renews through a payment link, which registers a new,
+  larger mandate; there is no separate "raise your maximum" step.
 - **A staff screen for refunds.** Today they are two API calls with the staff key.
 - **Refunds made outside the app** (Paddle's dashboard or Paddle's own buyer
   support) are not read from the `adjustment.*` webhooks, so the app does not

@@ -964,18 +964,30 @@ export function paymentFailedEmail(input: {
   planLabel: string;
   graceEndsAt: string;
   billingUrl: string;
+  /**
+   * `provider_retries` (Paddle retries the card itself) or `payment_link`
+   * (Razorpay Recurring: we sent a link to pay, which is on the billing page).
+   */
+  recovery?: 'provider_retries' | 'payment_link';
 }): RenderedEmail {
+  const byLink = input.recovery === 'payment_link';
   return layout({
     title: `Payment failed for ${input.planLabel}`,
-    // The payment provider retries the card, not this service; the copy says so.
-    preheader: 'Your payment provider will retry the charge. Update your card to avoid losing access.',
+    // Who acts next is said as it is: the provider retries, or the customer pays a link.
+    preheader: byLink
+      ? 'Pay the renewal with the link on your billing page to keep your plan.'
+      : 'Your payment provider will retry the charge. Update your card to avoid losing access.',
     heading: `We could not take payment for ${input.planLabel}`,
     paragraphs: [
-      `Your last payment for ${input.planLabel} did not go through. Your payment provider retries the charge on its own once the card works.`,
+      byLink
+        ? `Your last payment for ${input.planLabel} did not go through. We have emailed you a link to pay the renewal, and it is also on your billing page.`
+        : `Your last payment for ${input.planLabel} did not go through. Your payment provider retries the charge on its own once the card works.`,
       `Your access continues until ${readableDate(input.graceEndsAt)}. If the payment still has not succeeded by then, the workspace moves to the free plan.`,
-      'All of your clients, domains and reports are kept either way. Nothing is deleted, and updating your card restores your previous plan immediately.',
+      byLink
+        ? 'All of your clients, domains and reports are kept either way. Nothing is deleted, and paying restores your previous plan immediately.'
+        : 'All of your clients, domains and reports are kept either way. Nothing is deleted, and updating your card restores your previous plan immediately.',
     ],
-    action: { label: 'Update payment method', url: input.billingUrl },
+    action: { label: byLink ? 'Pay the renewal' : 'Update payment method', url: input.billingUrl },
     aside: {
       heading: 'Nothing is lost',
       body: 'A failed payment never deletes client data. The workspace drops to the free plan, and your full history comes back when you upgrade.',
@@ -983,6 +995,77 @@ export function paymentFailedEmail(input: {
     footer: 'You are receiving this because you have a paid subscription in DMARC Harbor.',
     kind: 'Billing',
     state: { tone: 'fail', word: 'Payment failed' },
+  });
+}
+
+/**
+ * The pre-debit notice for a renewal on a saved mandate (Razorpay Recurring).
+ *
+ * Sent when the renewal is scheduled, three days ahead. The bank sends its own
+ * notice too, as RBI requires for card and UPI mandates; this one says it in
+ * the product's words, with the plan and how to stop it.
+ */
+export function renewalNoticeEmail(input: {
+  workspaceName: string;
+  planLabel: string;
+  amountLabel: string;
+  chargeOn: string;
+  methodLabel: string;
+  billingUrl: string;
+  /** Above ₹15,000 on a card or UPI mandate the bank asks the customer to approve the charge. */
+  needsApproval?: boolean;
+}): RenderedEmail {
+  return layout({
+    title: `${input.planLabel} renews on ${readableDate(input.chargeOn)}`,
+    preheader: `${input.amountLabel} from your ${input.methodLabel}.`,
+    heading: `Your ${input.planLabel} plan renews on ${readableDate(input.chargeOn)}`,
+    paragraphs: [
+      `We will charge ${input.amountLabel} to your ${input.methodLabel} on or after ${readableDate(input.chargeOn)}, for the next period of ${input.planLabel} in ${input.workspaceName}. Your bank may send its own notice of the same charge.`,
+      input.needsApproval
+        ? 'This charge is above ₹15,000, so your bank will ask you to approve it, usually by a link or OTP in its notice. If it is not approved, we email you a payment link instead.'
+        : 'Nothing to do if that is right. To change plan or stop the renewal, open Billing before that date.',
+      ...(input.needsApproval ? ['To change plan or stop the renewal, open Billing before that date.'] : []),
+    ],
+    action: { label: 'Open billing', url: input.billingUrl },
+    footer: 'You are receiving this because you have a paid subscription in DMARC Harbor.',
+    kind: 'Billing',
+    state: { tone: 'ok', word: 'Renewing' },
+  });
+}
+
+/**
+ * A renewal that cannot go on the saved mandate, with a payment link.
+ *
+ * Paying the link renews the plan and sets up a new mandate, so the next
+ * renewal goes through on its own again.
+ */
+export function renewalLinkEmail(input: {
+  workspaceName: string;
+  planLabel: string;
+  amountLabel: string;
+  payUrl: string;
+  payBy: string;
+  reason: 'mandate_unusable' | 'above_maximum' | 'charge_failed';
+}): RenderedEmail {
+  const why =
+    input.reason === 'charge_failed'
+      ? 'The renewal charge on your saved payment method did not go through.'
+      : input.reason === 'above_maximum'
+        ? 'This renewal is more than the maximum your saved payment method allows, so it cannot be charged automatically.'
+        : 'Your saved payment method is no longer active (it was paused, cancelled or not confirmed by the bank), so the renewal cannot be charged automatically.';
+  return layout({
+    title: `Renew ${input.planLabel}: ${input.amountLabel}`,
+    preheader: `Pay by ${readableDate(input.payBy)} to keep ${input.planLabel}.`,
+    heading: `Renew ${input.planLabel} with one payment`,
+    paragraphs: [
+      why,
+      `Pay ${input.amountLabel} with the button below to renew ${input.planLabel} for ${input.workspaceName}. The same payment sets up your card, UPI or bank mandate again, so later renewals go through on their own.`,
+      `The link works until ${readableDate(input.payBy)}. If it is not paid by then, the workspace moves to the free plan. Nothing is deleted either way.`,
+    ],
+    action: { label: `Pay ${input.amountLabel}`, url: input.payUrl },
+    footer: 'You are receiving this because you have a paid subscription in DMARC Harbor.',
+    kind: 'Billing',
+    state: { tone: input.reason === 'charge_failed' ? 'fail' : 'warn', word: 'Payment needed' },
   });
 }
 

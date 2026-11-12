@@ -122,6 +122,35 @@ function features(plan: PlanDefinition): Set<string> {
   );
 }
 
+/** The same charge as `priceOf`, in minor units. */
+function chargeMinorOf(plan: PlanDefinition, currency: Currency, interval: Interval, quote?: BillingStatus["perDomainQuote"] | null): number {
+  if (plan.pricing === "per_domain") {
+    return fleetBill(plan, currency, quote?.activeDomains ?? fleetMinimumQuantity(plan)).totalMinor;
+  }
+  const p = plan.prices[currency];
+  return interval === "annual" ? p.annualMinor : p.monthlyMinor;
+}
+
+type Mandate = "card" | "upi" | "emandate";
+/** RBI's limit for a card or UPI debit with no approval each time: ₹15,000. */
+const NO_APPROVAL_LIMIT_MINOR = 1_500_000;
+
+/** The ways a rupee charge of this size can renew, as the API allows them (billing/recurring-terms.ts). */
+function mandateOptions(chargeMinor: number): Array<{ value: Mandate; label: string; available: boolean; note: string | null; unavailableReason: string | null }> {
+  const small = chargeMinor <= NO_APPROVAL_LIMIT_MINOR;
+  return [
+    { value: "card", label: "Card", available: true, note: small ? null : "Above ₹15,000 your bank asks you to approve each card charge, so a renewal can wait on you.", unavailableReason: null },
+    { value: "upi", label: "UPI", available: small, note: "UPI Autopay, approved once in your UPI app.", unavailableReason: small ? null : "UPI Autopay takes charges up to ₹15,000 on its own, so it is not offered for this amount." },
+    // Short labels, so the three fit on one line on a phone; the note names each in full.
+    { value: "emandate", label: "Bank (eNACH)", available: true, note: "A bank mandate (eNACH), signed with netbanking or a debit card; the bank can take up to two working days to confirm it.", unavailableReason: null },
+  ];
+}
+
+/** The mandate maximum the API registers: at least ₹1,00,000 or twice the charge; UPI at ₹15,000. */
+function mandateMaxOf(method: Mandate, chargeMinor: number): number {
+  return method === "upi" ? NO_APPROVAL_LIMIT_MINOR : Math.max(10_000_000, 2 * Math.ceil(chargeMinor));
+}
+
 function priceOf(plan: PlanDefinition, currency: Currency, interval: Interval, quote?: BillingStatus["perDomainQuote"] | null): string {
   if (plan.pricing === "per_domain") {
     // Priced in the band the measured count falls in, at that band's unit.
@@ -601,7 +630,21 @@ function Decision(props: RowProps & { action: Action; verb: string }) {
   const [name, setName] = useState(contact?.name ?? "");
   const [email, setEmail] = useState(contact?.email ?? "");
   const [taxId, setTaxId] = useState("");
+  const [phone, setPhone] = useState("");
   const [ack, setAck] = useState(false);
+  // Rupee checkouts set up a mandate (Razorpay Recurring Payments). Which ways
+  // are offered depends on the amount: RBI lets a card or UPI debit on its own
+  // only up to ₹15,000.
+  const inrMinor = chargeMinorOf(plan, "INR", interval, props.fleetQuote);
+  const methods = mandateOptions(inrMinor);
+  const [picked, setMethod] = useState<Mandate>(inrMinor <= NO_APPROVAL_LIMIT_MINOR ? "card" : "emandate");
+  // A choice the amount no longer allows (UPI after switching to annual) falls back to the default.
+  const method: Mandate = methods.some((m) => m.value === picked && m.available)
+    ? picked
+    : inrMinor <= NO_APPROVAL_LIMIT_MINOR
+      ? "card"
+      : "emandate";
+  const chosen = methods.find((m) => m.value === method) ?? methods[0];
   const toast = useToast();
   // A plan change is priced by the provider before it is confirmed, so the
   // customer sees the real charge, credit and next invoice, and confirms that.
@@ -651,10 +694,14 @@ function Decision(props: RowProps & { action: Action; verb: string }) {
         ? `${currentLabel} stays until ${periodEnd ?? "the paid period ends"} and is not charged again; then the workspace moves to ${plan.label}. Every client, domain and report is kept.`
         : provider === "PADDLE"
           ? `Applies at once, and Paddle adjusts the charge for the rest of this period.`
-          : `Applies on ${periodEnd ?? "the date the paid period ends"}. Until then nothing changes and there is no charge in between.`;
+          : quote?.effectiveAt === "immediate"
+            ? `Applies at once. The difference for the rest of this period is added to your next renewal; nothing is charged now.`
+            : `Applies on ${periodEnd ?? "the date the paid period ends"}. Until then nothing changes and there is no charge in between.`;
 
   const checkoutOpen = chargeable.length > 0;
-  const contactOk = name.trim().length >= 2 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const inr = action === "checkout" && payCurrency === "INR";
+  const phoneOk = !inr || /^(?:\+?91[\s-]?)?[6-9]\d{4}[\s-]?\d{5}$|^\+\d{8,15}$/.test(phone.trim());
+  const contactOk = name.trim().length >= 2 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) && phoneOk;
 
   async function go() {
     if (busy) return;
@@ -665,7 +712,8 @@ function Decision(props: RowProps & { action: Action; verb: string }) {
         plan: plan.tier,
         interval,
         currency: payCurrency,
-        contact: { name: name.trim(), email: email.trim(), taxId: taxId.trim() || null },
+        contact: { name: name.trim(), email: email.trim(), taxId: taxId.trim() || null, ...(inr ? { phone: phone.trim() } : {}) },
+        ...(inr ? { method } : {}),
       });
       if (!res.ok) {
         setBusy(false);
@@ -703,7 +751,9 @@ function Decision(props: RowProps & { action: Action; verb: string }) {
           ? ` ${quote.chargeNowLabel} was charged to your card; ${PROVIDER_NAME[provider] ?? "the provider"} emails the receipt.`
           : quote.creditMinor > 0
             ? ` ${quote.creditLabel} of unused time is credited to your next invoice.`
-            : ""
+            : provider === "RAZORPAY" && quote.nextAmountLabel
+              ? ` Nothing was charged now; the next renewal is ${quote.nextAmountLabel}.`
+              : ""
         : "";
     const message =
       action === "cancel"
@@ -819,7 +869,9 @@ function Decision(props: RowProps & { action: Action; verb: string }) {
                         ? "To the card on file, for the rest of this period."
                         : quote.creditMinor > 0
                           ? `${quote.creditLabel} of unused time is credited to your next invoice.`
-                          : "Covered by credit already on your account."}
+                          : provider === "RAZORPAY"
+                            ? "The difference for the rest of this period is added to the next renewal."
+                            : "Covered by credit already on your account."}
                   </dd>
                 </div>
                 <div>
@@ -886,9 +938,47 @@ function Decision(props: RowProps & { action: Action; verb: string }) {
             <Field label="Billing email" hint="Receipts go here.">
               <Input size="sm" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
             </Field>
-            <Field label="Tax ID (optional)" hint="GSTIN or VAT number, if the invoice needs one." className="sm:col-span-2">
+            {inr ? (
+              <Field label="Mobile number" hint="Razorpay sends the payment and mandate details here.">
+                <Input
+                  size="sm"
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  maxLength={20}
+                  autoComplete="tel"
+                  placeholder="98190 12345"
+                  data-testid="checkout-phone"
+                />
+              </Field>
+            ) : null}
+            <Field label="Tax ID (optional)" hint="GSTIN or VAT number, if the invoice needs one." className={inr ? undefined : "sm:col-span-2"}>
               <Input size="sm" mono value={taxId} onChange={(e) => setTaxId(e.target.value)} maxLength={32} className="max-w-[280px]" />
             </Field>
+            {inr ? (
+              <div className="flex flex-col gap-1.5 sm:col-span-2" data-testid="checkout-method">
+                <span aria-hidden className="text-meta font-semibold text-fg-2">
+                  How renewals are paid
+                </span>
+                <div>
+                  <Segmented
+                    label="How renewals are paid"
+                    size="sm"
+                    value={method}
+                    onChange={setMethod}
+                    options={methods.filter((m) => m.available).map((m) => ({ value: m.value, label: m.label }))}
+                  />
+                </div>
+                <p className="max-w-[62ch] text-meta text-fg-3">
+                  You pay the first {interval === "annual" ? "year" : "month"} now and approve automatic renewals up to{" "}
+                  {formatMinor(mandateMaxOf(method, inrMinor), "INR")} a charge. We email you 3 days before each one.
+                  {chosen?.note ? ` ${chosen.note}` : ""}
+                </p>
+                {methods.some((m) => !m.available) ? (
+                  <p className="text-meta text-fg-3">{methods.find((m) => !m.available)?.unavailableReason}</p>
+                ) : null}
+              </div>
+            ) : null}
             <div className="sm:col-span-2">
               <Checkbox
                 id={`${id}-ack`}
@@ -929,7 +1019,7 @@ function Decision(props: RowProps & { action: Action; verb: string }) {
               ? `Move to ${plan.label} at period end`
               : action === "keep"
                 ? `Keep ${plan.label}`
-                : provider === "PADDLE"
+                : provider === "PADDLE" || quote?.effectiveAt === "immediate"
                   ? `Move to ${plan.label} now`
                   : `Move to ${plan.label} at period end`}
           </Button>
@@ -980,7 +1070,7 @@ function Decision(props: RowProps & { action: Action; verb: string }) {
         confirmLabel={
           action === "cancel"
             ? "Cancel at period end"
-            : quote?.effectiveAt === "cycle_end" || provider !== "PADDLE"
+            : quote?.effectiveAt === "cycle_end" || (provider !== "PADDLE" && quote?.effectiveAt !== "immediate")
               ? `Schedule ${plan.label}`
               : quote && quote.chargeNowMinor > 0
                 ? `Pay ${quote.chargeNowLabel} and move`

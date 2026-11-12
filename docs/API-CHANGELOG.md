@@ -254,6 +254,38 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-12-19 — Rupee billing on Razorpay Recurring Payments
+
+Rupee subscriptions move from Razorpay Subscriptions to Recurring Payments: we
+charge a saved card, UPI Autopay or eNACH mandate each period. An upgrade now
+applies at once, with the difference added to the next renewal; a downgrade
+still waits for the period end. `/api/v1` is unchanged.
+
+Browser routes:
+
+- `POST /api/workspaces/{id}/billing/checkout` accepts `contact.phone`
+  (required for INR; Razorpay refuses a recurring link without it) and
+  `method`: `card`, `upi` or `emandate`. Omitted, the default for the amount:
+  card up to ₹15,000, eNACH above it. UPI above ₹15,000 answers 400
+  `METHOD_NOT_ALLOWED`; a missing phone answers 400 `PHONE_REQUIRED`. Starting
+  a checkout closes any earlier unpaid one.
+- `GET /api/workspaces/{id}/billing` gains, for a Razorpay subscription:
+  `mandate` (`method`, `methodLabel`, `status`, `maxLabel`, `carryOverLabel`),
+  `nextCharge` (`amountLabel`, `chargeOn`, `plan`, `needsApproval`) once a
+  renewal is announced, and `paymentDue` (`amountLabel`, `payUrl`, `payBy`,
+  `plan`) when a renewal waits on a payment link. All three are `null` on
+  Paddle and the free plan.
+- `POST /api/workspaces/{id}/billing/plan/preview` for an INR upgrade answers
+  `effectiveAt: "immediate"`, `chargeNowMinor: 0`, and a `nextAmountMinor`
+  that includes the carried difference.
+- `POST /api/workspaces/{id}/billing/portal` for INR returns the open renewal
+  link, or 409 `NO_PAYMENT_DUE` when nothing is waiting.
+- `POST /api/workspaces/{id}/billing/plan` with the current plan and interval
+  ("Keep") clears a scheduled change instead of scheduling the same plan.
+- `POST /api/webhooks/razorpay` reads payment.captured, payment.failed,
+  order.paid, invoice.paid, invoice.expired and token.*. subscription.* is no
+  longer read.
+
 ## 2026-12-18 — Exports for owners and admins, scoped erasures, mailbox checked on save
 
 Browser routes under `/api` only; `/api/v1` is unchanged. Found in sessions 4,

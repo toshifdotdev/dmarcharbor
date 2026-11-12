@@ -1,204 +1,257 @@
-import { env } from '../config/env.js';
-import Razorpay from 'razorpay';
+import type { PlanTier } from '@prisma/client';
+import { prisma } from '../database/prisma.js';
+import { planCatalog } from '../services/entitlements/plan-catalog.js';
 import {
   assertValidQuantity,
   BillingProviderError,
-  SignatureVerificationError,
   type BillingContact,
   type BillingInterval,
   type BillingProvider,
   type CheckoutRequest,
   type CheckoutSession,
+  type PlanChangePreview,
   type ProviderSubscription,
   type ProviderSubscriptionStatus,
 } from './provider.js';
-import { expectedPlans, findStoredPlan, findStoredPlanByProviderPlanId, requireStoredPlan, saveStoredPlan } from './plans.js';
-import { bandIndexFor, bandSuffix } from '../services/entitlements/plan-catalog.js';
-import { PROVIDER_TIMEOUT_MS, withTimeout } from './provider-timeout.js';
-import { prisma } from '../database/prisma.js';
-import type { PlanTier } from '@prisma/client';
+import { catalogPriceMinor } from './plans.js';
+import { bandIndexFor } from '../services/entitlements/plan-catalog.js';
+import { createRegistrationLink, fetchPayment, refundPayment } from './razorpay-client.js';
+import {
+  addInterval,
+  checkoutLinkTtlMs,
+  defaultMandateMethod,
+  isRecurringKey,
+  mandateLifetimeMs,
+  mandateMaxFor,
+  methodAllowed,
+  recurringSubscriptionKey,
+  subtractInterval,
+  upgradeCarryOverMinor,
+} from './recurring-terms.js';
+import { closeOtherCheckouts, endRecurringSubscription, recurringChargeFor, withdrawScheduledRenewals } from './recurring.service.js';
+
+export { razorpayConfigured, razorpayWebhookSecret, verifyRazorpaySignature } from './razorpay-client.js';
 
 /**
- * Razorpay adapter.
+ * Razorpay adapter, on Recurring Payments (INR).
  *
- * Razorpay is an Indian payment processor, not a merchant of record. It takes
- * the money and settles INR into an Indian bank account, which suits an India
- * based seller, but it means we are the seller of record for international
- * sales and carry the tax obligation ourselves.
+ * Razorpay is a payment gateway, not a merchant of record: it takes the money
+ * and settles INR into our bank account. Until November 2026 this adapter used
+ * Razorpay Subscriptions, which on Indian cards and UPI refuses any plan or
+ * quantity change and cannot undo a cancellation (session 11). It now uses
+ * Recurring Payments:
  *
- * Every amount is the smallest currency unit, so 7900 is 79.00 USD and 659900
- * is 6599.00 INR. Nothing here handles a decimal amount, because a rounding
- * error is a real charge to a real customer.
+ * - Checkout is a hosted registration link that takes the first payment and
+ *   registers a mandate (card, UPI Autopay or eNACH) up to a maximum.
+ * - We keep the schedule and charge each renewal on the mandate ourselves
+ *   (`recurring.service.ts`), after the pre-debit notice RBI requires.
+ * - An upgrade applies at once and its prorated difference is added to the
+ *   next charge; a downgrade waits for the end of the paid period.
+ * - Cancelling only stops the next charge, so it can be undone until the
+ *   period ends; the mandate is deleted when the plan ends.
  *
- * Written against the official SDK rather than raw HTTP so the request
- * serialisation, error shape and webhook signature check are the vendor's
- * responsibility rather than ours.
+ * The subscription id we store is `rr_<first order id>`. A `sub_…` id is a
+ * Razorpay Subscription from before the change; this adapter reports it as
+ * gone, and reconciliation lets it end with its paid period.
  */
-
-let client: Razorpay | null = null;
-
-function razorpay(): Razorpay {
-  if (client) {
-    return client;
-  }
-
-  const keyId = env.RAZORPAY_KEY_ID;
-  const keySecret = env.RAZORPAY_KEY_SECRET;
-
-  if (!keyId || !keySecret) {
-    throw new BillingProviderError(
-      'Razorpay is not configured. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.',
-      'PROVIDER_NOT_CONFIGURED',
-      503,
-    );
-  }
-
-  client = new Razorpay({ key_id: keyId, key_secret: keySecret });
-  return client;
-}
-
-export function razorpayConfigured(): boolean {
-  return Boolean(env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET);
-}
-
-/** Razorpay's own vocabulary, mapped onto ours. The SDK's union is narrower than
- *  the statuses the API can actually return, so this is a string lookup.
- *
- *  `closed` is the one that matters. Razorpay issues it when a subscription
- *  reaches the end of its term rather than being cancelled early, and it was
- *  absent here while present in the webhook adapter's own map. That meant
- *  `toProviderSubscription` read every closed subscription as `active`, so
- *  `reconcileWithProvider` - the mechanism whose entire purpose is noticing a
- *  subscription the provider has ended - reported every one of them as live for
- *  ever, at the full monthly price, with nothing to indicate a problem. The fix
- *  had been applied in one file and not the other. */
-const statusMap: Record<string, ProviderSubscriptionStatus> = {
-  created: 'active',
-  authenticated: 'active',
-  active: 'active',
-  pending: 'past_due',
-  halted: 'past_due',
-  cancelled: 'cancelled',
-  completed: 'expired',
-  expired: 'expired',
-  closed: 'expired',
-};
-
-interface RazorpaySubscriptionLike {
-  id: string;
-  status?: string | null;
-  plan_id?: string | null;
-  customer_id?: string | null;
-  current_end?: number | null;
-  cancel_at_cycle_end?: boolean | null;
-  short_url?: string | null;
-  quantity?: number | null;
-}
-
 export class RazorpayBillingProvider implements BillingProvider {
   readonly name = 'RAZORPAY' as const;
 
-  /** Razorpay accepts a scheduled price change for the next cycle. */
+  /** A downgrade waits for the period end; an upgrade is decided by `planChangeTiming`. */
   readonly appliesPlanChangeImmediately = false;
 
-  private async findCustomer(organizationId: string): Promise<string | null> {
-    const row = await prisma.subscription.findFirst({
-      where: { organizationId, provider: 'RAZORPAY', providerCustomerId: { not: null } },
-      select: { providerCustomerId: true },
-    });
-    return row?.providerCustomerId ?? null;
-  }
+  /** No plan objects at Razorpay: every amount is computed from the catalog. */
+  readonly usesStoredPlans = false;
 
-  /** Idempotent by organisation, so a retried checkout never creates a second customer. */
   async ensureCustomer(input: { organizationId: string; contact: BillingContact }): Promise<{ providerCustomerId: string }> {
-    const existing = await this.findCustomer(input.organizationId);
-    if (existing) {
-      return { providerCustomerId: existing };
+    const row = await prisma.subscription.findUnique({
+      where: { organizationId: input.organizationId },
+      select: { providerCustomerId: true, provider: true },
+    });
+    if (row?.provider === 'RAZORPAY' && row.providerCustomerId) {
+      return { providerCustomerId: row.providerCustomerId };
     }
-
-    const created = await this.call(() =>
-      razorpay().customers.create({
-        name: input.contact.name,
-        email: input.contact.email,
-        // Returns the customer already holding this email instead of refusing.
-        // Without it a checkout retried after any failure (or a second
-        // workspace for the same owner) was refused with "Customer already
-        // exists for the merchant", because the id from the first attempt is
-        // only stored once a webhook confirms the subscription (session 11).
-        fail_existing: '0',
-        // The organisation id travels with the customer so a webhook can be
-        // attributed without trusting anything in the request path.
-        notes: { organizationId: input.organizationId, taxId: input.contact.taxId ?? '' },
-      } as never),
-    );
-
-    return { providerCustomerId: created.id };
+    // Razorpay creates the customer from the registration link's details; the
+    // id is stored when the first payment is captured.
+    throw new BillingProviderError('The Razorpay customer is created at checkout.', 'NO_CUSTOMER_YET', 409);
   }
 
-  /**
-   * Razorpay authorises the first payment through a hosted page, so the
-   * subscription exists before any money has moved. Nothing is treated as paid
-   * until an `subscription.activated` webhook arrives, because a customer
-   * closing the tab mid redirect is entirely normal.
-   */
   async createCheckout(input: CheckoutRequest): Promise<CheckoutSession> {
     assertValidQuantity(input.quantity);
+    if (input.currency !== 'INR') {
+      throw new BillingProviderError('Razorpay charges in Indian rupees only.', 'CURRENCY_UNSUPPORTED', 400);
+    }
+    const phone = normalisePhone(input.contact.phone);
+    if (!phone) {
+      throw new BillingProviderError(
+        'Enter a mobile number. Razorpay sends the payment and mandate details to it.',
+        'PHONE_REQUIRED',
+        400,
+      );
+    }
 
-    const plan = await requireStoredPlan({
-      provider: this.name,
-      tier: input.plan,
-      interval: input.interval,
-      currency: input.currency,
-      band: bandIndexFor(input.plan, input.quantity),
-    });
+    const definition = planCatalog[input.plan];
+    const unit = catalogPriceMinor(input.plan, input.interval, 'INR', bandIndexFor(input.plan, input.quantity));
+    const amountMinor = definition.pricing === 'per_domain' ? unit * input.quantity : unit;
 
-    // No customer_id. Razorpay's hosted page answers "Hosted page is not
-    // available" for every subscription created with one (session 11, test
-    // mode, the same body with and without it), so no customer could ever pay.
-    // The customer types their details on that page and Razorpay creates the
-    // customer itself; the webhook attributes the subscription through the
-    // notes below, then stores the customer id it carries.
-    void input.contact;
+    const method = input.mandateMethod ?? defaultMandateMethod(amountMinor);
+    if (!methodAllowed(method, amountMinor)) {
+      throw new BillingProviderError(
+        'UPI Autopay takes charges up to ₹15,000 on its own. Choose a card or a bank mandate (eNACH) for this amount.',
+        'METHOD_NOT_ALLOWED',
+        400,
+      );
+    }
 
-    const body = {
-      plan_id: plan.providerPlanId,
-      // 99 years of cycles, so it keeps charging until the customer cancels
-      // (see subscriptionTotalCount for why not end_at).
-      total_count: subscriptionTotalCount(input.interval),
-      // One unit for a flat plan; the measured domain count for FLEET.
-      quantity: input.quantity,
-      customer_notify: 1 as const,
+    // A checkout started earlier and left unpaid is closed, so the owner can
+    // never pay two and start two subscriptions.
+    await closeOtherCheckouts(input.organizationId, null);
+
+    const now = new Date();
+    const link = await createRegistrationLink({
+      method,
+      amountMinor,
+      maxAmountMinor: mandateMaxFor(method, amountMinor),
+      customer: { name: input.contact.name, email: input.contact.email, contact: phone },
+      // Razorpay shows our business name beside it, so the plan alone.
+      description: `${definition.label} plan, billed ${input.interval === 'annual' ? 'annually' : 'monthly'}`,
+      receipt: `dh-${input.organizationId.slice(0, 12)}-${now.getTime()}`,
+      expireBy: new Date(now.getTime() + checkoutLinkTtlMs),
+      mandateExpiresAt: new Date(now.getTime() + mandateLifetimeMs),
       notes: {
         organizationId: input.organizationId,
         reference: input.reference,
         planTier: input.plan,
         interval: input.interval,
-        currency: input.currency,
+        quantity: String(input.quantity),
+        kind: 'first',
+        ...(input.contact.taxId ? { gstin: input.contact.taxId } : {}),
       },
-    };
+    });
 
-    const subscription = await this.call(() => razorpay().subscriptions.create(subscriptionCreateBody(body) as never));
+    await prisma.billingCharge.create({
+      data: {
+        organizationId: input.organizationId,
+        subscriptionKey: recurringSubscriptionKey(link.orderId),
+        provider: 'RAZORPAY',
+        kind: 'FIRST',
+        channel: 'LINK',
+        providerOrderId: link.orderId,
+        providerInvoiceId: link.id,
+        paymentUrl: link.shortUrl,
+        amountMinor,
+        currency: 'INR',
+        plan: input.plan,
+        interval: input.interval === 'annual' ? 'ANNUAL' : 'MONTHLY',
+        quantity: input.quantity,
+        periodStart: now,
+        periodEnd: addInterval(now, input.interval),
+        status: 'PENDING',
+      },
+    });
 
-    if (!subscription.short_url) {
-      throw new BillingProviderError('Razorpay did not return a checkout URL.', 'RAZORPAY_NO_URL', 502);
+    return { id: link.id, url: link.shortUrl, expiresAt: new Date(now.getTime() + checkoutLinkTtlMs) };
+  }
+
+  async planChangeTiming(input: {
+    organizationId: string;
+    fromPlan: PlanTier;
+    toPlan: PlanTier;
+    toInterval: BillingInterval;
+  }): Promise<'immediate' | 'cycle_end'> {
+    const row = await prisma.subscription.findUnique({
+      where: { organizationId: input.organizationId },
+      select: { billingInterval: true },
+    });
+    const fromInterval: BillingInterval = row?.billingInterval === 'ANNUAL' ? 'annual' : 'monthly';
+    const toInterval: BillingInterval = planCatalog[input.toPlan].pricing === 'per_domain' ? 'monthly' : input.toInterval;
+    if (fromInterval !== toInterval) {
+      // A different interval is a different period, so it starts at the next one.
+      return 'cycle_end';
     }
+    const [from, to] = await Promise.all([
+      recurringChargeFor(input.organizationId, input.fromPlan, fromInterval),
+      recurringChargeFor(input.organizationId, input.toPlan, toInterval),
+    ]);
+    return to.amountMinor > from.amountMinor ? 'immediate' : 'cycle_end';
+  }
 
+  /**
+   * Records what an upgrade owes: the price difference for the rest of the
+   * paid period, added to the next renewal. A renewal already scheduled at the
+   * old price is withdrawn, so the job prices it again with the new plan.
+   */
+  async afterImmediatePlanChange(input: {
+    organizationId: string;
+    fromPlan: PlanTier;
+    toPlan: PlanTier;
+    interval: BillingInterval;
+  }): Promise<void> {
+    const row = await prisma.subscription.findUnique({
+      where: { organizationId: input.organizationId },
+      select: { currentPeriodEnd: true, billingInterval: true },
+    });
+    if (!row?.currentPeriodEnd) return;
+    const interval: BillingInterval = row.billingInterval === 'ANNUAL' ? 'annual' : 'monthly';
+    const [from, to] = await Promise.all([
+      recurringChargeFor(input.organizationId, input.fromPlan, interval),
+      recurringChargeFor(input.organizationId, input.toPlan, interval),
+    ]);
+    const owed = upgradeCarryOverMinor({
+      fromMinor: from.amountMinor,
+      toMinor: to.amountMinor,
+      periodStart: subtractInterval(row.currentPeriodEnd, interval),
+      periodEnd: row.currentPeriodEnd,
+      now: new Date(),
+    });
+    if (owed > 0) {
+      await prisma.subscription.update({
+        where: { organizationId: input.organizationId },
+        data: { carryOverMinor: { increment: owed } },
+      });
+    }
+    await withdrawScheduledRenewals(input.organizationId);
+  }
+
+  /** A renewal already announced at the old plan's price is withdrawn and priced again. */
+  async afterScheduledPlanChange(organizationId: string): Promise<void> {
+    await withdrawScheduledRenewals(organizationId);
+  }
+
+  async previewPlanChange(input: {
+    providerSubscriptionId: string;
+    plan: PlanTier;
+    interval: BillingInterval;
+    quantity: number;
+  }): Promise<PlanChangePreview> {
+    const row = await this.rowFor(input.providerSubscriptionId);
+    const interval: BillingInterval = row.billingInterval === 'ANNUAL' ? 'annual' : 'monthly';
+    const [from, to] = await Promise.all([
+      recurringChargeFor(row.organizationId, row.plan, interval),
+      recurringChargeFor(row.organizationId, input.plan, input.interval),
+    ]);
+    const owed =
+      row.currentPeriodEnd && interval === input.interval
+        ? upgradeCarryOverMinor({
+            fromMinor: from.amountMinor,
+            toMinor: to.amountMinor,
+            periodStart: subtractInterval(row.currentPeriodEnd, interval),
+            periodEnd: row.currentPeriodEnd,
+            now: new Date(),
+          })
+        : 0;
     return {
-      id: subscription.id,
-      url: subscription.short_url,
-      expiresAt: subscription.current_end ? new Date(subscription.current_end * 1000) : null,
+      currency: 'INR',
+      chargeNowMinor: 0,
+      creditMinor: 0,
+      nextAmountMinor: to.amountMinor + row.carryOverMinor + owed,
+      nextBilledAt: row.currentPeriodEnd,
     };
   }
 
   /**
-   * A plan change is scheduled for the end of the current cycle rather than
-   * applied immediately, so nobody is charged a prorated amount they did not
-   * expect. Razorpay supports this directly, and `cancelScheduledChanges`
-   * reverses it.
-   *
-   * The currency is recovered from the plan the live subscription actually
-   * points at, rather than assumed, because a workspace can hold a subscription
-   * created in either currency.
+   * Nothing to tell Razorpay: the plan is ours, and the next renewal is
+   * charged at the new plan's price. Reports the state as it now is.
    */
   async changePlan(input: {
     providerSubscriptionId: string;
@@ -207,157 +260,98 @@ export class RazorpayBillingProvider implements BillingProvider {
     quantity: number;
   }): Promise<ProviderSubscription> {
     assertValidQuantity(input.quantity);
-
-    const live = await this.fetchSubscription(input.providerSubscriptionId);
-    if (!live) {
+    const state = await this.fetchSubscription(input.providerSubscriptionId);
+    if (!state) {
       throw new BillingProviderError('That subscription no longer exists at Razorpay.', 'SUBSCRIPTION_NOT_FOUND', 404);
     }
+    return { ...state, plan: input.plan, quantity: input.quantity };
+  }
 
-    const raw = (await this.call(() => razorpay().subscriptions.fetch(input.providerSubscriptionId))) as unknown as RazorpaySubscriptionLike;
-    const livePlan = raw.plan_id ? await findStoredPlanByProviderPlanId(this.name, raw.plan_id) : null;
-    const currency = livePlan?.currency ?? 'INR';
+  /** Fleet's count is measured at each charge, so there is nothing to push. */
+  async updateQuantity(input: { providerSubscriptionId: string; plan: PlanTier; quantity: number }): Promise<void> {
+    assertValidQuantity(input.quantity);
+  }
 
-    const target = await requireStoredPlan({
-      provider: this.name,
-      tier: input.plan,
-      interval: input.interval,
-      currency,
-      band: bandIndexFor(input.plan, input.quantity),
+  /** The next charge is simply not made; the row's flag is the cancellation. */
+  async cancelAtPeriodEnd(providerSubscriptionId: string): Promise<void> {
+    await this.rowFor(providerSubscriptionId);
+  }
+
+  /** Undoing a cancellation needs nothing at Razorpay while the mandate stands. */
+  async resume(providerSubscriptionId: string): Promise<void> {
+    const row = await this.rowFor(providerSubscriptionId);
+    if (row.mandateStatus === 'cancelled' && row.currentPeriodEnd && row.currentPeriodEnd.getTime() <= Date.now()) {
+      throw new BillingProviderError('This plan has already ended. Choose a plan to start again.', 'SUBSCRIPTION_ENDED', 409);
+    }
+  }
+
+  /** Ends the plan now: used after a refund, and by dunning once the grace is over. */
+  async cancelImmediately(providerSubscriptionId: string): Promise<void> {
+    const row = await this.rowFor(providerSubscriptionId);
+    await endRecurringSubscription(row.organizationId, { reason: 'cancelled', endAt: new Date() });
+  }
+
+  /** Refunds the first payment: the one the 14-day guarantee covers. */
+  async refund(input: {
+    providerSubscriptionId: string;
+    amountMinor: number;
+    reason: string;
+  }): Promise<{ providerRefundId: string | null; amountMinor?: number }> {
+    const first = await prisma.billingCharge.findFirst({
+      where: { subscriptionKey: input.providerSubscriptionId, kind: 'FIRST', status: 'CAPTURED' },
+      select: { providerPaymentId: true },
     });
+    if (!first?.providerPaymentId) {
+      throw new BillingProviderError('No payment has been captured for that subscription.', 'PAYMENT_NOT_FOUND', 404);
+    }
+    const payment = await fetchPayment(first.providerPaymentId);
+    const amountMinor = Math.min(input.amountMinor, payment.amountMinor);
+    const refund = await refundPayment({
+      paymentId: payment.id,
+      amountMinor,
+      capturedMinor: payment.amountMinor,
+      notes: { reason: input.reason.slice(0, 250), subscription: input.providerSubscriptionId },
+    });
+    return { providerRefundId: refund.id, amountMinor };
+  }
 
-    const updated = (await this.call(() =>
-      razorpay().subscriptions.update(input.providerSubscriptionId, {
-        plan_id: target.providerPlanId,
-        quantity: input.quantity,
-        schedule_change_at: 'cycle_end',
-      }),
-    )) as unknown as RazorpaySubscriptionLike;
-
+  /**
+   * The state we hold, since Razorpay holds no subscription. A `sub_…` id is a
+   * Razorpay Subscription from before Recurring Payments and is reported gone.
+   */
+  async fetchSubscription(providerSubscriptionId: string): Promise<ProviderSubscription | null> {
+    if (!isRecurringKey(providerSubscriptionId)) {
+      return null;
+    }
+    const row = await prisma.subscription.findFirst({
+      where: { provider: 'RAZORPAY', providerSubscriptionId },
+      select: {
+        plan: true,
+        status: true,
+        providerCustomerId: true,
+        currentPeriodEnd: true,
+        cancelAtPeriodEnd: true,
+        quantity: true,
+      },
+    });
+    if (!row) return null;
     return {
-      providerSubscriptionId: updated.id,
-      providerCustomerId: updated.customer_id ?? live.providerCustomerId,
-      plan: input.plan,
-      status: statusMap[updated.status ?? 'active'] ?? 'active',
-      currentPeriodEnd: updated.current_end ? new Date(updated.current_end * 1000) : null,
-      cancelAtPeriodEnd: Boolean(updated.cancel_at_cycle_end),
-      quantity: updated.quantity ?? input.quantity,
+      providerSubscriptionId,
+      providerCustomerId: row.providerCustomerId,
+      plan: row.plan,
+      status: storedStatusMap[row.status],
+      currentPeriodEnd: row.currentPeriodEnd,
+      cancelAtPeriodEnd: row.cancelAtPeriodEnd,
+      cancelAtPeriodEndAuthoritative: true,
+      quantity: row.quantity,
       nextAttemptAt: null,
     };
   }
 
   /**
-   * Changes the quantity for the next cycle, with no proration.
-   *
-   * Razorpay schedules it at the end of the paid period, which is the same rule
-   * the plan change follows: the current month was bought at the old count and
-   * is not repriced.
-   */
-  async updateQuantity(input: {
-    providerSubscriptionId: string;
-    plan: PlanTier;
-    quantity: number;
-    band?: number;
-  }): Promise<void> {
-    assertValidQuantity(input.quantity);
-
-    // A Razorpay plan has one fixed unit amount, so each price band is its own
-    // plan. The band's plan id goes with the quantity, in the currency of the
-    // plan the subscription is on now, so a count that crosses a band changes
-    // the unit price and the count together, both from the next cycle.
-    const raw = (await this.call(() => razorpay().subscriptions.fetch(input.providerSubscriptionId))) as unknown as RazorpaySubscriptionLike;
-    const livePlan = raw.plan_id ? await findStoredPlanByProviderPlanId(this.name, raw.plan_id) : null;
-    const target = await requireStoredPlan({
-      provider: this.name,
-      tier: input.plan,
-      interval: 'monthly',
-      currency: livePlan?.currency ?? 'INR',
-      band: input.band ?? bandIndexFor(input.plan, input.quantity),
-    });
-
-    await this.call(() =>
-      razorpay().subscriptions.update(
-        input.providerSubscriptionId,
-        razorpayQuantityUpdateBody(input.quantity, target.providerPlanId) as never,
-      ),
-    );
-  }
-
-  async cancelAtPeriodEnd(providerSubscriptionId: string): Promise<void> {
-    await this.call(() => razorpay().subscriptions.cancel(providerSubscriptionId, 1));
-  }
-
-  /** Reverses a pending plan change or a pending cancellation. */
-  async resume(providerSubscriptionId: string): Promise<void> {
-    await this.call(() => razorpay().subscriptions.cancelScheduledChanges(providerSubscriptionId));
-  }
-
-  async cancelImmediately(providerSubscriptionId: string): Promise<void> {
-    await this.call(() => razorpay().subscriptions.cancel(providerSubscriptionId, 0));
-  }
-
-  /**
-   * Razorpay refunds a payment, not a subscription, so the captured payment has to
-   * be found first.
-   *
-   * `payments.all` is typed as accepting only `expand[]`, but Razorpay documents
-   * `subscription_id` as a filter and it is the only way to reach the charge from a
-   * subscription. The cast is therefore deliberate and confined to this call rather
-   * than spreading an untyped client across the adapter.
-   *
-   * Omitting `amount` is how Razorpay is told to refund in full, which is why the
-   * comparison is against the captured amount rather than a flag.
-   */
-  async refund(input: {
-    providerSubscriptionId: string;
-    amountMinor: number;
-    reason: string;
-  }): Promise<{ providerRefundId: string | null }> {
-    const payments = (await this.call(() =>
-      razorpay().payments.all({
-        subscription_id: input.providerSubscriptionId,
-        count: 1,
-      } as never),
-    )) as { items?: Array<{ id?: string; amount?: number }> };
-
-    const captured = payments.items?.find((payment) => Boolean(payment?.id));
-
-    if (!captured?.id) {
-      throw new BillingProviderError('No payment has been captured for that subscription.', 'PAYMENT_NOT_FOUND', 404);
-    }
-
-    const isFullRefund = input.amountMinor >= (captured.amount ?? 0);
-
-    const refunded = (await this.call(() =>
-      razorpay().payments.refund(captured.id as string, {
-        ...(isFullRefund ? {} : { amount: Math.round(input.amountMinor) }),
-        speed: 'optimum',
-        notes: { reason: input.reason.slice(0, 250), subscription_id: input.providerSubscriptionId },
-      }),
-    )) as { id?: string };
-
-    return { providerRefundId: refunded?.id ?? null };
-  }
-
-  async fetchSubscription(providerSubscriptionId: string): Promise<ProviderSubscription | null> {
-    try {
-      const subscription = (await this.call(() => razorpay().subscriptions.fetch(providerSubscriptionId))) as RazorpaySubscriptionLike;
-      const stored = subscription.plan_id ? await findStoredPlanByProviderPlanId(this.name, subscription.plan_id) : null;
-      return toProviderSubscription(subscription, stored?.tier ?? null);
-    } catch (error) {
-      if (error instanceof BillingProviderError && error.status === 404) {
-        return null;
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Razorpay has no customer portal, but each subscription has a hosted page
-   * (its `short_url`, the one the customer paid on). Once active it shows the
-   * card in use, the next due date and Update Payment Method, which is what
-   * this button and the failed-payment notice ask the customer to do. Before
-   * session 11 this answered 501, and the page said "no billing account yet"
-   * to a customer who had just paid.
+   * Razorpay has no billing portal. When a renewal is waiting on the customer,
+   * its payment link is the page to send them to; it also sets up a new
+   * mandate. Otherwise there is nothing to manage there.
    */
   async createBillingPortalSession(input: {
     providerCustomerId: string | null;
@@ -365,249 +359,55 @@ export class RazorpayBillingProvider implements BillingProvider {
     returnUrl: string;
   }): Promise<{ url: string }> {
     void input.returnUrl;
-    if (!input.providerSubscriptionId) {
-      throw new BillingProviderError('There is no Razorpay subscription to manage.', 'NO_SUBSCRIPTION', 404);
+    const open = input.providerSubscriptionId
+      ? await prisma.billingCharge.findFirst({
+          where: { subscriptionKey: input.providerSubscriptionId, channel: 'LINK', status: 'PENDING', paymentUrl: { not: null } },
+          orderBy: { createdAt: 'desc' },
+          select: { paymentUrl: true },
+        })
+      : null;
+    if (open?.paymentUrl) {
+      return { url: open.paymentUrl };
     }
-    const subscription = (await this.call(() =>
-      razorpay().subscriptions.fetch(input.providerSubscriptionId as string),
-    )) as unknown as RazorpaySubscriptionLike;
-    if (!subscription.short_url) {
-      throw new BillingProviderError('Razorpay did not return a page for this subscription.', 'RAZORPAY_NO_URL', 502);
-    }
-    return { url: subscription.short_url };
+    throw new BillingProviderError(
+      'Nothing is waiting on you. If a renewal cannot be charged on your saved payment method, we email you a payment link, and it also appears here.',
+      'NO_PAYMENT_DUE',
+      409,
+    );
   }
 
-  /**
-   * Creates the plan objects on Razorpay and records the mapping.
-   *
-   * Safe to re-run: an existing stored mapping is reused rather than recreated,
-   * because replacing a plan id would orphan any live subscription pointing at
-   * the old one.
-   */
-  async syncPlans(currency: 'INR' | 'USD'): Promise<{ created: number; reused: number }> {
-    let created = 0;
-    let reused = 0;
-
-    for (const entry of expectedPlans(currency)) {
-      const existing = await findStoredPlan({
-        provider: this.name,
-        tier: entry.tier,
-        interval: entry.interval,
-        currency,
-        band: entry.band,
-      });
-      if (existing) {
-        reused += 1;
-        continue;
-      }
-
-      const plan = await this.call(() =>
-        razorpay().plans.create({
-          period: entry.interval === 'annual' ? 'yearly' : 'monthly',
-          interval: 1,
-          item: {
-            name: `DMARC Harbor ${entry.tier}${bandSuffix(entry.tier, entry.band)}`,
-            amount: entry.priceMinor,
-            currency,
-            description: `${entry.tier} plan${bandSuffix(entry.tier, entry.band)}, billed ${entry.interval}`,
-          },
-          notes: { tier: entry.tier, interval: entry.interval, band: String(entry.band) },
-        }),
-      );
-
-      await saveStoredPlan({
-        provider: this.name,
-        tier: entry.tier,
-        interval: entry.interval,
-        currency,
-        band: entry.band,
-        priceMinor: entry.priceMinor,
-        providerPlanId: plan.id,
-      });
-      created += 1;
+  private async rowFor(providerSubscriptionId: string) {
+    const row = await prisma.subscription.findFirst({
+      where: { provider: 'RAZORPAY', providerSubscriptionId },
+      select: {
+        organizationId: true,
+        plan: true,
+        currentPeriodEnd: true,
+        billingInterval: true,
+        carryOverMinor: true,
+        mandateStatus: true,
+      },
+    });
+    if (!row) {
+      throw new BillingProviderError('That subscription is not on record.', 'SUBSCRIPTION_NOT_FOUND', 404);
     }
-
-    return { created, reused };
-  }
-
-  /**
-   * Wraps an SDK call so a vendor error becomes our own shape.
-   *
-   * A not found is passed through as 404 because the caller distinguishes
-   * "gone" from "broken" when reconciling, and everything else becomes a 502,
-   * since a provider failure is not the caller's fault and should not look
-   * like a bad request.
-   */
-  private async call<T>(operation: () => Promise<T>): Promise<T> {
-    try {
-      /**
-       * Bounded because the SDK's HTTP client has no timeout.
-       *
-       * The Razorpay SDK builds its axios instance without one, and axios's
-       * default is 0, meaning it will wait for a connection that never answers
-       * for as long as the socket stays open. That turns a slow provider into a
-       * hung request: checkout, plan change and refund all sit inside
-       * `call`, so a provider that accepts TCP and then stalls takes those
-       * requests, the connections behind them, and eventually the process's
-       * capacity with them.
-       *
-       * The error is mapped rather than propagated, so a timeout answers as a
-       * 502 like any other provider failure rather than as a raw abort.
-       */
-      return await withTimeout(operation, PROVIDER_TIMEOUT_MS, 'Razorpay');
-    } catch (error) {
-      if (error instanceof BillingProviderError) {
-        throw error;
-      }
-
-      const statusCode = readStatusCode(error);
-      if (statusCode === 404) {
-        throw new BillingProviderError('Razorpay has no such record.', 'NOT_FOUND', 404);
-      }
-
-      throw new BillingProviderError(
-        `Razorpay rejected the request: ${readDescription(error)}`,
-        'RAZORPAY_ERROR',
-        502,
-      );
-    }
+    return row;
   }
 }
 
-/**
- * The exact create body: a plan, a cycle count, a quantity and our notes.
- *
- * Exported so a unit test can assert it without an SDK or a network. It never
- * carries `customer_id` (the hosted page refuses to open for one) or `end_at`
- * (Razorpay answers its own 500), both found against test mode in session 11.
- * The workspace is attributed by `notes.organizationId`.
- */
-type CreateSubscriptionBody = Parameters<InstanceType<typeof Razorpay>['subscriptions']['create']>[0] & {
-  total_count: number;
-  quantity: number;
+const storedStatusMap: Record<string, ProviderSubscriptionStatus> = {
+  ACTIVE: 'active',
+  TRIALING: 'trialing',
+  PAST_DUE: 'past_due',
+  CANCELLED: 'cancelled',
+  EXPIRED: 'expired',
 };
 
-export function subscriptionCreateBody(body: {
-  plan_id: string;
-  total_count: number;
-  quantity?: number;
-  customer_notify: 0 | 1;
-  notes: Record<string, string>;
-}): CreateSubscriptionBody {
-  return { quantity: 1, ...body } as CreateSubscriptionBody;
-}
-
-/**
- * The exact body for a quantity-only update.
- *
- * Exported so a unit test can assert the payload without an SDK or a network.
- * `cycle_end` is what keeps the change off the current month's invoice. The
- * plan id is the band's plan, so the unit price follows the new count.
- */
-export function razorpayQuantityUpdateBody(
-  quantity: number,
-  planId: string,
-): {
-  plan_id: string;
-  quantity: number;
-  schedule_change_at: 'cycle_end';
-} {
-  return { plan_id: planId, quantity, schedule_change_at: 'cycle_end' };
-}
-
-/**
- * How long a subscription runs before Razorpay stops charging it.
- *
- * Razorpay caps subscriptions at 100 years and rejects `total_count: 0`, so
- * there is no truly unlimited setting. The bound is set just inside the cap.
- *
- * A cycle count, not `end_at`. The create body used to carry `end_at` alone,
- * and Razorpay answers every such request with its own 500 ("The server
- * encountered an error"), so no Razorpay checkout could start; `total_count`
- * is accepted up to 100 years for both monthly and yearly plans (session 11,
- * tried against test mode).
- *
- * In practice no customer reaches this. It exists so the subscription ends only
- * because the customer cancelled, and never because a counter ran out.
- */
-export const subscriptionMaxYears = 99;
-
-/** The number of billing cycles in `subscriptionMaxYears` for a plan's interval. */
-export function subscriptionTotalCount(interval: BillingInterval): number {
-  return interval === 'annual' ? subscriptionMaxYears : subscriptionMaxYears * 12;
-}
-
-function toProviderSubscription(subscription: RazorpaySubscriptionLike, storedTier: PlanTier | null): ProviderSubscription {
-  return {
-    providerSubscriptionId: subscription.id,
-    providerCustomerId: subscription.customer_id ?? null,
-    /**
-     * Null, not MOORING.
-     *
-     * A plan id we cannot resolve is not evidence the customer is on the free
-     * tier, it is evidence our catalog and Razorpay have diverged. Reporting
-     * MOORING here meant `reconcileWithProvider` delivered the free plan to a
-     * paying customer, from a job that runs unattended, while Razorpay kept
-     * charging. `ProviderSubscription.plan` being null makes the caller refuse
-     * to apply anything and leave the event for a human.
-     */
-    plan: storedTier,
-    status: statusMap[subscription.status ?? 'active'] ?? 'active',
-    currentPeriodEnd: subscription.current_end ? new Date(subscription.current_end * 1000) : null,
-    cancelAtPeriodEnd: Boolean(subscription.cancel_at_cycle_end),
-    quantity: typeof subscription.quantity === 'number' ? subscription.quantity : null,
-    nextAttemptAt: null,
-  };
-}
-
-function readStatusCode(error: unknown): number | null {
-  if (typeof error !== 'object' || error === null) {
-    return null;
-  }
-  const candidate = (error as { statusCode?: unknown }).statusCode;
-  return typeof candidate === 'number' ? candidate : null;
-}
-
-/**
- * Razorpay's own reason. The SDK rejects with a plain object,
- * `{ statusCode, error: { code, description } }`, not an Error, so reading only
- * `Error.message` reported every refusal as "Unknown Razorpay error" and hid
- * the one sentence that says what to fix (session 11).
- */
-function readDescription(error: unknown): string {
-  if (typeof error === 'object' && error !== null) {
-    const inner = (error as { error?: { description?: unknown; code?: unknown } }).error;
-    if (inner && typeof inner.description === 'string' && inner.description) {
-      return inner.description;
-    }
-  }
-  if (error instanceof Error && error.message) {
-    return error.message;
-  }
-  return 'Unknown Razorpay error.';
-}
-
-/**
- * Verifies a Razorpay webhook signature using the SDK's own check.
- *
- * The signature covers the raw request body, so the body must be read before
- * any JSON parsing. Re-serialising it changes the bytes and the signature stops
- * matching, which is the usual cause of a webhook that "fails verification"
- * intermittently.
- *
- * A replayed webhook is not a separate risk because every event is
- * deduplicated on the provider's event id before it can change anything.
- */
-export function verifyRazorpaySignature(rawBody: string, signature: string | undefined, secret: string): void {
-  if (!signature) {
-    throw new SignatureVerificationError('The Razorpay webhook had no signature header.');
-  }
-
-  if (!Razorpay.validateWebhookSignature(rawBody, signature, secret)) {
-    throw new SignatureVerificationError('The Razorpay webhook signature did not match.');
-  }
-}
-
-export function razorpayWebhookSecret(): string | null {
-  return env.RAZORPAY_WEBHOOK_SECRET ?? null;
+/** An Indian mobile number as Razorpay takes it: ten digits, an optional +91. */
+export function normalisePhone(raw: string | null | undefined): string | null {
+  const digits = (raw ?? '').replace(/[^\d+]/g, '');
+  const match = /^(?:\+?91)?([6-9]\d{9})$/.exec(digits);
+  if (match) return `+91${match[1]}`;
+  // An international number is passed through as typed, with its +.
+  return /^\+\d{8,15}$/.test(digits) ? digits : null;
 }

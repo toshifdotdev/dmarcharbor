@@ -9,7 +9,8 @@ import {
 import { findStoredPlanByProviderPlanId } from './plans.js';
 import { applyBillingEvent } from './subscription-state.js';
 import { correctCheckoutQuantity } from './quantity.js';
-import { verifyRazorpaySignature } from './razorpay.provider.js';
+import { verifyRazorpaySignature } from './razorpay-client.js';
+import { applyChargeCaptured, applyChargeFailed, applyLinkExpired, applyTokenStatus } from './recurring.service.js';
 import { paddlePaidThrough, verifyPaddleSignature } from './paddle.provider.js';
 
 function dateOrNull(value: string | null): Date | null {
@@ -124,6 +125,13 @@ export async function handleRazorpayWebhook(input: {
   const payload = parseJson(input.rawBody) as RazorpayPayload;
   // Razorpay names the event in the body; the header is a fallback only.
   const eventName = payload.event ?? input.eventName;
+
+  // Recurring Payments first: a charge we scheduled is matched by its order.
+  const recurring = await handleRecurringRazorpayEvent(eventName, payload);
+  if (recurring) {
+    return recurring;
+  }
+
   const type = razorpayEventMap[eventName];
   if (!type) {
     // Acknowledged but ignored. A provider adding an event is not an outage,
@@ -204,6 +212,89 @@ export async function handleRazorpayWebhook(input: {
   };
 
   return commit(event);
+}
+
+/**
+ * Razorpay Recurring Payments events, or null to fall through to the
+ * Subscriptions mapping (a `payment.failed` for a `sub_…` subscription).
+ *
+ * Money events are matched to a `BillingCharge` by order id; a payment that is
+ * not one of ours (a manual payment, a Subscriptions charge) is acknowledged
+ * and changes nothing. Token events update the stored mandate state.
+ */
+async function handleRecurringRazorpayEvent(eventName: string, payload: RazorpayPayload): Promise<WebhookOutcome | null> {
+  const body = payload.payload ?? {};
+  const payment = body.payment?.entity;
+  const order = body.order?.entity;
+  const invoice = body.invoice?.entity;
+  const ignored = (detail: string): WebhookOutcome => ({
+    accepted: false,
+    duplicate: false,
+    type: 'subscription.updated',
+    organizationId: null,
+    detail,
+  });
+
+  switch (eventName) {
+    case 'payment.captured':
+    case 'order.paid':
+    case 'invoice.paid': {
+      const orderId = payment?.order_id ?? order?.id ?? invoice?.order_id ?? null;
+      if (!orderId) return ignored('No order on this payment.');
+      const result = await applyChargeCaptured({
+        orderId,
+        paymentId: payment?.id ?? invoice?.payment_id ?? null,
+        raw: payload,
+      });
+      if (!result.handled) return ignored('Not a recurring charge.');
+      return { accepted: true, duplicate: result.duplicate, type: 'subscription.updated', organizationId: result.organizationId };
+    }
+    case 'payment.failed': {
+      const orderId = payment?.order_id ?? null;
+      if (!orderId) return null;
+      const result = await applyChargeFailed({
+        orderId,
+        paymentId: payment?.id ?? null,
+        reason: payment?.error_description ?? payment?.error_reason ?? null,
+        raw: payload,
+      });
+      if (!result.handled) return null;
+      return { accepted: true, duplicate: false, type: 'payment.failed', organizationId: result.organizationId };
+    }
+    case 'invoice.expired': {
+      const known = await applyLinkExpired({ orderId: invoice?.order_id ?? null, invoiceId: invoice?.id ?? null });
+      return known
+        ? { accepted: true, duplicate: false, type: 'subscription.updated', organizationId: null }
+        : ignored('Not a recurring payment link.');
+    }
+    default:
+      break;
+  }
+
+  if (eventName.startsWith('token.')) {
+    const token = body.token?.entity;
+    if (!token?.id) return ignored('No token on this event.');
+    const fromEvent: Record<string, string> = {
+      'token.confirmed': 'confirmed',
+      'token.rejected': 'rejected',
+      'token.paused': 'paused',
+      'token.cancelled': 'cancelled',
+      'token.cancellation_initiated': 'cancelled',
+      'token.authenticated': 'initiated',
+    };
+    const status = token.recurring_details?.status ?? fromEvent[eventName] ?? null;
+    if (!status) return ignored('Unmapped token event.');
+    const organizationId = await applyTokenStatus({
+      tokenId: token.id,
+      status,
+      maxAmountMinor: typeof token.max_amount === 'number' ? token.max_amount : null,
+    });
+    return organizationId
+      ? { accepted: true, duplicate: false, type: 'subscription.updated', organizationId }
+      : ignored('No subscription holds this mandate yet.');
+  }
+
+  return null;
 }
 
 /* -------------------------------------------------------------------- Paddle */
@@ -481,7 +572,17 @@ interface RazorpayPayload {
      */
     created_at?: number;
     payment?: {
-      entity?: { id?: string };
+      entity?: {
+        id?: string;
+        order_id?: string | null;
+        error_description?: string | null;
+        error_reason?: string | null;
+      };
+    };
+    order?: { entity?: { id?: string } };
+    invoice?: { entity?: { id?: string; order_id?: string | null; payment_id?: string | null } };
+    token?: {
+      entity?: { id?: string; max_amount?: number | null; recurring_details?: { status?: string | null } | null };
     };
     subscription?: {
       entity?: {

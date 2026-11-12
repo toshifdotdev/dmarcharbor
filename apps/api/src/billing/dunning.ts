@@ -6,6 +6,7 @@ import { effectivePlan } from '../services/entitlements/plan-catalog.js';
 import { sendPaymentFailedEmail, sendPlanWithdrawnEmail } from '../email/mailer.js';
 import { afterPlanChange } from '../services/entitlements/plan-change-effects.js';
 import type { PlanTier } from '@prisma/client';
+import { isRecurringKey } from './recurring-terms.js';
 
 /**
  * Recovers failed payments and repairs drift against the provider.
@@ -65,6 +66,7 @@ export async function runDunning(now = new Date()): Promise<DunningOutcome> {
       plan: true,
       currentPeriodEnd: true,
       cancelAtPeriodEnd: true,
+      providerSubscriptionId: true,
       organization: { select: { plan: true, name: true } },
     },
   });
@@ -110,6 +112,8 @@ export async function runDunning(now = new Date()): Promise<DunningOutcome> {
         organizationId: subscription.organizationId,
         plan: subscription.plan,
         graceEndsAt,
+        // Razorpay Recurring does not retry: the renewal job sends a payment link.
+        recovery: isRecurringKey(subscription.providerSubscriptionId) ? 'payment_link' : 'provider_retries',
       });
 
       await recordAuditEvent({

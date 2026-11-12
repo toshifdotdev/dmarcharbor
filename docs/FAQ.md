@@ -245,11 +245,21 @@ Nothing is deleted, and upgrading again brings everything back as it was.
   See "What happens to single sign-on if we leave Admiralty?" below.
 
 **When does a plan change take effect?**
-It depends on how you pay. Paying in rupees through Razorpay, a change up or down
-takes effect at the end of the period you have paid for, with no mid-period charge.
-Paying in dollars through Paddle, the change applies straight away and Paddle
-prorates the difference. The billing page says which applies to you before you
-confirm.
+It depends on how you pay. Paying in rupees through Razorpay, an upgrade applies
+straight away and nothing is charged then: the difference for the rest of the
+period is added to your next renewal. A downgrade, or a move between monthly and
+annual, takes effect at the end of the period you have paid for. Paying in
+dollars through Paddle, any change applies straight away and Paddle prorates the
+difference. The billing page says which applies to you before you confirm.
+
+**How are renewals paid in rupees?**
+At checkout you choose a card, UPI Autopay or a bank mandate (eNACH), pay the
+first period and approve automatic renewals up to a maximum. We email you three
+days before each renewal with the amount and date. Above ₹15,000 a charge, your
+bank asks you to approve a card or UPI debit, and UPI Autopay is not offered. If
+a renewal cannot be charged (the mandate was paused or cancelled, it is below
+the amount, or the bank declined it), we email a payment link instead; paying
+it renews the plan and sets the mandate up again.
 
 **Do I get a refund?**
 There is a 14-day money-back guarantee on your first payment. It applies once per

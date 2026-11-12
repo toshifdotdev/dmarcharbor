@@ -54,6 +54,12 @@ export async function pollPlatformMailbox(): Promise<PlatformMailboxOutcome | nu
     logger: false,
     socketTimeout: 60_000,
   });
+  // ImapFlow emits 'error' on a socket timeout; with no listener Node treats it
+  // as uncaught and the whole API exits. The pending command rejects as well,
+  // so the poll still reports the failure.
+  client.on('error', (error: Error) => {
+    console.error(`[report-mailbox] connection error: ${error.message}`);
+  });
 
   const outcome: PlatformMailboxOutcome = { messages: 0, accepted: 0, duplicates: 0, unmatched: 0 };
   await client.connect();

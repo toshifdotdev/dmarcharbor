@@ -43,7 +43,12 @@ const checkoutSchema = z.object({
     name: z.string().trim().min(2).max(120),
     email: z.string().trim().email(),
     taxId: z.string().trim().max(32).nullable().optional(),
+    // Required by Razorpay on every recurring link; checked there, so a USD
+    // checkout through Paddle does not have to send one.
+    phone: z.string().trim().max(20).nullable().optional(),
   }),
+  /** INR only: how the mandate is set up. Omitted, the default for the amount. */
+  method: z.enum(['card', 'upi', 'emandate']).optional(),
 });
 
 const planChangeSchema = z.object({
@@ -82,6 +87,7 @@ export async function startCheckoutController(request: Request, response: Respon
       // preference decides otherwise.
       ...(body.data.currency ? { currency: body.data.currency } : {}),
       contact: body.data.contact,
+      ...(body.data.method ? { mandateMethod: body.data.method } : {}),
     });
 
     // The browser is sent to the provider's hosted page. No card data ever
