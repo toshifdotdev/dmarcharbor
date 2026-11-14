@@ -27,9 +27,20 @@ Parameters:
   AmiParameter:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+  LogoCdn:
+    Type: String
+    Default: s3
+    AllowedValues: [s3, cloudfront]
+    Description: >-
+      How logos are served. s3: from the bucket's own S3 address, objects public
+      to read (a new account cannot create CloudFront until AWS verifies it).
+      cloudfront: a private bucket behind CloudFront with the sandbox headers.
+      Switch by updating the stack; docs/DEPLOYMENT.md says which settings follow.
 
 Conditions:
   MakeOidcProvider: !Equals [!Ref CreateGitHubOidcProvider, 'true']
+  UseCloudFront: !Equals [!Ref LogoCdn, cloudfront]
+  UseS3: !Equals [!Ref LogoCdn, s3]
 
 Resources:
   # ── Network: one public subnet, no NAT, no inbound rules ────────────────────
@@ -103,11 +114,13 @@ Resources:
     UpdateReplacePolicy: Retain
     Properties:
       BucketName: !Sub dmarcharbor-logos-${AWS::AccountId}-${AWS::Region}
+      # ACLs stay off either way. A bucket policy may grant public reads only
+      # while logos are served from S3 directly (LogoCdn=s3).
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
-        BlockPublicPolicy: true
+        BlockPublicPolicy: !If [UseS3, false, true]
         IgnorePublicAcls: true
-        RestrictPublicBuckets: true
+        RestrictPublicBuckets: !If [UseS3, false, true]
       OwnershipControls:
         Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
       BucketEncryption:
@@ -126,6 +139,7 @@ Resources:
             AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 }
   LogoOriginAccessControl:
     Type: AWS::CloudFront::OriginAccessControl
+    Condition: UseCloudFront
     Properties:
       OriginAccessControlConfig:
         Name: !Sub dmarcharbor-logos-${AWS::Region}
@@ -134,6 +148,7 @@ Resources:
         SigningProtocol: sigv4
   LogoHeadersPolicy:
     Type: AWS::CloudFront::ResponseHeadersPolicy
+    Condition: UseCloudFront
     Properties:
       ResponseHeadersPolicyConfig:
         Name: !Sub dmarcharbor-logo-headers-${AWS::Region}
@@ -147,6 +162,7 @@ Resources:
           ReferrerPolicy: { ReferrerPolicy: no-referrer, Override: true }
   LogoDistribution:
     Type: AWS::CloudFront::Distribution
+    Condition: UseCloudFront
     Properties:
       DistributionConfig:
         Enabled: true
@@ -173,14 +189,24 @@ Resources:
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
-          - Sid: CloudFrontReadsLogos
-            Effect: Allow
-            Principal: { Service: cloudfront.amazonaws.com }
-            Action: s3:GetObject
-            Resource: !Sub ${LogoBucket.Arn}/*
-            Condition:
-              StringEquals:
-                AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${LogoDistribution}
+          - !If
+            - UseCloudFront
+            - Sid: CloudFrontReadsLogos
+              Effect: Allow
+              Principal: { Service: cloudfront.amazonaws.com }
+              Action: s3:GetObject
+              Resource: !Sub ${LogoBucket.Arn}/*
+              Condition:
+                StringEquals:
+                  AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${LogoDistribution}
+            # Logos are public by nature (portal pages, client mail). Read only,
+            # objects only: no listing, no writes. Each is stored with
+            # Content-Disposition: attachment and its sniffed Content-Type.
+            - Sid: AnyoneReadsLogos
+              Effect: Allow
+              Principal: '*'
+              Action: s3:GetObject
+              Resource: !Sub ${LogoBucket.Arn}/*
           - Sid: TlsOnly
             Effect: Deny
             Principal: '*'
@@ -333,7 +359,13 @@ Outputs:
   LogoBucketName:
     Value: !Ref LogoBucket
   LogoCdnOrigin:
-    Value: !Sub https://${LogoDistribution.DomainName}
+    Value: !If
+      - UseCloudFront
+      - !Sub https://${LogoDistribution.DomainName}
+      - !Sub https://${LogoBucket}.s3.${AWS::Region}.amazonaws.com
+  LogoS3Origin:
+    Description: Keep this in ASSETS_ORIGIN after switching to CloudFront, so logos stored before still resolve.
+    Value: !Sub https://${LogoBucket}.s3.${AWS::Region}.amazonaws.com
   DeployRoleArn:
     Value: !GetAtt DeployRole.Arn
   LogGroupName:

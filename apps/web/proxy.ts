@@ -283,16 +283,29 @@ function contentSecurityPolicy(nonce: string, pathname = "/"): string {
    * should be able to load from that host. Parsed as a URL so a malformed
    * value cannot inject a directive into the header.
    */
-  const bimiOrigin = (() => {
-    const raw = process.env.HOSTED_BIMI_ORIGIN?.trim();
-    if (!raw) return null;
+  const imageOrigin = (raw: string | undefined): string | null => {
+    const value = raw?.trim();
+    if (!value) return null;
     try {
-      const url = new URL(raw);
+      const url = new URL(value);
       return url.protocol === "https:" || url.protocol === "http:" ? url.origin : null;
     } catch {
       return null;
     }
-  })();
+  };
+  /**
+   * Uploaded agency logos are served from the logo bucket's own origin
+   * (LOGO_CDN_ORIGIN on the API, and the origin they were stored under before
+   * a switch, ASSETS_ORIGIN). Without them every portal, sign-in page and
+   * report showed a broken image in production: the policy named only 'self'.
+   * img-src only, for the same reason as the BIMI origin.
+   */
+  const extraImageOrigins = [
+    imageOrigin(process.env.HOSTED_BIMI_ORIGIN),
+    imageOrigin(process.env.LOGO_CDN_ORIGIN),
+    imageOrigin(process.env.ASSETS_ORIGIN),
+  ].filter((origin, index, all): origin is string => origin !== null && all.indexOf(origin) === index);
+  const bimiOrigin = extraImageOrigins.length > 0 ? extraImageOrigins.join(" ") : null;
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ""}`,

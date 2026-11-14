@@ -15,7 +15,7 @@ in `aws-eu-central-1` (the residency decision in `LAUNCH-CHECKLIST.md`).
 | Routing | Caddy, inside the instance (`deploy/Caddyfile`) | Sends API hosts and `mta-sts.*` to the API, everything else to the web app, and sets `X-Forwarded-For` from `CF-Connecting-IP`. |
 | Images | ECR, `dmarcharbor-api` and `dmarcharbor-web`, private, tags immutable, last 15 kept | Pulled by the instance role; pushed by GitHub Actions through OIDC. |
 | Settings | SSM Parameter Store under `/dmarcharbor/prod/` | Encrypted, free at this size, read by the instance at deploy time. |
-| Logos | S3 bucket behind CloudFront on its `*.cloudfront.net` name | A separate registrable domain from ours, with `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox` and `nosniff`. |
+| Logos | S3 bucket, read straight from its `s3.eu-central-1.amazonaws.com` address for now (`LogoCdn=s3`) | A registrable domain apart from ours. AWS refuses CloudFront on a new account until Support verifies it; once it does, update the stack with `LogoCdn=cloudfront` (below). |
 | Logs | CloudWatch Logs, `/dmarcharbor/prod`, 30 days | One stream per container. |
 | Database | Neon Postgres, `aws-eu-central-1`, direct (non-pooled) URL | One instance needs no pooler, and `prisma migrate deploy` needs a direct connection. |
 | Access | SSM Session Manager | No SSH key exists. |
@@ -74,7 +74,10 @@ deploy at the readiness wait rather than serving.
 - `api/`: every API variable (`LAUNCH-CHECKLIST.md` step 4). Logo storage needs
   only `AWS_REGION`, `LOGO_BUCKET`, `LOGO_CDN_ORIGIN` and `ASSETS_ORIGIN`; the
   instance role signs the requests, so no AWS key is stored.
-- `web/`: `API_BASE_URL=http://api:4000`, `SITE_URL`, `HOSTED_BIMI_ORIGIN`.
+- `web/`: `API_BASE_URL=http://api:4000`, `SITE_URL`, and the image origins the
+  Content-Security-Policy allows: `HOSTED_BIMI_ORIGIN`, `LOGO_CDN_ORIGIN` and
+  `ASSETS_ORIGIN`, the same values as on the API. Without the logo origins
+  every uploaded logo is blocked by the browser.
   `NEXT_PUBLIC_*` are build arguments, set as GitHub environment variables.
 - `tunnel/`: `TUNNEL_TOKEN`.
 - `deploy/`: `API_HOST`, `BIMI_HOST`, `MTA_ORIGIN_HOST` for the Caddyfile.
@@ -89,6 +92,15 @@ rows: keep a copy outside AWS as well.
 - **A shell:** EC2 → the instance → Connect → Session Manager, then
   `sudo -i; cd /opt/dmarcharbor; docker compose --env-file compose.env -f compose.prod.yaml ps`.
 - **Restart one container:** the same, with `restart api`.
+- **Logos behind CloudFront** (after AWS Support has verified the account for
+  CloudFront): update the stack with `LogoCdn=cloudfront`. The bucket turns
+  private and CloudFront serves it with `Content-Security-Policy: default-src
+  'none'; style-src 'unsafe-inline'; sandbox` and `nosniff`. Then set
+  `LOGO_CDN_ORIGIN` to the new `LogoCdnOrigin` output on the API and the web
+  app, and keep `ASSETS_ORIGIN` at the S3 address (`LogoS3Origin`) so logos
+  uploaded before still resolve. Until then each object is served by S3 with
+  its sniffed type and `Content-Disposition: attachment`, and an SVG with any
+  active content is refused at upload.
 - **Bigger instance:** update the stack with `InstanceType=t4g.medium`. The
   instance stops and starts (a few minutes down); the disk and settings stay.
 - **Several instances later:** an Application Load Balancer or the tunnel's
