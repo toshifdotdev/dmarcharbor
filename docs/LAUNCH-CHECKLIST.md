@@ -911,6 +911,22 @@ the deployment, an account or a decision, not code.
 - [ ] Custom portal domains and sending domains are first come, first served
       before verification, and a verified custom domain is not re-checked later.
 
+**Hardening after launch (not open vulnerabilities)**
+- [ ] A fixed upper limit on a session's life. Sessions last 7 days and renew
+      once a day while used, so a stolen session that keeps being used lasts
+      until it is signed out, revoked or ended by a password reset.
+- [ ] A cap on reset and verification emails per recipient. The limit is per
+      client IP (20 auth requests a minute), so many addresses can still fill
+      one inbox and cost us sending reputation.
+- [ ] The session cookie with the `__Host-` prefix, so no sibling subdomain can
+      set a cookie of the same name.
+- [ ] Google and Microsoft tokens that Better Auth keeps in `account`, and
+      outbound webhook endpoint URLs, encrypted at rest like the mailbox
+      passwords, PSA credentials, Slack and Teams URLs and Cloudflare tokens
+      already are.
+- [ ] A written way to rotate `BETTER_AUTH_SECRET` (cookies and the Paddle
+      checkout attribution) and the forensic keys.
+
 ## Backlog: decided, not now
 
 **Per-client staff access** (a technician sees only some clients). Not built
