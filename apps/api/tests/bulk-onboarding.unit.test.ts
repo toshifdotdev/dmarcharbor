@@ -46,7 +46,12 @@ const fakeTx = vi.hoisted(() => () => ({
     },
   },
   domain: {
-    findMany: async ({ where }: { where: { name?: { in: string[] }; client?: unknown } }) => {
+    findMany: async ({ where }: { where: { name?: { in: string[] }; client?: unknown; createdAt?: unknown } }) => {
+      // The lookup for claims another workspace never verified (domain-claims.ts).
+      // The names held elsewhere here are live claims, so none is released.
+      if (where.createdAt) {
+        return [];
+      }
       if (where.name) {
         const wanted = where.name.in;
         return [
@@ -56,6 +61,10 @@ const fakeTx = vi.hoisted(() => () => ({
       }
       return state.ownNames.map((name) => ({ name }));
     },
+    deleteMany: async () => ({ count: 0 }),
+  },
+  auditLog: {
+    createMany: async () => ({ count: 0 }),
   },
 }));
 
