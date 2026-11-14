@@ -85,6 +85,18 @@ deploy at the readiness wait rather than serving.
 `FORENSIC_PII_ENCRYPTION_KEY` cannot be rotated without re-encrypting forensic
 rows: keep a copy outside AWS as well.
 
+## Cloudflare settings on our zones
+
+Set on `dmarcharbor.com` (14 November 2026), and to set the same way on
+`dmarcharbour.com` when it is added:
+
+- **Email Obfuscation off.** It rewrites addresses in our HTML and injects a
+  script, which the Content-Security-Policy blocks and which breaks React's
+  hydration of every page that shows an address (React error #418).
+- **Server Side Excludes off**, **Rocket Loader off**: both rewrite the HTML.
+- **Always Use HTTPS on**, **minimum TLS 1.2**.
+- The tunnel hostnames ignore the SSL mode (the tunnel is the origin).
+
 ## When something needs a person
 
 - **Logs:** CloudWatch → Log groups → `/dmarcharbor/prod`, or

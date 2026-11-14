@@ -847,7 +847,7 @@ correctly in the Workflows chat.
       holds. Anthropic is already listed as a sub-processor "only when written
       answers are enabled".
 
-- [ ] Logo upload (session 12): the S3 account in `apps/api/.env` is closed.
+- [x] Logo upload, done on production (14 November 2026). Was: the S3 account in `apps/api/.env` is closed.
       With working keys, a logo uploads and shows on the portal, share page and
       Trust Center; with `LOGO_BUCKET` removed and the API restarted, the Logo
       panel says "Logo upload isn't available on this deployment".
@@ -862,13 +862,12 @@ integration can notice are in `docs/API-CHANGELOG.md` (2026-12-20). These need
 the deployment, an account or a decision, not code.
 
 **Database and migrations**
-- [ ] `DATABASE_URL` for the app: Neon's pooled (`-pooler`) URL with
-      `?connection_limit=5&pool_timeout=20` (size it so instances × limit plus
-      the migrate step stays under the compute's connection limit).
-- [ ] Run `prisma migrate deploy` once per release, with the direct (non-pooled)
-      URL, in a release step. The image still migrates on boot; with several
-      instances booting at once they queue on Prisma's lock, so either keep one
-      instance on the first boot of a release or move the step out of `CMD`.
+- [x] `DATABASE_URL` for the app: one instance, so Neon's direct URL with
+      `connection_limit=10&pool_timeout=20` (14 November 2026). With several
+      instances, move to the pooled (`-pooler`) URL and keep the direct one for
+      migrations.
+- [x] `prisma migrate deploy` runs on boot of the single instance, against the
+      direct URL. With several instances, move it to a release step.
 - [ ] Neon point-in-time restore on, its retention written down, and one restore
       tried on a branch before launch.
 
@@ -878,23 +877,30 @@ the deployment, an account or a decision, not code.
       action posted to another instance during a rolling deploy still works.
 - [ ] Load balancer idle timeout at most 60 seconds (the API keeps idle
       connections 65 seconds), and `/api/ready` as its health check: it answers
-      503 while an instance drains.
-- [ ] The platform's stop timeout longer than the API's drain. The drain
+      503 while an instance drains. Not needed yet: one instance behind
+      Cloudflare Tunnel, no load balancer.
+- [x] The platform's stop timeout longer than the API's drain:
+      `stop_grace_period: 45s` in `deploy/compose.prod.yaml`. The drain
       (`SHUTDOWN_DRAIN_MS`) is 30 seconds, and ECS `stopTimeout` and Kubernetes
       `terminationGracePeriodSeconds` both default to 30, so a scale-in kills
       the process as its drain ends. Set the stop timeout to 40 seconds, or the
       drain to 25.
-- [ ] `TRUST_PROXY_HOPS` set to the real hop count of the path to the API, and
+- [x] `TRUST_PROXY_HOPS=1`: Caddy sets `X-Forwarded-For` from Cloudflare's
+      `CF-Connecting-IP` on every path, and a session made through the web
+      proxy recorded the client's address, not a forged one (14 November 2026).
+      The rule as first written: the real hop count of the path to the API, and
       the same count on every path (direct, through the web app's `/api` proxy,
       through Cloudflare for the hosted MTA-STS and BIMI hosts). A wrong count
       either shares one rate-limit bucket or lets `X-Forwarded-For` be forged.
-- [ ] Clocks on NTP: leases and claims compare each instance's clock.
+- [x] Clocks on NTP: leases and claims compare each instance's clock (chrony,
+      enabled by the instance's first boot).
 - [ ] Monitoring reads scheduler staleness from more than one instance, or
       accepts that `/api/ready` reports the jobs this instance ran.
 
 **Secrets and accounts**
-- [ ] `STAFF_API_KEY` and `REPORT_INGEST_SECRET` at least 32 random characters
-      (production refuses shorter ones). `RAZORPAY_WEBHOOK_SECRET` is required
+- [x] `STAFF_API_KEY` and `REPORT_INGEST_SECRET` at least 32 random characters
+      (production refuses shorter ones). Generated fresh for production, 64
+      characters, in SSM. `RAZORPAY_WEBHOOK_SECRET` is required
       whenever the Razorpay keys are set.
 - [ ] Razorpay webhook: add refund.processed and payment.dispute.*; Paddle
       notifications already include adjustment.* (both are recorded for support).
@@ -979,7 +985,10 @@ the client portal cover most cases today.
 - [ ] One real signup, one real domain verified, one real report ingested
 - [ ] One real payment, and the plan actually moved
 - [ ] One real invite email, arriving
-- [ ] One real logo uploaded and served from the asset origin
+- [x] One real logo uploaded and served from the asset origin (14 November
+      2026: uploaded on dmarcharbor.com, served from S3 with its type,
+      `attachment` and a year's cache, shown on the signed-out share page,
+      deleted from the bucket on Remove)
 - [ ] One real Trust Center page
 - [ ] One real compliance pack issued and verified by its digest
 - [ ] One real agency custom domain served over https (its TLS certificate
