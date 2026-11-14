@@ -11,7 +11,9 @@ name: deploy
 # Repository settings this reads (Settings > Environments > production):
 #   variables  AWS_REGION, AWS_DEPLOY_ROLE_ARN, AWS_INSTANCE_ID, ECR_REGISTRY,
 #              SITE_URL, NEXT_PUBLIC_APP_HOST, NEXT_PUBLIC_PADDLE_CLIENT_TOKEN
-# The workflow does nothing until AWS_DEPLOY_ROLE_ARN is set.
+# and the repository variable DEPLOY_ENABLED=true (Settings > Variables). A
+# job's `if` cannot read environment variables, so the switch lives at
+# repository level; the workflow does nothing until it is set.
 
 on:
   workflow_run:
