@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import type { NextConfig } from "next";
 import { appHostProblem, siteUrlProblem } from "./lib/site-config";
 
@@ -90,9 +91,18 @@ const HTML_LIMITED_BOTS = new RegExp(`${NEXT_DEFAULT_HTML_LIMITED_BOTS}|${AI_HTM
   if (problem) throw new Error(problem);
 }
 
+/**
+ * The container build (apps/web/Dockerfile) sets NEXT_OUTPUT=standalone: a
+ * self-contained server with only the files it traced, traced from the
+ * repository root because dependencies are hoisted there. Everything else
+ * (`next dev`, `next start`, the verify harness) builds as before.
+ */
+const standalone = process.env.NEXT_OUTPUT === "standalone";
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   htmlLimitedBots: HTML_LIMITED_BOTS,
+  ...(standalone ? { output: "standalone" as const, outputFileTracingRoot: resolve(process.cwd(), "../..") } : {}),
   // NEXT_DIST_DIR lets the verification harness build and serve its own copy
   // (scripts/verify-run.mjs uses `.next-verify`) without touching the `.next`
   // a running `npm run dev` is using.

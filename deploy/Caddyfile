@@ -1,0 +1,62 @@
+# Routing inside the instance. Cloudflare terminates TLS at its edge and the
+# Cloudflare Tunnel (the cloudflared container) brings every request here over
+# plain HTTP on the private compose network; nothing listens on the internet.
+#
+# Two things are normalised for every request, so both paths to the API agree
+# (TRUST_PROXY_HOPS=1, docs/DEPLOYMENT.md):
+#   - X-Forwarded-For becomes the one address Cloudflare saw (CF-Connecting-IP),
+#     which a client cannot forge because the tunnel is the only way in;
+#   - X-Forwarded-Proto is https, which it always was at the edge.
+{
+	admin off
+	auto_https off
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+(client_address) {
+	header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+	header_up X-Forwarded-Proto https
+}
+
+:80 {
+	# Answered here so the tunnel's own health probe needs neither app.
+	respond /__caddy_health 200
+
+	# Straight to the API: our API host, the hosted BIMI host, the hosted-zone
+	# fallback origin, and customers' hosted MTA-STS hosts (always mta-sts.*,
+	# which an agency custom domain may never be).
+	@api {
+		host {$API_HOST} {$BIMI_HOST} {$MTA_ORIGIN_HOST}
+	}
+	@mtasts header_regexp Host ^mta-sts\.
+
+	handle @api {
+		reverse_proxy api:4000 {
+			import client_address
+			# Set only by the web app's proxy (agency-origin.ts) and our own
+			# server-side portal calls; never accepted from the internet here.
+			header_up -X-Forwarded-Host
+			header_up -X-Harbor-Portal-Host
+		}
+	}
+	handle @mtasts {
+		reverse_proxy api:4000 {
+			import client_address
+			header_up -X-Forwarded-Host
+			header_up -X-Harbor-Portal-Host
+		}
+	}
+
+	# Everything else is the web app: our site and app, and agencies' own
+	# portal domains (Cloudflare for SaaS custom hostnames).
+	handle {
+		reverse_proxy web:3000 {
+			import client_address
+			# The web app's /api proxy sets x-forwarded-host itself from Host.
+			header_up -X-Forwarded-Host
+			header_up -X-Harbor-Portal-Host
+		}
+	}
+}

@@ -72,7 +72,11 @@ constants in `apps/web/lib/legal-docs.ts` and the matching lines in
 `apps/api/src/services/assistant/corpus.ts`, and re-verify both payment accounts.
 Governing law is India (Terms, DPA section 11).
 
-**Still open, and still blocking:** the hosting platform and its region details.
+**Hosting: decided (14 November 2026).** One Graviton instance in AWS
+`eu-central-1` running the API and the web app under Docker Compose, reached
+only through Cloudflare Tunnel, images in ECR, settings in SSM Parameter Store,
+logos on S3 behind CloudFront, one CloudFormation stack. No autoscaling until
+customers need it. Everything about it is in `docs/DEPLOYMENT.md`.
 
 ---
 

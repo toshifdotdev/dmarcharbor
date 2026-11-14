@@ -1,0 +1,113 @@
+name: deploy
+
+# Production deploys: after CI passes on master, or by hand for a given commit.
+#
+# Builds the API and web images for arm64 on GitHub's arm runners (the
+# instance is Graviton), pushes them to ECR tagged with the commit, and runs
+# deploy/deploy.sh on the instance through SSM. No SSH, no long-lived keys:
+# AWS is reached with the repository's OIDC token, which the deploy role only
+# accepts from the `production` environment (deploy/aws/stack.yaml).
+#
+# Repository settings this reads (Settings > Environments > production):
+#   variables  AWS_REGION, AWS_DEPLOY_ROLE_ARN, AWS_INSTANCE_ID, ECR_REGISTRY,
+#              SITE_URL, NEXT_PUBLIC_APP_HOST, NEXT_PUBLIC_PADDLE_CLIENT_TOKEN
+# The workflow does nothing until AWS_DEPLOY_ROLE_ARN is set.
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit or branch to deploy (defaults to master)
+        required: false
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  images:
+    if: >-
+      vars.AWS_DEPLOY_ROLE_ARN != '' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
+    runs-on: ubuntu-24.04-arm
+    environment: production
+    timeout-minutes: 40
+    strategy:
+      matrix:
+        app: [api, web]
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || inputs.ref || 'master' }}
+      - id: commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push ${{ matrix.app }}
+        env:
+          IMAGE: ${{ vars.ECR_REGISTRY }}/dmarcharbor-${{ matrix.app }}:${{ steps.commit.outputs.sha }}
+        run: |
+          set -euo pipefail
+          # Tags are immutable in ECR: a commit already built is not built again.
+          if aws ecr describe-images --repository-name "dmarcharbor-${{ matrix.app }}" \
+               --image-ids imageTag="${{ steps.commit.outputs.sha }}" >/dev/null 2>&1; then
+            echo "$IMAGE already exists."
+            exit 0
+          fi
+          if [ "${{ matrix.app }}" = "web" ]; then
+            docker build -f apps/web/Dockerfile \
+              --build-arg SITE_URL="${{ vars.SITE_URL }}" \
+              --build-arg NEXT_PUBLIC_APP_HOST="${{ vars.NEXT_PUBLIC_APP_HOST }}" \
+              --build-arg NEXT_PUBLIC_PADDLE_CLIENT_TOKEN="${{ vars.NEXT_PUBLIC_PADDLE_CLIENT_TOKEN }}" \
+              -t "$IMAGE" .
+          else
+            docker build -f apps/api/Dockerfile -t "$IMAGE" .
+          fi
+          docker push "$IMAGE"
+
+  release:
+    needs: images
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Run deploy/deploy.sh on the instance
+        env:
+          SHA: ${{ needs.images.outputs.sha }}
+          INSTANCE: ${{ vars.AWS_INSTANCE_ID }}
+        run: |
+          set -euo pipefail
+          script="curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${SHA}/deploy/deploy.sh -o /opt/dmarcharbor/deploy.sh && bash /opt/dmarcharbor/deploy.sh ${SHA} ${SHA}"
+          id="$(aws ssm send-command --instance-ids "$INSTANCE" --document-name AWS-RunShellScript \
+                --comment "deploy ${SHA:0:7}" --timeout-seconds 900 \
+                --parameters "$(jq -cn --arg s "$script" '{commands: [$s], executionTimeout: ["900"]}')" \
+                --query Command.CommandId --output text)"
+          echo "SSM command $id"
+          for i in $(seq 1 120); do
+            status="$(aws ssm get-command-invocation --command-id "$id" --instance-id "$INSTANCE" --query Status --output text 2>/dev/null || echo Pending)"
+            case "$status" in
+              Success|Failed|Cancelled|TimedOut) break ;;
+            esac
+            sleep 5
+          done
+          aws ssm get-command-invocation --command-id "$id" --instance-id "$INSTANCE" \
+            --query '[StandardOutputContent, StandardErrorContent]' --output text | tail -n 120
+          test "$status" = Success

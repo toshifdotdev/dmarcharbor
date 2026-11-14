@@ -12,3 +12,6 @@ coverage/
 .shots/
 .workbuddy-ai/
 *.log
+
+# Production settings before they are uploaded to SSM (deploy/aws/put-params.ps1).
+deploy/secrets/

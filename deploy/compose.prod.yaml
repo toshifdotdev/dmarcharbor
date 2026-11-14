@@ -1,0 +1,60 @@
+# Production on one host: the API, the web app, Caddy for routing and
+# Cloudflare Tunnel for the way in. No port is published; the tunnel dials out.
+#
+# Used by deploy/deploy.sh on the instance. Images come from ECR by tag;
+# settings come from /opt/dmarcharbor/{api,web,tunnel}.env, which deploy.sh
+# writes from SSM Parameter Store and which never leave the instance.
+#
+# Memory limits fit a 2 GB instance with 2 GB of swap (deploy/bootstrap.sh).
+
+name: dmarcharbor
+
+services:
+  api:
+    image: ${REGISTRY}/dmarcharbor-api:${IMAGE_TAG}
+    env_file: /opt/dmarcharbor/api.env
+    restart: unless-stopped
+    # Longer than the API's 30 second drain (SHUTDOWN_DRAIN_MS), so a deploy
+    # lets running jobs finish rather than killing them as the drain ends.
+    stop_grace_period: 45s
+    mem_limit: 800m
+    logging:
+      driver: awslogs
+      options: { awslogs-region: "${AWS_REGION}", awslogs-group: /dmarcharbor/prod, awslogs-stream: api }
+
+  web:
+    image: ${REGISTRY}/dmarcharbor-web:${IMAGE_TAG}
+    env_file: /opt/dmarcharbor/web.env
+    restart: unless-stopped
+    stop_grace_period: 20s
+    mem_limit: 600m
+    depends_on: [api]
+    logging:
+      driver: awslogs
+      options: { awslogs-region: "${AWS_REGION}", awslogs-group: /dmarcharbor/prod, awslogs-stream: web }
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    mem_limit: 128m
+    environment:
+      API_HOST: ${API_HOST}
+      BIMI_HOST: ${BIMI_HOST}
+      MTA_ORIGIN_HOST: ${MTA_ORIGIN_HOST}
+    volumes:
+      - /opt/dmarcharbor/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on: [api, web]
+    logging:
+      driver: awslogs
+      options: { awslogs-region: "${AWS_REGION}", awslogs-group: /dmarcharbor/prod, awslogs-stream: caddy }
+
+  tunnel:
+    image: cloudflare/cloudflared:2025.11.1
+    command: tunnel --no-autoupdate run
+    env_file: /opt/dmarcharbor/tunnel.env
+    restart: unless-stopped
+    mem_limit: 128m
+    depends_on: [caddy]
+    logging:
+      driver: awslogs
+      options: { awslogs-region: "${AWS_REGION}", awslogs-group: /dmarcharbor/prod, awslogs-stream: tunnel }
