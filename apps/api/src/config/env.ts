@@ -733,12 +733,16 @@ if (parsed.data.NODE_ENV === 'production') {
    * poller never sees the reports - which reads as "my domain is broken" rather
    * than "this deployment is misconfigured". Staging is the worse case, because
    * it routes real customer traffic to the production mailbox.
+   *
+   * The deployment has to say so itself: presence in the raw environment, as
+   * for DATABASE_URL. Comparing with the default refused our own production,
+   * whose mailbox is the default, so it could never boot.
    */
-  if (parsed.data.REPORT_AGGREGATE_ADDRESS === developmentAggregateAddress) {
-    throw new Error('REPORT_AGGREGATE_ADDRESS must be set in production.');
+  if (!process.env.REPORT_AGGREGATE_ADDRESS?.trim()) {
+    throw new Error(`REPORT_AGGREGATE_ADDRESS must be set explicitly in production (the default is ${developmentAggregateAddress}).`);
   }
-  if (parsed.data.REPORT_FORENSIC_ADDRESS === developmentForensicAddress) {
-    throw new Error('REPORT_FORENSIC_ADDRESS must be set in production.');
+  if (!process.env.REPORT_FORENSIC_ADDRESS?.trim()) {
+    throw new Error(`REPORT_FORENSIC_ADDRESS must be set explicitly in production (the default is ${developmentForensicAddress}).`);
   }
 
   /**
