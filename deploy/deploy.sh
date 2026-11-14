@@ -71,7 +71,7 @@ compose=(docker compose --env-file compose.env -f compose.prod.yaml)
 "${compose[@]}" up -d --remove-orphans
 
 # Ready means migrated, connected to the database and serving.
-for attempt in $(seq 1 60); do
+for _ in $(seq 1 60); do
   if "${compose[@]}" exec -T api wget -q -O /dev/null http://127.0.0.1:4000/api/ready 2>/dev/null \
     && "${compose[@]}" exec -T web wget -q -O /dev/null http://127.0.0.1:3000/robots.txt 2>/dev/null; then
     echo "Release $tag is ready."
