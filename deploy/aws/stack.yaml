@@ -16,9 +16,12 @@ Parameters:
     Type: String
     Default: https://dmarcharbor.com
     Description: The web app's origin, allowed to PUT logos to the bucket.
-  GitHubRepository:
+  GitHubSubjectPrefix:
     Type: String
-    Default: toshifdotdev/dmarcharbor
+    # The repository uses GitHub's immutable OIDC subjects (owner and repository
+    # ids), so a rename or a re-created repository of the same name is never
+    # trusted. `gh api repos/OWNER/REPO/actions/oidc/customization/sub` prints it.
+    Default: repo:toshifdotdev@222249489/dmarcharbor@1387205800
   CreateGitHubOidcProvider:
     Type: String
     Default: 'true'
@@ -318,7 +321,7 @@ Resources:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
                 # Only the production environment of this repository's workflows.
-                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepository}:environment:production
+                token.actions.githubusercontent.com:sub: !Sub ${GitHubSubjectPrefix}:environment:production
       Policies:
         - PolicyName: dmarcharbor-deploy
           PolicyDocument:

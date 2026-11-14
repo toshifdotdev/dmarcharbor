@@ -101,6 +101,11 @@ rows: keep a copy outside AWS as well.
   uploaded before still resolve. Until then each object is served by S3 with
   its sniffed type and `Content-Disposition: attachment`, and an SVG with any
   active content is refused at upload.
+- **Updating the stack:** the AMI parameter is a pointer to the latest Amazon
+  Linux image, so an update made after AWS publishes a new one replaces the
+  instance. Nothing is lost (the data is in Neon, the settings in SSM), but the
+  instance id changes: set `AWS_INSTANCE_ID` in the GitHub environment again and
+  run the deploy. To avoid it, pass `AmiParameter` as the current image id.
 - **Bigger instance:** update the stack with `InstanceType=t4g.medium`. The
   instance stops and starts (a few minutes down); the disk and settings stay.
 - **Several instances later:** an Application Load Balancer or the tunnel's
