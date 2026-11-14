@@ -35,11 +35,31 @@ permissions:
   id-token: write
 
 jobs:
+  # Decides in a step, where the inputs are printed, rather than in a job-level
+  # if that is skipped without saying why.
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.decide.outputs.go }}
+    steps:
+      - id: decide
+        env:
+          ENABLED: ${{ vars.DEPLOY_ENABLED }}
+          EVENT: ${{ github.event_name }}
+          CI_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          CI_EVENT: ${{ github.event.workflow_run.event }}
+        run: |
+          echo "enabled=$ENABLED event=$EVENT ci_conclusion=$CI_CONCLUSION ci_event=$CI_EVENT"
+          go=false
+          if [ "$ENABLED" = "true" ]; then
+            if [ "$EVENT" = "workflow_dispatch" ]; then go=true; fi
+            if [ "$EVENT" = "workflow_run" ] && [ "$CI_CONCLUSION" = "success" ] && [ "$CI_EVENT" = "push" ]; then go=true; fi
+          fi
+          echo "go=$go" | tee -a "$GITHUB_OUTPUT"
+
   images:
-    if: >-
-      vars.DEPLOY_ENABLED == 'true' &&
-      (github.event_name == 'workflow_dispatch' ||
-       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
+    needs: gate
+    if: needs.gate.outputs.go == 'true'
     runs-on: ubuntu-24.04-arm
     environment: production
     timeout-minutes: 40
