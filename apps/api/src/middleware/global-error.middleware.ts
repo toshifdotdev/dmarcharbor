@@ -111,6 +111,41 @@ export function byteLimitLabel(bytes: unknown): string | null {
   return `${bytes} bytes`;
 }
 
+/**
+ * What an unexpected error puts in the log: the reason on one line, and the
+ * stack frames under it.
+ *
+ * Text rather than the error object. Printed whole, a Prisma validation error
+ * reprints the call it rejected, argument values (emails included) and all; and
+ * an object of fields prints as `[object Object]` wherever the log is kept as
+ * text, which lost the reason entirely. So the reason is the error's name, its
+ * code where it has one, and its message with the line breaks folded. A
+ * validation error keeps only the first line of its message and no frames,
+ * because the rest of the message, and the stack that repeats it, is the call.
+ */
+export function describeThrown(error: unknown): { reason: string; frames: string | null } {
+  const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim();
+
+  if (!(error instanceof Error)) {
+    return { reason: oneLine(String(error)).slice(0, 500), frames: null };
+  }
+
+  const validation = error.name === 'PrismaClientValidationError';
+  const code = (error as { code?: unknown }).code;
+  const name = typeof code === 'string' || typeof code === 'number' ? `${error.name} ${code}` : error.name;
+  const message = validation ? (error.message.trim().split('\n')[0] ?? '') : error.message;
+
+  // Only the `at ...` lines: the stack opens with the name and message again.
+  const frames = validation
+    ? null
+    : (error.stack ?? '')
+        .split('\n')
+        .filter((line) => /^\s+at /.test(line))
+        .join('\n') || null;
+
+  return { reason: `${name}: ${oneLine(message).slice(0, 2000)}`, frames };
+}
+
 export function globalErrorHandler(
   error: unknown,
   request: Request,
@@ -127,21 +162,11 @@ export function globalErrorHandler(
   const requestId = response.locals.requestId as string | undefined;
   const label = requestId ? `[error] ${requestId}` : '[error]';
 
-  // The URL with its credentials redacted (share and export tokens live in
-  // paths and queries), and the error's own fields rather than the whole
-  // object: a Prisma validation error carries the query's arguments, emails
-  // and other values included, and printing it whole put them in the log.
-  const detail =
-    error instanceof Error
-      ? {
-          name: error.name,
-          code: (error as { code?: unknown }).code,
-          // A validation error's message reprints the whole call, values and all.
-          message: (error.name === 'PrismaClientValidationError' ? (error.message.trim().split('\n')[0] ?? '') : error.message).slice(0, 2000),
-          stack: error.name === 'PrismaClientValidationError' ? undefined : error.stack,
-        }
-      : { message: String(error).slice(0, 500) };
-  console.error(`${label} ${request.method} ${redactUrlSecrets(request.originalUrl)} threw:`, detail);
+  // The URL with its credentials redacted: share and export tokens live in
+  // paths and queries. One call, so the frames stay with the request id.
+  const { reason, frames } = describeThrown(error);
+  const line = `${label} ${request.method} ${redactUrlSecrets(request.originalUrl)} threw: ${reason}`;
+  console.error(frames ? `${line}\n${frames}` : line);
 
   // Router-level 404s are handled by an explicit catch-all before this, so
   // reaching here always means an error, not a missing route.
