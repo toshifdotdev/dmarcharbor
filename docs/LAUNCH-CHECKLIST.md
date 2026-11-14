@@ -875,6 +875,11 @@ the deployment, an account or a decision, not code.
 - [ ] Load balancer idle timeout at most 60 seconds (the API keeps idle
       connections 65 seconds), and `/api/ready` as its health check: it answers
       503 while an instance drains.
+- [ ] The platform's stop timeout longer than the API's drain. The drain
+      (`SHUTDOWN_DRAIN_MS`) is 30 seconds, and ECS `stopTimeout` and Kubernetes
+      `terminationGracePeriodSeconds` both default to 30, so a scale-in kills
+      the process as its drain ends. Set the stop timeout to 40 seconds, or the
+      drain to 25.
 - [ ] `TRUST_PROXY_HOPS` set to the real hop count of the path to the API, and
       the same count on every path (direct, through the web app's `/api` proxy,
       through Cloudflare for the hosted MTA-STS and BIMI hosts). A wrong count
@@ -916,8 +921,8 @@ the deployment, an account or a decision, not code.
       once a day while used, so a stolen session that keeps being used lasts
       until it is signed out, revoked or ended by a password reset.
 - [ ] A cap on reset and verification emails per recipient. The limit is per
-      client IP (20 auth requests a minute), so many addresses can still fill
-      one inbox and cost us sending reputation.
+      client IP (20 auth requests a minute), so requests from many IPs can
+      still fill one inbox and cost us sending reputation.
 - [ ] The session cookie with the `__Host-` prefix, so no sibling subdomain can
       set a cookie of the same name.
 - [ ] Google and Microsoft tokens that Better Auth keeps in `account`, and
