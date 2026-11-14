@@ -3,7 +3,12 @@ import { env } from '../../config/env.js';
 import { prisma } from '../../database/prisma.js';
 import { addressOf, oneLine } from '../../email/sender.js';
 import { recordAuditEvent } from '../audit.service.js';
-import { BrandingError, isUniqueConstraintViolation } from '../branding.service.js';
+import {
+  BrandingError,
+  agencyClaimLapsed,
+  isUniqueConstraintViolation,
+  unprovenAgencyClaimDays,
+} from '../branding.service.js';
 import { sendingDomainProvider, type ProviderDomain, type SendingDomainRecord } from './sending-domain-provider.js';
 
 /**
@@ -258,6 +263,7 @@ export async function setSendingAddress(input: {
         sendingDomainRecords: Prisma.DbNull,
         sendingDomainVerifiedAt: null,
         sendingDomainCheckedAt: null,
+        sendingDomainClaimedAt: null,
       },
     });
     await removeProviderDomainQuietly(current.sendingDomainProviderId);
@@ -303,9 +309,9 @@ export async function setSendingAddress(input: {
   // index below still decides a race between two workspaces.
   const holder = await prisma.organization.findFirst({
     where: { sendingDomain: domain, id: { not: input.organizationId } },
-    select: { id: true },
+    select: { id: true, sendingDomainVerifiedAt: true, sendingDomainClaimedAt: true, sendingDomainProviderId: true },
   });
-  if (holder) {
+  if (holder && !(await releaseUnprovenSendingDomain(holder, domain))) {
     throw takenError();
   }
 
@@ -329,6 +335,7 @@ export async function setSendingAddress(input: {
         sendingDomainRecords: created.records as unknown as Prisma.InputJsonValue,
         sendingDomainVerifiedAt: null,
         sendingDomainCheckedAt: new Date(),
+        sendingDomainClaimedAt: new Date(),
       },
       select: stateSelect,
     });
@@ -358,6 +365,49 @@ export async function setSendingAddress(input: {
   });
 
   return stateOf(saved);
+}
+
+/**
+ * Lets go of another workspace's sending domain when the provider never
+ * verified it and the claim is older than two weeks, as for a custom domain
+ * (branding.service.ts). True when the name is free now. The other workspace's
+ * provider entry goes with it, and the change is in its audit trail.
+ */
+async function releaseUnprovenSendingDomain(
+  holder: { id: string; sendingDomainVerifiedAt: Date | null; sendingDomainClaimedAt: Date | null; sendingDomainProviderId: string | null },
+  domain: string,
+): Promise<boolean> {
+  if (holder.sendingDomainVerifiedAt || !agencyClaimLapsed(holder.sendingDomainClaimedAt)) {
+    return false;
+  }
+  const released = await prisma.organization.updateMany({
+    where: { id: holder.id, sendingDomain: domain, sendingDomainVerifiedAt: null },
+    data: {
+      sendingDomain: null,
+      sendingLocalPart: null,
+      sendingDomainProviderId: null,
+      sendingDomainStatus: null,
+      sendingDomainRecords: Prisma.DbNull,
+      sendingDomainCheckedAt: null,
+      sendingDomainClaimedAt: null,
+    },
+  });
+  if (released.count !== 1) {
+    return false;
+  }
+  await removeProviderDomainQuietly(holder.sendingDomainProviderId);
+  await recordAuditEvent({
+    organizationId: holder.id,
+    action: 'BRANDING_UPDATED',
+    targetType: 'organization',
+    targetId: holder.id,
+    detail: {
+      sendingAddress: null,
+      released: domain,
+      reason: `Not verified, so the sending domain was released after ${unprovenAgencyClaimDays} days to another workspace that claimed it.`,
+    },
+  });
+  return true;
 }
 
 function takenError(): BrandingError {

@@ -172,6 +172,88 @@ describe('signing in on an agency domain', () => {
       .send({ email: downgraded.email, password });
     expect(refused.status).toBe(403);
   });
+
+  it('refuses an account another workspace also serves, and lets it in on our own address', async () => {
+    // The agency controls where its domain points, so a session made there is
+    // the agency's to read. Someone with a seat in another workspace signs in
+    // on our address instead.
+    const first = await agency();
+    const second = await agency({ name: 'Corriwick Café' });
+    await prisma.member.create({
+      data: {
+        id: `member-elsewhere-${fixtureId}`,
+        organizationId: first.organizationId,
+        userId: (await prisma.user.findUniqueOrThrow({ where: { email: second.email } })).id,
+        role: 'analyst',
+        createdAt: new Date(),
+      },
+    });
+
+    const onAgencyDomain = await request(app)
+      .post('/api/auth/sign-in/email')
+      .set('Origin', first.origin)
+      .set('x-forwarded-host', first.host)
+      .send({ email: second.email, password });
+    expect(onAgencyDomain.status).toBe(403);
+    expect(onAgencyDomain.body.code ?? onAgencyDomain.body.error?.code).toBe('AGENCY_DOMAIN_SIGN_IN_REFUSED');
+    expect(JSON.stringify(onAgencyDomain.body)).not.toContain('DMARC Harbor');
+    expect(
+      await prisma.auditLog.count({
+        where: { action: 'AGENCY_DOMAIN_SIGN_IN_REFUSED', actorUserId: (await prisma.user.findUniqueOrThrow({ where: { email: second.email } })).id },
+      }),
+    ).toBe(1);
+
+    // The same account on our own address is unaffected.
+    const ours = await request(app).post('/api/auth/sign-in/email').send({ email: second.email, password });
+    expect(ours.status).toBe(200);
+
+    // And the first agency's own owner, whose only seat is there, still signs in on it.
+    const owner = await request(app)
+      .post('/api/auth/sign-in/email')
+      .set('Origin', first.origin)
+      .set('x-forwarded-host', first.host)
+      .send({ email: first.email, password });
+    expect(owner.status).toBe(200);
+  });
+
+  it('refuses a client contact another agency also serves', async () => {
+    // Each client right after its agency: the domain name follows the fixture id.
+    const first = await agency();
+    const { clientId: firstClient } = await clientWithDomain(first.agent, first.organizationId);
+    const other = await agency({ name: 'Thrandle Build' });
+    const { clientId: otherClient } = await clientWithDomain(other.agent, other.organizationId);
+
+    const contactEmail = `shared-contact-${Date.now()}@pellowyn.example`;
+    const contact = request.agent(app);
+    await signUpVerified(contact, contactEmail, 'Shared Contact');
+    const userId = (await prisma.user.findUniqueOrThrow({ where: { email: contactEmail } })).id;
+    for (const [organizationId, clientId] of [
+      [first.organizationId, firstClient],
+      [other.organizationId, otherClient],
+    ] as const) {
+      await prisma.clientPortalAccess.create({ data: { organizationId, clientId, email: contactEmail, userId } });
+    }
+
+    const refused = await request(app)
+      .post('/api/auth/sign-in/email')
+      .set('Origin', first.origin)
+      .set('x-forwarded-host', first.host)
+      .send({ email: contactEmail, password });
+    expect(refused.status).toBe(403);
+    expect(refused.body.code ?? refused.body.error?.code).toBe('AGENCY_DOMAIN_SIGN_IN_REFUSED');
+
+    // Once only the first agency serves them, they sign in on its domain.
+    await prisma.clientPortalAccess.updateMany({
+      where: { organizationId: other.organizationId, email: contactEmail },
+      data: { revokedAt: new Date() },
+    });
+    const allowed = await request(app)
+      .post('/api/auth/sign-in/email')
+      .set('Origin', first.origin)
+      .set('x-forwarded-host', first.host)
+      .send({ email: contactEmail, password });
+    expect(allowed.status).toBe(200);
+  });
 });
 
 describe('password reset on an agency domain', () => {

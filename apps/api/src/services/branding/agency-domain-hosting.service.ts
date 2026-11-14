@@ -100,6 +100,8 @@ export const clearedHosting = {
   customDomainLiveAt: null,
   customDomainOperatorNotifiedAt: null,
   customDomainSetupError: null,
+  customDomainRecheckedAt: null,
+  customDomainFailedChecks: 0,
 } as const;
 
 export function agencyDomainMode(): AgencyDomainMode {

@@ -57,6 +57,10 @@ const MESSAGES: Record<string, string> = {
   nonce_binding_missing: `The provider's answer could not be matched to this sign-in. ${PROVIDER_RETRY}`,
   no_callback_url: `That sign-in did not say where to return to. ${PROVIDER_RETRY}`,
   internal_server_error: "Something failed on our side while signing you in. Try again in a moment.",
+  // auth.config.ts, agency-sign-in.ts: an account another organisation also
+  // serves signs in on our own address, not on an agency's domain.
+  agency_domain_sign_in_refused:
+    "This account is also used by another organisation, so it cannot sign in at this address. Sign in at the address you use for your own workspace instead.",
 
   // Single sign-on (api sso.controller.ts failToSignIn): our own codes, lower-cased.
   sso_domain_not_permitted:

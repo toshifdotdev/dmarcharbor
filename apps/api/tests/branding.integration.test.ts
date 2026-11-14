@@ -3,7 +3,13 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { grantPlan } from './helpers/plan.js';
-import { resolveBranding, validateColour, validateCustomDomain, validateLogoUrl } from '../src/services/branding.service.js';
+import {
+  recheckVerifiedCustomDomains,
+  resolveBranding,
+  validateColour,
+  validateCustomDomain,
+  validateLogoUrl,
+} from '../src/services/branding.service.js';
 import { reverifyUnverifiedDomains } from '../src/services/domain-reverify.service.js';
 import { systemDnsReader } from '../src/scanner/dns.js';
 
@@ -531,6 +537,96 @@ describe('white label branding', () => {
     const row = await prisma.organization.findUniqueOrThrow({ where: { id: second.organizationId } });
     expect(row.customDomain).toBeNull();
     expect(row.customDomainToken).toBeNull();
+  });
+
+  it('releases a hostname claim that was never verified within 14 days', async () => {
+    const squatter = await setup('ADMIRALTY');
+    const owner = await setup('ADMIRALTY');
+    const host = `squatted-${fixtureId}.harbour.test`;
+
+    expect(
+      (await squatter.agent.put(`/api/workspaces/${squatter.organizationId}/branding/custom-domain`).send({ customDomain: `https://${host}` })).status,
+    ).toBe(200);
+
+    // A fresh claim still holds the name.
+    const early = await owner.agent.put(`/api/workspaces/${owner.organizationId}/branding/custom-domain`).send({ customDomain: `https://${host}` });
+    expect(early.status).toBe(409);
+
+    await prisma.organization.update({
+      where: { id: squatter.organizationId },
+      data: { customDomainClaimedAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000) },
+    });
+    const taken = await owner.agent.put(`/api/workspaces/${owner.organizationId}/branding/custom-domain`).send({ customDomain: `https://${host}` });
+    expect(taken.status).toBe(200);
+
+    const loser = await prisma.organization.findUniqueOrThrow({ where: { id: squatter.organizationId } });
+    expect(loser.customDomain).toBeNull();
+    expect(loser.customDomainToken).toBeNull();
+    const audit = await prisma.auditLog.findFirst({
+      where: { organizationId: squatter.organizationId, action: 'BRANDING_UPDATED' },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect((audit?.detail as { released?: string } | null)?.released).toBe(host);
+
+    // A verified claim is never released, however old.
+    await prisma.organization.update({
+      where: { id: owner.organizationId },
+      data: { customDomainVerifiedAt: new Date(), customDomainClaimedAt: new Date(Date.now() - 400 * 24 * 60 * 60 * 1000) },
+    });
+    const refused = await squatter.agent.put(`/api/workspaces/${squatter.organizationId}/branding/custom-domain`).send({ customDomain: `https://${host}` });
+    expect(refused.status).toBe(409);
+  });
+
+  it('unverifies a custom domain whose ownership record is gone on three daily checks', async () => {
+    const { agent, organizationId } = await setup('ADMIRALTY');
+    const host = `lapsed-${fixtureId}.harbour.test`;
+    await agent.put(`/api/workspaces/${organizationId}/branding/custom-domain`).send({ customDomain: `https://${host}` });
+    const token = (await prisma.organization.findUniqueOrThrow({ where: { id: organizationId } })).customDomainToken!;
+    await prisma.organization.update({
+      where: { id: organizationId },
+      data: { customDomainVerifiedAt: new Date(), customDomainLiveAt: new Date() },
+    });
+
+    const day = 24 * 60 * 60 * 1000;
+    const start = Date.now() + day;
+    const answers: Array<Awaited<ReturnType<typeof systemDnsReader.resolveTxt>>> = [];
+    // Other verified fixtures in this file are due too; they get an answer that
+    // counts for nothing, so only this domain draws on the queue.
+    const lookup = (async (name: string) =>
+      name.endsWith(host)
+        ? (answers.shift() ?? { status: 'error', error: 'no answer queued' })
+        : { status: 'error', error: 'not this test' }) as never;
+    const rowNow = () => prisma.organization.findUniqueOrThrow({ where: { id: organizationId } });
+
+    // A lookup that could not be made counts for nothing.
+    answers.push({ status: 'error', error: 'SERVFAIL' });
+    await recheckVerifiedCustomDomains(new Date(start), 50, lookup);
+    expect((await rowNow()).customDomainFailedChecks).toBe(0);
+
+    // Two days missing, then present again: the count resets.
+    answers.push({ status: 'missing' }, { status: 'missing' }, { status: 'found', value: [[`dmarc-harbor-branding=${token}`]] });
+    for (let i = 1; i <= 3; i += 1) await recheckVerifiedCustomDomains(new Date(start + i * day), 50, lookup);
+    expect((await rowNow()).customDomainFailedChecks).toBe(0);
+    expect((await rowNow()).customDomainVerifiedAt).not.toBeNull();
+
+    // Twice on one day counts once: the second pass finds nothing due.
+    answers.push({ status: 'missing' });
+    await recheckVerifiedCustomDomains(new Date(start + 4 * day), 50, lookup);
+    const sameDay = await recheckVerifiedCustomDomains(new Date(start + 4 * day + 60_000), 50, lookup);
+    expect(sameDay.checked).toBe(0);
+
+    // Three in a row (a TXT without the token counts as missing): unverified.
+    answers.push({ status: 'found', value: [['dmarc-harbor-branding=someone-else']] }, { status: 'missing' });
+    await recheckVerifiedCustomDomains(new Date(start + 5 * day), 50, lookup);
+    const last = await recheckVerifiedCustomDomains(new Date(start + 6 * day), 50, lookup);
+    expect(last.unverified).toBe(1);
+
+    const row = await rowNow();
+    expect(row.customDomainVerifiedAt).toBeNull();
+    expect(row.customDomainLiveAt).toBeNull();
+    expect(row.customDomain).toBe(host);
+    expect(await prisma.auditLog.count({ where: { organizationId, action: 'CUSTOM_DOMAIN_UNVERIFIED' } })).toBe(1);
+    expect((await resolveBranding(organizationId)).customDomain).toBeNull();
   });
 
   it('stops serving an agency once the hostname is removed', async () => {    const { agent, organizationId } = await setup('ADMIRALTY');

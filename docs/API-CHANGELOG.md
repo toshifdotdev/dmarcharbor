@@ -254,6 +254,26 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-12-21 — Agency domains: who signs in there, and claims that lapse
+
+Browser routes only; nothing on `/api/v1` changes.
+
+- **Sign-in on an agency's own domain** is refused with 403
+  `AGENCY_DOMAIN_SIGN_IN_REFUSED` for an account that holds a seat in another
+  workspace or a live portal grant from another agency. The same account signs
+  in on our own address as before. The agency's own team and its own client
+  contacts are unaffected.
+- **A custom domain or sending domain never verified within 14 days** no longer
+  holds the name: `PUT .../branding/custom-domain` and the sending-address
+  route take it from the other workspace instead of answering 409
+  `CUSTOM_DOMAIN_TAKEN` or `SENDING_DOMAIN_TAKEN`. The workspace that loses it
+  gets a `BRANDING_UPDATED` audit row naming the released domain.
+- **A verified custom domain is re-checked daily.** After its ownership TXT is
+  missing on three days in a row it is unverified (`CUSTOM_DOMAIN_UNVERIFIED`
+  in the audit trail): `GET /api/branding/host` answers
+  `customDomainVerified: false` and links go back to our address until Verify
+  succeeds again.
+
 ## 2026-12-20 — Security audit: isolation, request forgery and billing
 
 Mostly browser routes under `/api`. On `/api/v1`, only the domain-name rule below

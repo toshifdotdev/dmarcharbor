@@ -322,7 +322,13 @@ export async function setCustomDomain(input: {
     await releaseAgencyHostnameOrRefuse(input.organizationId);
     await prisma.organization.update({
       where: { id: input.organizationId },
-      data: { customDomain: null, customDomainToken: null, customDomainVerifiedAt: null, ...clearedHosting },
+      data: {
+        customDomain: null,
+        customDomainToken: null,
+        customDomainVerifiedAt: null,
+        customDomainClaimedAt: null,
+        ...clearedHosting,
+      },
     });
     await recordAuditEvent({
       organizationId: input.organizationId,
@@ -366,9 +372,9 @@ export async function setCustomDomain(input: {
   // let go, so a refused claim never costs the agency its current domain.
   const holder = await prisma.organization.findFirst({
     where: { customDomain: domain, id: { not: input.organizationId } },
-    select: { id: true },
+    select: { id: true, customDomainVerifiedAt: true, customDomainClaimedAt: true },
   });
-  if (holder) {
+  if (holder && !(await releaseUnprovenCustomDomain(holder, domain))) {
     throw new BrandingError(
       'That domain is already claimed by another workspace. Each hostname can serve only one agency.',
       'CUSTOM_DOMAIN_TAKEN',
@@ -380,7 +386,13 @@ export async function setCustomDomain(input: {
   try {
     await prisma.organization.update({
       where: { id: input.organizationId },
-      data: { customDomain: domain, customDomainToken: token, customDomainVerifiedAt: null, ...clearedHosting },
+      data: {
+        customDomain: domain,
+        customDomainToken: token,
+        customDomainVerifiedAt: null,
+        customDomainClaimedAt: new Date(),
+        ...clearedHosting,
+      },
     });
   } catch (error) {
     // Two agencies claiming one hostname would make host based tenant
@@ -409,6 +421,59 @@ export async function setCustomDomain(input: {
     verificationHost: customDomainVerificationHost(domain),
     verificationValue: customDomainVerificationValue(token),
   };
+}
+
+/** How long a custom or sending domain claim that was never verified holds the name. */
+export const unprovenAgencyClaimDays = 14;
+
+/** True when a claim made at `claimedAt` (null: before claims were dated) has lapsed. */
+export function agencyClaimLapsed(claimedAt: Date | null, now = new Date()): boolean {
+  if (!claimedAt) return true;
+  return claimedAt.getTime() < now.getTime() - unprovenAgencyClaimDays * 24 * 60 * 60 * 1000;
+}
+
+/**
+ * Lets go of another workspace's claim on this hostname when it is not verified
+ * and is older than two weeks. True when the name is free now.
+ *
+ * The hostname is unique, so a workspace that typed a rival agency's portal
+ * address, and never proved it, held it for ever. A domain that was verified
+ * and then failed its daily re-check is unverified too, and goes the same way:
+ * whoever controls its DNS now can claim it. The claim is cleared only while it
+ * is still unverified (the update is conditional), and only if the Cloudflare
+ * hostname it may hold could be removed first.
+ */
+async function releaseUnprovenCustomDomain(
+  holder: { id: string; customDomainVerifiedAt: Date | null; customDomainClaimedAt: Date | null },
+  domain: string,
+): Promise<boolean> {
+  if (holder.customDomainVerifiedAt || !agencyClaimLapsed(holder.customDomainClaimedAt)) {
+    return false;
+  }
+  try {
+    await releaseAgencyHostname(holder.id);
+  } catch {
+    return false;
+  }
+  const released = await prisma.organization.updateMany({
+    where: { id: holder.id, customDomain: domain, customDomainVerifiedAt: null },
+    data: { customDomain: null, customDomainToken: null, customDomainClaimedAt: null, ...clearedHosting },
+  });
+  if (released.count !== 1) {
+    return false;
+  }
+  await recordAuditEvent({
+    organizationId: holder.id,
+    action: 'BRANDING_UPDATED',
+    targetType: 'organization',
+    targetId: holder.id,
+    detail: {
+      customDomain: null,
+      released: domain,
+      reason: `Not verified, so the hostname was released after ${unprovenAgencyClaimDays} days to another workspace that claimed it.`,
+    },
+  });
+  return true;
 }
 
 /** The stored Cloudflare hostname, removed, or the change refused in the agency's words. */
@@ -446,10 +511,18 @@ export async function verifyCustomDomain(
   const lookup = await resolveTxtFresh(host, organization.customDomain);
   const verified = lookup.status === 'found' && lookup.value?.some((chunks) => chunks.join('') === expected) === true;
 
+  if (verified && organization.customDomainVerifiedAt) {
+    // Pressed Check on a verified domain: a passing read is a passing re-check.
+    await prisma.organization.update({
+      where: { id: organizationId },
+      data: { customDomainFailedChecks: 0, customDomainRecheckedAt: new Date() },
+    });
+  }
+
   if (verified && !organization.customDomainVerifiedAt) {
     await prisma.organization.update({
       where: { id: organizationId },
-      data: { customDomainVerifiedAt: new Date() },
+      data: { customDomainVerifiedAt: new Date(), customDomainFailedChecks: 0, customDomainRecheckedAt: new Date() },
     });
     await recordAuditEvent({
       organizationId,
@@ -473,6 +546,118 @@ export async function verifyCustomDomain(
     ...(lookup.error ? { error: lookup.error } : {}),
     hosting,
   };
+}
+
+/** Definite failures in a row, one a day, before a verified custom domain is unverified. */
+export const customDomainRecheckFailureLimit = 3;
+// A little short of a day, so a pass that runs a few minutes late on the next
+// day still counts that day rather than slipping to the one after.
+const recheckEveryMs = 23 * 60 * 60 * 1000;
+
+export interface CustomDomainRecheckSummary {
+  checked: number;
+  failing: number;
+  unverified: number;
+}
+
+/**
+ * Reads the ownership TXT of every verified custom domain once a day.
+ *
+ * Verification was a one-time event, so a domain the agency let expire, sold or
+ * re-pointed stayed verified here for good. That matters beyond branding:
+ * client sign-in is trusted on the domain and reset links for the agency's
+ * client contacts are sent to it, so whoever held the domain next would have
+ * received them. A definite answer that the record is gone (no such record, no
+ * such name, or a TXT without the token) counts as a failure; a lookup that
+ * could not be made counts as nothing, so a DNS outage never unverifies anyone.
+ * Three failures on three days unverify the domain: the portal, sign-in and
+ * links go back to our address until the agency presses Verify again.
+ *
+ * Fleet-safe on its own: each row is claimed by moving its re-check time off
+ * the value read, so two instances never both count one day.
+ */
+export async function recheckVerifiedCustomDomains(
+  now: Date = new Date(),
+  limit = 50,
+  lookupTxt: typeof resolveTxtFresh = resolveTxtFresh,
+): Promise<CustomDomainRecheckSummary> {
+  const summary: CustomDomainRecheckSummary = { checked: 0, failing: 0, unverified: 0 };
+  const due = await prisma.organization.findMany({
+    where: {
+      customDomain: { not: null },
+      customDomainToken: { not: null },
+      customDomainVerifiedAt: { not: null },
+      OR: [{ customDomainRecheckedAt: null }, { customDomainRecheckedAt: { lt: new Date(now.getTime() - recheckEveryMs) } }],
+    },
+    orderBy: { customDomainRecheckedAt: { sort: 'asc', nulls: 'first' } },
+    take: limit,
+    select: {
+      id: true,
+      customDomain: true,
+      customDomainToken: true,
+      customDomainRecheckedAt: true,
+      customDomainFailedChecks: true,
+    },
+  });
+
+  for (const row of due) {
+    const domain = row.customDomain!;
+    const claimed = await prisma.organization.updateMany({
+      where: { id: row.id, customDomain: domain, customDomainRecheckedAt: row.customDomainRecheckedAt },
+      data: { customDomainRecheckedAt: now },
+    });
+    if (claimed.count !== 1) continue;
+    summary.checked += 1;
+
+    let lookup: Awaited<ReturnType<typeof resolveTxtFresh>>;
+    try {
+      lookup = await lookupTxt(customDomainVerificationHost(domain), domain);
+    } catch {
+      continue;
+    }
+    if (lookup.status === 'error') continue;
+
+    const expected = customDomainVerificationValue(row.customDomainToken!);
+    const present = lookup.status === 'found' && lookup.value?.some((chunks) => chunks.join('') === expected) === true;
+    if (present) {
+      if (row.customDomainFailedChecks !== 0) {
+        await prisma.organization.updateMany({
+          where: { id: row.id, customDomain: domain },
+          data: { customDomainFailedChecks: 0 },
+        });
+      }
+      continue;
+    }
+
+    const failures = row.customDomainFailedChecks + 1;
+    summary.failing += 1;
+    if (failures < customDomainRecheckFailureLimit) {
+      await prisma.organization.updateMany({
+        where: { id: row.id, customDomain: domain },
+        data: { customDomainFailedChecks: failures },
+      });
+      continue;
+    }
+
+    const demoted = await prisma.organization.updateMany({
+      where: { id: row.id, customDomain: domain, customDomainVerifiedAt: { not: null } },
+      data: { customDomainVerifiedAt: null, customDomainLiveAt: null, customDomainFailedChecks: 0 },
+    });
+    if (demoted.count === 1) {
+      summary.unverified += 1;
+      await recordAuditEvent({
+        organizationId: row.id,
+        action: 'CUSTOM_DOMAIN_UNVERIFIED',
+        targetType: 'organization',
+        targetId: row.id,
+        detail: {
+          customDomain: domain,
+          reason: `The ownership record was missing on ${customDomainRecheckFailureLimit} daily checks in a row, so the domain is no longer used until it is verified again.`,
+        },
+      });
+    }
+  }
+  return summary;
 }
 
 /**

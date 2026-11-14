@@ -199,6 +199,13 @@ model Organization {
   customDomain          String?               @unique
   customDomainToken     String?
   customDomainVerifiedAt DateTime?
+  /// When this workspace claimed the hostname. A claim never verified within
+  /// 14 days is released to the next workspace that claims the same name.
+  customDomainClaimedAt DateTime?
+  /// The last daily re-check of the ownership TXT on a verified domain, and how
+  /// many definite failures in a row it has seen. Three in a row unverify it.
+  customDomainRecheckedAt DateTime?
+  customDomainFailedChecks Int                  @default(0)
   /// Hosting for the verified custom domain (services/branding/agency-domain-hosting.service.ts).
   /// The Cloudflare for SaaS custom hostname, when this deployment issues the
   /// certificate itself. The stored id is the only handle on it: hostnames
@@ -240,6 +247,9 @@ model Organization {
   /// address only while this is set and the plan includes it.
   sendingDomainVerifiedAt DateTime?
   sendingDomainCheckedAt DateTime?
+  /// When this workspace claimed the sending domain; released like the custom
+  /// domain when never verified within 14 days.
+  sendingDomainClaimedAt DateTime?
   members               Member[]
   invitations           Invitation[]
   portalAccessGrants    ClientPortalAccess[]
@@ -2721,6 +2731,7 @@ enum AuditAction {
   BRANDING_UPDATED
   CUSTOM_DOMAIN_VERIFIED
   CUSTOM_DOMAIN_LIVE
+  CUSTOM_DOMAIN_UNVERIFIED
   REPORT_INBOX_CONFIGURED
   REPORT_INBOX_REMOVED
   SSO_CONNECTION_CREATED
@@ -2757,6 +2768,7 @@ enum AuditAction {
   MFA_RESET
   WORKSPACE_MFA_REQUIREMENT_CHANGED
   MFA_SIGN_IN_REFUSED
+  AGENCY_DOMAIN_SIGN_IN_REFUSED
   HOSTED_DMARC_CREATED
   HOSTED_DMARC_UPDATED
   HOSTED_DMARC_RESTORED

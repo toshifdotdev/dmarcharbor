@@ -904,17 +904,33 @@ the deployment, an account or a decision, not code.
 - [ ] Bucket policy: private, no public writes; presigned uploads are checked
       when confirmed, and an object that fails the check is deleted.
 
-**Decisions, not bugs**
-- [ ] Analysts hold `domain:update`, so they can publish DNS changes through a
-      Cloudflare connection and start or release hosted records. Keep, or add a
-      publish permission for owners and admins.
-- [ ] Hosted DMARC, SPF, BIMI and MTA-STS keep serving after a downgrade (the
-      panels say paused). Decide a grace period after which the release flows run.
-- [ ] A staff member who is also a client contact can sign in on an agency's
-      domain, and the agency controls that domain's DNS. Consider refusing
-      sign-in on an agency domain for accounts with a seat in another workspace.
-- [ ] Custom portal domains and sending domains are first come, first served
-      before verification, and a verified custom domain is not re-checked later.
+**Decisions, not bugs (decided 14 November 2026)**
+- [x] Analysts keep `domain:update`, so they can publish DNS changes through a
+      Cloudflare connection and start or release hosted records. At an MSP the
+      technician is the person who fixes a client's DNS; limiting it to owners
+      and admins would stop the work the role exists for. Every publish is in
+      the audit trail with its actor, and a workspace that wants fewer hands on
+      DNS gives those people the viewer role.
+- [x] Hosted DMARC, SPF, BIMI and MTA-STS keep serving after a downgrade, frozen:
+      edits, restores and new records answer 402, release works on every plan.
+      No cut-off. Stopping a record breaks the client's mail authentication
+      (or, for MTA-STS, its delivery), which harms the agency's client rather
+      than the agency, and serving a record costs us almost nothing. A record
+      stops when the agency releases it, removes the domain or erases the
+      workspace.
+- [x] Sign-in on an agency's domain is refused for an account with a seat in
+      another workspace or a portal grant from another agency (403
+      `AGENCY_DOMAIN_SIGN_IN_REFUSED`, audit `AGENCY_DOMAIN_SIGN_IN_REFUSED`).
+      The agency controls where its domain points, so a session made there is
+      the agency's to read; such accounts sign in on our address
+      (`apps/api/src/auth/agency-sign-in.ts`).
+- [x] A custom portal domain or sending domain claimed and not verified within
+      14 days is released to the next workspace that claims it, with an audit
+      row for the one that loses it. A verified custom domain's ownership TXT
+      is re-read daily; three definite failures in a row unverify it (audit
+      `CUSTOM_DOMAIN_UNVERIFIED`), so the portal, sign-in and reset links go
+      back to our address until the agency presses Verify again. A lookup that
+      cannot be made counts for nothing.
 
 **Hardening after launch (not open vulnerabilities)**
 - [ ] A fixed upper limit on a session's life. Sessions last 7 days and renew

@@ -8,6 +8,7 @@ import { recordAuditEvent } from '../services/audit.service.js';
 import { memberAllowance, memberLimitDetails, memberLimitMessage, resolveEntitlements } from '../services/entitlements/entitlement.service.js';
 import { accessControl, organizationRoles, staffRoleNames } from './permissions.js';
 import { workspaceMfaRefusal } from '../middleware/workspace-gates.js';
+import { agencyDomainSessionRefusal, agencyDomainSignInMessage } from './agency-sign-in.js';
 import { queueAuthEmail, queueEmail } from '../email/email.service.js';
 import { oneLine } from '../email/sender.js';
 import {
@@ -621,11 +622,26 @@ export const auth = betterAuth({
     },
     session: {
       create: {
-        before: (session, context) =>
-          mfaSessionGuard(
+        before: async (session, context) => {
+          const allowed = await mfaSessionGuard(
             session as SessionGuardSession,
             context as SessionGuardContext | null | undefined,
-          ),
+          );
+          if (!allowed || !context) {
+            return allowed;
+          }
+          // On an agency's own domain, only accounts that agency alone serves
+          // (agency-sign-in.ts). Server-side session creation has no context.
+          const request = context as { headers?: Headers | null; request?: Request | null };
+          const headers = request.headers ?? request.request?.headers ?? null;
+          if (await agencyDomainSessionRefusal((session as SessionGuardSession).userId, headers)) {
+            throw new APIError('FORBIDDEN', {
+              code: 'AGENCY_DOMAIN_SIGN_IN_REFUSED',
+              message: agencyDomainSignInMessage,
+            });
+          }
+          return true;
+        },
       },
     },
   },
