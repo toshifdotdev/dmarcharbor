@@ -53,17 +53,31 @@ export interface AuthLink {
   brand?: BrandLook;
 }
 
-/** True for this agency's client contact with no seat in any workspace. */
+/**
+ * True for a client contact of this agency only: no seat in any workspace and
+ * no portal grant from another agency.
+ *
+ * The second condition matters because an agency can add any address as a
+ * contact of one of its clients, and the agency controls the DNS of its own
+ * domain. Had a contact of agency B been added by agency A as well, a reset
+ * requested on A's domain would have put B's contact's reset link (and with it
+ * B's client data) on infrastructure A controls. A link moves to an agency's
+ * domain only when that agency is the one serving the person.
+ */
 async function agencyClientWithoutSeat(organizationId: string, user: { id: string; email: string }): Promise<boolean> {
   const email = user.email.trim().toLowerCase();
-  const [contact, seat] = await Promise.all([
+  const [contact, seat, elsewhere] = await Promise.all([
     prisma.clientPortalAccess.findFirst({
       where: { organizationId, revokedAt: null, OR: [{ email }, { userId: user.id }] },
       select: { id: true },
     }),
     prisma.member.findFirst({ where: { userId: user.id }, select: { id: true } }),
+    prisma.clientPortalAccess.findFirst({
+      where: { organizationId: { not: organizationId }, revokedAt: null, OR: [{ email }, { userId: user.id }] },
+      select: { id: true },
+    }),
   ]);
-  return Boolean(contact) && !seat;
+  return Boolean(contact) && !seat && !elsewhere;
 }
 
 /** Never throws: anything unexpected leaves the link exactly as Better Auth built it. */

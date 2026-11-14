@@ -571,7 +571,7 @@ export async function executeErasure(
       select: { brandLogoUrl: true },
     });
     if (branding?.brandLogoUrl) {
-      await deleteStoredLogo(objectKeyFromLogoUrl(branding.brandLogoUrl));
+      await deleteStoredLogo(objectKeyFromLogoUrl(branding.brandLogoUrl, organizationId));
     }
 
     // The agency's sending domain lives in our email provider's account, not in

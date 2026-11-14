@@ -18,7 +18,7 @@ import { guardedRequest } from '../net/guarded-request.js';
 import { decryptSensitive, encryptSensitive } from '../privacy.service.js';
 import { recordAuditEvent } from '../audit.service.js';
 import { auth } from '../../auth/auth.config.js';
-import { SsoError, assertMayProvision, normalizeEmailDomain } from './sso.service.js';
+import { SsoError, assertEmailDomainProven, assertMayProvision, normalizeEmailDomain } from './sso.service.js';
 import { memberAllowance, memberLimitMessage, resolveEntitlements } from '../entitlements/entitlement.service.js';
 import { ssoSignInUntil, syncSsoLicence } from '../entitlements/plan-change-effects.js';
 
@@ -192,6 +192,11 @@ export async function completeSignIn(
 ): Promise<{ organizationId: string; userId: string; created: boolean }> {
   const email = identity.email.trim().toLowerCase();
   const domain = assertMayProvision(connection, email);
+  // The allowlist says which addresses this connection is for; this says the
+  // workspace controls them. Without it, any workspace could list another
+  // company's domain, assert an address there from its own identity provider
+  // and be handed that person's account (sso.service.ts, provenEmailDomains).
+  await assertEmailDomainProven(connection.organizationId, domain);
 
   const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });
   let userId = existing?.id;

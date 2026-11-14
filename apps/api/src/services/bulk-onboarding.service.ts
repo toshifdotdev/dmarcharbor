@@ -1,6 +1,7 @@
 import { domainSlug } from './domain-slug.js';
 import { prisma } from '../database/prisma.js';
 import { recordAuditEvent } from './audit.service.js';
+import { releaseUnprovenClaims, unprovenClaimDays } from './domain-claims.js';
 import {
   quotaUpgradeSentence,
   quotaUsage,
@@ -55,7 +56,7 @@ export interface PlanBlocked extends BulkFailure {
  * It never says which workspace: that would tell one tenant who another serves.
  */
 export const domainHeldElsewhereReason =
-  'That domain is already monitored by another workspace. Remove it there first, or ask them to release it.';
+  `That domain is already monitored by another workspace. Remove it there first, or ask them to release it. A domain that is never verified there is released after ${unprovenClaimDays} days.`;
 
 /**
  * Raised when one import carries more rows than a single request takes.
@@ -179,6 +180,8 @@ export async function bulkImportClients(input: {
         ),
       ),
     ];
+    // Claims another workspace never proved do not hold these names for ever.
+    await releaseUnprovenClaims(tx, input.organizationId, requestedNames);
     const claimedAnywhere = new Set(
       requestedNames.length > 0
         ? (
@@ -391,6 +394,8 @@ export async function bulkImportDomains(input: {
      */
     const claimed = new Map<string, string>();
     if (wanted.length > 0) {
+      // Claims another workspace never proved do not hold these names for ever.
+      await releaseUnprovenClaims(tx, input.organizationId, wanted);
       const held = await tx.domain.findMany({
         where: { name: { in: wanted } },
         select: { name: true, clientId: true },

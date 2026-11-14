@@ -83,6 +83,37 @@ export type LeaseResult =
   | { acquired: false };
 
 /**
+ * Jobs this process is running under a lease, so a shutdown can let them end.
+ *
+ * Shutdown used to stop the timers and exit with jobs still mid-pass. The
+ * lease then stayed held until it expired (up to ten minutes with no email,
+ * webhook or PSA delivery anywhere in the fleet after a deploy), and the work
+ * cut off half way was redone by the next instance.
+ */
+const runningJobs = new Set<Promise<unknown>>();
+
+function track<T>(job: Promise<T>): Promise<T> {
+  runningJobs.add(job);
+  void job.finally(() => runningJobs.delete(job)).catch(() => undefined);
+  return job;
+}
+
+/** Waits for the jobs in flight to finish, or for `timeoutMs`, whichever is first. */
+export async function waitForRunningJobs(timeoutMs: number): Promise<{ finished: boolean; running: number }> {
+  if (runningJobs.size === 0) {
+    return { finished: true, running: 0 };
+  }
+  let timer: NodeJS.Timeout | undefined;
+  const timedOut = new Promise<'timeout'>((resolve) => {
+    timer = setTimeout(() => resolve('timeout'), Math.max(0, timeoutMs));
+    timer.unref?.();
+  });
+  const outcome = await Promise.race([Promise.allSettled([...runningJobs]).then(() => 'done' as const), timedOut]);
+  if (timer) clearTimeout(timer);
+  return { finished: outcome === 'done', running: runningJobs.size };
+}
+
+/**
  * Takes the lease for `name`, or reports that another instance holds it.
  *
  * The acquire is one statement. The insert creates the row if it is absent; the
@@ -253,15 +284,31 @@ export async function withDueLease<T>(
 
   const ms = leaseMs && leaseMs > 0 ? leaseMs : defaultLeaseMs;
   const timer = setInterval(() => {
-    void lease.renew(ms);
+    void renewOrWarn(lease, name, ms);
   }, renewIntervalMs(ms));
   timer.unref?.();
 
   try {
-    return await job();
+    return await track(job());
   } finally {
     clearInterval(timer);
     await lease.release();
+  }
+}
+
+/**
+ * Renews, and says so when the lease has been lost. A job that keeps working
+ * after another instance took its lease is the overlap the lease exists to
+ * stop, so it has to be visible in the log rather than swallowed.
+ */
+async function renewOrWarn(
+  lease: Extract<LeaseResult, { acquired: true }>,
+  name: string,
+  ms: number,
+): Promise<void> {
+  const renewed = await lease.renew(ms);
+  if (!renewed) {
+    console.warn(`[lease] ${name}: the lease could not be renewed; another instance may now run this job as well.`);
   }
 }
 
@@ -310,8 +357,8 @@ export async function withJobLease<T>(
   const timer = setInterval(() => {
     // Fire and forget: a renewal that fails leaves the job running and only
     // widens the window in which another instance may take over, which is what
-    // release() in the finally block is for.
-    void lease.renew(ms);
+    // release() in the finally block is for. A lost lease is logged.
+    void renewOrWarn(lease, name, ms);
   }, renewIntervalMs(ms));
 
   // Does not hold the process open: a scheduler is a background timer, and an
@@ -319,7 +366,7 @@ export async function withJobLease<T>(
   timer.unref?.();
 
   try {
-    return await job();
+    return await track(job());
   } finally {
     clearInterval(timer);
     await lease.release();

@@ -8,6 +8,7 @@ import { afterPlanChange, SSO_DOWNGRADE_GRACE_DAYS } from '../src/services/entit
 import { completeSignIn } from '../src/services/sso/sso-flow.service.js';
 import { createSsoConnection } from '../src/services/sso/sso.service.js';
 import { grantPlan } from './helpers/plan.js';
+import { proveSsoDomain } from './helpers/sso.js';
 
 /**
  * What a workspace keeps, and what stops, after its plan changes.
@@ -129,6 +130,8 @@ describe('single sign-on after a downgrade', () => {
   async function ssoWorkspace(label: string) {
     const owner = await workspace(label);
     await grantPlan(owner.organizationId, 'ADMIRALTY');
+    // Sign-in admits only addresses at a domain the workspace has verified.
+    await proveSsoDomain(owner.organizationId, 'northgate.test');
     const created = await createSsoConnection({
       organizationId: owner.organizationId,
       label: 'Okta',

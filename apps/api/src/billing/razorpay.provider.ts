@@ -171,7 +171,13 @@ export class RazorpayBillingProvider implements BillingProvider {
   }): Promise<'immediate' | 'cycle_end'> {
     const row = await prisma.subscription.findUnique({
       where: { organizationId: input.organizationId },
-      select: { billingInterval: true },
+      select: {
+        billingInterval: true,
+        currentPeriodEnd: true,
+        carryOverMinor: true,
+        mandateStatus: true,
+        mandateMaxMinor: true,
+      },
     });
     const fromInterval: BillingInterval = row?.billingInterval === 'ANNUAL' ? 'annual' : 'monthly';
     const toInterval: BillingInterval = planCatalog[input.toPlan].pricing === 'per_domain' ? 'monthly' : input.toInterval;
@@ -183,7 +189,32 @@ export class RazorpayBillingProvider implements BillingProvider {
       recurringChargeFor(input.organizationId, input.fromPlan, fromInterval),
       recurringChargeFor(input.organizationId, input.toPlan, toInterval),
     ]);
-    return to.amountMinor > from.amountMinor ? 'immediate' : 'cycle_end';
+    if (to.amountMinor <= from.amountMinor) {
+      return 'cycle_end';
+    }
+
+    /**
+     * An upgrade applies now only when its difference can be collected.
+     *
+     * The difference rides on the next renewal, charged to the saved mandate.
+     * A mandate that is not confirmed, or whose limit is below that renewal,
+     * cannot take it, and the renewal then goes out as a link the customer may
+     * never pay: the upgrade would have been free. Such an upgrade starts with
+     * the next period instead, which the plan change screen states before it
+     * is confirmed.
+     */
+    const owed = row?.currentPeriodEnd
+      ? upgradeCarryOverMinor({
+          fromMinor: from.amountMinor,
+          toMinor: to.amountMinor,
+          periodStart: subtractInterval(row.currentPeriodEnd, fromInterval),
+          periodEnd: row.currentPeriodEnd,
+          now: new Date(),
+        })
+      : 0;
+    const nextRenewal = to.amountMinor + (row?.carryOverMinor ?? 0) + owed;
+    const collectable = row?.mandateStatus === 'confirmed' && (row.mandateMaxMinor ?? 0) >= nextRenewal;
+    return collectable ? 'immediate' : 'cycle_end';
   }
 
   /**

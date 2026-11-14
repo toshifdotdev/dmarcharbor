@@ -1,6 +1,7 @@
 import { ImapFlow } from 'imapflow';
 import { env } from '../../config/env.js';
 import { processInboundDmarcEmail } from '../inbound-report.service.js';
+import { maxReportEmailBytes } from './imap-inbox.service.js';
 
 /**
  * The mailbox our own report addresses deliver to.
@@ -50,6 +51,8 @@ export async function pollPlatformMailbox(): Promise<PlatformMailboxOutcome | nu
     host: env.REPORT_MAILBOX_HOST!,
     port: env.REPORT_MAILBOX_PORT,
     secure: env.REPORT_MAILBOX_PORT !== 143,
+    // On the plain port, STARTTLS is required rather than used when offered.
+    ...(env.REPORT_MAILBOX_PORT === 143 ? { doSTARTTLS: true } : {}),
     auth: { user: env.REPORT_MAILBOX_USERNAME!, pass: env.REPORT_MAILBOX_PASSWORD! },
     logger: false,
     socketTimeout: 60_000,
@@ -74,13 +77,24 @@ export async function pollPlatformMailbox(): Promise<PlatformMailboxOutcome | nu
       for (const uid of uids) {
         outcome.messages += 1;
         try {
-          const download = await client.download(String(uid), undefined, { uid: true });
+          // Bounded: anyone can mail this address, and one huge message must
+          // not fill the process's memory. One byte past the limit tells a
+          // message at the limit from one over it; an oversized one is moved
+          // aside unread like any other, so it cannot block the queue.
+          const download = await client.download(String(uid), undefined, { uid: true, maxBytes: maxReportEmailBytes + 1 });
           const chunks: Buffer[] = [];
+          let received = 0;
           for await (const part of download?.content ?? []) {
-            chunks.push(Buffer.isBuffer(part) ? part : Buffer.from(part));
+            const chunk = Buffer.isBuffer(part) ? part : Buffer.from(part);
+            received += chunk.length;
+            if (received > maxReportEmailBytes) break;
+            chunks.push(chunk);
           }
-          if (chunks.length === 0) {
+          if (chunks.length === 0 || received > maxReportEmailBytes) {
             outcome.unmatched += 1;
+            if (received > maxReportEmailBytes) {
+              console.warn(`[report-mailbox] message ${uid} is larger than ${maxReportEmailBytes} bytes; moved aside unread`);
+            }
           } else {
             // Unscoped: our own address serves every workspace.
             const result = await processInboundDmarcEmail(Buffer.concat(chunks).toString('utf8'));

@@ -19,6 +19,7 @@ import { expectedPlans, findStoredPlan, findStoredPlanByProviderPlanId, requireS
 import { PROVIDER_TIMEOUT_MS, withTimeout } from './provider-timeout.js';
 import type { PlanTier } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
+import { paddleAttribution } from './paddle-attribution.js';
 
 /**
  * Paddle adapter.
@@ -185,6 +186,9 @@ export class PaddleBillingProvider implements BillingProvider {
         // to a workspace without trusting the payload path.
         customData: {
           organizationId: input.organizationId,
+          // What makes the id above believable to the webhook
+          // (paddle-attribution.ts).
+          attribution: paddleAttribution(input.organizationId),
           planTier: input.plan,
           interval: input.interval,
           currency: input.currency,

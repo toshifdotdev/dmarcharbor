@@ -18,6 +18,7 @@ import {
   logoStorageConfigured,
   publicLogoUrl,
   uploadLogoDirect,
+  verifyUploadedLogo,
 } from '../services/branding/logo-storage.service.js';
 import { zodMessage } from '../utils/zod-messages.js';
 import { updateBranding as updateBrandingSettings } from '../services/branding.service.js';
@@ -67,6 +68,10 @@ function sendBrandingError(response: Response, error: unknown): void {
     response.status(error.status).json({ error: { code: error.code, message: error.message, ...error.details } });
     return;
   }
+  if (error instanceof LogoStorageError) {
+    response.status(error.status).json({ error: { code: error.code, message: error.message } });
+    return;
+  }
   response.status(500).json({ error: { code: 'INTERNAL', message: 'Branding could not be updated.' } });
 }
 
@@ -106,6 +111,15 @@ export async function resolveBrandingByHostController(request: Request, response
     const branding = await resolveBranding(found.organizationId);
     if (!branding.customDomainLicensed) {
       response.status(404).json({ error: { code: 'NOT_FOUND', message: 'No agency is served on this address.' } });
+      return;
+    }
+
+    // Unproved, the host gets its state and nothing else: the agency's name,
+    // logo and contact are what a verified domain publishes, and anyone can
+    // ask this about any hostname (the web app reads only the state for an
+    // unverified host).
+    if (!found.verified) {
+      response.json({ branded: false, customDomainVerified: false });
       return;
     }
 
@@ -411,6 +425,9 @@ export async function confirmLogoUploadController(request: Request, response: Re
       response.status(404).json({ error: { code: 'OBJECT_NOT_FOUND', message: 'That upload does not belong to this workspace.' } });
       return;
     }
+
+    // The bytes PUT to the presigned URL, held to the direct upload's rules.
+    await verifyUploadedLogo(response.locals.organizationId, body.data.objectKey);
 
     await updateBrandingSettings({
       organizationId: response.locals.organizationId,

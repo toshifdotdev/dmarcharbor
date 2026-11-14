@@ -11,6 +11,8 @@ import { startHostedDnsReconciler, stopHostedDnsReconciler } from './scheduler/h
 import { startPsaScheduler, stopPsaScheduler } from './scheduler/psa-scheduler.js';
 import { startAgencyDomainScheduler, stopAgencyDomainScheduler } from './scheduler/agency-domain-scheduler.js';
 import { checkSchemaIsCurrent } from './services/schema-check.service.js';
+import { waitForRunningJobs } from './scheduler/job-lease.service.js';
+import { markDraining } from './scheduler/shutdown-state.js';
 
 if (env.NODE_ENV !== 'test') {
   /**
@@ -28,6 +30,17 @@ if (env.NODE_ENV !== 'test') {
   const server = createApp().listen(env.PORT, () => {
     console.log(`DMARC Harbor API listening on port ${env.PORT}`);
   });
+
+  /**
+   * Idle connections outlive the load balancer's, never the other way round.
+   *
+   * Node closes an idle keep-alive socket after 5 seconds by default. A load
+   * balancer keeps its side open for 60 (AWS ALB's default) and reuses it, and
+   * a request sent down a socket Node has just closed comes back as a 502.
+   * The header timeout has to stay above the keep-alive timeout.
+   */
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 66_000;
 
   startAlertScheduler();
   startWebhookScheduler();
@@ -77,8 +90,20 @@ if (env.NODE_ENV !== 'test') {
  */
 const drainDeadlineMs = env.SHUTDOWN_DRAIN_MS;
 
+let shuttingDown = false;
+
 const shutdown = (signal: string): void => {
+  if (shuttingDown) {
+    return;
+  }
+  shuttingDown = true;
   console.info(`[shutdown] ${signal} received, draining for up to ${drainDeadlineMs}ms`);
+
+  // Out of rotation first: /api/ready answers 503 from now on, and the
+  // listener stays open for a few seconds so requests the load balancer
+  // already routed here are served rather than refused.
+  markDraining();
+  const readyGraceMs = env.NODE_ENV === 'production' ? Math.min(5_000, Math.floor(drainDeadlineMs / 3)) : 0;
 
   // Timers first. Nothing new starts while the process is draining, and a webhook
   // delivery starting as we close the listener would add its own seconds.
@@ -100,27 +125,40 @@ const shutdown = (signal: string): void => {
   }, drainDeadlineMs);
   deadline.unref?.();
 
-  server.close(() => {
-    void prisma
-      .$disconnect()
-      .catch((error: unknown) => {
-        console.error('[shutdown] database close failed:', error instanceof Error ? error.message : error);
-      })
-      .finally(() => {
-        clearTimeout(deadline);
-        console.info('[shutdown] complete');
-        process.exit(0);
-      });
-  });
+  setTimeout(() => {
+    server.close(() => {
+      /**
+       * Jobs already running under a lease are let finish, within the
+       * deadline: one cut off mid-pass kept its lease until it expired (no
+       * email or webhook anywhere for up to ten minutes after a deploy), and
+       * its half-done work was repeated by the next instance.
+       */
+      void waitForRunningJobs(Math.max(0, drainDeadlineMs - readyGraceMs - 2_000))
+        .then((jobs) => {
+          if (!jobs.finished) {
+            console.warn(`[shutdown] ${jobs.running} job(s) still running at the drain deadline`);
+          }
+        })
+        .then(() => prisma.$disconnect())
+        .catch((error: unknown) => {
+          console.error('[shutdown] database close failed:', error instanceof Error ? error.message : error);
+        })
+        .finally(() => {
+          clearTimeout(deadline);
+          console.info('[shutdown] complete');
+          process.exit(0);
+        });
+    });
 
-  /**
-   * Keeps a connection that never ends from holding the deploy open forever.
-   *
-   * Node's HTTP server has no idle timeout of its own, so a keep-alive connection
-   * with no request on it will sit in `close` indefinitely. `closeIdleConnections`
-   * drops the ones sitting between requests and leaves active ones alone.
-   */
-  server.closeIdleConnections?.();
+    /**
+     * Keeps a connection that never ends from holding the deploy open forever.
+     *
+     * Node's HTTP server has no idle timeout of its own, so a keep-alive connection
+     * with no request on it will sit in `close` indefinitely. `closeIdleConnections`
+     * drops the ones sitting between requests and leaves active ones alone.
+     */
+    server.closeIdleConnections?.();
+  }, readyGraceMs);
 };
 
 process.on('SIGINT', () => shutdown('SIGINT'));

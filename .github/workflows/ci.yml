@@ -22,6 +22,10 @@ concurrency:
   # queue of stale runs delays the answer everyone is actually waiting for.
   group: ci-${{ github.ref }}
   cancel-in-progress: true
+# Read the code and nothing else. The token's default can write to the repository,
+# and no step here needs that.
+permissions:
+  contents: read
 
 jobs:
   verify:

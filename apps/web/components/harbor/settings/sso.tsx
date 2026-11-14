@@ -258,6 +258,19 @@ function Connection({
               "No email domain is allowed, so nobody new can join through it."
             )}
           </p>
+          {(c.unverifiedEmailDomains ?? []).length > 0 ? (
+            <p className="mt-1 text-ui text-warn" data-testid="sso-unverified-domains">
+              Not verified yet:{" "}
+              {(c.unverifiedEmailDomains ?? []).map((d, i, all) => (
+                <span key={d}>
+                  {i > 0 ? (i === all.length - 1 ? " and " : ", ") : null}
+                  <code className="data font-semibold">{d}</code>
+                </span>
+              ))}
+              . Sign-in from these addresses is refused until the domain is added under a client and its ownership check
+              passes, so nobody can use single sign-on with a domain they do not control.
+            </p>
+          ) : null}
           <p className="mt-1 text-ui text-fg-2">
             {c.provisioning === "JIT"
               ? `Someone at an allowed domain with no account here gets one on their first sign-in, as ${/^[aeiou]/.test(c.defaultRole) ? "an" : "a"} ${c.defaultRole}. Remove a person from your identity provider to stop new sign-ins.`

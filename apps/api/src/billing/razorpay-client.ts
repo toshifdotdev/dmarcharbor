@@ -1,4 +1,5 @@
 import Razorpay from 'razorpay';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { env } from '../config/env.js';
 import { BillingProviderError, SignatureVerificationError } from './provider.js';
 import { PROVIDER_TIMEOUT_MS, withTimeout } from './provider-timeout.js';
@@ -59,8 +60,25 @@ async function call<T>(operation: () => Promise<T>): Promise<T> {
     }
     throw new BillingProviderError(`Razorpay rejected the request: ${readDescription(error)}`, 'RAZORPAY_ERROR', 502, {
       razorpayCode: readCode(error),
+      // Razorpay's own HTTP status, when it answered. A 4xx is a refusal of the
+      // request itself; anything else (no answer, a 5xx) leaves open whether
+      // the call took effect, which matters for a charge.
+      razorpayStatus: statusCode,
     });
   }
+}
+
+/**
+ * True when Razorpay answered and refused the request, so nothing was created.
+ * False for a timeout, a dropped connection or a server error, after which a
+ * charge may or may not exist.
+ */
+export function razorpayRefused(error: unknown): boolean {
+  if (!(error instanceof BillingProviderError) || error.code !== 'RAZORPAY_ERROR') {
+    return false;
+  }
+  const status = (error.detail as { razorpayStatus?: unknown } | undefined)?.razorpayStatus;
+  return typeof status === 'number' && status >= 400 && status < 500;
 }
 
 export interface RegistrationLink {
@@ -240,6 +258,34 @@ export async function fetchPayment(paymentId: string): Promise<PaymentFacts> {
   };
 }
 
+/**
+ * Every payment made against an order, newest first.
+ *
+ * What the renewal job asks when a charge request had no clear answer: the
+ * order id is ours and unique per charge, so its payments say whether the
+ * debit was made, whatever happened to the response.
+ */
+export async function fetchOrderPayments(orderId: string): Promise<PaymentFacts[]> {
+  const listed = (await call(() => razorpay().orders.fetchPayments(orderId))) as unknown as {
+    items?: Array<Record<string, unknown>>;
+  };
+  const createdAt = (p: Record<string, unknown>) => (typeof p.created_at === 'number' ? p.created_at : 0);
+  return [...(listed.items ?? [])]
+    .sort((a, b) => createdAt(b) - createdAt(a))
+    .map((p) => ({
+      id: String(p.id),
+      status: typeof p.status === 'string' ? p.status : null,
+      method: typeof p.method === 'string' ? p.method : null,
+      amountMinor: typeof p.amount === 'number' ? p.amount : 0,
+      tokenId: typeof p.token_id === 'string' ? p.token_id : null,
+      customerId: typeof p.customer_id === 'string' ? p.customer_id : null,
+      orderId: typeof p.order_id === 'string' ? p.order_id : null,
+      email: typeof p.email === 'string' ? p.email : null,
+      contact: typeof p.contact === 'string' ? p.contact : null,
+      errorDescription: typeof p.error_description === 'string' ? p.error_description : null,
+    }));
+}
+
 export interface TokenFacts {
   id: string;
   method: string | null;
@@ -369,17 +415,23 @@ function readDescription(error: unknown): string {
 }
 
 /**
- * Verifies a Razorpay webhook signature using the SDK's own check.
+ * Verifies a Razorpay webhook signature: HMAC-SHA256 of the raw body, hex.
  *
  * The signature covers the raw request body, so the body must be read before
  * any JSON parsing; re-serialising it changes the bytes. A replay is not a
  * separate risk because every event is deduplicated before it changes anything.
+ *
+ * Computed and compared here, in constant time, rather than through the SDK's
+ * helper, which compares the two strings with `===` and so reveals how much of
+ * a guessed signature was right.
  */
 export function verifyRazorpaySignature(rawBody: string, signature: string | undefined, secret: string): void {
   if (!signature) {
     throw new SignatureVerificationError('The Razorpay webhook had no signature header.');
   }
-  if (!Razorpay.validateWebhookSignature(rawBody, signature, secret)) {
+  const expected = Buffer.from(createHmac('sha256', secret).update(rawBody, 'utf8').digest('hex'), 'utf8');
+  const presented = Buffer.from(signature.trim().toLowerCase(), 'utf8');
+  if (expected.length !== presented.length || !timingSafeEqual(expected, presented)) {
     throw new SignatureVerificationError('The Razorpay webhook signature did not match.');
   }
 }

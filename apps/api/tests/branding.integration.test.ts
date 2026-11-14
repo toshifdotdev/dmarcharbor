@@ -486,7 +486,8 @@ describe('white label branding', () => {
     // through to the default brand and the branding looked live when it was not.
     expect(served.status).toBe(200);
     expect(served.body.customDomainVerified).toBe(false);
-    expect(served.body.workspaceName).toBe('Harbour Digital');
+    // The state only: an unproved host does not name the agency claiming it.
+    expect(served.body.workspaceName).toBeUndefined();
 
     // A host nobody has claimed is still a 404. The distinction matters, so it is
     // asserted rather than assumed.

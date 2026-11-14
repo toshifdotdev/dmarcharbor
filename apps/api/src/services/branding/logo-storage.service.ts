@@ -155,6 +155,151 @@ export function sniffLogoContentType(bytes: Buffer): AcceptedLogoType | null {
 }
 
 /**
+ * Refuses an SVG that can do more than draw.
+ *
+ * An SVG is a document: it can carry script, event handlers, embedded HTML
+ * (foreignObject) and links that a renderer follows. Opened on its own it runs
+ * as a page on the origin that serves it, and the asset origin may share a
+ * site with the app. A logo needs none of that, so any of it refuses the file
+ * with a sentence the agency can act on. Tags are matched with or without a
+ * namespace prefix (`<s:script>` is still a script element).
+ */
+export function assertSafeSvg(bytes: Buffer): void {
+  const text = bytes.toString('utf8');
+  const refusals: Array<[RegExp, string]> = [
+    // The plain SVG 1.1 DOCTYPE editors write is harmless; an internal subset
+    // or an ENTITY is how entity expansion reaches a renderer.
+    [/<!ENTITY|<!DOCTYPE[^>]*\[/i, 'an ENTITY declaration'],
+    [/<(?:[\w.-]+:)?(?:script|foreignObject|iframe|embed|object|handler|listener|animate|set)\b/i, 'script or embedded content'],
+    [/\son[a-z]+\s*=/i, 'an event handler attribute'],
+    [/(?:javascript|vbscript)\s*:/i, 'a script URL'],
+    [/data\s*:\s*(?:text\/|application\/|image\/svg)/i, 'an embedded document'],
+    [/(?:href|src)\s*=\s*["']?\s*(?:https?:)?\/\//i, 'a link to another site'],
+    [/@import|url\(\s*["']?\s*(?:https?:)?\/\//i, 'a style that loads from another site'],
+  ];
+  for (const [pattern, what] of refusals) {
+    if (pattern.test(text)) {
+      throw new LogoStorageError(
+        `That SVG contains ${what}, which a logo does not need. Export it again as a plain SVG (or a PNG) and upload that.`,
+        'LOGO_SVG_UNSAFE',
+        400,
+      );
+    }
+  }
+}
+
+/** The widest and tallest logo accepted, in pixels. */
+export const maxLogoPixels = 4096;
+
+/**
+ * Width and height from a PNG, JPEG or WebP header, or null when the header
+ * cannot be read.
+ */
+export function imageDimensions(bytes: Buffer, contentType: AcceptedLogoType): { width: number; height: number } | null {
+  try {
+    if (contentType === 'image/png') {
+      // IHDR is always the first chunk: length, "IHDR", width, height.
+      if (bytes.length < 24 || bytes.toString('latin1', 12, 16) !== 'IHDR') return null;
+      return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+    }
+    if (contentType === 'image/jpeg') {
+      let offset = 2;
+      while (offset + 9 < bytes.length) {
+        if (bytes[offset] !== 0xff) return null;
+        const marker = bytes[offset + 1]!;
+        // SOF0-SOF15, except DHT (C4), JPG (C8) and DAC (CC).
+        if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+          return { height: bytes.readUInt16BE(offset + 5), width: bytes.readUInt16BE(offset + 7) };
+        }
+        offset += 2 + bytes.readUInt16BE(offset + 2);
+      }
+      return null;
+    }
+    if (contentType === 'image/webp') {
+      const chunk = bytes.toString('latin1', 12, 16);
+      if (chunk === 'VP8X' && bytes.length >= 30) {
+        return { width: 1 + bytes.readUIntLE(24, 3), height: 1 + bytes.readUIntLE(27, 3) };
+      }
+      if (chunk === 'VP8L' && bytes.length >= 25 && bytes[20] === 0x2f) {
+        const bits = bytes.readUInt32LE(21);
+        return { width: 1 + (bits & 0x3fff), height: 1 + ((bits >> 14) & 0x3fff) };
+      }
+      if (chunk === 'VP8 ' && bytes.length >= 30) {
+        return { width: bytes.readUInt16LE(26) & 0x3fff, height: bytes.readUInt16LE(28) & 0x3fff };
+      }
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/**
+ * Refuses an image whose header promises more pixels than a logo has.
+ *
+ * A quarter of a megabyte of PNG can declare a picture tens of thousands of
+ * pixels square, and the PDF renderer decodes the whole bitmap for a monthly
+ * report or an evidence pack: hundreds of megabytes for one logo, in the API
+ * process. The header is read, never the pixels.
+ */
+export function assertLogoDimensions(bytes: Buffer, contentType: AcceptedLogoType): void {
+  const size = imageDimensions(bytes, contentType);
+  if (!size || size.width < 1 || size.height < 1) {
+    throw new LogoStorageError('That image could not be read. Export the logo again and upload that.', 'LOGO_UNREADABLE', 400);
+  }
+  if (size.width > maxLogoPixels || size.height > maxLogoPixels) {
+    throw new LogoStorageError(
+      `That image is ${size.width} by ${size.height} pixels. A logo can be at most ${maxLogoPixels} pixels on each side; export a smaller one.`,
+      'LOGO_TOO_LARGE',
+      400,
+    );
+  }
+}
+
+/**
+ * Checks an object uploaded through a presigned URL before it becomes the logo.
+ *
+ * Nothing checked those bytes: the URL was issued for a declared type and
+ * size, and whatever was PUT to it was saved as the logo on confirm. They are
+ * read back now and held to the same rules as a direct upload (the type the
+ * bytes really are, no active content in an SVG, a sane size). An object that
+ * fails is deleted.
+ */
+export async function verifyUploadedLogo(organizationId: string, objectKey: string): Promise<void> {
+  if (!isOwnLogoKey(objectKey, organizationId)) {
+    throw new LogoStorageError('That upload does not belong to this workspace.', 'OBJECT_NOT_FOUND', 404);
+  }
+  const bytes = await readStoredLogoBytes(objectKey, maxLogoBytes);
+  if (!bytes) {
+    throw new LogoStorageError(
+      `That upload was not found, or is larger than ${Math.round(maxLogoBytes / 1024)} KB. Upload the logo again.`,
+      'OBJECT_NOT_FOUND',
+      404,
+    );
+  }
+  const extension = objectKey.slice(objectKey.lastIndexOf('.') + 1);
+  const sniffed = sniffLogoContentType(bytes);
+  try {
+    if (!sniffed || extensions[sniffed] !== extension) {
+      throw new LogoStorageError(
+        'That file is not the kind of image it was uploaded as. Export the logo again and upload that.',
+        'LOGO_CONTENT_MISMATCH',
+        400,
+      );
+    }
+    if (sniffed === 'image/svg+xml') {
+      assertSafeSvg(bytes);
+    } else {
+      assertLogoDimensions(bytes, sniffed);
+    }
+  } catch (error) {
+    await deleteStoredLogo(objectKey).catch(() => undefined);
+    throw error;
+  }
+}
+
+/**
  * Rejects anything that is not a logo, before an upload URL exists.
  *
  * A presigned URL cannot be revoked, so this is the only point at which the
@@ -312,6 +457,12 @@ export async function uploadLogoDirect(input: {
     );
   }
 
+  if (checked.contentType === 'image/svg+xml') {
+    assertSafeSvg(input.bytes);
+  } else {
+    assertLogoDimensions(input.bytes, checked.contentType);
+  }
+
   const key = logoObjectKey(input.organizationId, checked.extension);
 
   const existing = await prisma.organization.findUnique({
@@ -328,6 +479,11 @@ export async function uploadLogoDirect(input: {
       ContentType: checked.contentType,
       ContentLength: input.bytes.byteLength,
       CacheControl: 'public, max-age=31536000, immutable',
+      // An <img> still renders it; opened directly, the browser downloads the
+      // file instead of rendering it as a page on whatever origin serves the
+      // bucket. That holds whatever headers the CDN in front does or does not
+      // add, which is the one thing this code cannot see.
+      ContentDisposition: 'attachment',
       Metadata: { organizationId: input.organizationId },
       Body: input.bytes,
     }),
@@ -337,7 +493,7 @@ export async function uploadLogoDirect(input: {
   if (previous) {
     // The old object is only worth removing once the new one is stored, or a
     // failure here would leave the workspace with no logo at all.
-    await deleteStoredLogo(objectKeyFromLogoUrl(previous)).catch(() => undefined);
+    await deleteStoredLogo(objectKeyFromLogoUrl(previous, input.organizationId)).catch(() => undefined);
   }
 
   await prisma.organization.update({
@@ -439,7 +595,7 @@ export async function deleteStoredLogo(objectKey: string | null | undefined): Pr
  * is left alone rather than being turned into a delete against a key we do not
  * own.
  */
-export function objectKeyFromLogoUrl(logoUrl: string | null | undefined): string | null {
+export function objectKeyFromLogoUrl(logoUrl: string | null | undefined, organizationId?: string): string | null {
   if (!logoUrl) {
     return null;
   }
@@ -452,11 +608,30 @@ export function objectKeyFromLogoUrl(logoUrl: string | null | undefined): string
   for (const origin of origins) {
     const prefix = `${origin.replace(/\/$/, '')}/`;
     if (logoUrl.startsWith(prefix)) {
-      return logoUrl.slice(prefix.length);
+      const key = logoUrl.slice(prefix.length);
+      /**
+       * With a workspace, only that workspace's own objects.
+       *
+       * The stored logo URL can be set from the branding form, and another
+       * agency's logo URL is public (it is on their portal and in their mail).
+       * Saved here, it made our next logo change delete their object, and the
+       * portal serve their file as ours. Every caller that deletes or serves
+       * passes the workspace, so a key outside its folder is no key at all.
+       */
+      if (organizationId !== undefined && !isOwnLogoKey(key, organizationId)) {
+        return null;
+      }
+      return key;
     }
   }
 
   return null;
+}
+
+/** `logos/<this workspace>/<uuid>.<ext>`, the only shape we ever write. */
+export function isOwnLogoKey(key: string, organizationId: string): boolean {
+  const prefix = `logos/${organizationId}/`;
+  return key.startsWith(prefix) && /^[A-Za-z0-9-]+\.(svg|png|jpg|webp)$/.test(key.slice(prefix.length));
 }
 
 export { GetObjectCommand };

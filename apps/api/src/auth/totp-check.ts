@@ -35,6 +35,11 @@ export function totpKey(secret: string): Buffer {
 
 /** RFC 6238 with the plugin's settings: six digits, 30 seconds, one step either side. */
 export function verifyTotp(key: Buffer, code: string, nowMs: number): boolean {
+  // Six ASCII digits or nothing. A multibyte character made the padded buffer
+  // longer than the expected one, and timingSafeEqual threw (a 500).
+  if (!/^\d{6}$/.test(code)) {
+    return false;
+  }
   const step = Math.floor(nowMs / 30_000);
   let matched = false;
   for (let offset = -1; offset <= 1; offset += 1) {

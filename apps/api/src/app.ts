@@ -54,6 +54,7 @@ import { systemRouter } from './routes/system.routes.js';
 import { requestContext } from './middleware/request-context.middleware.js';
 import { createAuthRateLimiter, createSessionReadRateLimiter, createWorkspaceRateLimiter } from './middleware/rate-limit.middleware.js';
 import { requireCurrentDpa } from './middleware/dpa-consent.middleware.js';
+import { requireTrustedOrigin } from './middleware/origin-check.middleware.js';
 import { requireWorkspaceMfa } from './middleware/mfa-requirement.middleware.js';
 import { sendError } from './utils/api-error.js';
 import { withReadableAuthErrors } from './middleware/auth-error-rewrite.middleware.js';
@@ -122,6 +123,9 @@ export function createApp(): express.Express {
 
   app.use(requestContext);
   app.use(cors({ origin: env.CORS_ORIGINS, credentials: true }));
+  // Cross-site request forgery: a state-changing request carrying the session
+  // cookie must come from a page we serve (origin-check.middleware.ts).
+  app.use('/api', requireTrustedOrigin());
   // Ahead of the Better Auth handler, which owns /api/auth/* and would otherwise
   // answer this itself. Read by the sign-in page, so it cannot require a session.
   app.use('/api/auth', authOptionsRouter);
@@ -144,6 +148,19 @@ export function createApp(): express.Express {
    * that gate. It reads the workspace id from the path, so it is inert for
    * /api/me, /api/workspaces and every /api/auth route.
    */
+  /**
+   * The authenticated brake, for every workspace and account route.
+   *
+   * The routers below are mounted ahead of the general limiter further down, so
+   * report uploads, digest sends, share links and the member and session routes
+   * had no limit at all. Scoped to these two prefixes so health checks, the
+   * report ingest worker and the payment webhooks, each arriving from a few
+   * addresses, never share a budget with people. The general limiter skips the
+   * same prefixes, so nothing is counted twice.
+   */
+  // The staff routes too: the staff key is a single shared secret, and the
+  // route that resets a person's second factor sat ahead of every limiter.
+  app.use(['/api/workspaces', '/api/me', '/api/staff'], createWorkspaceRateLimiter());
   app.use('/api', requireWorkspaceMfa());
   app.use('/api', systemRouter);
   app.use('/api', inboundReportRouter);
@@ -214,7 +231,9 @@ export function createApp(): express.Express {
    * the logs says why. Express runs a parser only for the content types it matches,
    * so this costs the JSON routes nothing.
    */
-  app.use(express.urlencoded({ extended: false, limit: '256kb' }));
+  // That one route only. A form body parsed everywhere let a cross-site HTML
+  // form deliver fields to any route that reads strings.
+  app.use('/api/sso/:connectionId/saml/acs', express.urlencoded({ extended: false, limit: '256kb' }));
   app.use('/api', sessionRouter);
   app.use('/api', sessionManagementRouter);
   app.use('/api', mfaRouter);
@@ -228,7 +247,14 @@ export function createApp(): express.Express {
    * erasures, packs, scans, billing and webhooks. Each of those already has its own
    * narrower limiter where one made sense; this is the backstop that used to be absent.
    */
-  app.use('/api', createWorkspaceRateLimiter());
+  app.use(
+    '/api',
+    createWorkspaceRateLimiter(undefined, {
+      // Counted by the earlier mount, or signed by a provider that retries a
+      // refused delivery rather than giving up (a 429 only delays a payment).
+      skip: (request) => /^\/(workspaces|me|staff|webhooks)(\/|$)/i.test(request.path),
+    }),
+  );
 
   /**
    * An agreement the business has superseded is not agreement enough to keep

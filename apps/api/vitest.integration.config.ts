@@ -42,6 +42,10 @@ export default defineConfig({
       SCAN_RATE_LIMIT_PER_MINUTE: '100000',
       REPORT_INGEST_RATE_LIMIT_PER_MINUTE: '100000',
       SESSION_ROUTER_RATE_LIMIT_PER_MINUTE: '100000',
+      // The workspace brake now also covers the routers mounted ahead of the
+      // general limiter (reports, alerts, digests, members, sessions), so the
+      // whole suite's traffic from 127.0.0.1 shares it.
+      WORKSPACE_RATE_LIMIT_PER_MINUTE: '10000',
     },
   },
 });

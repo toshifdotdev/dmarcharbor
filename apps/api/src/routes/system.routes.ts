@@ -11,6 +11,7 @@ import { sendError } from '../utils/api-error.js';
 import { openApiDocument } from '../openapi.js';
 import { capabilities } from '../services/capabilities.service.js';
 import { schedulerStatus } from '../scheduler/heartbeat.js';
+import { isDraining } from '../scheduler/shutdown-state.js';
 import { serviceCatalogue } from '../services/senders/service-catalogue.js';
 
 export const systemRouter = Router();
@@ -34,6 +35,12 @@ systemRouter.get('/health', (_request, response) => {
 });
 
 systemRouter.get('/ready', async (_request, response) => {
+  // Draining for a shutdown: out of rotation first, listener closed after.
+  if (isDraining()) {
+    response.status(503).json({ status: 'draining' });
+    return;
+  }
+
   const startedAt = Date.now();
   const schedulers = schedulerStatus();
 

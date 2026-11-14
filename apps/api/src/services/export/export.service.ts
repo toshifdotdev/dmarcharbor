@@ -883,7 +883,8 @@ export async function buildExportPayload(input: {
         // trail with every other client's targets in it.
         where:
           input.scope === 'DOMAIN' && input.targetId
-            ? { domainId: input.targetId }
+            ? // The workspace as well as the domain, like every other scope.
+              { organizationId: org, domainId: input.targetId }
             : input.scope === 'CLIENT' && input.targetId
               ? { organizationId: org, OR: [{ domain: { clientId: input.targetId } }, { targetId: input.targetId }] }
               : { organizationId: org },

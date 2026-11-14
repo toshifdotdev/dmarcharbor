@@ -247,10 +247,14 @@ Nothing is deleted, and upgrading again brings everything back as it was.
 **When does a plan change take effect?**
 It depends on how you pay. Paying in rupees through Razorpay, an upgrade applies
 straight away and nothing is charged then: the difference for the rest of the
-period is added to your next renewal. A downgrade, or a move between monthly and
-annual, takes effect at the end of the period you have paid for. Paying in
-dollars through Paddle, any change applies straight away and Paddle prorates the
-difference. The billing page says which applies to you before you confirm.
+period is added to your next renewal. That needs a saved payment method that can
+take the next renewal; when it cannot (the mandate was paused or cancelled at your
+bank, or its limit is lower), the upgrade starts with the next period instead. If
+you cancel while that difference is still unpaid, the plan goes back to the one
+you paid for. A downgrade, or a move between monthly and annual, takes effect at
+the end of the period you have paid for. Paying in dollars through Paddle, any
+change applies straight away and Paddle prorates the difference. The billing page
+says which applies to you before you confirm.
 
 **If I upgrade, do I pay the full price of the new plan?**
 No, you pay only the difference for the days left. Nothing you have paid is lost.
@@ -574,7 +578,9 @@ sign-in page.
 
 **Do you support single sign-on?**
 Yes, on Admiralty. SAML and OIDC are both supported, with just-in-time provisioning
-limited to the email domains you allow.
+limited to the email domains you allow. An email domain admits people only once the
+workspace has proved it controls it: add it under a client and complete its
+ownership check. Until then the connection says which domains are not verified yet.
 
 **What happens to single sign-on if we leave Admiralty?**
 Nobody new can join through your connection. Existing members can keep signing in

@@ -89,6 +89,64 @@ export function emailDomain(email: string): string | null {
   return normalizeEmailDomain(email.slice(at + 1));
 }
 
+/**
+ * The names a verified client domain could be for this email domain to count
+ * as proven: the domain itself and each parent with at least two labels.
+ */
+function proofCandidates(domain: string): string[] {
+  const labels = domain.split('.').filter(Boolean);
+  const candidates: string[] = [];
+  for (let index = 0; index <= labels.length - 2; index += 1) {
+    candidates.push(labels.slice(index).join('.'));
+  }
+  return candidates;
+}
+
+/**
+ * The email domains this workspace has proved it controls.
+ *
+ * The allowlist alone used to be the boundary, and it checked only the shape
+ * of a name. Any workspace on a plan with single sign-on could list
+ * `victim-msp.example` (or `gmail.com`), point the connection at an identity
+ * provider it runs, and have that provider assert any address there: an
+ * existing account was attached through an invitation the same workspace had
+ * created, and a new one was created as verified. Either way the session was
+ * for someone else's account, with every workspace that account belongs to.
+ *
+ * A domain is proven when the workspace holds a VERIFIED client domain equal to
+ * it or a parent of it. Verification is the DNS ownership check (the TXT token,
+ * or a DMARC record naming the client's report address), so whoever passed it
+ * controls the domain's DNS and with it the mail for its addresses. Domain
+ * names are unique across workspaces, so no two workspaces can prove the same
+ * one. Checked at sign-in, not only when the connection is saved, because a
+ * domain can be removed or lose its verification afterwards.
+ */
+export async function provenEmailDomains(organizationId: string, domains: string[]): Promise<Set<string>> {
+  const wanted = [...new Set(domains.map(normalizeEmailDomain).filter(Boolean))];
+  const candidates = [...new Set(wanted.flatMap(proofCandidates))];
+  if (candidates.length === 0) {
+    return new Set();
+  }
+  const verified = await prisma.domain.findMany({
+    where: { status: 'VERIFIED', name: { in: candidates }, client: { organizationId } },
+    select: { name: true },
+  });
+  const held = new Set(verified.map((row) => row.name.toLowerCase()));
+  return new Set(wanted.filter((domain) => proofCandidates(domain).some((candidate) => held.has(candidate))));
+}
+
+/** Refuses a sign-in whose email domain the workspace has not proved it controls. */
+export async function assertEmailDomainProven(organizationId: string, domain: string): Promise<void> {
+  const proven = await provenEmailDomains(organizationId, [domain]);
+  if (!proven.has(normalizeEmailDomain(domain))) {
+    throw new SsoError(
+      'Single sign-on cannot admit this address yet. The workspace has to prove it controls this email domain first: an administrator adds the domain under a client and completes its ownership check.',
+      'SSO_DOMAIN_NOT_VERIFIED',
+      403,
+    );
+  }
+}
+
 function assertUsableDomains(domains: string[], provisioning: SsoProvisioningMode): string[] {
   const cleaned = [...new Set(domains.map(normalizeEmailDomain).filter(Boolean))];
 
@@ -178,6 +236,13 @@ export interface SsoConnectionView {
   defaultRole: string;
   enabled: boolean;
   allowedEmailDomains: string[];
+  /**
+   * Listed domains the workspace has not proved it controls (no VERIFIED client
+   * domain equal to or above them). Sign-in from these addresses is refused
+   * until they are, so the screen says so rather than leaving a connection
+   * that looks configured and admits nobody.
+   */
+  unverifiedEmailDomains: string[];
   createdAt: string;
 }
 
@@ -188,6 +253,10 @@ export async function listSsoConnections(organizationId: string): Promise<SsoCon
     include: { connections: { select: { domain: true } } },
     orderBy: { createdAt: 'asc' },
   });
+  const proven = await provenEmailDomains(
+    organizationId,
+    rows.flatMap((row) => row.connections.map((entry) => entry.domain)),
+  );
 
   return rows.map((row) => ({
     id: row.id,
@@ -202,6 +271,10 @@ export async function listSsoConnections(organizationId: string): Promise<SsoCon
     defaultRole: row.defaultRole,
     enabled: row.enabled,
     allowedEmailDomains: row.connections.map((entry) => entry.domain).sort(),
+    unverifiedEmailDomains: row.connections
+      .map((entry) => entry.domain)
+      .filter((domain) => !proven.has(normalizeEmailDomain(domain)))
+      .sort(),
     createdAt: row.createdAt.toISOString(),
   }));
 }
@@ -262,7 +335,7 @@ export async function updateSsoConnection(
   });
 
   const views = await listSsoConnections(organizationId);
-  const before = viewOf(existing);
+  const before = viewOf(existing, await provenEmailDomains(organizationId, existing.connections.map((entry) => entry.domain)));
   const after = views.find((view) => view.id === existing.id) ?? before;
   return { before, after };
 }
@@ -280,7 +353,7 @@ function viewOf(row: {
   enabled: boolean;
   createdAt: Date;
   connections: { domain: string }[];
-}): SsoConnectionView {
+}, proven: Set<string>): SsoConnectionView {
   return {
     id: row.id,
     label: row.label,
@@ -294,6 +367,10 @@ function viewOf(row: {
     defaultRole: row.defaultRole,
     enabled: row.enabled,
     allowedEmailDomains: row.connections.map((entry) => entry.domain).sort(),
+    unverifiedEmailDomains: row.connections
+      .map((entry) => entry.domain)
+      .filter((domain) => !proven.has(normalizeEmailDomain(domain)))
+      .sort(),
     createdAt: row.createdAt.toISOString(),
   };
 }

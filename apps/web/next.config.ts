@@ -131,6 +131,9 @@ const nextConfig: NextConfig = {
    * Two of these headers would also be enforced together, so leaving a copy here
    * would keep the old, nonce-less policy alive and block the fix.
    */
+  // No `X-Powered-By: Next.js` on every response: it only helps someone
+  // matching the version against published advisories.
+  poweredByHeader: false,
   async headers() {
     return [
       {
@@ -140,10 +143,9 @@ const nextConfig: NextConfig = {
           { key: "X-Frame-Options", value: "DENY" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "X-DNS-Prefetch-Control", value: "on" },
-          {
-            key: "Strict-Transport-Security",
-            value: "max-age=63072000; includeSubDomains; preload",
-          },
+          // Strict-Transport-Security is set per host in proxy.ts: the full
+          // policy (subdomains, preload) belongs on our host only, never on an
+          // agency's custom domain.
           {
             key: "Permissions-Policy",
             // The app reads no camera, microphone, geolocation or payment prompt.

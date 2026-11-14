@@ -61,8 +61,16 @@ export function decryptSensitive(value: string | null | undefined): string | und
   }
 
   try {
-    const decipher = createDecipheriv('aes-256-gcm', encryptionKey(), Buffer.from(initializationVector, 'base64url'));
-    decipher.setAuthTag(Buffer.from(tag, 'base64url'));
+    // The full 16-byte tag, always. GCM accepts shorter ones unless told
+    // otherwise, and a truncated tag is far easier to forge.
+    const authTag = Buffer.from(tag, 'base64url');
+    if (authTag.length !== 16) {
+      return undefined;
+    }
+    const decipher = createDecipheriv('aes-256-gcm', encryptionKey(), Buffer.from(initializationVector, 'base64url'), {
+      authTagLength: 16,
+    });
+    decipher.setAuthTag(authTag);
     return Buffer.concat([decipher.update(Buffer.from(ciphertext, 'base64url')), decipher.final()]).toString('utf8');
   } catch {
     return undefined;

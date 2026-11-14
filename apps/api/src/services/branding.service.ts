@@ -274,7 +274,7 @@ export async function updateBranding(input: {
   // rebrand, and a customer who swaps logos a dozen times is not a storage
   // incident. Only ever touches our own origin.
   if (data.brandLogoUrl !== undefined && data.brandLogoUrl !== previous.brandLogoUrl) {
-    await deleteStoredLogo(objectKeyFromLogoUrl(previous.brandLogoUrl));
+    await deleteStoredLogo(objectKeyFromLogoUrl(previous.brandLogoUrl, input.organizationId));
   }
 
   return resolveBranding(input.organizationId);
@@ -303,7 +303,7 @@ export async function removeLogoOnDowngrade(
     select: { brandLogoUrl: true },
   });
 
-  const removed = await deleteStoredLogo(objectKeyFromLogoUrl(organization.brandLogoUrl));
+  const removed = await deleteStoredLogo(objectKeyFromLogoUrl(organization.brandLogoUrl, organizationId));
   if (removed) {
     await tx.organization.update({ where: { id: organizationId }, data: { brandLogoUrl: null } });
   }
@@ -341,6 +341,25 @@ export async function setCustomDomain(input: {
   }
 
   const domain = checked.domain;
+
+  /**
+   * Never one of ours, or a name our hosted records use.
+   *
+   * The claim is stored before anything is proved, and an agency could name
+   * the app's or the API's host, the hosted DNS zone or an mta-sts host. The
+   * lookup that serves a brand only trusts a verified claim, but the claim
+   * still held the name against us and showed in the public host answer.
+   * Loaded lazily: the sending-domain module imports this one.
+   */
+  const { isOurDomain } = await import('./branding/sending-domain.service.js');
+  if (isOurDomain(domain) || domain.startsWith('mta-sts.') || domain.split('.').some((label) => label.startsWith('_'))) {
+    throw new BrandingError(
+      'That address cannot be a portal address. Use a hostname on a domain your agency owns, for example portal.youragency.example.',
+      'CUSTOM_DOMAIN_RESERVED',
+      400,
+    );
+  }
+
   const token = randomBytes(16).toString('base64url');
 
   // A hostname claimed by another workspace is refused before anything is
@@ -565,7 +584,7 @@ export async function resolveBranding(organizationId: string): Promise<ResolvedB
   // dropped rather than rendered, because a client facing page that loads an
   // agency controlled image hands that agency the contact's IP, the time they
   // signed in and which client they opened.
-  const storedLogo = objectKeyFromLogoUrl(organization.brandLogoUrl);
+  const storedLogo = objectKeyFromLogoUrl(organization.brandLogoUrl, organizationId);
 
   return {
     workspaceName: organization.name,

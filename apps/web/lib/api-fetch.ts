@@ -78,6 +78,7 @@ export async function apiFetch(
   url: string,
   init: RequestInit & { timeoutMs?: number } = {},
 ): Promise<Response> {
+  assertPathStaysPut(url);
   const { timeoutMs = DEFAULT_TIMEOUT_MS, signal, ...rest } = init;
 
   const controller = new AbortController();
@@ -115,6 +116,32 @@ export async function apiFetch(
 
 /** The base every module was already computing for itself. */
 export const API_BASE = process.env.API_BASE_URL ?? "http://localhost:4000";
+
+/**
+ * Refuses an API path that would leave the route it was built for.
+ *
+ * Paths are built by putting ids from the page's own URL into a template, and
+ * the visitor's session cookie goes with them. An id of `../../me/sessions`
+ * (or its percent-encoded spelling) would turn `/api/portal/domains/<id>` into
+ * a request for some other path on the API with that cookie. No id this app
+ * puts in a path holds a slash or is a dot segment, so either is refused.
+ */
+export function assertPathStaysPut(url: string): void {
+  const afterScheme = url.indexOf("//");
+  const pathStart = url.indexOf("/", afterScheme >= 0 ? afterScheme + 2 : 0);
+  const rawPath = (pathStart >= 0 ? url.slice(pathStart) : "/").split(/[?#]/)[0] ?? "/";
+  for (const segment of rawPath.split("/")) {
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(segment);
+    } catch {
+      throw new Error("Refused an API request whose path could not be read.");
+    }
+    if (decoded === "." || decoded === ".." || decoded.includes("/") || decoded.includes("\\")) {
+      throw new Error("Refused an API request whose path leaves the route it was built for.");
+    }
+  }
+}
 
 /**
  * A message that is safe to show a user.

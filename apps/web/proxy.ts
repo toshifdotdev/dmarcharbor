@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import http from "node:http";
+import https from "node:https";
 import { supportEmailOrNull, supportUrlOrNull } from "./lib/agency-contact";
 import { hasSessionCookie } from "./lib/session-cookie";
 import { wwwTwinRedirect } from "./lib/site-config";
@@ -105,24 +106,63 @@ const DEV_CACHE_FACTOR =
 
 // Per-isolate cache. The right consistency level for colours and a logo;
 // correctness of WHO owns a host is enforced server-side (unique column).
+//
+// Bounded, oldest first out. A cache keyed by whatever Host a request names
+// grew without limit under a stream of made-up hosts (each one also cost an
+// API lookup), until the process ran out of memory.
 const cache = new Map<string, CacheEntry>();
+const CACHE_LIMIT = 5_000;
+/** Lookups in flight, so a burst for one new host asks the API once. */
+const inflight = new Map<string, Promise<CacheEntry>>();
+
+function remember(host: string, entry: CacheEntry): void {
+  cache.delete(host);
+  while (cache.size >= CACHE_LIMIT) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+  cache.set(host, entry);
+}
+
+/**
+ * A Host header as a hostname we could serve, or null.
+ *
+ * Lowercased, without a trailing dot, letters, digits and hyphens per label.
+ * Anything else (a 16 KB header, a made-up shape) is no agency's domain and
+ * is answered unbranded without asking the API.
+ */
+const PLAIN_HOSTNAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/;
+function servableHost(raw: string): string | null {
+  const host = raw.trim().toLowerCase().replace(/\.$/, "");
+  return PLAIN_HOSTNAME.test(host) ? host : null;
+}
 
 /** node:http, not fetch: only it will send the Host header the API reads. */
 function lookupBranding(host: string): Promise<string> {
+  const base = new URL(API_BASE);
+  const secure = base.protocol === "https:";
+  // TLS when the API is addressed over https; the branding answer decides
+  // whose name a page shows, so it must not cross a network in the clear.
+  const transport = secure ? https : http;
   return new Promise((resolve, reject) => {
-    const req = http.request(
+    const req = transport.request(
       {
-        hostname: new URL(API_BASE).hostname,
-        port: Number(new URL(API_BASE).port || 80),
+        hostname: base.hostname,
+        port: Number(base.port || (secure ? 443 : 80)),
         path: "/api/branding/host",
         method: "GET",
         headers: { host },
         timeout: 1500,
+        ...(secure ? { servername: base.hostname } : {}),
       },
       (res) => {
         let body = "";
         res.on("data", (chunk) => {
           body += chunk;
+          if (body.length > 64 * 1024) {
+            req.destroy(new Error("branding answer too large"));
+          }
         });
         res.on("end", () => resolve(body));
       },
@@ -155,6 +195,14 @@ async function resolveHost(host: string): Promise<CacheEntry> {
   if (hit && hit.expires > Date.now()) return hit;
   if (hit) cache.delete(host);
 
+  const pending = inflight.get(host);
+  if (pending) return pending;
+  const lookup = lookUpHost(host).finally(() => inflight.delete(host));
+  inflight.set(host, lookup);
+  return lookup;
+}
+
+async function lookUpHost(host: string): Promise<CacheEntry> {
   // A lookup that failed: cached briefly, and the request proceeds unbranded,
   // except that pages about us are not served on it (see the proxy below).
   const miss: CacheEntry = { state: "miss", brand: null, failed: true, expires: Date.now() + TTL_FAILED_MS * DEV_CACHE_FACTOR };
@@ -190,10 +238,10 @@ async function resolveHost(host: string): Promise<CacheEntry> {
         : null,
       expires: Date.now() + (verified ? TTL_VERIFIED_MS : TTL_UNVERIFIED_MS) * DEV_CACHE_FACTOR,
     };
-    cache.set(host, entry);
+    remember(host, entry);
     return entry;
   } catch {
-    cache.set(host, miss);
+    remember(host, miss);
     return miss;
   }
 }
@@ -287,6 +335,9 @@ export async function proxy(request: NextRequest) {
   requestHeaders.delete("x-harbor-host-state");
   requestHeaders.delete("x-harbor-brand");
   requestHeaders.delete(HOST_KIND_HEADER);
+  // Set by our own server-side portal calls only (lib/api-portal.ts); a
+  // browser has no business sending it through the /api proxy.
+  requestHeaders.delete("x-harbor-portal-host");
 
   const rawHost = request.headers.get("host") ?? "";
   const host = rawHost.split(":")[0];
@@ -312,7 +363,8 @@ export async function proxy(request: NextRequest) {
   let hostState: HostState = "default";
   let lookupFailed = false;
   if (host && !DEFAULT_HOSTS.has(host)) {
-    const entry = await resolveHost(host);
+    const servable = servableHost(host);
+    const entry: CacheEntry = servable ? await resolveHost(servable) : { state: "miss", brand: null, expires: 0 };
     lookupFailed = entry.failed === true;
     hostState = entry.state;
     requestHeaders.set("x-harbor-host-state", entry.state);
@@ -342,6 +394,7 @@ export async function proxy(request: NextRequest) {
   if (agencyIcon) {
     const iconResponse = NextResponse.rewrite(agencyIcon, { request: { headers: requestHeaders } });
     iconResponse.headers.set("Content-Security-Policy", csp);
+    iconResponse.headers.set("Strict-Transport-Security", hstsFor(kind));
     return iconResponse;
   }
 
@@ -389,11 +442,22 @@ export async function proxy(request: NextRequest) {
     : NextResponse.next({ request: { headers: requestHeaders } });
 
   response.headers.set("Content-Security-Policy", csp);
+  response.headers.set("Strict-Transport-Security", hstsFor(kind));
   // noindex before any HTML: the tenant artefacts on every host, every page
   // on a host that is neither ours nor a verified agency's, and the verifier
   // on an agency's domain (lib/site-host.ts robotsHeaderFor).
   if (robotsHeader) response.headers.set("X-Robots-Tag", robotsHeader);
   return response;
+}
+
+/**
+ * HSTS by host. Our own host takes the full policy, subdomains and preload
+ * included. An agency's domain takes HTTPS for that host alone: we do not
+ * decide for the agency that every subdomain it has is HTTPS-only for two
+ * years, which `includeSubDomains` on an apex custom domain would have done.
+ */
+function hstsFor(kind: ReturnType<typeof hostKind>): string {
+  return kind === "own" ? "max-age=63072000; includeSubDomains; preload" : "max-age=31536000";
 }
 
 /**

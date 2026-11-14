@@ -110,7 +110,7 @@ export async function pollInboxController(_request: Request, response: Response)
     // A failure is recorded against the mailbox so the next status read shows
     // why collection stopped, rather than the error vanishing into a log the
     // customer cannot see.
-    await recordInboxFailure(organizationId, error instanceof Error ? error.message : 'Unknown IMAP failure');
+    await recordInboxFailure(organizationId, error);
     sendError(response, error);
   }
 }

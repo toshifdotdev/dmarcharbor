@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import { sendError } from '../utils/api-error.js';
+import { redactUrlSecrets } from './request-context.middleware.js';
 
 /**
  * The last handler, and the one that was missing.
@@ -126,7 +127,21 @@ export function globalErrorHandler(
   const requestId = response.locals.requestId as string | undefined;
   const label = requestId ? `[error] ${requestId}` : '[error]';
 
-  console.error(`${label} ${request.method} ${request.originalUrl} threw:`, error);
+  // The URL with its credentials redacted (share and export tokens live in
+  // paths and queries), and the error's own fields rather than the whole
+  // object: a Prisma validation error carries the query's arguments, emails
+  // and other values included, and printing it whole put them in the log.
+  const detail =
+    error instanceof Error
+      ? {
+          name: error.name,
+          code: (error as { code?: unknown }).code,
+          // A validation error's message reprints the whole call, values and all.
+          message: (error.name === 'PrismaClientValidationError' ? (error.message.trim().split('\n')[0] ?? '') : error.message).slice(0, 2000),
+          stack: error.name === 'PrismaClientValidationError' ? undefined : error.stack,
+        }
+      : { message: String(error).slice(0, 500) };
+  console.error(`${label} ${request.method} ${redactUrlSecrets(request.originalUrl)} threw:`, detail);
 
   // Router-level 404s are handled by an explicit catch-all before this, so
   // reaching here always means an error, not a missing route.

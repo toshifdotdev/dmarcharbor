@@ -1,4 +1,5 @@
 import { Resolver } from 'node:dns/promises';
+import { isPrivateOrReservedHost } from '../services/net-guard.js';
 import type { DnsReader, LookupResult, MxRecord } from './types.js';
 
 const resolver = new Resolver({ tries: 1, timeout: 2500 });
@@ -36,7 +37,11 @@ async function authoritativeServers(name: string): Promise<string[] | null> {
     if (hosts.length === 0) continue;
     const addresses = (
       await Promise.all(hosts.slice(0, 4).map((host) => resolver.resolve4(host).catch(() => [] as string[])))
-    ).flat();
+    ).flat()
+      // A domain's owner chooses its nameservers, so they can name loopback or
+      // a private address; we would then send DNS queries into our own network
+      // on every Check. Only public addresses are asked.
+      .filter((address) => !isPrivateOrReservedHost(address));
     return addresses.length > 0 ? [...new Set(addresses)].slice(0, 4) : null;
   }
   return null;

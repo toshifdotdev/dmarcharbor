@@ -1,0 +1,17 @@
+# The build context is the repository root (apps/api/Dockerfile). Without this
+# file, `COPY apps/api ./apps/api` carried the local apps/api/.env (database URL,
+# auth secret, provider keys) into the build stage's layers and any exported
+# build cache, and the host's node_modules and dist over the ones the image
+# installs and builds for Linux.
+**/.env
+**/.env.*
+**/node_modules
+**/dist
+**/.next
+**/.next-verify
+**/*.log
+.git
+.github
+.shots
+.claude
+.kiro

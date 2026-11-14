@@ -16,13 +16,15 @@ import { recordJobFailure, recordJobSuccess } from './heartbeat.js';
 
 let timer: NodeJS.Timeout | undefined;
 let running = false;
-let lastReverifyAt = 0;
 let lastDunningAt = 0;
 let lastReconcileAt = 0;
 
-function reverificationIsDue(now: number): boolean {
-  const intervalMs = Math.max(env.DOMAIN_REVERIFY_INTERVAL_MINUTES, 1) * 60 * 1000;
-  return now - lastReverifyAt >= intervalMs;
+/**
+ * The re-verification interval, a little short of the setting so a pass that
+ * started a few seconds late is not skipped for a whole interval.
+ */
+function reverifyIntervalMs(): number {
+  return Math.floor(Math.max(env.DOMAIN_REVERIFY_INTERVAL_MINUTES, 1) * 60 * 1000 * 0.95);
 }
 
 /** Exposed so a test can assert the gating without waiting on real time. */
@@ -91,15 +93,18 @@ async function runAlertEvaluationPass(): Promise<{ completed: true }> {
       console.info(`[erasure] completed ${erasures.length} due erasure request(s)`);
     }
 
-    if (reverificationIsDue(Date.now())) {
-      lastReverifyAt = Date.now();
+    // Once per interval across the fleet, on the schedule kept in the database.
+    // It was a timestamp in this process, so every instance ran it on its own
+    // clock and again on every boot.
+    await withDueLease('domain-reverify', reverifyIntervalMs(), async () => {
       const reverified = await reverifyUnverifiedDomains();
       if (reverified.checked > 0) {
         console.info(
           `[domains] rechecked ${reverified.checked}, now verified ${reverified.verified}, lapsed ${reverified.failed}, still waiting ${reverified.stillPending}`,
         );
       }
-    }
+      recordJobSuccess('domain-reverify');
+    });
 
     const expiredIdempotency = await purgeExpiredIdempotencyRecords();
     if (expiredIdempotency > 0) {

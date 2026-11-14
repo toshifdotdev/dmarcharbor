@@ -2,10 +2,11 @@ import type { BillingCharge, PlanTier } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
 import { planCatalog } from '../services/entitlements/plan-catalog.js';
 import { recordAuditEvent } from '../services/audit.service.js';
-import { sendRenewalLinkEmail, sendRenewalNoticeEmail } from '../email/mailer.js';
+import { sendPlanChangedEmail, sendRenewalLinkEmail, sendRenewalNoticeEmail } from '../email/mailer.js';
+import { afterPlanChange } from '../services/entitlements/plan-change-effects.js';
 import { catalogPriceMinor } from './plans.js';
 import { billableQuantity } from './quantity.js';
-import { applyBillingEvent } from './subscription-state.js';
+import { applyBillingEvent, writePlan } from './subscription-state.js';
 import { BillingProviderError, type BillingEvent, type BillingInterval } from './provider.js';
 import {
   cancelRegistrationLink,
@@ -14,8 +15,11 @@ import {
   createRenewalOrder,
   deleteToken,
   fetchOrderNotification,
+  fetchOrderPayments,
   fetchPayment,
   fetchToken,
+  razorpayRefused,
+  refundPayment,
 } from './razorpay-client.js';
 import {
   addInterval,
@@ -94,6 +98,20 @@ export async function applyChargeCaptured(input: {
     return { handled: true, duplicate: true, organizationId: charge.organizationId };
   }
 
+  if (charge.status === 'REFUNDED') {
+    return { handled: true, duplicate: true, organizationId: charge.organizationId };
+  }
+
+  // A second payment for something already paid: a renewal whose period
+  // another charge captured, or a checkout link closed because another one was
+  // paid. Both happen when a debit settles late after the job fell back to a
+  // payment link, or a link we cancelled is paid anyway. The money goes back
+  // rather than being applied as a second purchase.
+  if (await isDuplicatePayment(charge)) {
+    await refundDuplicate(charge, input.paymentId);
+    return { handled: true, duplicate: true, organizationId: charge.organizationId };
+  }
+
   const now = new Date();
   const interval = fromStored(charge.interval);
   // A first payment's period starts when it is paid, not when the link was made.
@@ -109,7 +127,7 @@ export async function applyChargeCaptured(input: {
   });
 
   const claimed = await prisma.billingCharge.updateMany({
-    where: { id: charge.id, status: { not: 'CAPTURED' } },
+    where: { id: charge.id, status: { notIn: ['CAPTURED', 'REFUNDED'] } },
     data: {
       status: 'CAPTURED',
       providerPaymentId: input.paymentId ?? charge.providerPaymentId,
@@ -121,6 +139,155 @@ export async function applyChargeCaptured(input: {
   if (claimed.count === 0) {
     return { handled: true, duplicate: true, organizationId: charge.organizationId };
   }
+
+  try {
+    await applyCapturedCharge(charge, { payment, previous, periodEnd, now, raw: input.raw });
+  } catch (error) {
+    // The claim is undone, so the provider's retry of this webhook applies the
+    // payment instead of being answered as a duplicate of one never applied.
+    // Each step below is safe to repeat: the event is deduplicated by id and
+    // the rest are writes of the same values.
+    await prisma.billingCharge
+      .updateMany({
+        where: { id: charge.id, status: 'CAPTURED' },
+        data: {
+          status: charge.status,
+          providerPaymentId: charge.providerPaymentId,
+          periodStart: charge.periodStart,
+          periodEnd: charge.periodEnd,
+        },
+      })
+      .catch(() => undefined);
+    throw error;
+  }
+
+  // Housekeeping after the money is applied. A failure here is logged, never
+  // allowed to undo a payment that has already been recorded.
+  try {
+    // Other checkouts the owner started and left open would start a second
+    // subscription and charge again if paid, so they are closed now.
+    if (charge.kind === 'FIRST') {
+      await closeOtherCheckouts(charge.organizationId, charge.id);
+    }
+    // Any other open charge for the same period is now moot.
+    await closeOpenCharges(charge.subscriptionKey, charge.periodStart, charge.id, 'Paid by another charge.');
+    await recordAuditEvent({
+      organizationId: charge.organizationId,
+      action: 'SUBSCRIPTION_UPDATED',
+      targetType: 'billing_charge',
+      targetId: charge.id,
+      detail: {
+        event: 'recurring_charge_captured',
+        kind: charge.kind,
+        channel: charge.channel,
+        amountMinor: charge.amountMinor,
+        plan: charge.plan,
+        periodEnd: periodEnd.toISOString(),
+        orderId: charge.providerOrderId,
+      },
+    });
+  } catch (error) {
+    console.error(
+      `[billing] housekeeping after capturing ${charge.providerOrderId} failed: ${error instanceof Error ? error.message : 'unknown error'}`,
+    );
+  }
+
+  return { handled: true, duplicate: false, organizationId: charge.organizationId };
+}
+
+/**
+ * Whether a captured payment pays for something already paid.
+ *
+ * A renewal is a duplicate when another charge for the same period was
+ * captured. A first payment is a duplicate when its link was closed (EXPIRED)
+ * and the workspace already holds a different live subscription that is paid
+ * through: the owner paid two checkouts.
+ */
+async function isDuplicatePayment(charge: BillingCharge): Promise<boolean> {
+  if (charge.kind === 'RENEWAL') {
+    const sibling = await prisma.billingCharge.findFirst({
+      where: {
+        subscriptionKey: charge.subscriptionKey,
+        kind: 'RENEWAL',
+        periodStart: charge.periodStart,
+        status: 'CAPTURED',
+        id: { not: charge.id },
+      },
+      select: { id: true },
+    });
+    return Boolean(sibling);
+  }
+  if (charge.kind === 'FIRST' && charge.status === 'EXPIRED') {
+    const live = await prisma.subscription.findUnique({
+      where: { organizationId: charge.organizationId },
+      select: { providerSubscriptionId: true, status: true, currentPeriodEnd: true },
+    });
+    return Boolean(
+      live?.providerSubscriptionId &&
+        live.providerSubscriptionId !== charge.subscriptionKey &&
+        ['ACTIVE', 'PAST_DUE'].includes(live.status) &&
+        live.currentPeriodEnd &&
+        live.currentPeriodEnd.getTime() > Date.now(),
+    );
+  }
+  return false;
+}
+
+/** Refunds a duplicate payment in full and records why. Never throws. */
+async function refundDuplicate(charge: BillingCharge, paymentId: string | null): Promise<void> {
+  const id = paymentId ?? charge.providerPaymentId;
+  const claimed = await prisma.billingCharge.updateMany({
+    where: { id: charge.id, status: { notIn: ['CAPTURED', 'REFUNDED'] } },
+    data: { status: 'REFUNDED', providerPaymentId: id, failureReason: 'Duplicate payment, refunded in full.' },
+  });
+  if (claimed.count === 0 || !id) {
+    return;
+  }
+  try {
+    const payment = await fetchPayment(id);
+    const refund = await refundPayment({
+      paymentId: id,
+      amountMinor: payment.amountMinor,
+      capturedMinor: payment.amountMinor,
+      notes: { reason: 'duplicate payment', order: charge.providerOrderId },
+    });
+    await recordAuditEvent({
+      organizationId: charge.organizationId,
+      action: 'SUBSCRIPTION_UPDATED',
+      targetType: 'billing_charge',
+      targetId: charge.id,
+      detail: {
+        event: 'duplicate_payment_refunded',
+        kind: charge.kind,
+        orderId: charge.providerOrderId,
+        paymentId: id,
+        amountMinor: payment.amountMinor,
+        refundId: refund.id,
+      },
+    });
+  } catch (error) {
+    // Left REFUNDED with the reason, and loud: support refunds it by hand.
+    console.error(
+      `[billing] DUPLICATE PAYMENT ${id} on ${charge.providerOrderId} for ${charge.organizationId} could not be refunded automatically: ${error instanceof Error ? error.message : 'unknown error'}`,
+    );
+    await prisma.billingCharge
+      .update({ where: { id: charge.id }, data: { failureReason: 'Duplicate payment: the automatic refund failed. Refund it by hand.' } })
+      .catch(() => undefined);
+  }
+}
+
+/** Everything a captured charge changes. Each step is safe to run again. */
+async function applyCapturedCharge(
+  charge: BillingCharge,
+  context: {
+    payment: Awaited<ReturnType<typeof fetchPayment>> | null;
+    previous: { mandateTokenId: string | null; providerCustomerId: string | null } | null;
+    periodEnd: Date;
+    now: Date;
+    raw: unknown;
+  },
+): Promise<void> {
+  const { payment, previous, periodEnd, now } = context;
 
   const event: BillingEvent = {
     providerEventId: `razorpay:charge:${charge.providerOrderId}`,
@@ -139,7 +306,7 @@ export async function applyChargeCaptured(input: {
     // `lastEventAt` with the time it runs, and a capture dated a few seconds
     // earlier would be refused as stale. The order id is the deduplication.
     occurredAt: now,
-    raw: input.raw,
+    raw: context.raw,
   };
   await applyBillingEvent(event);
 
@@ -173,44 +340,17 @@ export async function applyChargeCaptured(input: {
     });
   }
 
-  // The upgrade difference this charge carried is paid now.
+  // The upgrade difference this charge carried is paid now. One statement, so
+  // an upgrade recorded at the same moment cannot have its increment lost
+  // between a read and a write. Last on purpose: if it throws, nothing after
+  // it ran, and the retry that follows the undone claim subtracts it once.
   if (charge.carryOverMinor > 0) {
-    const current = await prisma.subscription.findUnique({
-      where: { organizationId: charge.organizationId },
-      select: { carryOverMinor: true },
-    });
-    await prisma.subscription.update({
-      where: { organizationId: charge.organizationId },
-      data: { carryOverMinor: Math.max(0, (current?.carryOverMinor ?? 0) - charge.carryOverMinor) },
-    });
+    await prisma.$executeRaw`
+      UPDATE "subscription"
+      SET "carryOverMinor" = GREATEST(0, "carryOverMinor" - ${charge.carryOverMinor})
+      WHERE "organizationId" = ${charge.organizationId}
+    `;
   }
-
-  // Other checkouts the owner started and left open would start a second
-  // subscription and charge again if paid, so they are closed now.
-  if (charge.kind === 'FIRST') {
-    await closeOtherCheckouts(charge.organizationId, charge.id);
-  }
-
-  // Any other open charge for the same period is now moot.
-  await closeOpenCharges(charge.subscriptionKey, charge.periodStart, charge.id, 'Paid by another charge.');
-
-  await recordAuditEvent({
-    organizationId: charge.organizationId,
-    action: 'SUBSCRIPTION_UPDATED',
-    targetType: 'billing_charge',
-    targetId: charge.id,
-    detail: {
-      event: 'recurring_charge_captured',
-      kind: charge.kind,
-      channel: charge.channel,
-      amountMinor: charge.amountMinor,
-      plan: charge.plan,
-      periodEnd: periodEnd.toISOString(),
-      orderId: charge.providerOrderId,
-    },
-  });
-
-  return { handled: true, duplicate: false, organizationId: charge.organizationId };
 }
 
 /**
@@ -269,26 +409,50 @@ export async function applyLinkExpired(input: { orderId: string | null; invoiceI
 export async function applyTokenStatus(input: { tokenId: string; status: string; maxAmountMinor: number | null }): Promise<string | null> {
   const row = await prisma.subscription.findFirst({
     where: { mandateTokenId: input.tokenId },
-    select: { organizationId: true, mandateStatus: true },
+    select: { organizationId: true, mandateStatus: true, providerCustomerId: true },
   });
   if (!row) {
     return null;
   }
+
+  /**
+   * The mandate's state as Razorpay holds it now, not as the event says.
+   *
+   * Token events carry no ordering guarantee and Razorpay's signature has no
+   * timestamp, so a late or replayed `token.confirmed` arriving after
+   * `token.cancelled` marked a cancelled mandate usable again. Reading the
+   * token settles it; the event's word is used only when the read fails.
+   */
+  let status = input.status;
+  let maxAmountMinor = input.maxAmountMinor;
+  if (row.providerCustomerId) {
+    const current = await fetchToken(row.providerCustomerId, input.tokenId).catch(() => null);
+    if (current?.status) {
+      status = current.status;
+      maxAmountMinor = current.maxAmountMinor ?? maxAmountMinor;
+    }
+  }
+
   await prisma.subscription.update({
     where: { organizationId: row.organizationId },
     data: {
-      mandateStatus: input.status,
-      ...(input.maxAmountMinor ? { mandateMaxMinor: input.maxAmountMinor } : {}),
+      mandateStatus: status,
+      ...(maxAmountMinor ? { mandateMaxMinor: maxAmountMinor } : {}),
     },
   });
-  if (row.mandateStatus !== input.status) {
+  if (row.mandateStatus !== status) {
     await recordAuditEvent({
       organizationId: row.organizationId,
       action: 'SUBSCRIPTION_UPDATED',
       targetType: 'subscription',
       targetId: input.tokenId,
-      detail: { event: 'mandate_status_changed', from: row.mandateStatus, to: input.status },
+      detail: { event: 'mandate_status_changed', from: row.mandateStatus, to: status },
     });
+  }
+  // An upgrade's difference rides on the next charge to this mandate. A
+  // mandate that can no longer be charged takes the upgrade with it.
+  if (['cancelled', 'rejected', 'paused'].includes(status)) {
+    await revertUnpaidUpgrade(row.organizationId, 'mandate_unusable');
   }
   return row.organizationId;
 }
@@ -414,6 +578,26 @@ async function renewOne(row: RenewableRow, now: Date): Promise<keyof Omit<Renewa
   }
   const latest = charges[0] ?? null;
 
+  /**
+   * The paid period is over and the renewal is waiting on the customer.
+   *
+   * A renewal that could not go on the mandate (cancelled or paused in the
+   * bank's app, above its limit) goes out as a payment link, and nothing on
+   * that path ever made the subscription past due: an unpaid or expired link
+   * left it ACTIVE, the plan stayed for good, and dunning, which acts on past
+   * due rows, never ran. Now the period ending unpaid is itself the failure, so
+   * the grace and the withdrawal follow as for a declined charge. A day with
+   * nothing asked for at all (the contact details could not be read) counts
+   * the same way. A charge still in flight (scheduled, or being debited) does
+   * not: that is the bank being slow, not the customer not paying.
+   */
+  const awaitingCustomer =
+    latest?.channel === 'LINK' && ['PENDING', 'FAILED', 'EXPIRED'].includes(latest.status);
+  const nothingAsked = !latest && now.getTime() - end.getTime() > 24 * 60 * 60 * 1000;
+  if (row.status === 'ACTIVE' && end.getTime() <= now.getTime() && (awaitingCustomer || nothingAsked)) {
+    await markRenewalLapsed(row, end);
+  }
+
   if (latest?.status === 'CHARGING') {
     await settleStaleCharge(latest, now);
     return null;
@@ -423,6 +607,36 @@ async function renewOne(row: RenewableRow, now: Date): Promise<keyof Omit<Renewa
   }
   if (latest?.status === 'SCHEDULED') {
     return (await chargeScheduled(row, latest, now)) ? 'charged' : null;
+  }
+
+  /**
+   * A scheduled move to a smaller plan is checked again before it is priced.
+   *
+   * The limits are checked when the change is asked for, and nothing stopped a
+   * workspace scheduling Fairway and then filling Harbor's limits before the
+   * period ended: it renewed at Fairway's price with Harbor's portfolio, and
+   * the resources over the limit kept working. Over the smaller plan's limits
+   * at renewal, the change is withdrawn and the renewal is the current plan's;
+   * the owner can remove the excess and schedule it again.
+   */
+  if (row.pendingPlan && row.pendingPlan !== row.plan) {
+    const { planOverageFor } = await import('./checkout.service.js');
+    const overage = await planOverageFor(row.organizationId, row.pendingPlan);
+    if (overage.length > 0) {
+      await prisma.subscription.updateMany({
+        where: { organizationId: row.organizationId, pendingPlan: row.pendingPlan },
+        data: { pendingPlan: null, pendingPlanInterval: null },
+      });
+      await recordAuditEvent({
+        organizationId: row.organizationId,
+        action: 'BILLING_PLAN_CHANGE_REFUSED',
+        targetType: 'subscription',
+        targetId: key,
+        detail: { from: row.plan, to: row.pendingPlan, overage, at: 'renewal' },
+      });
+      row.pendingPlan = null;
+      row.pendingPlanInterval = null;
+    }
   }
 
   const interval = row.pendingPlan ? fromStored(row.pendingPlanInterval) : fromStored(row.billingInterval);
@@ -534,7 +748,7 @@ async function scheduleTokenRenewal(
 /** How long a sent charge waits for its webhook before the job asks Razorpay itself. */
 const chargeSettleAfterMs = 60 * 60 * 1000;
 /** How long a charge may stay unanswered before the renewal falls back to a payment link. */
-const chargeGiveUpAfterMs = 3 * 24 * 60 * 60 * 1000;
+const chargeGiveUpAfterMs = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * A charge on the mandate whose result never arrived by webhook. Some banks
@@ -544,18 +758,49 @@ const chargeGiveUpAfterMs = 3 * 24 * 60 * 60 * 1000;
  * for ever. A payment still in progress is left for the next run.
  */
 async function settleStaleCharge(charge: BillingCharge, now: Date): Promise<void> {
-  if (!charge.providerPaymentId || now.getTime() - charge.updatedAt.getTime() < chargeSettleAfterMs) {
+  if (now.getTime() - charge.updatedAt.getTime() < chargeSettleAfterMs) {
     return;
   }
-  const payment = await fetchPayment(charge.providerPaymentId).catch(() => null);
+
+  /**
+   * A charge request with no payment id is one whose answer never arrived (a
+   * timeout, a dropped connection, a crash right after the call). The order is
+   * ours and unique to this charge, so its payments say what happened. With
+   * none at all after the settle wait, nothing was debited and the charge is
+   * put back to be asked for again; it is never asked for blind.
+   */
+  let paymentId = charge.providerPaymentId;
+  if (!paymentId) {
+    const payments = await fetchOrderPayments(charge.providerOrderId).catch(() => null);
+    if (payments === null) {
+      return;
+    }
+    const found = payments.find((entry) => entry.status === 'captured') ?? payments[0] ?? null;
+    if (!found) {
+      await prisma.billingCharge.updateMany({
+        where: { id: charge.id, status: 'CHARGING', providerPaymentId: null },
+        data: { status: 'SCHEDULED' },
+      });
+      return;
+    }
+    paymentId = found.id;
+    await prisma.billingCharge.updateMany({
+      where: { id: charge.id, status: 'CHARGING' },
+      data: { providerPaymentId: paymentId },
+    });
+  }
+
+  const payment = await fetchPayment(paymentId).catch(() => null);
   if (payment?.status === 'captured') {
-    await applyChargeCaptured({ orderId: charge.providerOrderId, paymentId: charge.providerPaymentId, raw: { settledBy: 'renewal-job' } });
+    await applyChargeCaptured({ orderId: charge.providerOrderId, paymentId, raw: { settledBy: 'renewal-job' } });
   } else if (payment?.status === 'failed') {
-    await markChargeFailed(charge, payment.errorDescription ?? 'The bank declined the charge.', charge.providerPaymentId, { settledBy: 'renewal-job' });
+    await markChargeFailed(charge, payment.errorDescription ?? 'The bank declined the charge.', paymentId, { settledBy: 'renewal-job' });
   } else if (now.getTime() - charge.updatedAt.getTime() > chargeGiveUpAfterMs) {
-    // Three days with no answer from the bank: the renewal goes out as a link.
-    // Should the charge still capture later, the capture closes that link.
-    await markChargeFailed(charge, 'The bank did not confirm the charge within three days.', charge.providerPaymentId, { settledBy: 'renewal-job' });
+    // A week with no answer from the bank: the renewal goes out as a link.
+    // eNACH debits settle in days, over weekends and bank holidays, so this
+    // waits well past them. Should the charge still capture later, the capture
+    // is recognised as a second payment for the period and refunded.
+    await markChargeFailed(charge, 'The bank did not confirm the charge within a week.', paymentId, { settledBy: 'renewal-job' });
   }
 }
 
@@ -580,6 +825,25 @@ async function chargeScheduled(row: RenewableRow, charge: BillingCharge, now: Da
   }
 
   const contact = await customerContact(row);
+
+  /**
+   * Claimed before Razorpay is asked, never after.
+   *
+   * The row used to move to CHARGING only once the charge call returned. A
+   * process that stopped in between (a deploy, a crash, a lease that lapsed
+   * while another instance took the job) left it SCHEDULED, and the next run
+   * charged the same order again. Now the claim is the only way to the call,
+   * and a call whose answer never arrived stays CHARGING with no payment id,
+   * which `settleStaleCharge` resolves from the order's own payments.
+   */
+  const claimed = await prisma.billingCharge.updateMany({
+    where: { id: charge.id, status: 'SCHEDULED' },
+    data: { status: 'CHARGING' },
+  });
+  if (claimed.count !== 1) {
+    return false;
+  }
+
   try {
     const result = await chargeToken({
       orderId: charge.providerOrderId,
@@ -591,21 +855,33 @@ async function chargeScheduled(row: RenewableRow, charge: BillingCharge, now: Da
       description: `${planCatalog[charge.plan].label} renewal`,
       notes: { organizationId: row.organizationId, kind: 'renewal', subscriptionKey: charge.subscriptionKey },
     });
-    await prisma.billingCharge.update({
-      where: { id: charge.id },
-      data: { status: 'CHARGING', providerPaymentId: result.paymentId },
-    });
+    if (result.paymentId) {
+      await prisma.billingCharge.update({
+        where: { id: charge.id },
+        data: { providerPaymentId: result.paymentId },
+      });
+    }
     return true;
   } catch (error) {
     const code = error instanceof BillingProviderError ? String(error.detail?.razorpayCode ?? '') : '';
-    // Too early for the bank: try again on the next run.
+    // Too early for the bank: put it back and try again on the next run.
     if (/pre_debit|NOT_HONOURED|promised_debit/i.test(code) || (error instanceof Error && /36 hours|pre-debit|predebit|payment_after/i.test(error.message))) {
+      await prisma.billingCharge.updateMany({ where: { id: charge.id, status: 'CHARGING' }, data: { status: 'SCHEDULED' } });
       console.warn(
         `[billing] renewal ${charge.providerOrderId} not charged yet, the bank's notice window is still open: ${error instanceof Error ? error.message : code}`,
       );
       return false;
     }
-    await markChargeFailed(charge, error instanceof Error ? error.message : 'The charge was refused.', null, null);
+    if (razorpayRefused(error)) {
+      // Razorpay answered and refused, so no payment exists: a link follows.
+      await markChargeFailed(charge, error instanceof Error ? error.message : 'The charge was refused.', null, null);
+      return false;
+    }
+    // No clear answer: the debit may have been made. Left CHARGING, never
+    // retried blind; the next runs read the order's payments to find out.
+    console.warn(
+      `[billing] renewal ${charge.providerOrderId} got no clear answer from Razorpay; it is settled from the order's payments: ${error instanceof Error ? error.message : 'unknown error'}`,
+    );
     return false;
   }
 }
@@ -732,6 +1008,114 @@ async function markChargeFailed(charge: BillingCharge, reason: string, paymentId
     occurredAt: new Date(),
     raw: raw ?? { orderId: charge.providerOrderId, reason },
   });
+}
+
+/** A renewal whose period ended unpaid: past due, so dunning's grace and withdrawal apply. */
+async function markRenewalLapsed(row: RenewableRow, end: Date): Promise<void> {
+  await applyBillingEvent({
+    providerEventId: `razorpay:lapsed:${row.providerSubscriptionId}:${end.toISOString()}`,
+    type: 'payment.failed',
+    provider: 'RAZORPAY',
+    providerSubscriptionId: row.providerSubscriptionId,
+    providerCustomerId: row.providerCustomerId,
+    organizationId: row.organizationId,
+    plan: row.plan,
+    status: 'past_due',
+    currentPeriodEnd: null,
+    cancelAtPeriodEnd: false,
+    quantity: null,
+    nextAttemptAt: null,
+    occurredAt: new Date(),
+    raw: { reason: 'renewal_unpaid', periodEnd: end.toISOString() },
+  });
+  row.status = 'PAST_DUE';
+}
+
+/**
+ * Undoes an upgrade whose difference will never be collected.
+ *
+ * Paying in rupees, an upgrade applies at once and its difference for the rest
+ * of the period is added to the next renewal. With no renewal to come (the
+ * subscription was cancelled) or no way to charge it (the mandate was
+ * cancelled, paused or rejected at the bank), the difference was simply
+ * forgiven: buy Fairway for a year, upgrade to Admiralty the same day, cancel,
+ * and keep Admiralty for twelve months at Fairway's price. The plan returns to
+ * the one this period was paid at, and the owner is told.
+ *
+ * Returns the plan restored, or null when there was nothing to undo.
+ */
+export async function revertUnpaidUpgrade(
+  organizationId: string,
+  reason: 'cancelled' | 'mandate_unusable',
+): Promise<PlanTier | null> {
+  const row = await prisma.subscription.findUnique({
+    where: { organizationId },
+    select: {
+      plan: true,
+      carryOverMinor: true,
+      providerSubscriptionId: true,
+      currentPeriodEnd: true,
+      pendingPlan: true,
+      pendingPlanInterval: true,
+      billingInterval: true,
+    },
+  });
+  if (!row?.providerSubscriptionId || !isRecurringKey(row.providerSubscriptionId) || row.carryOverMinor <= 0 || !row.currentPeriodEnd) {
+    return null;
+  }
+
+  // The plan the current period was paid at: the captured charge whose period
+  // is the one the subscription is in.
+  const paid = await prisma.billingCharge.findFirst({
+    where: { subscriptionKey: row.providerSubscriptionId, status: 'CAPTURED', periodEnd: row.currentPeriodEnd },
+    orderBy: { createdAt: 'desc' },
+    select: { plan: true },
+  });
+  if (!paid || paid.plan === row.plan) {
+    return null;
+  }
+
+  // A pending change back to the paid plan has nothing left to do once the
+  // plan is that plan again, unless it also switches the interval.
+  const pendingIsMoot = row.pendingPlan === paid.plan && row.pendingPlanInterval === row.billingInterval;
+  const claimed = await prisma.$transaction(async (tx) => {
+    const cleared = await tx.subscription.updateMany({
+      where: { organizationId, carryOverMinor: row.carryOverMinor, plan: row.plan },
+      data: { carryOverMinor: 0, ...(pendingIsMoot ? { pendingPlan: null, pendingPlanInterval: null } : {}) },
+    });
+    if (cleared.count !== 1) {
+      return false;
+    }
+    await writePlan(tx, organizationId, paid.plan);
+    return true;
+  });
+  if (!claimed) {
+    return null;
+  }
+
+  await withdrawScheduledRenewals(organizationId);
+  await afterPlanChange(organizationId, { from: row.plan, to: paid.plan });
+  await recordAuditEvent({
+    organizationId,
+    action: 'SUBSCRIPTION_UPDATED',
+    targetType: 'subscription',
+    targetId: row.providerSubscriptionId,
+    detail: {
+      event: 'unpaid_upgrade_reverted',
+      reason,
+      from: row.plan,
+      to: paid.plan,
+      forgoneMinor: row.carryOverMinor,
+    },
+  });
+  sendPlanChangedEmail({
+    organizationId,
+    fromPlan: row.plan,
+    toPlan: paid.plan,
+    effectiveAt: new Date(),
+    timing: 'immediate',
+  });
+  return paid.plan;
 }
 
 /** Closes every other unpaid charge for a period: its link is cancelled, its row expired. */

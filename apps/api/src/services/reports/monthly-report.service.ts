@@ -181,19 +181,19 @@ export async function collectMonthlyFacts(input: FactsInput): Promise<MonthlyFac
 
   const [domains, domainCount] = await Promise.all([
     prisma.domain.findMany({
-      where: { clientId: client.id, client: { organizationId: client.organizationId } },
+      where: { clientId: client.id, client: { organizationId: client.organizationId }, status: 'VERIFIED' },
       select: { id: true, name: true },
       orderBy: { name: 'asc' },
       take: maximumDomainsInDocument,
     }),
     prisma.domain.count({
-      where: { clientId: client.id, client: { organizationId: client.organizationId } },
+      where: { clientId: client.id, client: { organizationId: client.organizationId }, status: 'VERIFIED' },
     }),
   ]);
 
   const domainIds = (
     await prisma.domain.findMany({
-      where: { clientId: client.id, client: { organizationId: client.organizationId } },
+      where: { clientId: client.id, client: { organizationId: client.organizationId }, status: 'VERIFIED' },
       select: { id: true },
     })
   ).map((domain) => domain.id);
@@ -207,7 +207,7 @@ export async function collectMonthlyFacts(input: FactsInput): Promise<MonthlyFac
         FROM "dmarc_report" r
         JOIN "domain" d ON d.id = r."domainId"
         JOIN "client" c ON c.id = d."clientId"
-        WHERE c.id = ${client.id} AND c."organizationId" = ${client.organizationId}
+        WHERE c.id = ${client.id} AND c."organizationId" = ${client.organizationId} AND d."status" = 'VERIFIED'
           AND r."dateRangeBegin" >= ${start} AND r."dateRangeBegin" < ${end}
         GROUP BY r."domainId"
       `,
@@ -221,7 +221,7 @@ export async function collectMonthlyFacts(input: FactsInput): Promise<MonthlyFac
         JOIN "dmarc_report" r ON r.id = rec."reportId"
         JOIN "domain" d ON d.id = r."domainId"
         JOIN "client" c ON c.id = d."clientId"
-        WHERE c.id = ${client.id} AND c."organizationId" = ${client.organizationId}
+        WHERE c.id = ${client.id} AND c."organizationId" = ${client.organizationId} AND d."status" = 'VERIFIED'
           AND r."dateRangeBegin" >= ${start} AND r."dateRangeBegin" < ${end}
         GROUP BY r."domainId"
       `,
@@ -236,7 +236,7 @@ export async function collectMonthlyFacts(input: FactsInput): Promise<MonthlyFac
         JOIN "dmarc_report" r ON r.id = rec."reportId"
         JOIN "domain" d ON d.id = r."domainId"
         JOIN "client" c ON c.id = d."clientId"
-        WHERE c.id = ${client.id} AND c."organizationId" = ${client.organizationId}
+        WHERE c.id = ${client.id} AND c."organizationId" = ${client.organizationId} AND d."status" = 'VERIFIED'
           AND r."dateRangeBegin" >= ${start} AND r."dateRangeBegin" < ${end}
         GROUP BY rec."sourceIp"
         HAVING SUM(CASE WHEN COALESCE(lower(rec."dkimResult"), '') <> 'pass'
@@ -258,7 +258,7 @@ export async function collectMonthlyFacts(input: FactsInput): Promise<MonthlyFac
           ORDER BY s."completedAt" DESC, s."startedAt" DESC, s.id DESC
           LIMIT 1
         ) latest ON true
-        WHERE c.id = ${client.id} AND c."organizationId" = ${client.organizationId}
+        WHERE c.id = ${client.id} AND c."organizationId" = ${client.organizationId} AND d."status" = 'VERIFIED'
       `,
       prisma.$queryRaw<ScanPolicyRow[]>`
         SELECT d.id AS "domainId", latest.result AS result
@@ -273,7 +273,7 @@ export async function collectMonthlyFacts(input: FactsInput): Promise<MonthlyFac
           ORDER BY s."completedAt" DESC, s."startedAt" DESC, s.id DESC
           LIMIT 1
         ) latest ON true
-        WHERE c.id = ${client.id} AND c."organizationId" = ${client.organizationId}
+        WHERE c.id = ${client.id} AND c."organizationId" = ${client.organizationId} AND d."status" = 'VERIFIED'
       `,
       // The earliest report of the month stands in for the policy at its start.
       // Using the newest one for both ends made a domain with no scans show no
@@ -283,7 +283,7 @@ export async function collectMonthlyFacts(input: FactsInput): Promise<MonthlyFac
         FROM "dmarc_report" r
         JOIN "domain" d ON d.id = r."domainId"
         JOIN "client" c ON c.id = d."clientId"
-        WHERE c.id = ${client.id} AND c."organizationId" = ${client.organizationId}
+        WHERE c.id = ${client.id} AND c."organizationId" = ${client.organizationId} AND d."status" = 'VERIFIED'
           AND r."dateRangeBegin" >= ${start} AND r."dateRangeBegin" < ${end}
           AND r."policyP" IS NOT NULL
         ORDER BY r."domainId", r."dateRangeBegin" ASC, r.id ASC
@@ -293,14 +293,14 @@ export async function collectMonthlyFacts(input: FactsInput): Promise<MonthlyFac
         FROM "dmarc_report" r
         JOIN "domain" d ON d.id = r."domainId"
         JOIN "client" c ON c.id = d."clientId"
-        WHERE c.id = ${client.id} AND c."organizationId" = ${client.organizationId}
+        WHERE c.id = ${client.id} AND c."organizationId" = ${client.organizationId} AND d."status" = 'VERIFIED'
           AND r."dateRangeBegin" >= ${start} AND r."dateRangeBegin" < ${end}
           AND r."policyP" IS NOT NULL
         ORDER BY r."domainId", r."dateRangeBegin" DESC, r.id DESC
       `,
       prisma.dnsChange.findMany({
         where: {
-          domain: { clientId: client.id, client: { organizationId: client.organizationId } },
+          domain: { clientId: client.id, client: { organizationId: client.organizationId }, status: 'VERIFIED' },
           severity: { in: ['WARNING', 'CRITICAL'] },
           detectedAt: { gte: start, lt: end },
         },
@@ -314,7 +314,7 @@ export async function collectMonthlyFacts(input: FactsInput): Promise<MonthlyFac
       }),
       prisma.dnsChange.count({
         where: {
-          domain: { clientId: client.id, client: { organizationId: client.organizationId } },
+          domain: { clientId: client.id, client: { organizationId: client.organizationId }, status: 'VERIFIED' },
           severity: { in: ['WARNING', 'CRITICAL'] },
           detectedAt: { gte: start, lt: end },
         },
@@ -322,19 +322,19 @@ export async function collectMonthlyFacts(input: FactsInput): Promise<MonthlyFac
       prisma.dmarcForensicReport.count({
         where: {
           receivedAt: { gte: start, lt: end },
-          domain: { clientId: client.id, client: { organizationId: client.organizationId } },
+          domain: { clientId: client.id, client: { organizationId: client.organizationId }, status: 'VERIFIED' },
         },
       }),
       prisma.alertEvent.count({
         where: {
           triggeredAt: { gte: start, lt: end },
-          domain: { clientId: client.id, client: { organizationId: client.organizationId } },
+          domain: { clientId: client.id, client: { organizationId: client.organizationId }, status: 'VERIFIED' },
         },
       }),
       prisma.alertEvent.count({
         where: {
           resolvedAt: { gte: start, lt: end },
-          domain: { clientId: client.id, client: { organizationId: client.organizationId } },
+          domain: { clientId: client.id, client: { organizationId: client.organizationId }, status: 'VERIFIED' },
         },
       }),
     ]);
@@ -349,7 +349,7 @@ export async function collectMonthlyFacts(input: FactsInput): Promise<MonthlyFac
     JOIN "dmarc_report" r ON r.id = rec."reportId"
     JOIN "domain" d ON d.id = r."domainId"
     JOIN "client" c ON c.id = d."clientId"
-    WHERE c.id = ${client.id} AND c."organizationId" = ${client.organizationId}
+    WHERE c.id = ${client.id} AND c."organizationId" = ${client.organizationId} AND d."status" = 'VERIFIED'
       AND r."dateRangeBegin" >= ${start} AND r."dateRangeBegin" < ${end}
     GROUP BY 1
     ORDER BY 1

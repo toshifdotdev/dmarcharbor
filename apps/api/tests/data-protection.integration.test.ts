@@ -6,6 +6,7 @@ import { completeSamlSignIn, samlEntryPoint } from '../src/services/sso/sso-flow
 import { SsoError, createSsoConnection } from '../src/services/sso/sso.service.js';
 import { completeSignIn } from '../src/services/sso/sso-flow.service.js';
 import { grantPlan } from './helpers/plan.js';
+import { proveSsoDomain } from './helpers/sso.js';
 
 /**
  * Data protection and sign-in integrity.
@@ -285,6 +286,8 @@ describe('SSO just in time provisioning', () => {
     // SSO is an Admiralty feature, and provisioning a second person needs a
     // seat. The free plan has one, which the owner already occupies.
     await grantPlan(owner.organizationId, 'ADMIRALTY');
+    // Sign-in admits only addresses at a domain the workspace has verified.
+    await proveSsoDomain(owner.organizationId, 'northgate.test');
     const connection = await createSsoConnection({
       organizationId: owner.organizationId,
       label: 'Okta',
@@ -428,5 +431,41 @@ describe('SSO just in time provisioning', () => {
     // customer has been sold.
     const user = await prisma.user.findUniqueOrThrow({ where: { email }, select: { id: true } });
     expect(await prisma.member.count({ where: { organizationId: owner.organizationId, userId: user.id } })).toBe(1);
+  });
+
+  it('cannot be used to sign in as an account at a domain the workspace has not verified', async () => {
+    // The victim owns another workspace; their address is at example.com.
+    const victim = await agency('sso-victim');
+    const attacker = await jitConnection('sso-attacker');
+    // The attacker lists the victim's domain and invites the victim, which
+    // used to be enough to attach the victim's account to the attacker's
+    // identity provider.
+    await prisma.ssoConnectionDomain.create({ data: { connectionId: attacker.connection.id, domain: 'example.com' } });
+    await prisma.invitation.create({
+      data: {
+        id: `inv-${Date.now()}`,
+        organizationId: attacker.organizationId,
+        email: victim.email,
+        role: 'viewer',
+        status: 'pending',
+        expiresAt: new Date(Date.now() + 86_400_000),
+        inviterId: (await prisma.member.findFirstOrThrow({ where: { organizationId: attacker.organizationId } })).userId,
+      },
+    });
+    const reloaded = await prisma.ssoConnection.findUniqueOrThrow({
+      where: { id: attacker.connection.id },
+      include: { connections: { select: { domain: true } }, organization: { select: { id: true, name: true } } },
+    });
+
+    await expect(completeSignIn(reloaded, { email: victim.email, providerSubject: 'attacker-subject' })).rejects.toThrow(
+      /prove it controls/i,
+    );
+    // And a brand new address at that domain is not created as verified either.
+    await expect(
+      completeSignIn(reloaded, { email: `newcomer-${Date.now()}@example.com`, providerSubject: 'attacker-subject-2' }),
+    ).rejects.toThrow(/prove it controls/i);
+
+    const victimUser = await prisma.user.findUniqueOrThrow({ where: { email: victim.email }, select: { id: true } });
+    expect(await prisma.member.count({ where: { organizationId: attacker.organizationId, userId: victimUser.id } })).toBe(0);
   });
 });

@@ -123,8 +123,25 @@ export async function startCheckout(input: StartCheckoutInput): Promise<Checkout
 
   const existing = await prisma.subscription.findUnique({
     where: { organizationId: input.organizationId },
-    select: { provider: true, status: true, currentPeriodEnd: true },
+    select: { provider: true, status: true, currentPeriodEnd: true, dunningStage: true },
   });
+
+  /**
+   * A subscription waiting on a payment is still live at the provider.
+   *
+   * Paddle keeps retrying a past due card and a rupee renewal keeps its payment
+   * link open through the grace, with the period end already behind it, so the
+   * check below let a second checkout start: the customer could pay twice, and
+   * the old subscription's later events then fought the new one over the row.
+   * The way back is the open payment, which the billing page links to.
+   */
+  if (existing && existing.provider !== 'NONE' && existing.status === 'PAST_DUE' && existing.dunningStage !== 'WITHDRAWN') {
+    throw new CheckoutError(
+      'This workspace has a renewal waiting on payment. Pay it from the billing page instead of buying again; if it is not paid, the plan ends when the grace runs out and a new checkout is open.',
+      'PAYMENT_DUE',
+      409,
+    );
+  }
 
   // Only a provider subscription is something to "change plan instead" of. A
   // `provider: NONE` row is an entitlement written by staff (a comped or pilot
@@ -296,7 +313,7 @@ async function ownedWorkspaces(organizationId: string): Promise<number> {
  * workspaces on Harbor could move to Fairway, which allows two, and keep all
  * three: the only check on workspaces is at creation, and nothing is created.
  */
-async function planOverageFor(
+export async function planOverageFor(
   organizationId: string,
   targetPlan: PlanTier,
 ): Promise<PlanOverage[]> {
@@ -365,6 +382,27 @@ export async function changePlan(input: {
       'INTERVAL_NOT_OFFERED',
       400,
       { plan: input.plan, interval: input.interval, intervals: targetDefinition.intervals },
+    );
+  }
+
+  /**
+   * Not while a renewal is being debited (rupees; an eNACH debit takes days).
+   *
+   * That charge pays the next period at the plan it was priced for, and its
+   * capture writes that plan back: a downgrade made meanwhile was lost and
+   * renewed at the higher price for good, and an upgrade was priced against a
+   * period that had all but ended, so the next period ran at the new plan for
+   * the old price.
+   */
+  const debiting = await prisma.billingCharge.findFirst({
+    where: { organizationId: input.organizationId, status: 'CHARGING' },
+    select: { id: true },
+  });
+  if (debiting) {
+    throw new CheckoutError(
+      'A renewal payment is being taken right now. Change the plan once it has gone through; the billing page shows when.',
+      'RENEWAL_IN_PROGRESS',
+      409,
     );
   }
 
@@ -675,10 +713,18 @@ export async function cancelSubscription(input: { organizationId: string; actorU
     data: { cancelAtPeriodEnd: true },
   });
 
+  // Except an upgrade paid for by the renewal that will now never come
+  // (rupees only): the plan returns to the one this period was paid at.
+  let planKept = subscription.plan;
+  if (isRecurringKey(subscription.providerSubscriptionId)) {
+    const { revertUnpaidUpgrade } = await import('./recurring.service.js');
+    planKept = (await revertUnpaidUpgrade(input.organizationId, 'cancelled')) ?? subscription.plan;
+  }
+
   if (subscription.currentPeriodEnd) {
     void sendSubscriptionCancelledEmail({
       organizationId: input.organizationId,
-      plan: subscription.plan,
+      plan: planKept,
       accessUntil: subscription.currentPeriodEnd,
     });
   }
@@ -689,7 +735,12 @@ export async function cancelSubscription(input: { organizationId: string; actorU
     action: 'BILLING_CANCELLED',
     targetType: 'subscription',
     targetId: subscription.providerSubscriptionId,
-    detail: { plan: subscription.plan, accessUntil: subscription.currentPeriodEnd?.toISOString() ?? null, effectiveAt: 'cycle_end' },
+    detail: {
+      plan: planKept,
+      ...(planKept !== subscription.plan ? { unpaidUpgradeReverted: { from: subscription.plan, to: planKept } } : {}),
+      accessUntil: subscription.currentPeriodEnd?.toISOString() ?? null,
+      effectiveAt: 'cycle_end',
+    },
   });
 }
 

@@ -57,6 +57,15 @@ export class InboxError extends Error {
  * It now shares the guard webhook delivery uses, so the two cannot drift apart
  * and leave one of them as the way in.
  */
+/**
+ * The largest message read from a report mailbox. A real report mail is well
+ * under a megabyte; this leaves room for a receiver that bundles many.
+ */
+export const maxReportEmailBytes = 15 * 1024 * 1024;
+
+/** Messages read per poll. The cursor resumes after the last one next time. */
+const maxMessagesPerPoll = 500;
+
 function assertAllowedHost(host: string): void {
   const lower = host.trim().toLowerCase();
 
@@ -153,6 +162,7 @@ async function defaultLoginCheck(settings: Required<Pick<InboxSettings, 'host' |
     host: checked[0]?.address ?? settings.host,
     port: settings.port,
     secure: settings.secure,
+    ...(settings.secure ? {} : { doSTARTTLS: true }),
     auth: { user: settings.username, pass: settings.password },
     logger: false,
     socketTimeout: 20_000,
@@ -252,7 +262,14 @@ export interface PollOutcome {
  * guessed at. Ingesting them would either fail the domain check or, worse,
  * attach another workspace's data to this one.
  */
-export async function pollInbox(organizationId: string): Promise<PollOutcome> {
+export async function pollInbox(
+  organizationId: string,
+  /**
+   * For the scheduled pass: skip a mailbox another instance polled after this
+   * moment. "Collect now" passes nothing and always polls.
+   */
+  options: { notPolledSince?: Date } = {},
+): Promise<PollOutcome> {
   const inbox = await prisma.reportInbox.findUnique({ where: { organizationId } });
   if (!inbox || !inbox.enabled) {
     return { messages: 0, accepted: 0, duplicates: 0, unmatched: 0 };
@@ -284,6 +301,10 @@ export async function pollInbox(organizationId: string): Promise<PollOutcome> {
     host: primary,
     port: inbox.port,
     secure: inbox.secure,
+    // Without TLS from the first byte, STARTTLS is required rather than used
+    // when offered: otherwise anyone on the path could strip the offer and read
+    // the password in clear text.
+    ...(inbox.secure ? {} : { doSTARTTLS: true }),
     auth: { user: inbox.username, pass: password },
     logger: false,
     // A mailbox that hangs must not hold a scheduler slot open.
@@ -308,6 +329,9 @@ export async function pollInbox(organizationId: string): Promise<PollOutcome> {
       organizationId,
       enabled: true,
       OR: [{ pollClaimedAt: null }, { pollClaimedAt: { lt: new Date(Date.now() - pollClaimTimeoutMs) } }],
+      ...(options.notPolledSince
+        ? { AND: [{ OR: [{ lastPolledAt: null }, { lastPolledAt: { lt: options.notPolledSince } }] }] }
+        : {}),
     },
     data: { pollClaimedAt: new Date() },
   });
@@ -341,8 +365,13 @@ export async function pollInbox(organizationId: string): Promise<PollOutcome> {
       const range = startAfter !== null ? `${startAfter + 1}:*` : '1:*';
       // imapflow returns false when a search matches nothing, which is normal
       // on an empty mailbox and must not be treated as an error.
-      const found = await client.search({ seq: range }, { uid: true });
-      const uids: number[] = Array.isArray(found) ? found : [];
+      //
+      // A UID range, searched and fetched as UIDs. It was searched as message
+      // sequence numbers and each message downloaded by sequence number, which
+      // agree only until a message is deleted or moved; after that the poll
+      // read the wrong messages and skipped real ones.
+      const found = await client.search({ uid: range }, { uid: true });
+      const uids: number[] = (Array.isArray(found) ? found : []).sort((a, b) => a - b).slice(0, maxMessagesPerPoll);
 
       for (const uid of uids) {
         if (startAfter !== null && uid <= startAfter) {
@@ -352,14 +381,22 @@ export async function pollInbox(organizationId: string): Promise<PollOutcome> {
         outcome.messages += 1;
 
         try {
-          const download = await client.download(uid);
+          // Bounded: a mailbox anyone can mail must not be able to fill our
+          // memory with one message. Read one byte past the limit to tell a
+          // message at the limit from one over it.
+          const download = await client.download(String(uid), undefined, { uid: true, maxBytes: maxReportEmailBytes + 1 });
           const chunks: Buffer[] = [];
+          let received = 0;
           for await (const part of download?.content ?? []) {
-            chunks.push(Buffer.isBuffer(part) ? part : Buffer.from(part));
+            const chunk = Buffer.isBuffer(part) ? part : Buffer.from(part);
+            received += chunk.length;
+            if (received > maxReportEmailBytes) break;
+            chunks.push(chunk);
           }
 
-          if (chunks.length === 0) {
+          if (chunks.length === 0 || received > maxReportEmailBytes) {
             outcome.unmatched += 1;
+            highestUid = Math.max(highestUid ?? 0, Number(uid));
             continue;
           }
 
@@ -450,8 +487,23 @@ export function imapConnectError(error: unknown): InboxError {
   );
 }
 
+/**
+ * The sentence a tenant is shown for a failed poll.
+ *
+ * Our own refusals are written for them. Anything else is the IMAP library's
+ * or the database's text, which can name internal hosts, ports and states, so
+ * the tenant gets a fixed sentence and the detail stays in our log.
+ */
+export function inboxFailureMessage(error: unknown): string {
+  if (error instanceof InboxError) {
+    return error.message;
+  }
+  return 'The mailbox could not be read on the last attempt. Check the server, port and credentials, then use Collect now.';
+}
+
 /** Records a poll failure without throwing, so one bad mailbox cannot stop the rest. */
-export async function recordInboxFailure(organizationId: string, detail: string): Promise<void> {
+export async function recordInboxFailure(organizationId: string, error: unknown): Promise<void> {
+  const detail = inboxFailureMessage(error);
   /**
    * `updateMany` with an increment, rather than a read followed by a write.
    *

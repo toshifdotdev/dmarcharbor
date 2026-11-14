@@ -702,9 +702,26 @@ export async function deliverDueWebhooks(now = new Date()): Promise<DeliveryOutc
       });
       continue;
     }
+    /**
+     * The claim is renewed just before this delivery is sent.
+     *
+     * Every row in the batch was stamped when the pass began, and they are sent
+     * one after another, so a row near the end of a slow batch could look stale
+     * to another instance (which then reset and sent it) while this one was
+     * still about to send it too. Renewing first, and only if the claim is still
+     * ours, means a row is sent by one instance or the other, never both.
+     */
+    const stillOurs = await prisma.webhookDelivery.updateMany({
+      where: { id: delivery.id, status: 'IN_FLIGHT', claimedBy: currentInstanceId() },
+      data: { claimedAt: new Date() },
+    });
+    if (stillOurs.count !== 1) {
+      continue;
+    }
+
     const attempt = delivery.attempts + 1;
     const body = JSON.stringify(delivery.payload);
-    const secret = decryptSensitive(delivery.endpoint.secret) ?? '';
+    const secret = decryptSensitive(delivery.endpoint.secret) ?? null;
     // Inside a rotation's overlap the previous secret signs as well, after the current one.
     const previous =
       delivery.endpoint.previousSecret &&
@@ -712,7 +729,7 @@ export async function deliverDueWebhooks(now = new Date()): Promise<DeliveryOutc
       delivery.endpoint.previousSecretExpiresAt > now
         ? decryptSensitive(delivery.endpoint.previousSecret)
         : null;
-    const secrets = previous ? [secret, previous] : [secret];
+    const secrets = [secret, previous].filter((value): value is string => Boolean(value));
     const timestamp = Math.floor(now.getTime() / 1000);
 
     let responseCode: number | undefined;
@@ -721,6 +738,11 @@ export async function deliverDueWebhooks(now = new Date()): Promise<DeliveryOutc
     let rateLimited = false;
 
     try {
+      // A secret that cannot be read must not become an empty signing key:
+      // the receiver would accept an HMAC anyone can compute.
+      if (!secret) {
+        throw new Error('The signing secret could not be read, so the event was not sent. Rotate the endpoint secret.');
+      }
       /**
        * Resolved, checked and pinned in one place: `webhookRequest`.
        *

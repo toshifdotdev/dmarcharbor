@@ -6,6 +6,7 @@ import { systemDnsReader } from '../src/scanner/dns.js';
 import { createApiKey, hashApiKey, verifyApiKey } from '../src/services/api-key.service.js';
 import { grantPlan } from './helpers/plan.js';
 import { setOverride } from '../src/services/entitlements/entitlement.service.js';
+import { domainHeldElsewhereReason } from '../src/services/bulk-onboarding.service.js';
 
 let fixtureId = 0;
 const password = 'correct-horse-battery-staple';
@@ -311,7 +312,7 @@ describe('bulk onboarding', () => {
       {
         index: 1,
         name: takenName,
-        reason: 'That domain is already monitored by another workspace. Remove it there first, or ask them to release it.',
+        reason: domainHeldElsewhereReason,
       },
     ]);
     // Which workspace holds it is never said.

@@ -733,9 +733,12 @@ export async function runPsaDelivery(now = new Date()): Promise<PsaDeliveryOutco
     }
 
     for (const jobId of jobIds) {
+      // Stamped when the job is taken, not when the pass began: a job reached
+      // late in a slow pass looked stale to another instance, which reset it
+      // and opened the same ticket again.
       const claim = await prisma.psaTicketJob.updateMany({
         where: { id: jobId, status: 'PENDING' },
-        data: { status: 'IN_FLIGHT', claimedAt: now, claimedBy: instanceId() },
+        data: { status: 'IN_FLIGHT', claimedAt: new Date(), claimedBy: instanceId() },
       });
       if (claim.count !== 1) continue;
 

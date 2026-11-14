@@ -131,6 +131,12 @@ export async function ingestDmarcReport(input: IngestReportInput): Promise<Inges
   // available for a report that does not state enough to identify itself.
   const existing = await findExistingReport(parsed);
   if (existing) {
+    // Only this domain's own copy is handed back. The keys are unique across
+    // every workspace, so a match on another domain's row (which the keys
+    // should make impossible) answers as a mismatch, never with that row.
+    if (existing.domainId !== domain.id) {
+      return { status: 'domain_mismatch', reportDomain: parsed.policyDomain };
+    }
     return { status: 'duplicate', report: existing };
   }
 
@@ -202,8 +208,11 @@ export async function ingestDmarcReport(input: IngestReportInput): Promise<Inges
       // A concurrent delivery of the same report won the race, which is the
       // expected outcome when two transports deliver at once.
       const duplicate = await findExistingReport(parsed);
-      if (duplicate) {
+      if (duplicate && duplicate.domainId === domain.id) {
         return { status: 'duplicate', report: duplicate };
+      }
+      if (duplicate) {
+        return { status: 'domain_mismatch', reportDomain: parsed.policyDomain };
       }
     }
 

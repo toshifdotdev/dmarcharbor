@@ -21,8 +21,14 @@ export async function requestOrigin(): Promise<string> {
   } catch {
     return DEFAULT_PUBLIC_ORIGIN;
   }
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  if (!host) return DEFAULT_PUBLIC_ORIGIN;
-  const proto = h.get("x-forwarded-proto") ?? (host.startsWith("localhost") || host.startsWith("127.0.0.1") ? "http" : "https");
+  // The first entry of each, checked: both headers can arrive from the client
+  // as written, and either was reflected into canonical URLs and links whole
+  // ("x-forwarded-proto: javascript" included).
+  const forwarded = h.get("x-forwarded-host")?.split(",")[0]?.trim();
+  const host = (forwarded || h.get("host") || "").trim().toLowerCase();
+  if (!host || !/^[a-z0-9.-]+(?::\d{1,5})?$/.test(host)) return DEFAULT_PUBLIC_ORIGIN;
+  const local = host.startsWith("localhost") || host.startsWith("127.0.0.1");
+  const claimed = h.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+  const proto = claimed === "http" || claimed === "https" ? claimed : local ? "http" : "https";
   return `${proto}://${host}`;
 }

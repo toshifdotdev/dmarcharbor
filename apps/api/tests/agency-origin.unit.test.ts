@@ -340,17 +340,19 @@ describe('emailed reset and verification links', () => {
     expect(link.agency).toBeNull();
   });
 
-  it('puts the link on the agency domain for a contact another agency also serves', async () => {
-    // The contact signs in on this agency's domain anyway, so the link there
-    // gives the agency nothing its own sign-in form does not.
+  it('keeps the link on our app for a contact another agency also serves', async () => {
+    // An agency can add any address as a contact of one of its clients, and it
+    // controls the DNS of its own domain. Had the link moved there, an agency
+    // could have a reset link for another agency's contact delivered to a host
+    // it runs, and with it that contact's access to the other agency's data.
     const organizationId = claim(agencyHost);
     world.contacts.set(organizationId, [contact.email]);
     world.contacts.set('org_other_agency', [contact.email]);
 
     const link = await agencyAuthLink(resetUrl(`${agencyOrigin}/sign-in`), contact);
 
-    expect(new URL(link.url).origin).toBe(agencyOrigin);
-    expect(link.agency?.organizationId).toBe(organizationId);
+    expect(new URL(link.url).origin).toBe('https://api.harbor.example');
+    expect(link.agency).toBeNull();
   });
 
   it('keeps the link on our app for a client contact who also holds a seat', async () => {

@@ -168,6 +168,26 @@ No Razorpay plans are created: Recurring Payments charges the catalog price in
 Webhook URL `/api/webhooks/razorpay`. The events read are payment.captured,
 payment.failed, order.paid, invoice.paid, invoice.expired and
 token.confirmed/rejected/paused/cancelled/cancellation_initiated/authenticated.
+Tick refund.processed and payment.dispute.* as well: they are recorded for
+support, not acted on.
+
+What the renewal job guarantees (audit, session 21):
+
+- A renewal is claimed (`SCHEDULED` to `CHARGING`) before Razorpay is asked to
+  charge it, and a charge whose answer never arrived is settled from the order's
+  own payments, never charged again blind. A debit still unanswered after a week
+  falls back to a payment link.
+- A second payment for a period already paid, or for a checkout link that was
+  closed because another was paid, is refunded in full automatically.
+- A renewal link left unpaid past the period end makes the subscription past
+  due, so the 7 day grace and the withdrawal follow as for a declined charge.
+- An upgrade applies at once only when the saved mandate is confirmed and its
+  limit covers the next renewal with the difference on it; otherwise it starts
+  at the period end. Cancelling, or the mandate becoming unusable, while that
+  difference is unpaid puts the plan back to the one the period was paid at.
+- A scheduled downgrade is checked against the smaller plan's limits again at
+  renewal and withdrawn (audited) if the workspace is over them.
+- No plan change is accepted while a renewal is being debited.
 Razorpay does not allow subscription.* and token.* on one webhook, and
 subscription.* is no longer read. refund.* and payment.dispute.* are
 acknowledged and not acted on (a refund is made from our own staff route).
@@ -457,8 +477,10 @@ limits.
   larger mandate; there is no separate "raise your maximum" step.
 - **A staff screen for refunds.** Today they are two API calls with the staff key.
 - **Refunds made outside the app** (Paddle's dashboard or Paddle's own buyer
-  support) are not read from the `adjustment.*` webhooks, so the app does not
-  end the subscription by itself.
+  support, the Razorpay dashboard, a lost dispute) are recorded against the
+  workspace's audit trail (`provider_refund_or_dispute`) and logged as an error
+  from the `adjustment.*`, `refund.*` and `payment.dispute.*` webhooks, but the
+  app does not end the subscription by itself: support decides.
 - **Trials.** Mooring is the free tier and is the real trial. A time limited
   trial on Admiralty would hand over the custom domain and SSO for nothing, and
   neither can be evaluated in a fortnight anyway.

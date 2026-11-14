@@ -1,3 +1,5 @@
+import { isIP } from 'node:net';
+
 /**
  * One answer to "may we open a connection to this address?".
  *
@@ -87,25 +89,117 @@ export function isPrivateOrReservedHost(hostname: string): boolean {
 
   const ipv4 = normaliseIpv4(host);
   if (ipv4) {
-    const [a, b] = ipv4;
-    if (
-      a === 0 ||
-      a === 10 ||
-      a === 127 ||
-      (a === 100 && b >= 64 && b <= 127) ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168)
-    ) {
-      return true;
-    }
+    return isReservedIpv4(ipv4);
   }
 
-  // fc00::/7 unique local, fe80::/10 link-local.
-  if (/^f[cd]/.test(host) || /^fe[89ab]/.test(host)) {
+  const ipv6 = ipv6Hextets(host);
+  if (ipv6) {
+    return isReservedIpv6(ipv6);
+  }
+
+  // fc00::/7 unique local, fe80::/10 link-local, written in a form the parser
+  // above did not take (a zone index, say).
+  if (/^f[cd][0-9a-f]{0,2}:/.test(host) || /^fe[89ab][0-9a-f]?:/.test(host)) {
     return true;
   }
 
+  return false;
+}
+
+function isReservedIpv4([a, b, c]: [number, number, number, number]): boolean {
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    // IETF protocol assignments, and the 6to4 relay anycast.
+    (a === 192 && b === 0 && c === 0) ||
+    (a === 192 && b === 88 && c === 99) ||
+    // Benchmarking, which networks also use internally.
+    (a === 198 && (b === 18 || b === 19)) ||
+    // Multicast, reserved and broadcast.
+    a >= 224
+  );
+}
+
+/**
+ * The eight 16-bit groups of an IPv6 literal, or null when it is not one.
+ *
+ * Read through the URL parser, which writes every IPv6 form the same way
+ * (`::ffff:127.0.0.1` and `::ffff:7f00:1` are one address), so the checks
+ * below see the address and not its spelling.
+ */
+function ipv6Hextets(host: string): number[] | null {
+  const bare = host.split('%')[0] ?? '';
+  if (!bare.includes(':') || isIP(bare) !== 6) {
+    return null;
+  }
+  let canonical: string;
+  try {
+    canonical = new URL(`http://[${bare}]/`).hostname.replace(/^\[|\]$/g, '');
+  } catch {
+    return null;
+  }
+  const [head = '', tail] = canonical.split('::');
+  const headGroups = head ? head.split(':') : [];
+  const tailGroups = tail ? tail.split(':') : [];
+  const missing = canonical.includes('::') ? 8 - headGroups.length - tailGroups.length : 0;
+  if (missing < 0) {
+    return null;
+  }
+  const groups = [...headGroups, ...Array.from({ length: missing }, () => '0'), ...tailGroups];
+  if (groups.length !== 8) {
+    return null;
+  }
+  const values = groups.map((group) => Number.parseInt(group, 16));
+  return values.every((value) => Number.isInteger(value) && value >= 0 && value <= 0xffff) ? values : null;
+}
+
+/**
+ * Loopback, unspecified, unique local, link-local, site-local, multicast,
+ * discard and Teredo, and any form that carries an IPv4 address inside it
+ * (mapped, compatible, NAT64, 6to4) when that IPv4 address is one we refuse.
+ *
+ * The embedded forms were the gap: `::ffff:10.0.0.5` is 10.0.0.5 on a
+ * dual-stack host, and a name with that AAAA record passed the check.
+ */
+function isReservedIpv6(h: number[]): boolean {
+  const [g0 = 0, g1 = 0, g2 = 0, g3 = 0, g4 = 0, g5 = 0, g6 = 0, g7 = 0] = h;
+  if ([g0, g1, g2, g3, g4, g5, g6].every((group) => group === 0) && (g7 === 0 || g7 === 1)) {
+    return true;
+  }
+  if ((g0 & 0xfe00) === 0xfc00 || (g0 & 0xffc0) === 0xfe80 || (g0 & 0xffc0) === 0xfec0 || (g0 & 0xff00) === 0xff00) {
+    return true;
+  }
+  if (g0 === 0x0100 && g1 === 0 && g2 === 0 && g3 === 0) {
+    return true;
+  }
+  if (g0 === 0x2001 && g1 === 0) {
+    return true;
+  }
+  if (g0 === 0x64 && g1 === 0xff9b && g2 === 1) {
+    return true;
+  }
+
+  const embedded = (high: number, low: number): [number, number, number, number] => [
+    high >> 8,
+    high & 255,
+    low >> 8,
+    low & 255,
+  ];
+  const mappedOrCompatible = [g0, g1, g2, g3, g4].every((group) => group === 0) && (g5 === 0xffff || g5 === 0);
+  if (mappedOrCompatible) {
+    return isReservedIpv4(embedded(g6, g7));
+  }
+  if (g0 === 0x64 && g1 === 0xff9b && [g2, g3, g4, g5].every((group) => group === 0)) {
+    return isReservedIpv4(embedded(g6, g7));
+  }
+  if (g0 === 0x2002) {
+    return isReservedIpv4(embedded(g1, g2));
+  }
   return false;
 }
 

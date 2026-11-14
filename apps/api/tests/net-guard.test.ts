@@ -57,6 +57,39 @@ describe('private and reserved address guard', () => {
     expect(isPrivateOrReservedHost('[fe80::1]')).toBe(true);
   });
 
+  it('refuses IPv6 forms that carry a private IPv4 address inside them', () => {
+    // A dual-stack host connects ::ffff:10.0.0.5 to 10.0.0.5, and the URL
+    // parser rewrites the dotted form to hex, so both spellings must refuse.
+    for (const host of [
+      '::ffff:127.0.0.1',
+      '::ffff:7f00:1',
+      '[::ffff:a9fe:a9fe]',
+      '::ffff:10.0.0.5',
+      '::10.0.0.5',
+      '64:ff9b::a00:5',
+      '64:ff9b::169.254.169.254',
+      '2002:a9fe:a9fe::1',
+      '2001:0:4136:e378::1',
+      'ff02::1',
+    ]) {
+      expect(isPrivateOrReservedHost(host), host).toBe(true);
+    }
+    // The same forms around a public address are just that address.
+    expect(isPrivateOrReservedHost('::ffff:8.8.8.8')).toBe(false);
+    expect(isPrivateOrReservedHost('64:ff9b::808:808')).toBe(false);
+  });
+
+  it('refuses multicast, reserved and benchmarking IPv4 ranges', () => {
+    for (const host of ['224.0.0.1', '239.255.255.250', '240.0.0.1', '255.255.255.255', '198.18.0.1', '192.0.0.8']) {
+      expect(isPrivateOrReservedHost(host), host).toBe(true);
+    }
+  });
+
+  it('does not refuse a public name that merely starts like a private IPv6 prefix', () => {
+    expect(isPrivateOrReservedHost('fdic.gov')).toBe(false);
+    expect(isPrivateOrReservedHost('fcm.googleapis.com')).toBe(false);
+  });
+
   /**
    * Stated as a limitation rather than a test, because it is the one thing this
    * function does not do and pretending otherwise would be worse than not having

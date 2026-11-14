@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
 import {
   SignatureVerificationError,
@@ -12,6 +13,7 @@ import { correctCheckoutQuantity } from './quantity.js';
 import { verifyRazorpaySignature } from './razorpay-client.js';
 import { applyChargeCaptured, applyChargeFailed, applyLinkExpired, applyTokenStatus } from './recurring.service.js';
 import { paddlePaidThrough, verifyPaddleSignature } from './paddle.provider.js';
+import { paddleAttributionMatches } from './paddle-attribution.js';
 
 function dateOrNull(value: string | null): Date | null {
   return value ? new Date(value) : null;
@@ -134,6 +136,9 @@ export async function handleRazorpayWebhook(input: {
 
   const type = razorpayEventMap[eventName];
   if (!type) {
+    if (/^(refund\.|payment\.dispute\.)/.test(eventName)) {
+      return recordProviderMoneyBack('RAZORPAY', eventName, payload);
+    }
     // Acknowledged but ignored. A provider adding an event is not an outage,
     // and returning an error would make it retry forever.
     return { accepted: false, duplicate: false, type: 'subscription.updated', organizationId: null, detail: 'Unmapped event.' };
@@ -312,7 +317,8 @@ async function handleRecurringRazorpayEvent(eventName: string, payload: Razorpay
  * also fires for a declined card inside a checkout the customer can still
  * retry, so it is acknowledged and not acted on. `transaction.failed` and
  * `subscription.expired`, which used to be mapped, are not Paddle events.
- * Refunds (`adjustment.*`) are handled by `handlePaddleAdjustment`.
+ * Refunds and chargebacks (`adjustment.*`) are recorded for review by
+ * `recordProviderMoneyBack`; they change no plan on their own.
  */
 const paddleEventMap: Record<string, BillingEventType> = {
   'subscription.created': 'subscription.activated',
@@ -359,6 +365,9 @@ export async function handlePaddleWebhook(input: {
   const payload = parseJson(input.rawBody) as PaddlePayload;
   const type = paddleEventMap[payload.event_type ?? ''];
   if (!type) {
+    if ((payload.event_type ?? '').startsWith('adjustment.')) {
+      return recordProviderMoneyBack('PADDLE', payload.event_type ?? 'adjustment', payload);
+    }
     return { accepted: false, duplicate: false, type: 'subscription.updated', organizationId: null, detail: 'Unmapped event.' };
   }
 
@@ -373,8 +382,11 @@ export async function handlePaddleWebhook(input: {
     return { accepted: false, duplicate: false, type, organizationId: null, detail: 'Transaction without a subscription.' };
   }
 
+  // The workspace named in custom_data is believed only when our server put
+  // it there: anyone can open a Paddle checkout with our public client token
+  // and write any id into custom_data (paddle-attribution.ts).
   const organizationId = await resolveOrganizationId('PADDLE', {
-    organizationId: customData.organizationId,
+    organizationId: await attributedPaddleWorkspace(customData, isTransaction ? (data.id ?? null) : (data.transaction_id ?? null)),
     subscriptionId,
   });
 
@@ -546,6 +558,98 @@ async function resolveOrganizationId(
   return null;
 }
 
+/**
+ * A refund or chargeback made at the provider, outside our refund route.
+ *
+ * These used to be acknowledged as unmapped and forgotten: a refund Paddle
+ * granted as merchant of record, one issued from the Razorpay dashboard, or a
+ * lost dispute left the plan in place (and, paying in rupees, the mandate
+ * charging the next renewal). Withdrawing a plan on a partial refund or an
+ * opened dispute would be wrong as often as right, so the event is recorded
+ * against the workspace and reported loudly, for support to decide.
+ */
+async function recordProviderMoneyBack(
+  provider: 'RAZORPAY' | 'PADDLE',
+  eventName: string,
+  payload: unknown,
+): Promise<WebhookOutcome> {
+  let organizationId: string | null = null;
+  const detail: Record<string, unknown> = { event: 'provider_refund_or_dispute', provider, providerEvent: eventName };
+  try {
+    if (provider === 'RAZORPAY') {
+      const body = payload as {
+        payload?: { refund?: { entity?: Record<string, unknown> }; dispute?: { entity?: Record<string, unknown> } };
+      };
+      const entity = body.payload?.refund?.entity ?? body.payload?.dispute?.entity ?? {};
+      const paymentId = typeof entity.payment_id === 'string' ? entity.payment_id : null;
+      detail.paymentId = paymentId;
+      detail.amountMinor = typeof entity.amount === 'number' ? entity.amount : null;
+      detail.status = typeof entity.status === 'string' ? entity.status : null;
+      if (paymentId) {
+        const charge = await prisma.billingCharge.findFirst({ where: { providerPaymentId: paymentId }, select: { organizationId: true } });
+        organizationId = charge?.organizationId ?? null;
+      }
+    } else {
+      const data = ((payload as { data?: Record<string, unknown> }).data ?? {}) as Record<string, unknown>;
+      const subscriptionId = typeof data.subscription_id === 'string' ? data.subscription_id : null;
+      detail.subscriptionId = subscriptionId;
+      detail.action = typeof data.action === 'string' ? data.action : null;
+      detail.status = typeof data.status === 'string' ? data.status : null;
+      detail.transactionId = typeof data.transaction_id === 'string' ? data.transaction_id : null;
+      if (subscriptionId) {
+        const row = await prisma.subscription.findFirst({
+          where: { provider: 'PADDLE', providerSubscriptionId: subscriptionId },
+          select: { organizationId: true },
+        });
+        organizationId = row?.organizationId ?? null;
+      }
+    }
+    if (organizationId) {
+      await prisma.auditLog.create({
+        data: { organizationId, action: 'SUBSCRIPTION_UPDATED', targetType: 'subscription', targetId: organizationId, detail: detail as Prisma.InputJsonValue },
+      });
+    }
+  } catch (error) {
+    console.error(`[billing] recording a ${provider} ${eventName} failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+  }
+  console.error(
+    `[billing] ${provider} ${eventName} for workspace ${organizationId ?? 'unknown'}: a refund or dispute made at the provider. The plan was not changed; review it in the provider dashboard.`,
+  );
+  return { accepted: false, duplicate: false, type: 'subscription.updated', organizationId, detail: 'Refund or dispute recorded for review.' };
+}
+
+/**
+ * The workspace a Paddle event's custom_data names, if we created that checkout.
+ *
+ * Proven by the attribution our server writes beside the id, or, for a
+ * checkout created before that existed, by the checkout's transaction being
+ * one our server started for that workspace. Anything else is ignored, and an
+ * event for a subscription we do not hold is then stored unattributed.
+ */
+async function attributedPaddleWorkspace(
+  customData: Record<string, string | undefined>,
+  transactionId: string | null,
+): Promise<string | null> {
+  const claimed = typeof customData.organizationId === 'string' ? customData.organizationId : null;
+  if (!claimed) {
+    return null;
+  }
+  if (paddleAttributionMatches(claimed, customData.attribution)) {
+    return claimed;
+  }
+  if (transactionId) {
+    const started = await prisma.auditLog.findFirst({
+      where: { organizationId: claimed, action: 'BILLING_CHECKOUT_STARTED', targetId: transactionId },
+      select: { id: true },
+    });
+    if (started) {
+      return claimed;
+    }
+  }
+  console.warn(`[billing] a Paddle event named workspace ${claimed} without proof that we created its checkout; not attributed.`);
+  return null;
+}
+
 function parseJson(raw: string): unknown {
   try {
     return JSON.parse(raw);
@@ -610,6 +714,8 @@ interface PaddlePayload {
     price_id?: string;
     customer_id?: string;
     subscription_id?: string;
+    /** On subscription.created: the transaction that created it. */
+    transaction_id?: string;
     custom_data?: Record<string, unknown>;
     items?: Array<{ quantity?: number; price_id?: string; price?: { id?: string } }>;
     scheduled_change?: { action?: string } | null;

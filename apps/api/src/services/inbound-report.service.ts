@@ -2,7 +2,13 @@ import { simpleParser } from 'mailparser';
 import { containsForensicParts, parseForensicReport, ForensicReportParseError } from './forensic-report-parser.service.js';
 import { ingestForensicReportByReportedDomain } from './forensic-report.service.js';
 import { ingestDmarcReportByPolicyDomain } from './report.service.js';
-import { looksLikeReportAttachment, ReportArchiveError, reportXmlFromAttachment } from './report/report-archive.js';
+import {
+  looksLikeReportAttachment,
+  newDecodeBudget,
+  ReportArchiveError,
+  reportXmlFromAttachment,
+  spendBudget,
+} from './report/report-archive.js';
 import { looksLikeTlsReportEmail } from './tls-report/detect.js';
 import { tlsReportJsonFromAttachment } from './tls-report/attachment.js';
 import { ingestTlsReportByPolicyDomain } from './tls-report/tls-report.service.js';
@@ -118,84 +124,98 @@ async function processForensicEmail(rawEmail: string, scope?: IngestScope): Prom
 
 async function processAggregateEmail(rawEmail: string, scope?: IngestScope): Promise<InboundEmailResult> {
   const parsedEmail = await simpleParser(rawEmail);
-  // Each candidate is either XML to ingest or the reason an attachment could
-  // not be read, which is reported per attachment rather than dropped.
-  const candidates: Array<{ xml: string } | { failure: string }> = [];
+  const results: InboundReportResult[] = [];
+  let candidateCount = 0;
+  // One allowance for the whole message: every attachment and every file in
+  // them draws on it (report-archive.ts, maxDecodedBytesPerEmail).
+  const budget = newDecodeBudget();
 
+  /**
+   * Each report is ingested as soon as it is decoded and then let go.
+   *
+   * All of them used to be decoded first and held in a list, so the memory a
+   * message could take was every report in it at once rather than the largest
+   * one. A failure is reported per attachment rather than dropped.
+   */
   for (const attachment of parsedEmail.attachments.slice(0, 20)) {
     if (!looksLikeReportAttachment(attachment.filename, attachment.contentType, attachment.content)) {
       continue;
     }
 
+    let decoded: string[];
     try {
-      for (const xml of await reportXmlFromAttachment(attachment.content)) {
-        candidates.push({ xml });
-      }
+      decoded = await reportXmlFromAttachment(attachment.content, budget);
     } catch (error) {
-      candidates.push({
-        failure:
+      candidateCount += 1;
+      results.push({
+        kind: 'aggregate',
+        status: 'failed',
+        message:
           error instanceof ReportArchiveError
             ? `${attachment.filename ?? 'The attachment'}: ${error.message}`
             : 'The report attachment could not be decoded.',
       });
+      if (budget.remaining === 0) {
+        break;
+      }
+      continue;
+    }
+
+    while (decoded.length > 0) {
+      const xml = decoded.shift() as string;
+      candidateCount += 1;
+      results.push(await ingestAggregateCandidate(xml, scope));
     }
   }
 
   const body = parsedEmail.text?.trim() ?? '';
-  if (!candidates.length && body.startsWith('<')) {
-    candidates.push({ xml: body });
+  if (candidateCount === 0 && body.startsWith('<')) {
+    candidateCount += 1;
+    results.push(await ingestAggregateCandidate(body, scope));
   }
 
-  const results: InboundReportResult[] = [];
-  for (const candidate of candidates) {
-    if ('failure' in candidate) {
-      results.push({ kind: 'aggregate', status: 'failed', message: candidate.failure });
-      continue;
-    }
-    const xml = candidate.xml;
+  return { candidateCount, kind: 'aggregate', results };
+}
 
-    try {
-      const outcome = await ingestDmarcReportByPolicyDomain(xml, scope);
-      if (outcome.status === 'created' || outcome.status === 'duplicate') {
-        results.push({
-          kind: 'aggregate',
-          status: outcome.status,
-          reportId: outcome.report.id,
-          reportDomain: outcome.report.policyDomain ?? undefined,
-        });
-      } else if (outcome.status === 'domain_not_found' || outcome.status === 'ambiguous_domain') {
-        results.push({
-          kind: 'aggregate',
-          status: 'rejected',
-          reportDomain: outcome.reportDomain,
-          message: `No unique verified workspace domain matched ${outcome.reportDomain}.`,
-        });
-      } else if (outcome.status === 'not_verified') {
-        results.push({ kind: 'aggregate', status: 'rejected', message: 'The matched domain is not verified.' });
-      } else if (outcome.status === 'domain_mismatch') {
-        results.push({
-          kind: 'aggregate',
-          status: 'rejected',
-          reportDomain: outcome.reportDomain,
-          message: 'The report domain did not match the selected domain.',
-        });
-      } else {
-        results.push({ kind: 'aggregate', status: 'rejected', message: 'The report could not be matched to a workspace domain.' });
-      }
-    } catch (error) {
-      results.push({
+/** One decoded aggregate report, ingested and described. */
+async function ingestAggregateCandidate(xml: string, scope?: IngestScope): Promise<InboundReportResult> {
+  try {
+    const outcome = await ingestDmarcReportByPolicyDomain(xml, scope);
+    if (outcome.status === 'created' || outcome.status === 'duplicate') {
+      return {
         kind: 'aggregate',
-        status: 'failed',
-        message: error instanceof Error ? error.message : 'The report could not be processed.',
-      });
+        status: outcome.status,
+        reportId: outcome.report.id,
+        reportDomain: outcome.report.policyDomain ?? undefined,
+      };
     }
+    if (outcome.status === 'domain_not_found' || outcome.status === 'ambiguous_domain') {
+      return {
+        kind: 'aggregate',
+        status: 'rejected',
+        reportDomain: outcome.reportDomain,
+        message: `No unique verified workspace domain matched ${outcome.reportDomain}.`,
+      };
+    }
+    if (outcome.status === 'not_verified') {
+      return { kind: 'aggregate', status: 'rejected', message: 'The matched domain is not verified.' };
+    }
+    if (outcome.status === 'domain_mismatch') {
+      return {
+        kind: 'aggregate',
+        status: 'rejected',
+        reportDomain: outcome.reportDomain,
+        message: 'The report domain did not match the selected domain.',
+      };
+    }
+    return { kind: 'aggregate', status: 'rejected', message: 'The report could not be matched to a workspace domain.' };
+  } catch (error) {
+    return {
+      kind: 'aggregate',
+      status: 'failed',
+      message: error instanceof Error ? error.message : 'The report could not be processed.',
+    };
   }
-
-  return {
-    candidateCount: candidates.length,
-    kind: 'aggregate',
-    results,
-  };
 }
 
 async function processTlsReportEmail(rawEmail: string, scope?: IngestScope): Promise<InboundEmailResult> {
@@ -210,9 +230,15 @@ async function processTlsReportEmail(rawEmail: string, scope?: IngestScope): Pro
     .slice(0, 20);
 
   const candidates: Array<{ json: string } | { failure: string }> = [];
+  // The same per-message allowance the aggregate path has. The fallback below
+  // used to read every attachment with no count limit, so 700 tiny gzips that
+  // each inflate to a few megabytes of spaces fitted in one 5 MB message.
+  const budget = newDecodeBudget();
   const decode = async (attachment: (typeof attachments)[number]): Promise<void> => {
     try {
-      candidates.push({ json: await tlsReportJsonFromAttachment(attachment.content) });
+      const json = await tlsReportJsonFromAttachment(attachment.content);
+      spendBudget(budget, json.length);
+      candidates.push({ json });
     } catch (error) {
       candidates.push({
         failure:
@@ -225,14 +251,18 @@ async function processTlsReportEmail(rawEmail: string, scope?: IngestScope): Pro
 
   if (qualified.length > 0) {
     for (const attachment of qualified) {
+      if (budget.remaining === 0) break;
       await decode(attachment);
     }
   } else {
-    // Nothing named itself a TLS report. Try every attachment by its bytes, but
-    // only keep the ones that actually decode.
-    for (const attachment of attachments) {
+    // Nothing named itself a TLS report. Try the first attachments by their
+    // bytes, but only keep the ones that actually decode.
+    for (const attachment of attachments.slice(0, 20)) {
+      if (budget.remaining === 0) break;
       try {
-        candidates.push({ json: await tlsReportJsonFromAttachment(attachment.content) });
+        const json = await tlsReportJsonFromAttachment(attachment.content);
+        spendBudget(budget, json.length);
+        candidates.push({ json });
       } catch {
         // Not a TLS report; the aggregate branch will consider it normally.
       }
@@ -308,7 +338,16 @@ export async function processInboundDmarcEmail(rawEmail: string, scope?: IngestS
       return tls;
     }
   }
-  if (containsForensicParts(rawEmail)) {
+  // The forensic reader refuses a message over its own limit by throwing. That
+  // is a reason not to read it as a failure report, not a reason to drop it:
+  // an aggregate report mail can be larger, and it has its own limits.
+  let forensic: boolean;
+  try {
+    forensic = containsForensicParts(rawEmail);
+  } catch {
+    forensic = false;
+  }
+  if (forensic) {
     return processForensicEmail(rawEmail, scope);
   }
 

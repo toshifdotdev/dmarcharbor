@@ -626,6 +626,30 @@ if (parsed.data.NODE_ENV === 'production' && !parsed.data.REPORT_INGEST_SECRET) 
   throw new Error('REPORT_INGEST_SECRET must be set in production.');
 }
 
+/**
+ * Shared secrets that authorise on their own, held to a length an online guess
+ * cannot reach. The staff key changes plans, issues refunds and removes a
+ * person's second factor; the ingest secret writes reports into any workspace.
+ * Either one set to a short word was accepted.
+ */
+if (parsed.data.NODE_ENV === 'production') {
+  for (const name of ['STAFF_API_KEY', 'REPORT_INGEST_SECRET'] as const) {
+    const value = parsed.data[name];
+    if (value && value.length < 32) {
+      throw new Error(`${name} must be at least 32 characters in production (openssl rand -base64 32).`);
+    }
+  }
+}
+
+/**
+ * Razorpay keys without the webhook secret take money and then never hear
+ * about it: every payment webhook is refused, so a paid checkout leaves the
+ * workspace on the free plan. Paddle's pair is already held together.
+ */
+if (parsed.data.RAZORPAY_KEY_ID && parsed.data.RAZORPAY_KEY_SECRET && !parsed.data.RAZORPAY_WEBHOOK_SECRET) {
+  throw new Error('RAZORPAY_WEBHOOK_SECRET must be set when the Razorpay keys are.');
+}
+
 if (parsed.data.NODE_ENV === 'production' && parsed.data.FORENSIC_PSEUDONYM_SECRET === developmentForensicSecret) {
   throw new Error('FORENSIC_PSEUDONYM_SECRET must be set in production.');
 }

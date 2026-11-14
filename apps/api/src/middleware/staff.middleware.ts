@@ -16,14 +16,11 @@ import { env } from '../config/env.js';
  * unset key leaves the operations closed rather than open, so a deployment that
  * never configured one cannot be written into by accident.
  */
-export function requireStaff(request: Request, response: Response, next: NextFunction): void {
+/** True when the request carries the staff key. False when it is unset or wrong. */
+export function presentsStaffKey(request: Request): boolean {
   const expected = env.STAFF_API_KEY;
-
   if (!expected) {
-    response.status(404).json({
-      error: { code: 'NOT_FOUND', message: 'No such endpoint.' },
-    });
-    return;
+    return false;
   }
 
   const header = request.get('authorization') ?? '';
@@ -36,7 +33,18 @@ export function requireStaff(request: Request, response: Response, next: NextFun
   // first. That leaks only the length of the key, which is not a secret worth
   // protecting, and a plain string compare would leak the position of the first
   // differing byte.
-  if (a.length !== b.length || !timingSafeEqual(a, b)) {
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+export function requireStaff(request: Request, response: Response, next: NextFunction): void {
+  if (!env.STAFF_API_KEY) {
+    response.status(404).json({
+      error: { code: 'NOT_FOUND', message: 'No such endpoint.' },
+    });
+    return;
+  }
+
+  if (!presentsStaffKey(request)) {
     response.status(403).json({
       error: { code: 'FORBIDDEN', message: 'This operation requires a staff credential.' },
     });

@@ -114,10 +114,10 @@ export async function patchPsaController(request: Request, response: Response): 
     });
     return;
   }
-  // Pause and resume stay open on every plan, so a downgraded workspace can
-  // stop its tickets. Changing the ticket settings is the paid feature, the
-  // same as connecting.
-  if (parsed.data.settings !== undefined) {
+  // Pausing stays open on every plan, so a downgraded workspace can stop its
+  // tickets. Resuming and changing the ticket settings are the paid feature,
+  // the same as connecting: resume used to be free on any plan.
+  if (parsed.data.settings !== undefined || parsed.data.enabled === true) {
     try {
       await assertFeature(String(response.locals.organizationId ?? request.params.organizationId), 'integrations.psa');
     } catch (error) {

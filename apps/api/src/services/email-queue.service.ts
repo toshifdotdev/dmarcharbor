@@ -152,7 +152,11 @@ export async function drainEmailQueue(limit = 25, now = new Date()): Promise<Ema
     }
 
     const claim = await prisma.emailDelivery.updateMany({
-      where: { id: due.id, state: 'PENDING' },
+      // The attempt count read above is part of the claim. The state stays
+      // PENDING through a send, so `state` alone let two drainers that read the
+      // same row both claim it and both send it; whichever writes second now
+      // finds the count already moved and takes nothing.
+      where: { id: due.id, state: 'PENDING', attempts: due.attempts, nextAttemptAt: { lte: now } },
       /**
        * The claim schedules its own retry, rather than leaving the row due now.
        *

@@ -323,6 +323,25 @@ export async function issueRefund(input: {
     throw new RefundError(eligibility.reason, 'REFUND_NOT_ELIGIBLE', 409);
   }
 
+  /**
+   * The override is for the published window, as its name says, not for every
+   * refusal. It used to skip them all, so a staff call with it set refunded a
+   * workspace a second time, or one with no purchase on record, and only the
+   * provider's own limits stood in the way.
+   */
+  if (input.overrideWindow && !eligibility.eligible) {
+    const refundedHere = await prisma.refundRecord.count({
+      where: { organizationId: input.organizationId, eligible: true },
+    });
+    if (refundedHere > 0 || !eligibility.firstChargeAt) {
+      const reason = refundedHere > 0
+        ? 'This workspace has already been refunded. A goodwill override covers the window, not a second refund.'
+        : eligibility.reason;
+      await record(false, 0, null, reason);
+      throw new RefundError(reason, 'REFUND_NOT_ELIGIBLE', 409);
+    }
+  }
+
   if (!subscription.providerSubscriptionId || subscription.provider === 'NONE') {
     await record(false, 0, null, 'This workspace has no provider subscription to refund against.');
     throw new RefundError('This workspace has no provider subscription to refund against.', 'NO_SUBSCRIPTION', 409);

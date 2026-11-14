@@ -49,7 +49,8 @@ const MESSAGES: Record<string, string> = {
     "That provider account is already connected to a different account here. Sign in with that account, or with email.",
   email_does_not_match: "That provider account uses a different email address from this account. Use the matching one.",
   signup_disabled: "New accounts cannot be created that way. Sign in with an existing account, or create one with email.",
-  unable_to_create_user: `The account could not be created. ${PROVIDER_RETRY}`,
+  unable_to_create_user:
+    "The account could not be created that way. If your provider does not confirm your email address, create the account with your email address and a password instead.",
   oauth_provider_not_found: "That way of signing in is not available. Sign in with email.",
   issuer_mismatch: `The provider's answer did not match the sign-in that was started. ${PROVIDER_RETRY}`,
   issuer_missing: `The provider's answer did not say who sent it. ${PROVIDER_RETRY}`,

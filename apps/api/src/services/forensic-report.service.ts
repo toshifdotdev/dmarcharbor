@@ -137,6 +137,10 @@ export async function ingestForensicReport(input: IngestForensicInput): Promise<
   });
 
   if (existing) {
+    // Only this domain's own copy is handed back (see report.service.ts).
+    if (existing.domainId !== domain.id) {
+      return { status: 'domain_mismatch', reportedDomain: parsed.reportedDomain };
+    }
     return { status: 'duplicate', forensic: existing };
   }
 
@@ -204,8 +208,11 @@ export async function ingestForensicReport(input: IngestForensicInput): Promise<
         where: { fingerprint: parsed.fingerprint },
         include: forensicInclude,
       });
-      if (duplicate) {
+      if (duplicate && duplicate.domainId === domain.id) {
         return { status: 'duplicate', forensic: duplicate };
+      }
+      if (duplicate) {
+        return { status: 'domain_mismatch', reportedDomain: parsed.reportedDomain };
       }
     }
 

@@ -2021,6 +2021,9 @@ export interface SsoConnectionRow {
    *  surfaced because a connection that silently refuses everyone looks like a
    *  broken feature. */
   allowedEmailDomains: string[];
+  /** Listed domains the workspace has not verified as a client domain; sign-in
+   *  from them is refused until it does. Absent on older API responses. */
+  unverifiedEmailDomains?: string[];
   createdAt: string;
   /**
    * Where this provider must send the user back to, for both protocols.

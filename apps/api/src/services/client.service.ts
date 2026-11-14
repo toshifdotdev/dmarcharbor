@@ -6,6 +6,7 @@ import { recordAuditEvent } from './audit.service.js';
 import { sendDomainVerificationEmail } from '../email/mailer.js';
 import { normalizeDomain } from '../scanner/domain.js';
 import { withQuota } from './entitlements/entitlement.service.js';
+import { releaseUnprovenClaims, unprovenClaimDays } from './domain-claims.js';
 import { resolveTxtFresh, systemDnsReader } from '../scanner/dns.js';
 import { isDmarcPolicyRecord } from '../scanner/dmarc-policy.js';
 import { readDmarcRecord } from '../scanner/dmarc-tags.js';
@@ -86,7 +87,7 @@ export class DomainNameTakenError extends Error {
 
   constructor(public readonly domainName: string) {
     super(
-      `${domainName} is already monitored by another workspace. Remove it there first, or ask them to release it.`,
+      `${domainName} is already monitored by another workspace. Remove it there first, or ask them to release it. A domain that is never verified there is released after ${unprovenClaimDays} days.`,
     );
     this.name = 'DomainNameTakenError';
   }
@@ -159,6 +160,10 @@ export async function createDomain(
    * domain.
    */
   return withQuota(organizationId, 'activeDomain', async (tx) => {
+    // Another workspace's claim that was never proved does not hold the name
+    // for ever (domain-claims.ts).
+    await releaseUnprovenClaims(tx, organizationId, [name]);
+
     const held = await tx.domain.findUnique({
       where: { name },
       select: { id: true, clientId: true, client: { select: { organizationId: true, name: true } } },
@@ -352,7 +357,13 @@ export async function applyOwnershipResult(
     check.reportAddressLookupStatus === 'missing' ||
     check.reportAddressLookupStatus === 'nxdomain';
 
-  if (check.lookupStatus === 'missing' && reportAddressProofAbsent && alreadyVerified) {
+  // NXDOMAIN is as definite as "no such record": it is what the verification
+  // name answers once its only TXT record is deleted, and what every name of an
+  // expired domain answers. Only 'missing' used to demote, so the usual way a
+  // proof goes away left the domain VERIFIED in the old workspace for good,
+  // still holding the name and still receiving the domain's reports.
+  const proofGone = check.lookupStatus === 'missing' || check.lookupStatus === 'nxdomain';
+  if (proofGone && reportAddressProofAbsent && alreadyVerified) {
     await prisma.domain.update({ where: { id: domain.id }, data: { status: 'FAILED', verifiedAt: null } });
 
     // A lapsed proof is urgent, because reports for this domain are now being

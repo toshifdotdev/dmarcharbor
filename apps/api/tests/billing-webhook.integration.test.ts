@@ -5,6 +5,7 @@ import { prisma } from '../src/database/prisma.js';
 import { app } from '../src/index.js';
 import { saveStoredPlan } from '../src/billing/plans.js';
 import { handlePaddleWebhook, handleRazorpayWebhook } from '../src/billing/webhook.service.js';
+import { paddleAttribution } from '../src/billing/paddle-attribution.js';
 import { runDunning } from '../src/billing/dunning.js';
 import { setOrganizationPlan } from '../src/services/entitlements/entitlement.service.js';
 import { planCatalog } from '../src/services/entitlements/plan-catalog.js';
@@ -251,8 +252,9 @@ describe('Paddle webhooks', () => {
     });
   });
 
-  function subscriptionEvent(organizationId: string, eventId: string) {
+  function subscriptionEvent(organizationId: string, eventId: string, attribution: string | null = paddleAttribution(organizationId)) {
     // Paddle Billing's shape: the price is on the items, the time is occurred_at.
+    // Our checkout writes the attribution beside the workspace id.
     return JSON.stringify({
       event_id: eventId,
       event_type: 'subscription.activated',
@@ -261,12 +263,27 @@ describe('Paddle webhooks', () => {
         id: `sub_${eventId}`,
         status: 'active',
         customer_id: `ctm_${eventId}`,
-        custom_data: { organizationId },
+        custom_data: attribution === null ? { organizationId } : { organizationId, attribution },
         items: [{ quantity: 1, price: { id: 'pri_harbor_monthly' } }],
         current_billing_period: { ends_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() },
       },
     });
   }
+
+  it('does not attribute a subscription to the workspace custom_data names without proof we created it', async () => {
+    // Paddle.js runs with our public client token, so anyone can open a
+    // checkout and write any workspace id into custom_data.
+    const { organizationId } = await setup();
+    const forged = subscriptionEvent(organizationId, 'evt_pdl_forged_id', null);
+    const outcome = await handlePaddleWebhook({ rawBody: forged, signature: sign(forged), secret: paddleSecret });
+    expect(outcome.accepted).toBe(false);
+    expect((await prisma.organization.findUniqueOrThrow({ where: { id: organizationId } })).plan).toBe('MOORING');
+
+    const wrong = subscriptionEvent(organizationId, 'evt_pdl_wrong_attr', paddleAttribution('someone-else'));
+    const second = await handlePaddleWebhook({ rawBody: wrong, signature: sign(wrong), secret: paddleSecret });
+    expect(second.accepted).toBe(false);
+    expect((await prisma.organization.findUniqueOrThrow({ where: { id: organizationId } })).plan).toBe('MOORING');
+  });
 
   it('grants the plan from the price on the items', async () => {
     const { organizationId } = await setup();

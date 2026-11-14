@@ -1,6 +1,7 @@
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { ApiError, listWorkspaces } from "./api";
+import { safeNext } from "./safe-next";
 import type { WorkspaceSummary } from "./types";
 
 /** The ambient workspace choice, shared by the fetch-and-pick helper below and
@@ -14,16 +15,7 @@ export async function pickActiveWorkspace(
   return workspaces.find((w) => w.id === wanted) ?? workspaces[0] ?? null;
 }
 
-/**
- * A return path is only ever a same-site path: "/domains/x", never
- * "//evil.example" or "https://…". Anything else is dropped, so the sign-in
- * page cannot be used as an open redirect.
- */
-export function safeNext(raw: string | null | undefined): string | null {
-  if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) return null;
-  if (raw.startsWith("/sign-in") || raw.startsWith("/sign-up")) return null;
-  return raw.length > 512 ? null : raw;
-}
+export { safeNext } from "./safe-next";
 
 /**
  * Where a signed-out request goes: the sign-in page, carrying the path it was

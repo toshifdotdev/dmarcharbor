@@ -386,6 +386,7 @@ behind it.
   checkout uses it (`docs/BILLING.md`, "Razorpay Recurring Payments").
 - Set `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` (live).
 - Webhook URL: `https://api.dmarcharbor.com/api/webhooks/razorpay`, with
+  refund.processed and payment.dispute.* (recorded for support), and
   payment.captured, payment.failed, order.paid, invoice.paid, invoice.expired
   and token.* (subscription.* cannot be ticked beside token.*, and is not read).
 - No plan sync is needed for INR: Recurring Payments charges catalog prices.
@@ -512,6 +513,19 @@ the point: only genuinely concurrent execution exposes a read-then-write.
 `testTimeout` in `apps/api/vitest.integration.config.ts` above 20 seconds.
 Several tests make real DNS and HTTP calls, so the suite is timing sensitive
 under load and has produced spurious failures on a busy machine.
+
+**Closed by the security audit (30 October 2026).** The lease stopped two
+instances running a job at once but not each running it once per interval;
+renewal charges were sent before they were claimed; the email claim let two
+drainers send one message; webhook and PSA claims were stamped with the pass
+start, so a slow pass looked stale to another instance; a lost lease went
+unnoticed; and shutdown exited with jobs mid pass, leaving their leases held for
+up to ten minutes. Each is fixed: renewals are claimed before the charge and
+settled from the order's payments, the email claim includes its attempt count,
+each delivery renews its claim before it is sent, a failed lease renewal is
+logged, shutdown answers 503 on `/api/ready`, stops the timers and waits for
+running jobs, domain re-verification runs on a due lease, and each mailbox is
+polled once per interval across the fleet.
 
 ### 10. Data residency and sub-processors
 
@@ -836,6 +850,66 @@ correctly in the Workflows chat.
 - [ ] A quick final pass over every session tested only by Argon.
 
 ---
+
+## Security audit (30 October 2026): what deployment still has to do
+
+The code findings are fixed on `feat/redesign`, and the changes a screen or an
+integration can notice are in `docs/API-CHANGELOG.md` (2026-12-20). These need
+the deployment, an account or a decision, not code.
+
+**Database and migrations**
+- [ ] `DATABASE_URL` for the app: Neon's pooled (`-pooler`) URL with
+      `?connection_limit=5&pool_timeout=20` (size it so instances × limit plus
+      the migrate step stays under the compute's connection limit).
+- [ ] Run `prisma migrate deploy` once per release, with the direct (non-pooled)
+      URL, in a release step. The image still migrates on boot; with several
+      instances booting at once they queue on Prisma's lock, so either keep one
+      instance on the first boot of a release or move the step out of `CMD`.
+- [ ] Neon point-in-time restore on, its retention written down, and one restore
+      tried on a branch before launch.
+
+**Several instances**
+- [ ] Web: build once per release, set `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` (the
+      same on every instance, from the vault) and a `deploymentId`, so a server
+      action posted to another instance during a rolling deploy still works.
+- [ ] Load balancer idle timeout at most 60 seconds (the API keeps idle
+      connections 65 seconds), and `/api/ready` as its health check: it answers
+      503 while an instance drains.
+- [ ] `TRUST_PROXY_HOPS` set to the real hop count of the path to the API, and
+      the same count on every path (direct, through the web app's `/api` proxy,
+      through Cloudflare for the hosted MTA-STS and BIMI hosts). A wrong count
+      either shares one rate-limit bucket or lets `X-Forwarded-For` be forged.
+- [ ] Clocks on NTP: leases and claims compare each instance's clock.
+- [ ] Monitoring reads scheduler staleness from more than one instance, or
+      accepts that `/api/ready` reports the jobs this instance ran.
+
+**Secrets and accounts**
+- [ ] `STAFF_API_KEY` and `REPORT_INGEST_SECRET` at least 32 random characters
+      (production refuses shorter ones). `RAZORPAY_WEBHOOK_SECRET` is required
+      whenever the Razorpay keys are set.
+- [ ] Razorpay webhook: add refund.processed and payment.dispute.*; Paddle
+      notifications already include adjustment.* (both are recorded for support).
+
+**Logo storage (with session 12, S3)**
+- [ ] Serve the bucket from its own registrable domain, not a subdomain of ours,
+      with a response headers policy of `Content-Security-Policy: default-src
+      'none'; style-src 'unsafe-inline'; sandbox` and `X-Content-Type-Options:
+      nosniff`. Uploads are already refused for active SVG content and stored
+      with `Content-Disposition: attachment`.
+- [ ] Bucket policy: private, no public writes; presigned uploads are checked
+      when confirmed, and an object that fails the check is deleted.
+
+**Decisions, not bugs**
+- [ ] Analysts hold `domain:update`, so they can publish DNS changes through a
+      Cloudflare connection and start or release hosted records. Keep, or add a
+      publish permission for owners and admins.
+- [ ] Hosted DMARC, SPF, BIMI and MTA-STS keep serving after a downgrade (the
+      panels say paused). Decide a grace period after which the release flows run.
+- [ ] A staff member who is also a client contact can sign in on an agency's
+      domain, and the agency controls that domain's DNS. Consider refusing
+      sign-in on an agency domain for accounts with a seat in another workspace.
+- [ ] Custom portal domains and sending domains are first come, first served
+      before verification, and a verified custom domain is not re-checked later.
 
 ## Backlog: decided, not now
 

@@ -1,38 +1,6 @@
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
-import { dpaAcceptanceFor } from '../services/dpa-acceptance.service.js';
-
-/**
- * Workspace id out of a request.
- *
- * `request.params` is not readable from an `app.use` middleware, because a
- * route's params are populated by the router that matches it and that runs
- * afterwards. `response.locals.organizationId` is set by
- * `requireOrganizationPermission` inside the router, and so is also later.
- *
- * The path is the one thing ahead of both, and it carries the same identifier the
- * router is about to match on, so matching it here gives the same workspace the
- * route would. Guarding on it also means the middleware is inert for every
- * non-workspace path, which is what keeps a single global mount safe.
- */
-const WORKSPACE_PATH = /\/workspaces\/([^/]+)/;
-
-/**
- * The route that reports the acceptance state has to answer, not refuse.
- *
- * It is what the interface reads to decide whether to show the banner, and it is
- * also how the version gap is discovered at all. Refusing it with the condition
- * it exists to report would hide the very thing that needs surfacing, and would
- * leave a client seeing a 409 with no way to learn which version is on file.
- */
-const ACCEPTANCE_PATH = /^\/workspaces\/[^/]+\/dpa-acceptance\/?$/;
-
-function workspaceIdFrom(request: Request): string | null {
-  if (ACCEPTANCE_PATH.test(request.path)) {
-    return null;
-  }
-  const matched = WORKSPACE_PATH.exec(request.path);
-  return matched?.[1] ?? null;
-}
+import { presentsStaffKey } from './staff.middleware.js';
+import { isDpaAcceptancePath, workspaceDpaRefusal, workspaceIdFromPath } from './workspace-gates.js';
 
 /**
  * Refuses a workspace operating under a superseded agreement.
@@ -44,43 +12,38 @@ function workspaceIdFrom(request: Request): string | null {
  * agreement's substance changes, every workspace that accepted the old one is
  * out of date, and they stayed out of date for good.
  *
- * Mounted once, ahead of the workspace routers, and it is safe there only
- * because it reads the path rather than `request.params` - which an `app.use`
- * cannot see - and because it is inert for any path without a workspace in it.
- * It refuses every workspace-scoped request whose acceptance names an older
- * version, writes included, which is what makes it enforcement rather than
- * reporting.
+ * This is the first layer, mounted once ahead of the workspace routers. It
+ * reads the workspace from the path (decoded, without regard to case, as the
+ * router matches it), because `request.params` is not visible to an `app.use`.
+ * The permission middleware repeats the check against the route's own decoded
+ * parameter, which also covers the routers mounted ahead of this one.
  *
- * `dpaRouter` is mounted after it so the route that records the acceptance stays
- * reachable. Mounting it before instead would refuse the one route able to clear
- * the very condition it is complaining about.
+ * Two kinds of request pass regardless: the route that records the new
+ * acceptance (refusing it would make the condition impossible to clear), and
+ * support's staff-key routes, which act on a workspace on its behalf (a refund
+ * must not wait for the customer to re-accept an agreement).
  */
 export function requireCurrentDpa(): RequestHandler {
   return async (request: Request, response: Response, next: NextFunction): Promise<void> => {
-    const organizationId = workspaceIdFrom(request);
+    if (isDpaAcceptancePath(request.path) || presentsStaffKey(request)) {
+      next();
+      return;
+    }
 
+    const organizationId = workspaceIdFromPath(request.path);
     if (!organizationId) {
       next();
       return;
     }
 
     try {
-      const acceptance = await dpaAcceptanceFor(organizationId);
-
-      if (acceptance.requiresReconsent) {
-        response.status(409).json({
-          error: {
-            code: 'DPA_RECONSENT_REQUIRED',
-            message: 'The Data Processing Agreement has changed and needs to be accepted again.',
-            dpaUrl: acceptance.dpaUrl,
-            acceptedVersion: acceptance.version,
-            currentVersion: acceptance.currentVersion,
-          },
-        });
+      const refusal = await workspaceDpaRefusal(organizationId);
+      if (refusal) {
+        response.status(refusal.status).json(refusal.body);
         return;
       }
 
-      response.locals.dpaAcceptance = acceptance;
+      response.locals.dpaCheckedFor = organizationId;
       next();
     } catch {
       // A workspace that cannot be read has no acceptance to check, and that is

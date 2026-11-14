@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { Request } from 'express';
 import rateLimit, { type Options, type RateLimitRequestHandler } from 'express-rate-limit';
 import { env } from '../config/env.js';
 import { rateLimitStoreFor } from './postgres-rate-limit-store.js';
@@ -251,6 +252,7 @@ export function createAuthRateLimiter(limit = env.AUTH_RATE_LIMIT_PER_MINUTE): R
  */
 export function createWorkspaceRateLimiter(
   limit = env.WORKSPACE_RATE_LIMIT_PER_MINUTE,
+  options: { skip?: (request: Request) => boolean } = {},
 ): RateLimitRequestHandler {
   return rateLimit({
     ...SHARED_LIMITER_OPTIONS,
@@ -258,6 +260,7 @@ export function createWorkspaceRateLimiter(
     limit,
     store: rateLimitStoreFor('workspace'),
     keyGenerator: clientKey,
+    ...(options.skip ? { skip: options.skip } : {}),
     message: {
       error: {
         code: 'RATE_LIMITED',

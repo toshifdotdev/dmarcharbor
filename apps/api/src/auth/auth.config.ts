@@ -6,7 +6,8 @@ import { env } from '../config/env.js';
 import { prisma } from '../database/prisma.js';
 import { recordAuditEvent } from '../services/audit.service.js';
 import { memberAllowance, memberLimitDetails, memberLimitMessage, resolveEntitlements } from '../services/entitlements/entitlement.service.js';
-import { accessControl, organizationRoles } from './permissions.js';
+import { accessControl, organizationRoles, staffRoleNames } from './permissions.js';
+import { workspaceMfaRefusal } from '../middleware/workspace-gates.js';
 import { queueAuthEmail, queueEmail } from '../email/email.service.js';
 import { oneLine } from '../email/sender.js';
 import {
@@ -63,6 +64,9 @@ const sessionPathsAllowedWithTwoFactor = new Set([
 interface SessionGuardContext {
   path?: string;
 }
+
+/** Better Auth's route templates for a sign-in through Google or Microsoft. */
+const socialSignInPaths = new Set(['/callback/:id', '/sign-in/social', '/oauth2/callback/:providerId']);
 
 interface SessionGuardSession {
   userId: string;
@@ -323,6 +327,87 @@ function ownershipMovesByTransfer(): APIError {
   });
 }
 
+/** True when every role named is one of ours (owner, admin, analyst, viewer). */
+function onlyStaffRoles(role: string | string[] | undefined | null): boolean {
+  const roles = (Array.isArray(role) ? role : String(role ?? '').split(','))
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return roles.length > 0 && roles.every((value) => (staffRoleNames as readonly string[]).includes(value));
+}
+
+function unknownRole(): APIError {
+  return new APIError('BAD_REQUEST', {
+    code: 'ROLE_NOT_ALLOWED',
+    message: 'A member is an admin, an analyst or a viewer. Client contacts are invited from the client, not as members.',
+  });
+}
+
+/**
+ * Organization endpoints a member uses before the workspace's two-step
+ * requirement can apply to them, or that act only on their own account.
+ */
+const ORGANIZATION_PATHS_WITHOUT_MFA = new Set([
+  '/organization/accept-invitation',
+  '/organization/reject-invitation',
+  '/organization/get-invitation',
+  '/organization/list-user-invitations',
+  '/organization/list',
+  '/organization/set-active',
+  '/organization/leave',
+  '/organization/check-slug',
+]);
+
+/**
+ * The workspace's "require two-step verification" setting, on Better Auth's
+ * own organization endpoints.
+ *
+ * The setting was enforced on our workspace routes only. Invitations, role
+ * changes, removals and workspace settings go through /api/auth/organization/*,
+ * which no gate covered, so a stolen admin password was enough to invite a
+ * second account as admin, accept it there and enrol a second factor on that
+ * account instead: a lasting seat in a workspace that requires two-step
+ * verification of everyone.
+ */
+async function assertOrganizationMfa(ctx: {
+  path?: string;
+  body?: unknown;
+  query?: unknown;
+}): Promise<void> {
+  const path = ctx.path ?? '';
+  if (!path.startsWith('/organization/') || ORGANIZATION_PATHS_WITHOUT_MFA.has(path)) {
+    return;
+  }
+  const session = await getSessionFromCtx(ctx as never).catch(() => null);
+  if (!session) {
+    return;
+  }
+  const body = (ctx.body ?? {}) as { organizationId?: unknown; invitationId?: unknown };
+  const query = (ctx.query ?? {}) as { organizationId?: unknown };
+  let organizationId =
+    typeof body.organizationId === 'string'
+      ? body.organizationId
+      : typeof query.organizationId === 'string'
+        ? query.organizationId
+        : ((session.session as { activeOrganizationId?: string | null }).activeOrganizationId ?? null);
+  if (path === '/organization/cancel-invitation' && typeof body.invitationId === 'string') {
+    const invitation = await prisma.invitation.findUnique({
+      where: { id: body.invitationId },
+      select: { organizationId: true },
+    });
+    organizationId = invitation?.organizationId ?? organizationId;
+  }
+  if (!organizationId) {
+    return;
+  }
+  const refusal = await workspaceMfaRefusal(organizationId, session as never);
+  if (refusal) {
+    throw new APIError('FORBIDDEN', {
+      code: 'MFA_REQUIRED',
+      message: String(refusal.body.error.message ?? 'This workspace requires two-step verification.'),
+    });
+  }
+}
+
 /**
  * A wrong password for an address (sign-in-brake.ts). Counted for any address;
  * recorded and reported only when an account has it, so an address nobody
@@ -440,12 +525,19 @@ export const auth = betterAuth({
      * Everyone else gets the message as before.
      */
     sendResetPassword: async ({ user, url }) => {
-      const link = await agencyAuthLink(url, user);
-      queueAuthEmail({
-        to: user.email,
-        ...passwordResetEmail({ url: link.url, agency: authEmailAgency(link) }),
-        ...(link.from ? { from: link.from } : {}),
-        ...(link.replyTo ? { replyTo: link.replyTo } : {}),
+      // Not awaited. Better Auth calls this only when the address has an
+      // account and answers when it returns, so the time the agency lookups
+      // took told a caller which addresses have accounts.
+      void (async () => {
+        const link = await agencyAuthLink(url, user);
+        queueAuthEmail({
+          to: user.email,
+          ...passwordResetEmail({ url: link.url, agency: authEmailAgency(link) }),
+          ...(link.from ? { from: link.from } : {}),
+          ...(link.replyTo ? { replyTo: link.replyTo } : {}),
+        });
+      })().catch((error: unknown) => {
+        console.error('[auth] queueing a password reset failed:', error instanceof Error ? error.message : error);
       });
     },
     /**
@@ -479,12 +571,17 @@ export const auth = betterAuth({
     expiresIn: 60 * 60 * 24,
     /** Same rule as the password reset: the agency's name and domain when it started there. */
     sendVerificationEmail: async ({ user, url }) => {
-      const link = await agencyAuthLink(url, user);
-      queueAuthEmail({
-        to: user.email,
-        ...emailVerificationEmail({ url: link.url, agency: authEmailAgency(link) }),
-        ...(link.from ? { from: link.from } : {}),
-        ...(link.replyTo ? { replyTo: link.replyTo } : {}),
+      // Not awaited, for the same reason as the reset above.
+      void (async () => {
+        const link = await agencyAuthLink(url, user);
+        queueAuthEmail({
+          to: user.email,
+          ...emailVerificationEmail({ url: link.url, agency: authEmailAgency(link) }),
+          ...(link.from ? { from: link.from } : {}),
+          ...(link.replyTo ? { replyTo: link.replyTo } : {}),
+        });
+      })().catch((error: unknown) => {
+        console.error('[auth] queueing a verification email failed:', error instanceof Error ? error.message : error);
       });
     },
   },
@@ -497,6 +594,31 @@ export const auth = betterAuth({
     },
   },
   databaseHooks: {
+    user: {
+      create: {
+        /**
+         * No account is created from a social sign-in the provider did not
+         * vouch for.
+         *
+         * Better Auth creates the user and links the provider account in one
+         * step, and only then withholds the session until the address is
+         * verified. So anyone whose Microsoft tenant asserts victim@corp.example
+         * (or whose Google account has an unverified address) left their own
+         * provider identity linked to an account for that address. Once the
+         * real owner verified it, through the verification mail or a password
+         * reset, the attacker's provider sign-in opened the owner's account.
+         * Refused here, before the row exists; the person can create the
+         * account with email and a password instead.
+         */
+        before: async (user, context) => {
+          const path = (context as { path?: string } | null | undefined)?.path ?? '';
+          if (socialSignInPaths.has(path) && (user as { emailVerified?: boolean }).emailVerified !== true) {
+            return false;
+          }
+          return undefined;
+        },
+      },
+    },
     session: {
       create: {
         before: (session, context) =>
@@ -514,6 +636,8 @@ export const auth = betterAuth({
   },
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
+      await assertOrganizationMfa(ctx);
+
       /**
        * The per-account brake (sign-in-brake.ts): refused before the password
        * is checked, so a paused address answers the same whether or not the
@@ -700,6 +824,9 @@ export const auth = betterAuth({
           if (hasOwnerRole(invitation.role)) {
             throw ownershipMovesByTransfer();
           }
+          if (!onlyStaffRoles(invitation.role)) {
+            throw unknownRole();
+          }
           const allowance = await memberAllowance(organization.id);
           if (allowance.members + allowance.pending >= allowance.limit) {
             throw new APIError('PAYMENT_REQUIRED', {
@@ -721,6 +848,23 @@ export const auth = betterAuth({
          */
         beforeUpdateMemberRole: async ({ member, newRole }) => {
           if (hasOwnerRole(newRole) || hasOwnerRole(member.role)) {
+            throw ownershipMovesByTransfer();
+          }
+          if (!onlyStaffRoles(newRole)) {
+            throw unknownRole();
+          }
+        },
+        // Every way a member row is written by the plugin, held to the same
+        // roles. The workspace's creator arrives here as owner, which is ours.
+        beforeAddMember: async ({ member }) => {
+          if (!onlyStaffRoles(member.role)) {
+            throw unknownRole();
+          }
+        },
+        // The plugin already refuses removing the last owner. Ownership moves
+        // only by transfer, so the owner is never removed at all.
+        beforeRemoveMember: async ({ member }) => {
+          if (hasOwnerRole(member.role)) {
             throw ownershipMovesByTransfer();
           }
         },

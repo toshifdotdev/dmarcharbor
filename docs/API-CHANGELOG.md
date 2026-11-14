@@ -254,6 +254,69 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-12-20 — Security audit: isolation, request forgery and billing
+
+Mostly browser routes under `/api`. On `/api/v1`, only the domain-name rule below
+and the report caps change anything an integration can see.
+
+### Changes an integration might notice
+
+- **Cross-site requests are refused.** A state-changing request that carries the
+  session cookie and an `Origin` header must come from the web app or a verified
+  agency domain; anything else answers 403 `ORIGIN_REFUSED`. `/api/auth/*`,
+  `/api/v1/*`, the payment webhooks, the report ingest and the SAML consumer are
+  exempt (each has its own credential). Form-encoded bodies are parsed for the
+  SAML consumer only.
+- **The two-step and DPA requirements hold on every spelling of a path.** The
+  workspace id is decoded and matched without regard to case, and checked again
+  on the route's own parameter, so `/api/Workspaces/{id}` or a percent-encoded id
+  answers 403 `MFA_REQUIRED` like the plain path. Better Auth's
+  `/api/auth/organization/*` endpoints (invite, role change, removal) are held to
+  the same requirement.
+- **There is no `portal` member role.** Invitations, role changes and added
+  members accept owner (by transfer only), admin, analyst and viewer; client
+  contacts are portal grants. The owner cannot be removed.
+- **Single sign-on admits an address only at an email domain the workspace has
+  verified** as a client domain (or a parent of one): 403
+  `SSO_DOMAIN_NOT_VERIFIED` otherwise. `GET /api/workspaces/{id}/sso-connections`
+  adds `unverifiedEmailDomains`.
+- **A social sign-up whose provider does not vouch for the address is refused**
+  (`unable_to_create_user`); the account can be created with email and a
+  password.
+- **A domain name held by another workspace and never verified is released after
+  14 days** to the next workspace that adds it (`POST .../domains`, bulk imports
+  and `POST /api/v1/domains`). The losing workspace gets a `DOMAIN_DELETED` audit
+  row. The refusal before then says so.
+- **A verified domain whose proof name answers NXDOMAIN is demoted** to `FAILED`,
+  as a missing record already was.
+- **Billing:** `PATCH .../billing/currency` needs `billing: update` (the owner);
+  `GET .../billing/plan-sync` needs the staff key; checkout answers 409
+  `PAYMENT_DUE` while a renewal waits on payment; a plan change answers 409
+  `RENEWAL_IN_PROGRESS` while a rupee renewal is being debited; `PATCH .../psa`
+  with `enabled: true` needs the PSA feature, as connecting does.
+- **`GET /api/branding/host` for an unverified host** answers
+  `{ branded: false, customDomainVerified: false }` and nothing that names the
+  agency. A custom domain that is one of ours, an `mta-sts.` host or a name with
+  an underscore label is refused with 400 `CUSTOM_DOMAIN_RESERVED`.
+- **Reports:** a report with more than 50,000 records is refused, a field longer
+  than 1,024 characters is cut to that length, and a record or forensic report
+  whose source IP is not an IP address is refused. One email may decompress to 64 MB in total; a ZIP whose entries
+  overlap is refused; at most 10 files are read from one ZIP. Mailbox polls read
+  at most 500 messages, each up to 15 MB.
+- **Logos:** an SVG with script, event handlers, embedded documents or links
+  elsewhere is refused (400 `LOGO_SVG_UNSAFE`); an image over 4,096 pixels on a
+  side is refused (`LOGO_TOO_LARGE`); a presigned upload is checked the same way
+  when it is confirmed.
+
+### Additive changes
+
+- `GET /api/ready` answers 503 `{ status: "draining" }` once the instance is
+  shutting down.
+- Refunds and disputes made at the provider (`adjustment.*`, `refund.*`,
+  `payment.dispute.*`) are recorded in the workspace's audit trail as
+  `provider_refund_or_dispute`. The plan is not changed by them.
+- Notifications of a workspace the person has left are no longer listed.
+
 ## 2026-12-19 — Rupee billing on Razorpay Recurring Payments
 
 Rupee subscriptions move from Razorpay Subscriptions to Recurring Payments: we

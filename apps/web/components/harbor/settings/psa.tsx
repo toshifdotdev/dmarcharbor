@@ -35,6 +35,7 @@
 import { useEffect, useState } from "react";
 import { clsx } from "clsx";
 import { instantLabel } from "@/lib/instant";
+import { absoluteHttpUrl } from "@/lib/white-label";
 import type {
   PsaCompany,
   PsaJobView,
@@ -869,8 +870,9 @@ export function PsaBoard({
                             {job.lastError ? <span className="mt-0.5 block break-words text-meta text-fail">{job.lastError}</span> : null}
                           </Td>
                           <Td align="right" className="whitespace-nowrap text-meta">
-                            {job.ticket?.url ? (
-                              <a href={job.ticket.url} className="link" target="_blank" rel="noreferrer noopener" data-testid={`psa-ticket-${job.id}`}>
+                            {/* The URL comes from the PSA's own answer, so only an http(s) one becomes a link. */}
+                            {absoluteHttpUrl(job.ticket?.url) ? (
+                              <a href={absoluteHttpUrl(job.ticket?.url) ?? undefined} className="link" target="_blank" rel="noreferrer noopener" data-testid={`psa-ticket-${job.id}`}>
                                 Open the ticket
                               </a>
                             ) : null}

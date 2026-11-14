@@ -54,23 +54,22 @@ export const viewer = accessControl.newRole({
 });
 
 /**
- * A client contact, not agency staff.
+ * Staff roles only.
  *
- * This role can read reports and nothing else. It has no forensic access, so it
- * cannot see recipient data, no billing access, and no member or domain
- * management. The ClientPortalAccess records are what decide which clients
- * they see, and this role is what stops them reaching anything outside that.
+ * Client contacts are not members. They hold ClientPortalAccess grants, which
+ * the portal routes read and scope to the granted clients. A `portal` member
+ * role used to be registered here with client, domain and report read across
+ * the whole workspace: nothing created it, but an owner or admin could assign
+ * it through invite-member or update-member-role, and the person then read
+ * every client, every domain and every contact's address on the staff routes.
+ * Unregistered, the organization plugin refuses it as an unknown role.
  */
-export const portal = accessControl.newRole({
-  client: ['read'],
-  domain: ['read'],
-  report: ['read'],
-});
-
 export const organizationRoles = {
   owner,
   admin,
   analyst,
   viewer,
-  portal,
 };
+
+/** Every role a member may hold. Anything else in a member row is refused. */
+export const staffRoleNames = ['owner', 'admin', 'analyst', 'viewer'] as const;

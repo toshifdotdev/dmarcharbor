@@ -38,10 +38,13 @@ billingRouter.get(
   billingCurrencyController,
 );
 
+// The currency decides which provider and price the next checkout uses, so it
+// is the owner's, like every other billing change (it was organization:update,
+// which admins hold).
 billingRouter.patch(
   '/workspaces/:organizationId/billing/currency',
   requireSession,
-  requireOrganizationPermission('organization', 'update'),
+  requireOrganizationPermission('billing', 'update'),
   setBillingCurrencyController,
 );
 
@@ -104,10 +107,12 @@ billingRouter.post(
  */
 billingRouter.post('/billing/reconcile', requireStaff, reconcileController);
 
-/** Operator only: reports which provider plans still need creating. */
+/**
+ * Operator only: reports which provider plans still need creating. It was open
+ * to every workspace owner, who learned the deployment's provider setup from it.
+ */
 billingRouter.get(
   '/workspaces/:organizationId/billing/plan-sync',
-  requireSession,
-  requireOrganizationPermission('billing', 'update'),
+  requireStaff,
   planSyncStatusController,
 );

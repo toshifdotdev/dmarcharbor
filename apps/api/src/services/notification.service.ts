@@ -63,6 +63,7 @@ export async function listNotifications(
     where: {
       userId,
       readAt: options.unreadOnly ? null : undefined,
+      ...stillAMember(userId),
     },
     select: {
       id: true,
@@ -94,7 +95,21 @@ export async function listNotifications(
 }
 
 export async function countUnreadNotifications(userId: string): Promise<number> {
-  return prisma.notification.count({ where: { userId, readAt: null } });
+  return prisma.notification.count({ where: { userId, readAt: null, ...stillAMember(userId) } });
+}
+
+/**
+ * A workspace's notifications only while the person is still in it.
+ *
+ * They are kept per person and were listed by person alone, so someone removed
+ * from a workspace went on reading its old alerts (domain names, failures,
+ * links) from their own inbox. Account notifications, which belong to no
+ * workspace, stay.
+ */
+function stillAMember(userId: string) {
+  return {
+    OR: [{ organizationId: null }, { organization: { members: { some: { userId } } } }],
+  };
 }
 
 export async function markNotificationRead(userId: string, notificationId: string): Promise<'read' | 'not_found' | 'already_read'> {

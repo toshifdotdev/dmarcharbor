@@ -331,6 +331,17 @@ describe('two-step verification', () => {
     expect(clients.body.error.setupUrl).toBe('/account/security');
     expect(clients.body.error.workspaceName).toContain('Gate Agency');
 
+    // Spellings the router accepts must not skip the requirement: the path is
+    // matched without regard to case and the id is decoded before the route
+    // sees it, so a gate reading the raw path used to let both through.
+    const upper = await member.agent.get(`/api/Workspaces/${organizationId}/clients`);
+    expect(upper.status).toBe(403);
+    expect(upper.body.error.code).toBe('MFA_REQUIRED');
+    const encodedId = `%${organizationId.charCodeAt(0).toString(16)}${organizationId.slice(1)}`;
+    const encoded = await member.agent.get(`/api/workspaces/${encodedId}/clients`);
+    expect(encoded.status).toBe(403);
+    expect(encoded.body.error.code).toBe('MFA_REQUIRED');
+
     const beforeDpa = await member.agent.get(`/api/workspaces/${organizationId}/report-shares`);
     expect(beforeDpa.status).toBe(403);
     expect(beforeDpa.body.error.code).toBe('MFA_REQUIRED');
@@ -339,8 +350,14 @@ describe('two-step verification', () => {
     expect((await member.agent.get('/api/workspaces')).status).toBe(200);
     expect((await member.agent.get('/api/auth/get-session')).status).toBe(200);
 
+    // A member row naming the old 'portal' role is not a staff member: client
+    // contacts hold portal grants, not seats, and the role is no longer
+    // registered, so it reaches no staff route at all (not even to be asked
+    // for a second factor).
     const portal = await addMember(organizationId, 'portal');
-    expect((await portal.agent.get(`/api/workspaces/${organizationId}/clients`)).status).toBe(200);
+    const portalClients = await portal.agent.get(`/api/workspaces/${organizationId}/clients`);
+    expect(portalClients.status).toBe(403);
+    expect(portalClients.body.error.code).not.toBe('MFA_REQUIRED');
 
     const ssoMember = await addMember(organizationId, 'viewer');
     const sso = await createSessionForUser(ssoMember.userId, {});

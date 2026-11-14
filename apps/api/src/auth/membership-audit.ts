@@ -38,8 +38,14 @@ const previousRoles = new WeakMap<object, string>();
 export async function rememberPreviousRole(body: unknown): Promise<void> {
   if (!body || typeof body !== 'object') return;
   const memberId = (body as { memberId?: unknown }).memberId;
+  const organizationId = (body as { organizationId?: unknown }).organizationId;
   if (typeof memberId !== 'string' || memberId === '') return;
-  const member = await prisma.member.findUnique({ where: { id: memberId }, select: { role: true } });
+  // Scoped to the workspace the request names when it names one, so a member
+  // id from another workspace is never even read.
+  const member = await prisma.member.findFirst({
+    where: { id: memberId, ...(typeof organizationId === 'string' && organizationId ? { organizationId } : {}) },
+    select: { role: true },
+  });
   if (member) previousRoles.set(body, member.role);
 }
 

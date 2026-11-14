@@ -104,6 +104,26 @@ describe('reading a report out of an attachment', () => {
     await expect(reportXmlFromAttachment(bomb)).rejects.toThrow(/decompresses to more than/);
   }, 60_000);
 
+  it('refuses a ZIP whose entries point at the same data', async () => {
+    // One deflate stream read by every entry is how a few kilobytes become
+    // gigabytes while each entry passes its own checks.
+    const zip = buildZip([
+      { name: 'a.xml', content: XML },
+      { name: 'b.xml', content: XML },
+    ]);
+    const signature = Buffer.from([0x50, 0x4b, 0x01, 0x02]);
+    const first = zip.indexOf(signature);
+    const second = zip.indexOf(signature, first + 4);
+    zip.writeUInt32LE(zip.readUInt32LE(first + 42), second + 42);
+    await expect(reportXmlFromAttachment(zip)).rejects.toThrow(/overlap/);
+  });
+
+  it('stops when one email has decompressed more than its total allowance', async () => {
+    const budget = { remaining: XML.length + 10 };
+    expect(await reportXmlFromAttachment(Buffer.from(XML), budget)).toEqual([XML]);
+    await expect(reportXmlFromAttachment(gzipSync(XML), budget)).rejects.toThrow(/in total/);
+  });
+
   it('stops a ZIP bomb at the size limit, whatever the directory claims', async () => {
     const zip = buildZip([{ name: 'r.xml', content: Buffer.alloc(maxReportXmlBytes + 1024, 0x20) }]);
     // Lie in both size fields so only the inflate limit stands in the way.

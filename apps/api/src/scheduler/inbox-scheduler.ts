@@ -74,14 +74,18 @@ export async function runInboxPollOnce(): Promise<{ polled: number; accepted: nu
       }
 
       try {
-        const outcome = await pollInbox(inbox.organizationId);
+        // Only a mailbox not polled within the interval: every instance runs
+        // this pass, and each would otherwise log in to every mailbox.
+        const outcome = await pollInbox(inbox.organizationId, {
+          notPolledSince: new Date(Date.now() - Math.max(env.REPORT_INBOX_POLL_INTERVAL_MINUTES, 5) * 60 * 1000 * 0.9),
+        });
         summary.polled += 1;
         summary.accepted += outcome.accepted;
         summary.duplicates += outcome.duplicates;
       } catch (error) {
         summary.failed += 1;
         const detail = error instanceof Error ? error.message : 'Unknown IMAP failure';
-        await recordInboxFailure(inbox.organizationId, detail).catch(() => undefined);
+        await recordInboxFailure(inbox.organizationId, error).catch(() => undefined);
         console.error(`[inbox] poll failed for workspace ${inbox.organizationId}: ${detail}`);
       }
     }

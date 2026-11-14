@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isIP } from 'node:net';
 import { normalizeDomain } from '../scanner/domain.js';
 import { normalizeAddress, pseudonymize, pseudonymizeAddress } from './privacy.service.js';
 
@@ -66,17 +67,36 @@ export class ForensicReportParseError extends Error {
   }
 }
 
+/**
+ * Limits on what one header or field can grow to while lines are folded in.
+ *
+ * Folding rebuilt the whole value for every continuation line, so a part made
+ * of a quarter of a megabyte of folded lines cost time in the square of its
+ * length, before any domain had been matched. Nothing we keep from a report
+ * needs more than this, and lines past the cap are simply not appended.
+ */
+const maxFieldValueLength = 4096;
+const maxLinesPerBlock = 4000;
+
+function foldInto(previous: string | undefined, line: string): string {
+  const base = previous ?? '';
+  if (base.length >= maxFieldValueLength) {
+    return base;
+  }
+  return `${base} ${line.trim()}`.trim().slice(0, maxFieldValueLength);
+}
+
 function parseHeaderBlock(block: string): Record<string, string> {
   const headers: Record<string, string> = {};
   let currentKey: string | undefined;
 
-  for (const line of block.split(/\r?\n/)) {
+  for (const line of block.split(/\r?\n/, maxLinesPerBlock)) {
     if (!line.trim()) {
       continue;
     }
 
     if (/^[ \t]/.test(line) && currentKey) {
-      headers[currentKey] = `${headers[currentKey]} ${line.trim()}`.trim();
+      headers[currentKey] = foldInto(headers[currentKey], line);
       continue;
     }
 
@@ -86,7 +106,7 @@ function parseHeaderBlock(block: string): Record<string, string> {
     }
 
     currentKey = line.slice(0, separator).trim().toLowerCase();
-    headers[currentKey] = line.slice(separator + 1).trim();
+    headers[currentKey] = line.slice(separator + 1).trim().slice(0, maxFieldValueLength);
   }
 
   return headers;
@@ -228,19 +248,23 @@ function collectParts(raw: string, depth = 0, counter = { count: 0 }): MimePart[
   ];
 }
 
+/** Values kept per field name: a report repeats a few (recipients), never thousands. */
+const maxValuesPerField = 100;
+
 function parseFieldBlocks(text: string): Map<string, string[]> {
   const fields = new Map<string, string[]>();
   let currentKey: string | undefined;
 
-  for (const line of text.split(/\r?\n/)) {
+  for (const line of text.split(/\r?\n/, maxLinesPerBlock)) {
     if (!line.trim()) {
       continue;
     }
 
     if (/^[ \t]/.test(line) && currentKey) {
-      const existing = fields.get(currentKey) ?? [];
-      existing[existing.length - 1] = `${existing[existing.length - 1]} ${line.trim()}`.trim();
-      fields.set(currentKey, existing);
+      const existing = fields.get(currentKey);
+      if (existing && existing.length > 0) {
+        existing[existing.length - 1] = foldInto(existing[existing.length - 1], line);
+      }
       continue;
     }
 
@@ -250,8 +274,15 @@ function parseFieldBlocks(text: string): Map<string, string[]> {
     }
 
     currentKey = line.slice(0, separator).trim().toLowerCase();
-    const value = line.slice(separator + 1).trim();
-    fields.set(currentKey, [...(fields.get(currentKey) ?? []), value]);
+    const value = line.slice(separator + 1).trim().slice(0, maxFieldValueLength);
+    // Appended in place. Copying the whole list for every repeated name made a
+    // part of 87,000 `a:` lines cost billions of element copies.
+    const existing = fields.get(currentKey);
+    if (existing) {
+      if (existing.length < maxValuesPerField) existing.push(value);
+    } else {
+      fields.set(currentKey, [value]);
+    }
   }
 
   return fields;
@@ -481,10 +512,14 @@ export function parseForensicReport(rawEmail: string): ParsedForensicReport {
     firstField(primaryRecipient, 'source-ip') ??
     '';
   const [sourceIpValue, sourcePortValue] = sourceIpRaw.trim().split(/\s+/);
-  const sourceIp = sourceIpValue ?? '';
+  const sourceIp = (sourceIpValue ?? '').replace(/^\[|\]$/g, '');
 
   if (!sourceIp) {
     throw new ForensicReportParseError('The report is missing the source IP address.');
+  }
+  // Stored, grouped by and shown as an address, so it must be one.
+  if (isIP(sourceIp) === 0) {
+    throw new ForensicReportParseError('The report source IP is not an IP address.');
   }
 
   const authResults = parseAuthenticationResults(allFields(feedback, 'authentication-results'));
@@ -556,20 +591,22 @@ export function parseForensicReport(rawEmail: string): ParsedForensicReport {
     sourceIp,
     sourcePort: sourcePortValue && Number.isFinite(Number(sourcePortValue)) ? Number(sourcePortValue) : undefined,
     disposition: dispositionFromAction(deliveryAction),
-    deliveryAction: deliveryAction?.trim().toLowerCase(),
-    deliveryStatus: firstField(primaryRecipient, 'status'),
+    deliveryAction: deliveryAction ? truncate(deliveryAction.trim().toLowerCase(), 40) : undefined,
+    deliveryStatus: truncate(firstField(primaryRecipient, 'status') ?? '', 40) || undefined,
     dkimResult,
     spfResult,
     authResults,
-    reportingMta: stripTypePrefix(firstField(feedback, 'reporting-mta', 'reporting-mta-type') ?? '') || undefined,
-    dsnGateway: firstField(feedback, 'dsn-gateway'),
-    remoteMta: stripTypePrefix(
-      firstField(primaryRecipient, 'remote-mta') ?? firstField(feedback, 'remote-mta') ?? '',
+    reportingMta: truncate(stripTypePrefix(firstField(feedback, 'reporting-mta', 'reporting-mta-type') ?? ''), 255) || undefined,
+    dsnGateway: truncate(firstField(feedback, 'dsn-gateway') ?? '', 255) || undefined,
+    remoteMta: truncate(
+      stripTypePrefix(firstField(primaryRecipient, 'remote-mta') ?? firstField(feedback, 'remote-mta') ?? ''),
+      255,
     ) || undefined,
     userAgent: truncate(firstField(feedback, 'user-agent') ?? '', 200) || undefined,
     diagnosticCodes: allFields(primaryRecipient, 'diagnostic-code')
       .slice(0, maxDiagnosticCodes)
-      .map((code) => truncate(redactAddresses(code))),
+      // Cut before the address pattern runs, which backtracks over long text.
+      .map((code) => truncate(redactAddresses(code.slice(0, 1000)))),
     recipientCount: recipientPseudonyms.length,
     recipientPseudonyms,
     envelopeFromPseudonym: pseudonymizeAddress(envelopeFrom) ?? originalFromPseudonym,

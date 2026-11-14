@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isIP } from 'node:net';
 import { resolveAlignedSender } from './alignment.service.js';
 import { XMLParser } from 'fast-xml-parser';
 import { normalizeDomain } from '../scanner/domain.js';
@@ -104,7 +105,7 @@ function text(value: unknown): string | undefined {
   }
 
   if (typeof value === 'string') {
-    const result = value.trim();
+    const result = value.trim().slice(0, maxTextLength);
     return result || undefined;
   }
 
@@ -114,8 +115,19 @@ function text(value: unknown): string | undefined {
 
   const record = asRecord(value);
   const textValue = record?.['#text'];
-  return typeof textValue === 'string' && textValue.trim() ? textValue.trim() : undefined;
+  return typeof textValue === 'string' && textValue.trim() ? textValue.trim().slice(0, maxTextLength) : undefined;
 }
+
+/**
+ * The longest any one value from a report is kept. Every field a report
+ * carries (names, ids, domains, selectors, contact details) is far shorter,
+ * and anyone can mail a report naming a customer's domain, so a multi-megabyte
+ * field would otherwise reach the database, the dashboards and the PDFs.
+ */
+const maxTextLength = 1024;
+
+/** Records read from one report. A large receiver's daily report holds thousands, not hundreds of thousands. */
+const maxRecordsPerReport = 50_000;
 
 function requiredText(value: unknown, fieldName: string): string {
   const result = text(value);
@@ -201,6 +213,11 @@ function parseRecords(
   if (records.length === 0) {
     throw new DmarcReportParseError('The report does not contain any records.');
   }
+  if (records.length > maxRecordsPerReport) {
+    throw new DmarcReportParseError(
+      `The report has ${records.length} records, more than the ${maxRecordsPerReport} one report may hold, so it was not read.`,
+    );
+  }
 
   return records.map((record) => {
     const row = asRecord(record.row);
@@ -215,6 +232,10 @@ function parseRecords(
 
     const identifiers = asRecord(record.identifiers);
     const sourceIp = requiredText(row.source_ip, 'record source_ip');
+    // Grouped by, looked up and shown as an address, so it has to be one.
+    if (isIP(sourceIp) === 0) {
+      throw new DmarcReportParseError('A report record has a source_ip that is not an IP address.');
+    }
     const authResults = parseAuthResults(record.auth_results);
     const headerFrom = text(identifiers?.header_from);
     const { senderDomain } = resolveAlignedSender({
