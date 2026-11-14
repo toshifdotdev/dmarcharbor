@@ -182,7 +182,7 @@ describe('retrieval', () => {
       for (const question of group.questions) {
         const results = search(index, redact(question));
         expect(results.length, question).toBeGreaterThan(0);
-        expect(Math.max(...results.slice(0, 3).map((r) => r.coverage)), question).toBeGreaterThanOrEqual(MIN_COVERAGE);
+        expect(Math.max(...results.slice(0, 3).map((r) => r.coverage)), question).toBeGreaterThan(MIN_COVERAGE);
       }
     }
   });
@@ -202,7 +202,7 @@ describe('retrieval', () => {
     for (const question of ['What is the capital of France?', 'How do I configure a Kubernetes ingress controller?']) {
       const results = search(index, question);
       const best = Math.max(0, ...results.slice(0, 3).map((r) => r.coverage));
-      expect(best, question).toBeLessThan(MIN_COVERAGE);
+      expect(best, question).toBeLessThanOrEqual(MIN_COVERAGE);
     }
   });
 

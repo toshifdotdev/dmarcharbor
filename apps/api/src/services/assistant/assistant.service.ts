@@ -40,7 +40,12 @@ import { tokenize } from './text.js';
  * Every unanswered question is logged, redacted, with no user or workspace.
  */
 
-/** The share of the question the best section has to match before it is worth answering from. */
+/**
+ * The share of the question the best section has to exceed before it is worth
+ * answering from. More than half, not half: a two-word question that matches one
+ * word ("the capital of France", where only "France" is in the documentation)
+ * lands exactly on half, and is not answered by anything here.
+ */
 export const MIN_COVERAGE = 0.5;
 /** A floor on the BM25 score, so one rare stray word is not an answer. */
 export const MIN_SCORE = 1;
@@ -189,7 +194,7 @@ export function resetAssistantState(): void {
 function answerable(results: SearchResult[]): boolean {
   const top = results[0];
   if (!top || top.score < MIN_SCORE) return false;
-  return results.slice(0, 3).some((result) => result.coverage >= MIN_COVERAGE);
+  return results.slice(0, 3).some((result) => result.coverage > MIN_COVERAGE);
 }
 
 /** The links under an answer: one per published section, page in bold and section beside it. */
