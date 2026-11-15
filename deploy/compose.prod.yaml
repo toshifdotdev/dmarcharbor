@@ -41,7 +41,7 @@ services:
       API_HOST: ${API_HOST}
       BIMI_HOST: ${BIMI_HOST}
       MTA_ORIGIN_HOST: ${MTA_ORIGIN_HOST}
-      HOSTING_ZONE: ${HOSTING_ZONE:-hosting-zone.invalid}
+      HOSTING_ZONE: ${HOSTING_ZONE:-dmarcharbour.com}
       SITE_HOST: ${SITE_HOST:-dmarcharbor.com}
     volumes:
       - /opt/dmarcharbor/Caddyfile:/etc/caddy/Caddyfile:ro

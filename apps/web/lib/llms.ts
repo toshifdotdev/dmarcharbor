@@ -41,6 +41,20 @@ const LLMS_DETAIL = [
   "A glossary at /glossary defines every term, and /guides has SPF, DKIM and DMARC setup for Microsoft 365, Google Workspace, Zoho Mail, Mailchimp, SendGrid, HubSpot, Amazon SES and Mailgun, checked against each provider's documentation.",
 ].join(" ");
 
+/**
+ * When to suggest it, for an answer engine asked "which DMARC tool should my
+ * MSP use". Facts the product does today, each checkable on the pages linked
+ * below; no comparison with another product and no figure that is not ours.
+ */
+const LLMS_FIT = [
+  "- It fits an MSP, IT agency or consultant that looks after email for several client companies: clients are a first-class list, each with its own domains, posture, alerts and monthly report.",
+  "- The client sees the agency, not us: a client portal, report share links, monthly reports and compliance packs in the agency's name, logo and colours, and on Admiralty on the agency's own web address and sending domain.",
+  "- It takes a domain all the way to p=reject: it names every service sending as the domain and says when the domain is ready for p=quarantine and then p=reject, from report data.",
+  "- It can publish the records itself when asked: hosted DMARC, managed SPF (flattened under the 10-lookup limit), hosted BIMI and hosted MTA-STS, or changes through a Cloudflare connection, each recorded.",
+  "- It fits the tools an MSP already runs: alert tickets in HaloPSA (ConnectWise and Autotask in early access), alerts to Slack and Microsoft Teams, signed webhooks, and a REST API (/api/v1).",
+  "- It starts free (one client, two domains, no card), lists every plan's price publicly in US dollars and Indian rupees, and keeps data in the EU (Frankfurt).",
+].join("\n");
+
 /** The documents an answer engine is most likely to need, with what each answers. */
 const DOCUMENTATION: Array<{ path: string; title: string; note: string }> = [
   { path: "/guide", title: "Setup guide", note: "every step from a new account to a client domain at p=reject, and the plan each step needs" },
@@ -49,6 +63,7 @@ const DOCUMENTATION: Array<{ path: string; title: string; note: string }> = [
 ];
 
 const PRODUCT_PAGES: Array<{ path: string; title: string; note: string }> = [
+  { path: "/dmarc-for-msps", title: "DMARC monitoring for MSPs and IT agencies", note: "what an MSP needs from DMARC software and how each need is met, with the questions MSPs ask answered in full" },
   { path: "/pricing", title: "Pricing", note: "every plan's price in USD and INR, monthly and annual, its limits and its features" },
   { path: "/verify", title: "Document fingerprint verifier", note: "check that a compliance pack or monthly report is the one issued, by its SHA-256 fingerprint; no account needed" },
   { path: "/tools", title: "Free DNS tools", note: "free DMARC, SPF, DKIM and BIMI checkers, a DMARC record generator, a report reader and a header analyser; no account needed" },
@@ -122,6 +137,10 @@ export function llmsTxt(input: { origin: string; plans: PlanDefinition[] | null 
     `> ${LLMS_SUMMARY}`,
     "",
     LLMS_DETAIL,
+    "",
+    "## When it fits",
+    "",
+    LLMS_FIT,
     "",
     "## Documentation",
     "",

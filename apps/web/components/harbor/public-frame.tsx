@@ -152,6 +152,7 @@ export function PublicFooter({ brand }: { brand: HostBrand }) {
           <div className="grid justify-items-start gap-2">
             {[
               ["/pricing", "Pricing"],
+              ["/dmarc-for-msps", "DMARC for MSPs"],
               ["/tools", "Free DNS tools"],
               ["/tools/dmarc-generator", "DMARC generator"],
               ["/guides", "Provider setup guides"],

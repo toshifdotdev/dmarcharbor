@@ -133,3 +133,24 @@ jobs:
           aws ssm get-command-invocation --command-id "$id" --instance-id "$INSTANCE" \
             --query '[StandardOutputContent, StandardErrorContent]' --output text | tail -n 120
           test "$status" = Success
+
+      # Tells Bing, Yandex and the other IndexNow engines (indexnow.org) that the
+      # public pages may have changed, so a release is picked up within minutes
+      # rather than at the next crawl. Bing's index is also what ChatGPT search
+      # reads. The URLs come from our own sitemap; the key file is
+      # app/<key>.txt/route.ts. A failure here never fails the deploy.
+      - name: Tell search engines the pages changed (IndexNow)
+        continue-on-error: true
+        env:
+          SITE_URL: ${{ vars.SITE_URL }}
+          INDEXNOW_KEY: d6c49272434973ca6020e3a28e4c1582
+        run: |
+          set -euo pipefail
+          host="${SITE_URL#https://}"
+          urls="$(curl -fsSL "$SITE_URL/sitemap.xml" | grep -o '<loc>[^<]*</loc>' | sed -e 's/<loc>//' -e 's/<\/loc>//' | head -n 10000)"
+          count="$(printf '%s\n' "$urls" | grep -c . || true)"
+          body="$(printf '%s\n' "$urls" | jq -R . | jq -cs --arg host "$host" --arg key "$INDEXNOW_KEY" \
+            --arg loc "$SITE_URL/$INDEXNOW_KEY.txt" '{host: $host, key: $key, keyLocation: $loc, urlList: .}')"
+          code="$(curl -s -o /dev/null -w '%{http_code}' -X POST https://api.indexnow.org/indexnow \
+            -H 'Content-Type: application/json; charset=utf-8' --data "$body")"
+          echo "IndexNow: submitted $count URLs, answer $code (200 or 202 is accepted)"

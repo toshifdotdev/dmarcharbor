@@ -24,6 +24,7 @@ export const VENDOR_ROUTES = [
   // The free tools sell our product to MSPs; an agency's client has no use for them.
   "/tools",
   "/glossary",
+  "/dmarc-for-msps",
   "/guides",
   "/guide",
   "/faq",

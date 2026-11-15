@@ -33,11 +33,19 @@ export const INDEXABLE_ROUTES: string[] = [
   // The glossary and the provider setup guides (lib/glossary.ts, lib/provider-guides.ts).
   "/glossary",
   ...GUIDE_PATHS,
+  // What an MSP needs from DMARC software (lib/msp-page.ts).
+  "/dmarc-for-msps",
   // /support is its own route rather than a LEGAL_DOCS entry, because it is a
   // contact page and not a document with a version and an effective date.
   "/support",
   ...LEGAL_DOCS.map((d) => `/${d.slug}`),
 ];
+
+/**
+ * The IndexNow key, served at /<key>.txt (app/<key>.txt/route.ts). Public by
+ * design; .github/workflows/deploy.yml submits the sitemap's URLs with it.
+ */
+export const INDEXNOW_KEY = "d6c49272434973ca6020e3a28e4c1582";
 
 /** Every public path, once: the pages above and the developer documents. */
 export const PUBLIC_PATHS: string[] = [...new Set([...INDEXABLE_ROUTES, ...DEVELOPER_DOCS.map((d) => d.path)])];
@@ -52,6 +60,7 @@ export const LEGAL_ROUTE_PRIORITY: Record<string, number> = {
   "/tools": 0.8,
   "/guides": 0.8,
   "/glossary": 0.7,
+  "/dmarc-for-msps": 0.9,
   "/support": 0.5,
   "/faq": 0.7,
   "/guide": 0.7,
