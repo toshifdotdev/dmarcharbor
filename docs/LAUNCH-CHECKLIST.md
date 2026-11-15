@@ -929,7 +929,7 @@ a live upload, direct S3 reads answer 403.
       'none'; style-src 'unsafe-inline'; sandbox` and `X-Content-Type-Options:
       nosniff`. Uploads are already refused for active SVG content and stored
       with `Content-Disposition: attachment`.
-- [ ] Bucket policy: private, no public writes; presigned uploads are checked
+- [x] Bucket policy: private, no public writes; presigned uploads are checked
       when confirmed, and an object that fails the check is deleted.
 
 **Decisions, not bugs (decided 14 November 2026)**
@@ -994,7 +994,7 @@ ChatGPT search and Copilot).
       record), verify, then submit `https://dmarcharbor.com/sitemap.xml`.
 - [ ] Bing Webmaster Tools: sign in, **Import from Google Search Console**.
       Nothing else to verify; the sitemap comes across.
-- [ ] Business profiles that search engines and AI answers lean on, all with
+- [ ] **Later (owner, 15 November 2026).** Business profiles that search engines and AI answers lean on, all with
       the same name, one-line description and URL: LinkedIn company page,
       Crunchbase, Product Hunt (a launch day), G2 and Capterra listings,
       AlternativeTo and SaaSHub.
@@ -1043,9 +1043,15 @@ the client portal cover most cases today.
       deleted from the bucket on Remove)
 - [ ] One real Trust Center page
 - [ ] One real compliance pack issued and verified by its digest
-- [ ] One real agency custom domain served over https (its TLS certificate
+- [x] One real agency custom domain served over https (its TLS certificate
       issued), live on the white label page, with a client signing in on it
-      and a portal invitation linking to it (step 5a set up first)
+      and a portal invitation linking to it (step 5a set up first). Done 15
+      November 2026 on `portal.writeora.in` (GoDaddy DNS): TXT verified,
+      Cloudflare for SaaS certificate active about 90 seconds after Verify,
+      the domain marked live, the portal invitation and the verification email
+      sent in the agency's name with links on the agency's domain, the contact
+      signed up there and landed on the branded portal with no console errors
+      and no product name shown.
 - [ ] One real agency sending address added in Resend, its records verified,
       and a client email arriving from it with the agency's Reply-To. Done in
       session 14 on `notify.linkshift.in` (delivered to Gmail); repeat once on
