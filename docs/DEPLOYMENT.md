@@ -15,7 +15,7 @@ in `aws-eu-central-1` (the residency decision in `LAUNCH-CHECKLIST.md`).
 | Routing | Caddy, inside the instance (`deploy/Caddyfile`) | Sends API hosts and `mta-sts.*` to the API, everything else to the web app, and sets `X-Forwarded-For` from `CF-Connecting-IP`. |
 | Images | ECR, `dmarcharbor-api` and `dmarcharbor-web`, private, tags immutable, last 15 kept | Pulled by the instance role; pushed by GitHub Actions through OIDC. |
 | Settings | SSM Parameter Store under `/dmarcharbor/prod/` | Encrypted, free at this size, read by the instance at deploy time. |
-| Logos | S3 bucket, read straight from its `s3.eu-central-1.amazonaws.com` address for now (`LogoCdn=s3`) | A registrable domain apart from ours. AWS refuses CloudFront on a new account until Support verifies it; once it does, update the stack with `LogoCdn=cloudfront` (below). |
+| Logos | Private S3 bucket behind CloudFront (`LogoCdn=cloudfront`, 15 November 2026), `d3d44cdmkq3lyj.cloudfront.net` | A registrable domain apart from ours, with `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox` and `nosniff`. `ASSETS_ORIGIN` stays the S3 address so logos stored before the switch still resolve. |
 | Logs | CloudWatch Logs, `/dmarcharbor/prod`, 30 days | One stream per container. |
 | Database | Neon Postgres, `aws-eu-central-1`, direct (non-pooled) URL | One instance needs no pooler, and `prisma migrate deploy` needs a direct connection. |
 | Access | SSM Session Manager | No SSH key exists. |

@@ -330,20 +330,22 @@ removed. Set up one of two ways:
 - **Automatic (recommended).** On the hosted DNS zone (Cloudflare for SaaS,
   the same zone and token as hosted MTA-STS; the token needs SSL and
   Certificates edit):
-  - [ ] A proxied record for the web app, such as
-        `portal-origin.dmarcharbor.com`, pointing at the AWS load balancer or
-        CloudFront distribution. It must accept any `Host` and pass it on,
-        because requests arrive with the agency's hostname.
-  - [ ] A proxied CNAME for agencies to point at, such as
-        `portals.dmarcharbor.com`, to that record.
-  - [ ] `AGENCY_DOMAIN_ORIGIN=portal-origin.dmarcharbor.com` and
-        `AGENCY_DOMAIN_CNAME_TARGET=portals.dmarcharbor.com` on the API. Each
+  - [x] A proxied record for the web app, `portal-origin.dmarcharbour.com`, a
+        CNAME to the production Cloudflare Tunnel (15 November 2026). The
+        tunnel passes any `Host` on, because requests arrive with the agency's
+        hostname.
+  - [x] A proxied CNAME for agencies to point at, `portals.dmarcharbour.com`,
+        to that record. The agency's white label page shows this name; it
+        comes from `AGENCY_DOMAIN_CNAME_TARGET`, nothing else in the app
+        names it.
+  - [x] `AGENCY_DOMAIN_ORIGIN=portal-origin.dmarcharbour.com` and
+        `AGENCY_DOMAIN_CNAME_TARGET=portals.dmarcharbour.com` on the API (both
+        must be inside `HOSTED_DNS_ZONE`, which the API checks at boot). Each
         agency hostname is registered as a custom hostname with that origin
         (`custom_origin_server`), so the zone's fallback origin stays with
         MTA-STS. Cloudflare issues the certificate once the CNAME resolves.
-  - [ ] The certificate is Cloudflare's, at the edge. The AWS side then needs
-        only a certificate for `portal-origin.dmarcharbor.com` (ACM), with
-        Cloudflare's SSL mode Full (strict).
+  - [x] The certificate is Cloudflare's, at the edge. No AWS certificate is
+        needed: the tunnel is the origin.
 - **Manual.** Set only `AGENCY_DOMAIN_CNAME_TARGET` (for example the load
   balancer's name). On verification the operator is emailed once per domain
   to add the hostname and an ACM certificate for it by hand; the domain goes
@@ -920,7 +922,9 @@ the deployment, an account or a decision, not code.
       notifications already include adjustment.* (both are recorded for support).
 
 **Logo storage (with session 12, S3)**
-- [ ] Serve the bucket from its own registrable domain, not a subdomain of ours,
+Both done 15 November 2026: private bucket, CloudFront only, headers checked on
+a live upload, direct S3 reads answer 403.
+- [x] Serve the bucket from its own registrable domain, not a subdomain of ours,
       with a response headers policy of `Content-Security-Policy: default-src
       'none'; style-src 'unsafe-inline'; sandbox` and `X-Content-Type-Options:
       nosniff`. Uploads are already refused for active SVG content and stored
