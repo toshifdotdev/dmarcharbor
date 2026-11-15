@@ -150,8 +150,12 @@ the workspace, its clients, its active domains or its team, open invitations inc
 ## 7. Give your client a view
 
 - **Client portal** (Harbor and above): under Settings, Client portal, invite a
-  contact at the client by email. They sign in with that address and see their own
-  domains, senders and monthly reports, never forensic data.
+  contact at the client by email. They get an email with a link to the portal.
+  Someone new there chooses Create an account, uses exactly the invited address,
+  and opens the verification link; someone who already has an account with that
+  address just signs in. They see their own domains, senders and monthly
+  reports, never forensic data, and they cannot see any other client. To stop a
+  contact's access, revoke it on the same page.
 - **Share links** (Fairway and above): a read-only report for one domain that opens
   without signing in, and expires when you choose.
 - **Digests and monthly reports** (Harbor and above): a scheduled email summary, and
