@@ -117,6 +117,7 @@ const LEGAL_SUMMARIES: Record<string, string> = {
   terms: "The agreement between DMARC Harbor and you: order process, merchant of record, and the parties.",
   dpa: "What we do with personal data on your behalf when you use DMARC Harbor.",
   refunds: "How refunds work, and who the merchant of record is for each payment route.",
+  delivery: "How a paid plan is delivered: online, at once on payment, with nothing shipped.",
   "acceptable-use": "What you may and may not do with DMARC Harbor.",
   security: "How DMARC Harbor is built and run: controls, reporting and disclosure.",
   "sub-processors": "Every third party that handles data on our behalf, and what each one does.",

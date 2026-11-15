@@ -24,6 +24,12 @@
 	# Answered here so the tunnel's own health probe needs neither app.
 	respond /__caddy_health 200
 
+	# The hosting zone's own root and www (dmarcharbour.com) are ours too, and
+	# land on our site rather than looking like a lookalike. The names under it
+	# that serve records (bimi., mta-origin., portal-origin.) are matched below.
+	@hosting_zone_root host {$HOSTING_ZONE} www.{$HOSTING_ZONE}
+	redir @hosting_zone_root https://{$SITE_HOST}{uri} permanent
+
 	# Straight to the API: our API host, the hosted BIMI host, the hosted-zone
 	# fallback origin, and customers' hosted MTA-STS hosts (always mta-sts.*,
 	# which an agency custom domain may never be).

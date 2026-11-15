@@ -62,6 +62,8 @@ AWS_REGION=$region
 API_HOST=$(read_param API_HOST)
 BIMI_HOST=$(read_param BIMI_HOST)
 MTA_ORIGIN_HOST=$(read_param MTA_ORIGIN_HOST)
+HOSTING_ZONE=$(read_param HOSTING_ZONE)
+SITE_HOST=$(read_param SITE_HOST)
 EOF
 
 aws ecr get-login-password --region "$region" | docker login --username AWS --password-stdin "$registry" >/dev/null

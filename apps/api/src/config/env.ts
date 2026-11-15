@@ -454,11 +454,17 @@ const envSchema = z.object({
    * and CI case. The key is server-only: it is read here, sent only to the
    * provider, and never returned, logged or put in an error.
    */
-  ASSISTANT_PROVIDER: z.enum(['anthropic']).default('anthropic'),
-  ASSISTANT_MODEL: z.string().trim().min(1).max(100).default('claude-haiku-5-5'),
+  ASSISTANT_PROVIDER: z.enum(['anthropic', 'gemini']).default('anthropic'),
+  /** Unset: the provider's own default (services/assistant/providers/index.ts). */
+  ASSISTANT_MODEL: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.string().trim().min(1).max(100).optional(),
+  ),
   ASSISTANT_API_KEY: optionalSecret,
   /** Accepted when ASSISTANT_API_KEY is unset and the provider is anthropic. */
   ANTHROPIC_API_KEY: optionalSecret,
+  /** Accepted when ASSISTANT_API_KEY is unset and the provider is gemini. */
+  GEMINI_API_KEY: optionalSecret,
   /** Answers are a few sentences; a low ceiling is the cost control. */
   ASSISTANT_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(64).max(1024).default(350),
   /**

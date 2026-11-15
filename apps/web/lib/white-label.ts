@@ -33,6 +33,7 @@ export const VENDOR_ROUTES = [
   "/terms",
   "/dpa",
   "/refunds",
+  "/delivery",
   "/acceptable-use",
   "/security",
   "/sub-processors",

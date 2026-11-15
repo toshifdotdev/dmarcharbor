@@ -69,6 +69,7 @@ export const CORPUS_DOCUMENTS: readonly CorpusDocument[] = [
   { key: 'terms', file: 'TERMS-OF-SERVICE.md', page: 'Terms of Service', path: '/terms', kind: 'legal' },
   { key: 'dpa', file: 'DPA.md', page: 'Data Processing Agreement', path: '/dpa', kind: 'legal' },
   { key: 'refunds', file: 'REFUND-POLICY.md', page: 'Refund Policy', path: '/refunds', kind: 'legal' },
+  { key: 'delivery', file: 'DELIVERY-POLICY.md', page: 'Service Delivery Policy', path: '/delivery', kind: 'legal' },
   { key: 'acceptable-use', file: 'ACCEPTABLE-USE-POLICY.md', page: 'Acceptable Use Policy', path: '/acceptable-use', kind: 'legal' },
   { key: 'cookies', file: 'COOKIE-POLICY.md', page: 'Cookie Policy', path: '/cookies', kind: 'legal' },
   { key: 'complaints', file: 'COMPLAINT-POLICY.md', page: 'Complaint Policy', path: '/complaints', kind: 'legal' },
@@ -90,7 +91,7 @@ export const SUPPORT_PATH = '/support';
 const SUBSTITUTIONS: Array<[RegExp, string]> = [
   [/`?\[SUPPORT EMAIL\]`?/g, SUPPORT_EMAIL],
   [/`?\[SECURITY EMAIL\]`?/g, SECURITY_EMAIL],
-  [/`?\[EFFECTIVE DATE\]`?/g, 'to be set at launch'],
+  [/`?\[EFFECTIVE DATE\]`?/g, '15 November 2026'],
   // The same values apps/web/lib/legal-docs.ts substitutes (12 November 2026).
   [/`?\[YOUR LEGAL ENTITY NAME\]`?/g, 'Mohd Toshif, sole proprietor'],
   [/`?\[JURISDICTION\]`?/g, 'India'],

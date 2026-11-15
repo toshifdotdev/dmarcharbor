@@ -59,6 +59,7 @@ export const LEGAL_ROUTE_PRIORITY: Record<string, number> = {
   "/privacy": 0.5,
   "/dpa": 0.4,
   "/refunds": 0.4,
+  "/delivery": 0.3,
   "/acceptable-use": 0.3,
   "/security": 0.4,
   "/sub-processors": 0.3,

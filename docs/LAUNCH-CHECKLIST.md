@@ -543,14 +543,20 @@ Neon; the Sub-processors page, the Trust Center list, the Privacy Policy
       France, Germany and the Netherlands (Migadu support, 12 November 2026).
       Filled on the Sub-processors page, the DPA and the Trust Center.
 - [x] EU-only residency as a feature: no; everything is in the EU already.
-- [ ] Set `DATA_RESIDENCY_REGION=European Union (Frankfurt)` in production, which
-      replaces "Not confirmed yet" on the Trust Center and compliance packs.
-- [ ] Fill `[EFFECTIVE DATE]` in `docs/PRIVACY-POLICY.md` on launch day.
-- [ ] Optional: a lawyer's review of the DPA and Privacy Policy. Not required to
-      launch; worth doing before signing an enterprise customer's own DPA.
-- [ ] Decide whether an EU Art. 27 representative is needed. It applies only to
-      a business outside the EU that serves EU customers regularly; revisit
-      once EU customers sign up.
+- [x] `DATA_RESIDENCY_REGION=European Union (Frankfurt)` is set in production.
+- [x] Effective date: 15 November 2026 for every legal document, set once in
+      `LEGAL_EFFECTIVE_DATE` (apps/web/lib/legal-docs.ts) and in the assistant's
+      corpus. A later change to a document gets a new version and date there.
+- [x] Service Delivery Policy (`/delivery`, `docs/DELIVERY-POLICY.md`): the
+      shipping or delivery page Razorpay's website review asks for, for software
+      delivered online.
+- [x] No lawyer before launch (decided 15 November 2026). The documents are
+      written for a sole proprietor selling B2B software and checked against
+      what Razorpay and Paddle review. Have them read before signing an
+      enterprise customer's own DPA, or when the business becomes a company.
+- [ ] EU and UK representatives (GDPR Art. 27). Not before launch: appoint one
+      when the first paying customer in the EU or UK signs up. A representative
+      service costs roughly EUR 100 to 300 a year (`.private/COSTS.md`).
 
 A non-EU sub-processor is not automatically unlawful. Standard Contractual
 Clauses plus a signed DPA make a transfer lawful. The gap is paperwork and
@@ -840,7 +846,15 @@ correctly in the Workflows chat.
       sent only test events; the real paths are covered by the CI integration
       tests (`webhook`, `dns-monitoring`).
 
-- [ ] Ask's written answers. Decided (12 November 2026): launch in links mode,
+- [ ] Ask's written answers. Tested with Gemini on 15 November 2026
+      (`ASSISTANT_PROVIDER=gemini`, `GEMINI_API_KEY`, `gemini-3.5-flash` with
+      thinking off; with thinking on, the hidden thinking used the whole
+      350-token budget and the answer was cut off): cited answers in 1 to 4
+      seconds, "I don't know" off topic, workspace data and an instruction
+      override refused. Production stays in links mode; switch to Anthropic
+      after the first customer (`ASSISTANT_PROVIDER=anthropic`,
+      `ANTHROPIC_API_KEY`), which the Sub-processors page already names. Using
+      Gemini in production would need Google added there first. Earlier plan: launch in links mode,
       which session 17 passed, and leave `ANTHROPIC_API_KEY` unset. Set it only
       after one run with a real key: answers cite the FAQ and docs, refuse
       workspace data, say "I don't know" rather than guess, and the daily cap

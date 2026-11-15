@@ -44,7 +44,7 @@ export const LEGAL_VERSION = "1.0";
 /** The effective date of these documents. ONE constant across every page:
  *  an acceptance record must answer "which version, and when did it start".
  *  The launch date lands here when the business confirms it. */
-export const LEGAL_EFFECTIVE_DATE = "to be set at launch";
+export const LEGAL_EFFECTIVE_DATE = "15 November 2026";
 
 /** The legal entity: a sole proprietorship registered under Udyam (MSME) with
  *  the unit name DMARC Harbor. Supplied by the business (12 November 2026);
@@ -161,6 +161,13 @@ export const LEGAL_DOCS: LegalDoc[] = [
         ],
       },
     ],
+  },
+  {
+    // Razorpay's website review asks for a shipping or delivery policy even
+    // for software delivered online; this is that page.
+    slug: "delivery",
+    title: "Service Delivery Policy",
+    sourceFile: "DELIVERY-POLICY.md",
   },
   {
     slug: "acceptable-use",

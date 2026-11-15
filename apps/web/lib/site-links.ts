@@ -10,6 +10,7 @@ export const LEGAL_FOOTER_LINKS: Array<[string, string]> = [
   ["/terms", "Terms"],
   ["/dpa", "DPA"],
   ["/refunds", "Refunds"],
+  ["/delivery", "Delivery"],
   ["/acceptable-use", "Acceptable use"],
   ["/security", "Security"],
   ["/sub-processors", "Sub-processors"],
