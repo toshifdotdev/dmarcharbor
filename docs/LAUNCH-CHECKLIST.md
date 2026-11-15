@@ -972,6 +972,40 @@ the deployment, an account or a decision, not code.
 - [ ] A written way to rotate `BETTER_AUTH_SECRET` (cookies and the Paddle
       checkout attribution) and the forensic keys.
 
+## Search and AI visibility (15 November 2026)
+
+**On the site, done:** an allowlisted sitemap and robots.txt that admit the
+search and AI crawlers by name; JSON-LD on every public page (Organization,
+WebSite, SoftwareApplication with each plan's Offer, FAQPage, HowTo,
+DefinedTermSet, BreadcrumbList); `/llms.txt` and `/llms-full.txt` with a
+"When it fits" section; free tools, glossary and provider guides for the
+long-tail searches; `/dmarc-for-msps` for the searches an MSP makes; IndexNow
+on every deploy (Bing, Yandex and the engines that share it; Bing also feeds
+ChatGPT search and Copilot).
+
+**Needs the owner, in this order:**
+- [ ] Google Search Console: add a **Domain** property for `dmarcharbor.com`,
+      copy the `google-site-verification=…` TXT value it shows into
+      `deploy/secrets/search.env` as `GOOGLE_TXT=…` (the operator adds the
+      record), verify, then submit `https://dmarcharbor.com/sitemap.xml`.
+- [ ] Bing Webmaster Tools: sign in, **Import from Google Search Console**.
+      Nothing else to verify; the sitemap comes across.
+- [ ] Business profiles that search engines and AI answers lean on, all with
+      the same name, one-line description and URL: LinkedIn company page,
+      Crunchbase, Product Hunt (a launch day), G2 and Capterra listings,
+      AlternativeTo and SaaSHub.
+- [ ] Where MSPs talk: answer DMARC questions on r/msp and r/sysadmin and in
+      MSP communities (MSPGeek, the MSP Discord servers) with the free tools as
+      the link, never a pitch; one article a month on a blog such as dev.to or
+      LinkedIn that links to a guide or tool.
+- [ ] Check after four weeks: Search Console's Performance report for the
+      queries the site appears for, and Bing's for IndexNow URLs accepted.
+
+No site can be made to rank first for "DMARC": the first page is held by
+long-established vendors with years of links. The way in is the long tail
+(the tools, the provider guides, "DMARC for MSPs") and being named in the
+places above, which is also what answer engines quote.
+
 ## Backlog: decided, not now
 
 **Per-client staff access** (a technician sees only some clients). Not built

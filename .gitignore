@@ -15,3 +15,6 @@ coverage/
 
 # Production settings before they are uploaded to SSM (deploy/aws/put-params.ps1).
 deploy/secrets/
+
+# The owner's own notes: costs, accounts, renewal dates. Never committed.
+.private/
