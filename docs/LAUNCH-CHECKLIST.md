@@ -422,10 +422,10 @@ behind it.
   run it the same way after a price change. Still to do: account verification
   and site approval, the default payment link, payouts to Wise, and one live
   purchase and refund.
-- **The live API key expires 90 days after 16 November 2026 (about 14
-  February 2027).** Before then, create a new key in Paddle, put it in
-  `deploy/secrets/api.env`, upload it and redeploy, or USD checkout,
-  plan changes, refunds and reconciliation stop.
+- The live API key was replaced the same day with one that never expires (the
+  first was revoked). Prices belong to the Paddle account, not to a key, so a
+  new key needs no new plan sync: put it in `deploy/secrets/api.env`, upload,
+  redeploy.
 
 **Before the first sale:** remove `STAFF_API_KEY`'s dev value and set a strong
 one (refunds use it), and read "Handling a refund request" in `docs/BILLING.md`.
