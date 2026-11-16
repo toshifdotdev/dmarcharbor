@@ -92,21 +92,22 @@ You may not:
 Which company sells to you depends on the currency you paid in. They are not the
 same company, and the distinction decides who you contact about a payment.
 
-**Purchases in US dollars, through Paddle:**
+**Purchases in US dollars, through Dodo Payments:**
 
-> Our order process is conducted by our online reseller Paddle.com. Paddle.com is
-> the Merchant of Record for the orders it processes. Paddle provides all customer
-> service inquiries and handles returns for those orders.
+> Our US dollar order process is conducted by our online reseller Dodo Payments
+> (dodopayments.com). Dodo Payments is the Merchant of Record for the orders it
+> processes, calculates and remits applicable sales tax or VAT, issues the tax
+> invoice, and handles billing inquiries and returns for those orders.
 
 **Purchases in Indian rupees, through Razorpay:** Razorpay processes the payment as
 our payment gateway. Razorpay is not the seller and does not handle your purchase.
 The contracting party is [YOUR LEGAL ENTITY NAME], and enquiries and returns for
 these orders go to `[SUPPORT EMAIL]`.
 
-Razorpay is the default for rupee payments and Paddle is used for dollar payments,
-so the paragraph above describing Paddle as merchant of record does not apply to
-most customers. If your receipt shows an INR amount, the second paragraph is the
-one that governs your order.
+Razorpay is the default for rupee payments and Dodo Payments is used for dollar
+payments, so the paragraph above describing Dodo Payments as merchant of record
+applies only to US dollar orders. If your receipt shows an INR amount, the second
+paragraph is the one that governs your order.
 
 ## 7. Availability and support
 

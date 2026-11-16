@@ -1473,7 +1473,7 @@ export const openApiDocument = {
           'Operator view. A plan with no stored mapping cannot be sold, so checkout refuses it rather than guessing a price. Reports price drift when the stored price no longer matches the catalog.',
 
         parameters: [
-          { name: 'provider', in: 'query', required: false, schema: { type: 'string', enum: ['RAZORPAY', 'PADDLE'] } },
+          { name: 'provider', in: 'query', required: false, schema: { type: 'string', enum: ['RAZORPAY', 'PADDLE', 'DODO'] } },
           { name: 'currency', in: 'query', required: false, schema: { type: 'string', enum: ['USD', 'INR'] } },
         ],
         responses: { ...standardErrors, 200: { description: 'Sync status per plan.' } },
@@ -1498,6 +1498,23 @@ export const openApiDocument = {
         security: [],
         summary: 'Paddle payment webhook',
         description: 'Verified with a timestamped HMAC, and a signature outside a five minute window is rejected so an old but valid one cannot be replayed.',
+        responses: { 200: { description: 'Accepted, including duplicates and unrecognised events.' }, 401: { description: 'Bad or stale signature.' }, 503: { description: 'Webhooks are not configured.' } },
+      },
+    },
+    '/webhooks/dodo': {
+      post: {
+        tags: ['Billing'],
+        security: [],
+        summary: 'Dodo Payments webhook',
+        description: [
+          'Verified against the Standard Webhooks specification (webhook-id, webhook-timestamp and webhook-signature headers, HMAC-SHA256 over id.timestamp.body with a base64 whsec_ secret).',
+          'Signatures outside a five minute window are rejected, and every delivery is deduplicated on webhook-id before it can change subscription state.',
+        ].join(' '),
+        parameters: [
+          { name: 'webhook-id', in: 'header', required: true, schema: { type: 'string' } },
+          { name: 'webhook-timestamp', in: 'header', required: true, schema: { type: 'string' } },
+          { name: 'webhook-signature', in: 'header', required: true, schema: { type: 'string' } },
+        ],
         responses: { 200: { description: 'Accepted, including duplicates and unrecognised events.' }, 401: { description: 'Bad or stale signature.' }, 503: { description: 'Webhooks are not configured.' } },
       },
     },
@@ -1854,6 +1871,39 @@ export const openApiDocument = {
         responses: {
           200: { description: 'What was examined, and what was repaired.' },
           404: { description: 'That workspace has no provider subscription to reconcile.' },
+        },
+      },
+    },
+    '/billing/plan-sync': {
+      post: {
+        tags: ['Billing'],
+        security: [{ staffKey: [] }],
+        summary: 'Create missing provider plans for a currency and return the sync report',
+        description: [
+          'Creates the recurring products and prices for every catalog plan in the requested currency (Fairway, Harbor and Admiralty monthly and annual, plus Fleet bands 0 to 3) at the exact catalog amounts, stores their ids in billing_plan, and returns the resulting planSyncReport.',
+          'Idempotent and safe to re-run: plans already stored in billing_plan are reused so live subscriptions are never orphaned.',
+          'Staff only (`X-Staff-Key`), because it creates billable products in the payment provider account.',
+        ].join(' '),
+        parameters: [
+          {
+            name: 'provider',
+            in: 'query',
+            required: false,
+            schema: { type: 'string', enum: ['DODO', 'PADDLE'], default: 'DODO' },
+            description: 'The billing provider to sync plans into.',
+          },
+          {
+            name: 'currency',
+            in: 'query',
+            required: false,
+            schema: { type: 'string', enum: ['USD', 'INR'], default: 'USD' },
+            description: 'The catalog currency whose plans should be synced.',
+          },
+        ],
+        responses: {
+          200: { description: 'Counts of created and reused plans, plus the full planSyncReport.' },
+          400: { description: 'Invalid provider or currency.' },
+          503: { description: 'The requested provider is not configured.' },
         },
       },
     },

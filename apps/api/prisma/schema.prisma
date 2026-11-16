@@ -2638,6 +2638,7 @@ enum BillingProvider {
   NONE
   RAZORPAY
   PADDLE
+  DODO
 }
 
 enum ErasureScope {

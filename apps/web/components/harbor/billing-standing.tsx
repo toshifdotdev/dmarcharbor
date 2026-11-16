@@ -32,7 +32,7 @@ import { Button, buttonClass } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { Notice } from "@/components/ui/notice";
 
-const PROVIDER: Record<string, string> = { RAZORPAY: "Razorpay", PADDLE: "Paddle", NONE: "None" };
+const PROVIDER: Record<string, string> = { RAZORPAY: "Razorpay", PADDLE: "Paddle", DODO: "Dodo Payments", NONE: "None" };
 
 function shortDate(value: string | null | undefined): string | null {
   if (!value) return null;

@@ -20,7 +20,7 @@ work in good faith to resolve it, including discussing alternatives.
 | **Neon** | Primary PostgreSQL database, including its backups | All stored data | European Union (Frankfurt) |
 | **Migadu** | Hosted mailbox that receives aggregate and forensic reports | Inbound report messages, which may contain recipient email addresses | EEA and Switzerland (OVHcloud data centres in France, Germany and the Netherlands) |
 | **Razorpay** | Subscription billing in Indian rupees, as payment gateway | Company name, billing contact email, plan and amount. **Not your DMARC data** | India |
-| **Paddle** | Subscription billing in US dollars, as merchant of record | Company name, billing contact email, plan and amount. **Not your DMARC data** | Provider's region |
+| **Dodo Payments** (Dodo Payments Inc., Dodope Payments Limited and Sarvapanchhi Technologies Private Limited) | Subscription billing in US dollars, as merchant of record | Company name, billing contact email, plan and amount. **Not your DMARC data** | United States, United Kingdom and India |
 | **Google and Microsoft** (optional sign-in) | Federated sign-in | Name, email address, and provider identifier. Only if you use social sign-in | Provider's region |
 | **Anthropic** (only when written answers are enabled for the in-product assistant) | Writes short answers to questions about using the product, from our public documentation | The question as typed, after email addresses, links, IP addresses, domain names and anything shaped like a key are removed, and excerpts of our public documentation. **Nothing is taken from a workspace**: no client, domain, report, sender, member or account data is added, the asker's own included | Provider's region |
 

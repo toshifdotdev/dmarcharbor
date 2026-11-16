@@ -113,10 +113,10 @@ export const subProcessors: SubProcessor[] = [
     region: 'India',
   },
   {
-    name: 'Paddle',
+    name: 'Dodo Payments',
     purpose: 'Subscription billing in US dollars, as merchant of record',
     data: 'Company name, billing contact email, plan and amount. Not DMARC data.',
-    region: "Provider's region",
+    region: 'United States, United Kingdom and India',
   },
   {
     name: 'Google and Microsoft',

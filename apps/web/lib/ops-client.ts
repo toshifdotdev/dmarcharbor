@@ -1275,9 +1275,9 @@ export const startCheckout = (
   call<{
     url?: string;
     checkoutUrl?: string;
-    /** The provider's id for this checkout: a Paddle transaction (txn_…) or a Razorpay subscription. */
+    /** The provider's id for this checkout: a Dodo checkout session, a Paddle transaction (txn_…) or a Razorpay subscription. */
     checkoutId?: string;
-    provider?: "RAZORPAY" | "PADDLE";
+    provider?: "RAZORPAY" | "PADDLE" | "DODO";
     priceLabel?: string;
     priceMinor?: number;
     unitPriceMinor?: number;

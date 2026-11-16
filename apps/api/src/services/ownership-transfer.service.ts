@@ -46,7 +46,7 @@ const ATTEMPT_WINDOW_MS = 15 * 60_000;
 const attempts = rateLimitStoreFor('ownership-transfer');
 
 /** Live, billed subscriptions; the same rule the workspace deletion uses. */
-const BILLED_PROVIDERS = ['RAZORPAY', 'PADDLE'] as const;
+const BILLED_PROVIDERS = ['RAZORPAY', 'PADDLE', 'DODO'] as const;
 const LIVE_STATUSES = ['ACTIVE', 'TRIALING', 'PAST_DUE'] as const;
 
 export interface TransferInput {

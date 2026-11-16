@@ -552,7 +552,7 @@ async function quotaExceeded(
 export async function setOrganizationPlan(
   organizationId: string,
   plan: PlanTier,
-  options: { status?: 'ACTIVE' | 'TRIALING' | 'CANCELLED' | 'PAST_DUE' | 'EXPIRED'; currentPeriodEnd?: Date | null; provider?: 'NONE' | 'RAZORPAY' | 'PADDLE'; providerSubscriptionId?: string | null } = {},
+  options: { status?: 'ACTIVE' | 'TRIALING' | 'CANCELLED' | 'PAST_DUE' | 'EXPIRED'; currentPeriodEnd?: Date | null; provider?: 'NONE' | 'RAZORPAY' | 'PADDLE' | 'DODO'; providerSubscriptionId?: string | null } = {},
 ): Promise<void> {
   const status = options.status ?? 'ACTIVE';
 

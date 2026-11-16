@@ -130,7 +130,9 @@ export async function refundEligibility(
   });
 
   const plan = organization?.plan ?? subscription?.plan ?? 'MOORING';
-  const currency: BillingCurrency = organization?.preferredCurrency ?? (subscription?.provider === 'PADDLE' ? 'USD' : 'INR');
+  const currency: BillingCurrency =
+    organization?.preferredCurrency ??
+    (subscription?.provider === 'PADDLE' || subscription?.provider === 'DODO' ? 'USD' : 'INR');
 
   // No plan to refund is not an error, it is a workspace that never paid.
   if (plan === 'MOORING' || !subscription?.providerSubscriptionId || subscription.provider === 'NONE') {
@@ -351,7 +353,7 @@ export async function issueRefund(input: {
   // What the provider actually refunds (the first payment, tax included) when
   // it says; the catalog's figure otherwise.
   let refundedMinor = eligibility.amountMinor;
-  const provider = providerFor(subscription.provider as 'RAZORPAY' | 'PADDLE');
+  const provider = providerFor(subscription.provider as 'RAZORPAY' | 'PADDLE' | 'DODO');
   try {
     const result = await provider.refund({
       providerSubscriptionId: subscription.providerSubscriptionId,

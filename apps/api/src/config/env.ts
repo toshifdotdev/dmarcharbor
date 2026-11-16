@@ -145,6 +145,16 @@ const envSchema = z.object({
   PADDLE_API_KEY: optionalSecret,
   PADDLE_WEBHOOK_SECRET: optionalSecret,
 
+  // Dodo Payments. Merchant of record for USD subscriptions. The environment is
+  // chosen explicitly rather than inferred from NODE_ENV so production can be
+  // verified end-to-end in test_mode before switching to live_mode.
+  DODO_API_KEY: optionalSecret,
+  DODO_WEBHOOK_SECRET: optionalSecret,
+  DODO_ENVIRONMENT: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.enum(['test_mode', 'live_mode']).optional(),
+  ),
+
   // Logo storage. Absent until a bucket exists, so branding still works with a
   // logo URL pasted in, and upload simply reports that it is not configured.
   AWS_REGION: optionalSecret,
@@ -546,6 +556,32 @@ if (Boolean(parsed.data.RAZORPAY_KEY_ID) !== Boolean(parsed.data.RAZORPAY_KEY_SE
 if (Boolean(parsed.data.PADDLE_API_KEY) !== Boolean(parsed.data.PADDLE_WEBHOOK_SECRET)) {
   throw new Error('PADDLE_API_KEY and PADDLE_WEBHOOK_SECRET must be configured together.');
 }
+
+/**
+ * Dodo Payments requires the API key, the Standard Webhooks signing secret and
+ * an explicit environment (`test_mode` or `live_mode`) together. A key without
+ * the webhook secret would take money and reject every confirmation webhook;
+ * inferring the environment from NODE_ENV would make it impossible to verify a
+ * production deployment in test mode first.
+ */
+export function assertDodoConfig(input: {
+  apiKey?: string;
+  webhookSecret?: string;
+  environment?: 'test_mode' | 'live_mode';
+}): void {
+  if (Boolean(input.apiKey) !== Boolean(input.webhookSecret)) {
+    throw new Error('DODO_API_KEY and DODO_WEBHOOK_SECRET must be configured together.');
+  }
+  if (input.apiKey && !input.environment) {
+    throw new Error('DODO_ENVIRONMENT (test_mode or live_mode) must be set when DODO_API_KEY is configured.');
+  }
+}
+
+assertDodoConfig({
+  apiKey: parsed.data.DODO_API_KEY,
+  webhookSecret: parsed.data.DODO_WEBHOOK_SECRET,
+  environment: parsed.data.DODO_ENVIRONMENT,
+});
 
 /**
  * Hosted DMARC is optional, but half of it is worse than none: a zone without a

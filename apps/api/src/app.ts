@@ -204,7 +204,7 @@ export function createApp(): express.Express {
   // transaction with items, totals and payments runs past 10 KB, and a 413
   // there is a payment the provider retries until it gives up.
   app.use(
-    ['/api/webhooks/razorpay', '/api/webhooks/paddle'],
+    ['/api/webhooks/razorpay', '/api/webhooks/paddle', '/api/webhooks/dodo'],
     express.json({
       limit: '1mb',
       verify: (request, _response, buffer) => {

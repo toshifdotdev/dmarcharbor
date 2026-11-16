@@ -632,7 +632,8 @@ export async function previewPlanChange(input: {
     select: { preferredCurrency: true },
   });
   const fallbackCurrency: BillingCurrency =
-    preference?.preferredCurrency ?? (subscription.provider === 'PADDLE' ? 'USD' : 'INR');
+    preference?.preferredCurrency ??
+    (subscription.provider === 'PADDLE' || subscription.provider === 'DODO' ? 'USD' : 'INR');
 
   const immediate = await changeIsImmediate(provider, {
     organizationId: input.organizationId,
@@ -662,8 +663,8 @@ export async function previewPlanChange(input: {
       nextAmountMinor: quote.nextAmountMinor,
       nextAmountLabel: quote.nextAmountMinor === null ? null : formatLabel(quote.nextAmountMinor, currency),
       nextBilledAt: quote.nextBilledAt?.toISOString() ?? null,
-      // Paddle prices tax into its figures; Razorpay's are our catalog prices.
-      includesTax: provider.name === 'PADDLE',
+      // Paddle and Dodo price tax into their figures; Razorpay's are our catalog prices.
+      includesTax: provider.name === 'PADDLE' || provider.name === 'DODO',
       overage,
     };
   }
@@ -887,7 +888,8 @@ export async function billingStatus(organizationId: string): Promise<{
    * one number on that screen they will compare against their bank statement.
    */
   const currency: BillingCurrency =
-    organization.preferredCurrency ?? (organization.subscription?.provider === 'PADDLE' ? 'USD' : 'INR');
+    organization.preferredCurrency ??
+    (organization.subscription?.provider === 'PADDLE' || organization.subscription?.provider === 'DODO' ? 'USD' : 'INR');
 
   const periodEnd = organization.subscription?.currentPeriodEnd ?? null;
   /**

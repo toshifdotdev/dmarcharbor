@@ -34,6 +34,9 @@ import { join } from "node:path";
 export const PADDLE_ORDER_PROCESS_PARAGRAPH =
   "Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for the orders it processes. Paddle provides all customer service inquiries and handles returns for those orders.";
 
+export const DODO_ORDER_PROCESS_PARAGRAPH =
+  "Our US dollar order process is conducted by our online reseller Dodo Payments (dodopayments.com). Dodo Payments is the Merchant of Record for the orders it processes, calculates and remits applicable sales tax or VAT, issues the tax invoice, and handles billing inquiries and returns for those orders.";
+
 /** The version of these documents. ONE constant: the acceptance record stores
  *  the DPA version (apps/api's currentDpaVersion), and a page that printed a
  *  different string would make the evidence point at a document nobody can
@@ -129,7 +132,7 @@ export const LEGAL_DOCS: LegalDoc[] = [
         heading: "Order process and merchant of record",
         paragraphs: [
           MERCHANT_OF_RECORD_PREAMBLE,
-          `**Purchases in US dollars, through Paddle:** ${PADDLE_ORDER_PROCESS_PARAGRAPH}`,
+          `**Purchases in US dollars, through Dodo Payments:** ${DODO_ORDER_PROCESS_PARAGRAPH}`,
           `**Purchases in Indian rupees, through Razorpay:** ${RAZORPAY_ORDER_PROCESS_PARAGRAPH}`,
         ],
       },
@@ -157,7 +160,7 @@ export const LEGAL_DOCS: LegalDoc[] = [
       {
         heading: "Merchant of Record",
         paragraphs: [
-          "Payments are handled by our online reseller Paddle.com, which is the Merchant of Record and handles returns.",
+          "US dollar payments are handled by our online reseller Dodo Payments (dodopayments.com), which is the Merchant of Record and handles returns for those orders.",
         ],
       },
     ],
@@ -212,7 +215,7 @@ export const LEGAL_DOCS: LegalDoc[] = [
         heading: "How to complain",
         paragraphs: [
           "Write to support@dmarcharbor.com with what happened, when, and what you would like done. We acknowledge within 48 hours and answer within fifteen working days.",
-          `If you paid through Paddle, you can also raise a complaint through Paddle's own dispute process: Paddle is the Merchant of Record for those orders.`,
+          "If you paid in US dollars through Dodo Payments, you can also raise a billing complaint through Dodo Payments' own dispute process: Dodo Payments is the Merchant of Record for those orders.",
         ],
       },
     ],

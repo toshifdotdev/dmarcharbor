@@ -16,7 +16,7 @@ import type { BillingCurrency } from '../services/entitlements/plan-catalog.js';
 export type BillingInterval = 'monthly' | 'annual';
 
 /** Which provider a workspace is served by. `NONE` is the free plan. */
-export type ProviderName = 'NONE' | 'RAZORPAY' | 'PADDLE';
+export type ProviderName = 'NONE' | 'RAZORPAY' | 'PADDLE' | 'DODO';
 
 export interface BillingContact {
   name: string;

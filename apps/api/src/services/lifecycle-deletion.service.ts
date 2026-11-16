@@ -387,7 +387,7 @@ export async function deleteWorkspace(
     where: {
       organizationId,
       status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE'] },
-      provider: { in: ['RAZORPAY', 'PADDLE'] },
+      provider: { in: ['RAZORPAY', 'PADDLE', 'DODO'] },
     },
     select: { id: true, status: true },
   });

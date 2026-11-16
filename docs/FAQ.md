@@ -252,9 +252,9 @@ take the next renewal; when it cannot (the mandate was paused or cancelled at yo
 bank, or its limit is lower), the upgrade starts with the next period instead. If
 you cancel while that difference is still unpaid, the plan goes back to the one
 you paid for. A downgrade, or a move between monthly and annual, takes effect at
-the end of the period you have paid for. Paying in dollars through Paddle, any
-change applies straight away and Paddle prorates the difference. The billing page
-says which applies to you before you confirm.
+the end of the period you have paid for. Paying in dollars through Dodo Payments,
+any change applies straight away and Dodo Payments prorates the difference. The
+billing page says which applies to you before you confirm.
 
 **If I upgrade, do I pay the full price of the new plan?**
 No, you pay only the difference for the days left. Nothing you have paid is lost.
@@ -264,7 +264,7 @@ Harbor (₹12,499) on 16 November, with half the month left:
 - Paying in rupees: you have Harbor at once and nothing is charged that day. Your
   renewal on 1 December is ₹12,499 for December plus ₹4,600, half of the ₹9,200
   difference, for the rest of November: ₹17,099. From 1 January it is ₹12,499.
-- Paying in dollars: Paddle charges the difference for the rest of the month
+- Paying in dollars: Dodo Payments charges the difference for the rest of the month
   straight away, and the next invoice on the same date is the new price.
 
 The billing page shows the exact amounts before you confirm.
@@ -273,7 +273,7 @@ The billing page shows the exact amounts before you confirm.
 Paying in rupees, no: you keep the plan you paid for until the end of the period,
 then the smaller plan starts and renews at its own price. Nothing is refunded for
 the rest of the period, because you still have everything until then. Paying in
-dollars, the change applies at once and Paddle credits the unused time against
+dollars, the change applies at once and Dodo Payments credits the unused time against
 your next invoices. Either way nothing is deleted, and a downgrade is refused only
 while you use more than the smaller plan allows.
 
@@ -292,7 +292,7 @@ to the same date next year. There is no charge for a part month.
 **Can I switch between monthly and annual?**
 Yes. Paying in rupees, the switch applies when the current period ends, and the
 first charge on the new interval is the new price. Paying in dollars, it applies
-at once and Paddle prorates it like any other change. Annual costs ten months'
+at once and Dodo Payments prorates it like any other change. Annual costs ten months'
 price for twelve. Fleet is monthly only. The billing page shows when the switch applies before you confirm.
 
 **I added domains in the middle of the month on Fleet. Am I charged now?**
@@ -307,7 +307,7 @@ After it ends the workspace moves to the free plan with everything kept, and
 buying a plan again begins a new period from that day.
 
 **Can I change the card or UPI account I pay with?**
-Paying in dollars, change it in Paddle's billing portal, from the billing page.
+Paying in dollars, change it in Dodo Payments' billing portal, from the billing page.
 Paying in rupees, write to support and we send you a payment link for your next
 renewal; the method you pay it with becomes the saved one. If a renewal cannot be
 charged to your saved method, the link comes to you by itself.
@@ -331,13 +331,12 @@ every client, domain and report kept. Cancelling without a refund keeps the plan
 until the end of the period you paid for.
 
 **Is tax added to the price?**
-Prices are shown before tax. Paying in dollars, Paddle is the reseller and
-handles tax: in the US and Canada it adds sales tax on its payment page, and in
-most other countries tax is included in the price. Paying in rupees, no GST is
-charged at present.
+Prices are shown before tax. Paying in dollars, Dodo Payments is the reseller and
+handles tax: depending on your location, applicable sales tax or VAT is calculated
+and added on its payment page. Paying in rupees, no GST is charged at present.
 
 **Which currency am I charged in?**
-Rupees are processed by Razorpay and US dollars by Paddle. You choose before your
+Rupees are processed by Razorpay and US dollars by Dodo Payments. You choose before your
 first payment, and it is fixed after that, because changing it would mean moving a
 live subscription between two payment processors.
 
@@ -347,7 +346,7 @@ and we tell you the exact date. If it is still unpaid then, the workspace moves 
 the free plan with all its data kept; upgrading brings everything back.
 
 **Can I pay by invoice or bank transfer?**
-Not at present. Pay by card through Razorpay or Paddle.
+Not at present. Pay by card through Razorpay or Dodo Payments.
 
 **Is there a free trial of the paid plans?**
 No. Mooring is free with no card and no time limit, and the 14-day money-back

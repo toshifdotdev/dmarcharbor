@@ -623,7 +623,7 @@ export async function applyDuePendingPlans(now = new Date()): Promise<{ applied:
     let providerAccepted = true;
     if (subscription.provider !== 'NONE' && subscription.providerSubscriptionId) {
       try {
-        const provider = providerFor(subscription.provider as 'RAZORPAY' | 'PADDLE');
+        const provider = providerFor(subscription.provider as 'RAZORPAY' | 'PADDLE' | 'DODO');
         await provider.changePlan({
           providerSubscriptionId: subscription.providerSubscriptionId,
           plan: targetPlan,

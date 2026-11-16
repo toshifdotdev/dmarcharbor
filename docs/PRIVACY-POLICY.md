@@ -152,7 +152,7 @@ region.
 Some of it leaves the EU in these cases:
 
 - **Email** is sent through Resend, which keeps its records in the United States.
-- **Payments** are handled by Razorpay in India (rupees) and Paddle (US dollars).
+- **Payments** are handled by Razorpay in India (rupees) and Dodo Payments (US dollars).
 - **We** are based in India, so when we look into a support request, a
   complaint or a security issue, the data is accessed from India.
 

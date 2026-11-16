@@ -325,7 +325,7 @@ export function getPlanCatalog(): Promise<{ plans: PlanDefinition[]; order: stri
 export interface DeploymentCapabilities {
   currencies: string[];
   defaultCurrency: string;
-  providers: { razorpay: boolean; paddle: boolean };
+  providers: { razorpay: boolean; paddle: boolean; dodo?: boolean };
   /** A demonstration reference, shaped like a real one and matching no pack. */
   compliancePack?: { exampleReference: string; exampleFilename: string };
 }
