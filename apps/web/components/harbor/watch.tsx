@@ -27,6 +27,7 @@ import { opsCall } from "@/lib/ops-client";
 import { listNotifications } from "@/lib/notifications-client";
 import type { AlertEventRow, PageEnvelope, ResolvedEntitlements } from "@/lib/types";
 import { Notice } from "@/components/ui/notice";
+import { Button } from "@/components/ui/button";
 
 type Reading = { state: "pending" } | { state: "failed" } | { state: "ok"; n: number; more?: boolean };
 
@@ -160,11 +161,20 @@ const TROUBLE: Partial<Record<ResolvedEntitlements["status"], string>> = {
   EXPIRED: "This workspace's subscription has ended.",
 };
 
+/** Where a dismissed plan notice is remembered, per workspace, in this browser. */
+const dismissKey = (organizationId: string) => `dh.plan-watch.dismissed.${organizationId}`;
+
 /** A plan condition that changes what the workspace can do, or nothing. */
 export function PlanWatch({ organizationId }: { organizationId: string }) {
   const [ent, setEnt] = useState<ResolvedEntitlements | null>(null);
+  const [dismissed, setDismissed] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
+    try {
+      setDismissed(window.localStorage.getItem(dismissKey(organizationId)));
+    } catch {
+      // Storage refused (private mode): the notice simply stays dismissible per visit.
+    }
     void opsCall<ResolvedEntitlements>(`/api/workspaces/${organizationId}/entitlements`).then((r) => {
       if (live && r.ok) setEnt(r.data);
     });
@@ -181,6 +191,20 @@ export function PlanWatch({ organizationId }: { organizationId: string }) {
   // ran out (a refund, a cancel that took effect) is a state to act on, not
   // a failure: the workspace keeps working on the free plan.
   const failed = ent.status === "PAST_DUE";
+  // A cancelled, ended or ending subscription is news once: the workspace keeps
+  // working, so the notice can be put away. It is remembered against this exact
+  // condition, so a later cancellation or a new end date shows again. A failed
+  // payment is never dismissible: it stays until the payment is fixed.
+  const fingerprint = `${ent.status}:${ent.cancelAtPeriodEnd ? "ending" : ""}:${ent.currentPeriodEnd ?? ""}`;
+  if (!failed && dismissed === fingerprint) return null;
+  function dismiss() {
+    setDismissed(fingerprint);
+    try {
+      window.localStorage.setItem(dismissKey(organizationId), fingerprint);
+    } catch {
+      // Not remembered beyond this page; nothing else depends on it.
+    }
+  }
 
   return (
     <div className="border-b border-rule bg-paper px-4 py-2 sm:px-6 lg:px-8">
@@ -192,9 +216,16 @@ export function PlanWatch({ organizationId }: { organizationId: string }) {
           `The ${ent.label} plan ends on ${new Date(ent.currentPeriodEnd as string).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}.`
         }
         action={
-          <Link href="/billing" className="link text-ui font-semibold">
-            Review billing
-          </Link>
+          <>
+            <Link href="/billing" className="link text-ui font-semibold">
+              Review billing
+            </Link>
+            {failed ? null : (
+              <Button variant="ghost" size="sm" onClick={dismiss} data-testid="plan-watch-dismiss" aria-label="Dismiss this notice">
+                Dismiss
+              </Button>
+            )}
+          </>
         }
       >
         {trouble
