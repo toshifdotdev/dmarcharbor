@@ -69,6 +69,11 @@ EOF
 aws ecr get-login-password --region "$region" | docker login --username AWS --password-stdin "$registry" >/dev/null
 
 compose=(docker compose --env-file compose.env -f compose.prod.yaml)
+# The disk is 20 GB and each release is about 1.5 GB of images, so images no
+# running container uses are removed before pulling (a full disk failed the
+# release of 81b4d0d on 16 November 2026) and again once the release is ready.
+# Running images are never touched; a rollback pulls its tag from ECR again.
+docker image prune -af >/dev/null || true
 "${compose[@]}" pull --quiet
 "${compose[@]}" up -d --remove-orphans
 
@@ -78,7 +83,7 @@ for _ in $(seq 1 60); do
     && "${compose[@]}" exec -T web wget -q -O /dev/null http://127.0.0.1:3000/robots.txt 2>/dev/null; then
     echo "Release $tag is ready."
     echo "$tag" > current-release
-    docker image prune -af --filter "until=168h" >/dev/null || true
+    docker image prune -af >/dev/null || true
     exit 0
   fi
   sleep 5
