@@ -414,6 +414,18 @@ behind it.
 - Verified in the sandbox in session 11: checkout, portal, prorated upgrade and
   downgrade, cancel and keep, Fleet count and bands, renewal, failed renewal and
   dunning, recovery, refund.
+- Done on live, 16 November 2026: the API key, the webhook destination and
+  secret, the `live_` client token (GitHub production variable), and the plan
+  sync, which created the 10 USD prices (Fairway, Harbor and Admiralty monthly
+  and annual, Fleet bands 0 to 3). The plan sync has no route or script: it was
+  run once inside the API container with `PaddleBillingProvider.syncPlans('USD')`;
+  run it the same way after a price change. Still to do: account verification
+  and site approval, the default payment link, payouts to Wise, and one live
+  purchase and refund.
+- **The live API key expires 90 days after 16 November 2026 (about 14
+  February 2027).** Before then, create a new key in Paddle, put it in
+  `deploy/secrets/api.env`, upload it and redeploy, or USD checkout,
+  plan changes, refunds and reconciliation stop.
 
 **Before the first sale:** remove `STAFF_API_KEY`'s dev value and set a strong
 one (refunds use it), and read "Handling a refund request" in `docs/BILLING.md`.
