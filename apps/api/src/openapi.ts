@@ -1882,7 +1882,7 @@ export const openApiDocument = {
         description: [
           'Creates the recurring products and prices for every catalog plan in the requested currency (Fairway, Harbor and Admiralty monthly and annual, plus Fleet bands 0 to 3) at the exact catalog amounts, stores their ids in billing_plan, and returns the resulting planSyncReport.',
           'Idempotent and safe to re-run: plans already stored in billing_plan are reused so live subscriptions are never orphaned.',
-          'Staff only (`X-Staff-Key`), because it creates billable products in the payment provider account.',
+          'Staff only (`Authorization: Bearer <STAFF_API_KEY>`), because it creates billable products in the payment provider account.',
         ].join(' '),
         parameters: [
           {

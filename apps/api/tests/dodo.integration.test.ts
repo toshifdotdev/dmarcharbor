@@ -171,6 +171,8 @@ describe('Dodo Payments integration', () => {
     mutableEnv.DODO_API_KEY = 'dodo_test_fake_api_key';
     mutableEnv.DODO_WEBHOOK_SECRET = FAKE_DODO_SECRET;
     mutableEnv.DODO_ENVIRONMENT = 'test_mode';
+    mutableEnv.PADDLE_API_KEY = undefined;
+    mutableEnv.PADDLE_WEBHOOK_SECRET = undefined;
     mutableEnv.STAFF_API_KEY = FAKE_STAFF_KEY;
 
     let productSeq = 0;
@@ -229,7 +231,7 @@ describe('Dodo Payments integration', () => {
       // Staff route syncs all expected USD plans into Dodo and stores them in billing_plan.
       const syncRes = await request(app)
         .post('/api/billing/plan-sync?provider=DODO&currency=USD')
-        .set('x-staff-key', FAKE_STAFF_KEY);
+        .set('Authorization', `Bearer ${FAKE_STAFF_KEY}`);
 
       expect(syncRes.status).toBe(200);
       expect(syncRes.body.provider).toBe('DODO');
@@ -253,7 +255,7 @@ describe('Dodo Payments integration', () => {
       // Re-running is idempotent: 0 created, all reused.
       const rerunRes = await request(app)
         .post('/api/billing/plan-sync?provider=DODO&currency=USD')
-        .set('x-staff-key', FAKE_STAFF_KEY);
+        .set('Authorization', `Bearer ${FAKE_STAFF_KEY}`);
       expect(rerunRes.status).toBe(200);
       expect(rerunRes.body.created).toBe(0);
       expect(rerunRes.body.reused).toBe(expectedPlans('USD').length);
@@ -869,10 +871,10 @@ describe('Dodo Payments integration', () => {
 
       const refundRes = await request(app)
         .post(`/api/workspaces/${organizationId}/refund`)
-        .set('x-staff-key', FAKE_STAFF_KEY)
+        .set('Authorization', `Bearer ${FAKE_STAFF_KEY}`)
         .send({ reason: '14-day money-back guarantee requested by owner.' });
 
-      expect(refundRes.status).toBe(200);
+      expect(refundRes.status).toBe(201);
       expect(refundRes.body.refunded).toBe(true);
       expect(refundRes.body.providerRefundId).toBe('ref_dodo_1');
       expect(refundRes.body.amountMinor).toBe(16092);

@@ -309,7 +309,7 @@ DODO_ENVIRONMENT=test_mode   # test_mode or live_mode (required when DODO_API_KE
   after switching to live mode):
   ```bash
   curl -X POST "https://api.dmarcharbor.com/api/billing/plan-sync?provider=DODO&currency=USD" \
-    -H "X-Staff-Key: $STAFF_API_KEY"
+    -H "Authorization: Bearer $STAFF_API_KEY"
   ```
   Each catalog plan entry (`expectedPlans('USD')`: Fairway, Harbor and Admiralty
   monthly and annual, plus Fleet bands 0 to 3 — 10 products total) is created in

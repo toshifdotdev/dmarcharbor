@@ -452,7 +452,7 @@ behind it.
   - Deploy with `DODO_API_KEY`, `DODO_WEBHOOK_SECRET` and `DODO_ENVIRONMENT=test_mode`.
   - Run the staff plan sync route:
     `POST https://api.dmarcharbor.com/api/billing/plan-sync?provider=DODO&currency=USD`
-    with `X-Staff-Key: <STAFF_API_KEY>`. Confirm all 10 USD plans report `status: "ready"`
+    with `Authorization: Bearer <STAFF_API_KEY>`. Confirm all 10 USD plans report `status: "ready"`
     and `GET /api/capabilities` lists `USD`.
   - Run the end-to-end test-mode check: USD checkout, webhook activation,
     customer portal, prorated upgrade and downgrade, cancel at period end and
