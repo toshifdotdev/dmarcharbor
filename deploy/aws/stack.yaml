@@ -39,8 +39,16 @@ Parameters:
       to read (a new account cannot create CloudFront until AWS verifies it).
       cloudfront: a private bucket behind CloudFront with the sandbox headers.
       Switch by updating the stack; docs/DEPLOYMENT.md says which settings follow.
+  AlertEmail:
+    Type: String
+    Default: ''
+    Description: >-
+      Who is emailed when the instance fails a health check (SNS sends a
+      confirmation link first). Empty: the alarms still reboot or recover the
+      instance, and nobody is told.
 
 Conditions:
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, '']]
   MakeOidcProvider: !Equals [!Ref CreateGitHubOidcProvider, 'true']
   UseCloudFront: !Equals [!Ref LogoCdn, cloudfront]
   UseS3: !Equals [!Ref LogoCdn, s3]
@@ -298,6 +306,55 @@ Resources:
           chmod 700 /opt/dmarcharbor
           # Clocks: leases and claims compare them (chrony is on by default on AL2023).
           systemctl enable --now chronyd
+
+  # ── Health: there is one instance, so it must mend itself ───────────────────
+  # EC2 publishes both status checks every minute at no charge. A failed
+  # instance check (the OS hung, out of memory) is fixed by a reboot; a failed
+  # system check (AWS's hardware or network under it) by a recovery, which
+  # moves the same instance, disk, IP and id to healthy hardware. Both email.
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: dmarcharbor-prod-alerts
+  AlertSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlertEmail
+    Properties:
+      TopicArn: !Ref AlertTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+  InstanceCheckAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: dmarcharbor-prod-instance-check
+      AlarmDescription: The instance failed its own status check for 3 minutes; rebooting it.
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed_Instance
+      Dimensions: [{ Name: InstanceId, Value: !Ref Instance }]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: missing
+      AlarmActions: [!Sub 'arn:aws:automate:${AWS::Region}:ec2:reboot', !Ref AlertTopic]
+      OKActions: [!Ref AlertTopic]
+  SystemCheckAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: dmarcharbor-prod-system-check
+      AlarmDescription: AWS's hardware under the instance failed for 2 minutes; recovering it.
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed_System
+      Dimensions: [{ Name: InstanceId, Value: !Ref Instance }]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: missing
+      AlarmActions: [!Sub 'arn:aws:automate:${AWS::Region}:ec2:recover', !Ref AlertTopic]
+      OKActions: [!Ref AlertTopic]
 
   # ── GitHub Actions: build, push and deploy, nothing else ────────────────────
   GitHubOidcProvider:

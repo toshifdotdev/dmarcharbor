@@ -99,6 +99,15 @@ Set on `dmarcharbor.com` (14 November 2026), and to set the same way on
 
 ## When something needs a person
 
+- **Health alarms** (added 16 November 2026, inside the CloudWatch free tier):
+  `dmarcharbor-prod-instance-check` reboots the instance after 3 minutes of a
+  failed instance status check, and `dmarcharbor-prod-system-check` recovers it
+  onto healthy hardware (same id, disk and IP) after 2 minutes of a failed
+  system check. Both email the `AlertEmail` stack parameter through the SNS
+  topic `dmarcharbor-prod-alerts`. They only see the instance; an outside
+  uptime check (UptimeRobot on `https://dmarcharbor.com` and
+  `https://api.dmarcharbor.com/api/ready`) catches the tunnel, Caddy or an app
+  that is up but failing.
 - **Logs:** CloudWatch → Log groups → `/dmarcharbor/prod`, or
   `aws logs tail /dmarcharbor/prod --follow --log-stream-names api`.
 - **A shell:** EC2 → the instance → Connect → Session Manager, then
