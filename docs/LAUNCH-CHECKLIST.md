@@ -426,6 +426,15 @@ behind it.
   first was revoked). Prices belong to the Paddle account, not to a key, so a
   new key needs no new plan sync: put it in `deploy/secrets/api.env`, upload,
   redeploy.
+- **Paddle rejected the seller account on 16 November 2026** (no reason given;
+  one appeal sent to sellers@paddle.com). USD is off in production: the two
+  Paddle values were deleted from Parameter Store and are commented out in
+  `deploy/secrets/api.env`, so `/api/capabilities` lists INR only and no
+  checkout offers USD. The Paddle code, prices and webhook stay as they are.
+  To turn USD back on: uncomment both, run `put-params.ps1`, redeploy. If the
+  appeal fails, the replacement is a merchant of record that accepts Indian
+  sole proprietors (Dodo Payments is the first candidate), built as a new
+  billing provider; Paddle is removed only after that works.
 
 **Before the first sale:** remove `STAFF_API_KEY`'s dev value and set a strong
 one (refunds use it), and read "Handling a refund request" in `docs/BILLING.md`.
