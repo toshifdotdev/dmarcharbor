@@ -346,8 +346,14 @@ export async function applyBillingEvent(event: BillingEvent): Promise<ApplyEvent
      * guarantee was neither honoured nor refused, it was simply inapplicable, and
      * a refund could be issued against a payment that had failed. It stays out
      * until a fee actually settles, which is what `ACTIVE` and `TRIALING` mean.
+     *
+     * A first purchase has no row yet (`existing` is null; the upsert above
+     * creates it), and `existing?.firstChargeAt === null` was false for it, so
+     * no first purchase was ever stamped and every guarantee read as "no
+     * completed purchase on record". The `firstChargeAt: null` filter below is
+     * what keeps the stamp to once.
      */
-    if (existing?.firstChargeAt === null && ['ACTIVE', 'TRIALING'].includes(status)) {
+    if (!existing?.firstChargeAt && ['ACTIVE', 'TRIALING'].includes(status)) {
       await tx.subscription.updateMany({
         where: { organizationId, firstChargeAt: null },
         data: { firstChargeAt: event.occurredAt },
