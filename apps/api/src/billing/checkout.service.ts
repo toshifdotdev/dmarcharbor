@@ -454,6 +454,7 @@ export async function changePlan(input: {
   const provider = resolveProviderForCheckout({
     currency: 'INR',
     existingProvider: subscription.provider,
+    organizationId: input.organizationId,
   });
 
   const billable = await billableQuantity(input.organizationId, input.plan);
@@ -626,7 +627,11 @@ export async function previewPlanChange(input: {
   }
 
   const overage = await planOverageFor(input.organizationId, input.plan);
-  const provider = resolveProviderForCheckout({ currency: 'INR', existingProvider: subscription.provider });
+  const provider = resolveProviderForCheckout({
+    currency: 'INR',
+    existingProvider: subscription.provider,
+    organizationId: input.organizationId,
+  });
   const billable = await billableQuantity(input.organizationId, input.plan);
   const preference = await prisma.organization.findUnique({
     where: { id: input.organizationId },
@@ -705,7 +710,11 @@ export async function cancelSubscription(input: { organizationId: string; actorU
     throw new CheckoutError('This workspace has no subscription to cancel.', 'NO_SUBSCRIPTION', 409);
   }
 
-  const provider = resolveProviderForCheckout({ currency: 'INR', existingProvider: subscription.provider });
+  const provider = resolveProviderForCheckout({
+    currency: 'INR',
+    existingProvider: subscription.provider,
+    organizationId: input.organizationId,
+  });
   await provider.cancelAtPeriodEnd(subscription.providerSubscriptionId);
 
   // The plan is deliberately left alone. It survives until currentPeriodEnd,
@@ -756,7 +765,11 @@ export async function resumeSubscription(input: { organizationId: string; actorU
     throw new CheckoutError('This workspace has no subscription to resume.', 'NO_SUBSCRIPTION', 409);
   }
 
-  const provider = resolveProviderForCheckout({ currency: 'INR', existingProvider: subscription.provider });
+  const provider = resolveProviderForCheckout({
+    currency: 'INR',
+    existingProvider: subscription.provider,
+    organizationId: input.organizationId,
+  });
   await provider.resume(subscription.providerSubscriptionId);
 
   await prisma.subscription.update({
@@ -790,7 +803,11 @@ export async function billingPortalUrl(input: { organizationId: string; returnUr
     throw new CheckoutError('This workspace has no billing account yet.', 'NO_BILLING_ACCOUNT', 409);
   }
 
-  const provider = resolveProviderForCheckout({ currency: 'INR', existingProvider: subscription.provider });
+  const provider = resolveProviderForCheckout({
+    currency: 'INR',
+    existingProvider: subscription.provider,
+    organizationId: input.organizationId,
+  });
   const session = await provider.createBillingPortalSession({
     providerCustomerId: subscription.providerCustomerId,
     providerSubscriptionId: subscription.providerSubscriptionId,

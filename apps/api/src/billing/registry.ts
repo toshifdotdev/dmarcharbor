@@ -96,10 +96,10 @@ export function resolveProviderForCheckout(input: {
   existingProvider?: Exclude<ProviderName, 'NONE'> | 'NONE' | null;
   organizationId?: string | null;
 }): BillingProvider {
-  const target =
-    input.existingProvider && input.existingProvider !== 'NONE'
-      ? input.existingProvider
-      : providerForCurrency(input.currency);
+  const hasExistingProvider = Boolean(input.existingProvider && input.existingProvider !== 'NONE');
+  const target = hasExistingProvider
+    ? (input.existingProvider as Exclude<ProviderName, 'NONE'>)
+    : providerForCurrency(input.currency);
 
   if (!providerConfigured(target)) {
     throw new BillingProviderError(
@@ -113,7 +113,7 @@ export function resolveProviderForCheckout(input: {
     );
   }
 
-  if (target === 'DODO' && !dodoAllowedForWorkspace(input.organizationId)) {
+  if (target === 'DODO' && !hasExistingProvider && !dodoAllowedForWorkspace(input.organizationId)) {
     throw new BillingProviderError(
       'Payments in USD are not available for this workspace while Dodo Payments is in test mode.',
       'PROVIDER_NOT_CONFIGURED',
