@@ -147,13 +147,17 @@ const envSchema = z.object({
 
   // Dodo Payments. Merchant of record for USD subscriptions. The environment is
   // chosen explicitly rather than inferred from NODE_ENV so production can be
-  // verified end-to-end in test_mode before switching to live_mode.
+  // verified end-to-end in test_mode before switching to live_mode. When
+  // DODO_ENVIRONMENT is test_mode, USD checkout and /api/capabilities USD
+  // readiness are offered only to workspaces listed in DODO_TEST_WORKSPACE_IDS
+  // (comma-separated). In live_mode, DODO_TEST_WORKSPACE_IDS is ignored.
   DODO_API_KEY: optionalSecret,
   DODO_WEBHOOK_SECRET: optionalSecret,
   DODO_ENVIRONMENT: z.preprocess(
     (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
     z.enum(['test_mode', 'live_mode']).optional(),
   ),
+  DODO_TEST_WORKSPACE_IDS: z.string().trim().optional(),
 
   // Logo storage. Absent until a bucket exists, so branding still works with a
   // logo URL pasted in, and upload simply reports that it is not configured.

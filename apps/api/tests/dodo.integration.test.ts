@@ -83,6 +83,13 @@ import { expectedPlans, saveStoredPlan } from '../src/billing/plans.js';
 import { providerForCurrency, providerReady, resolveProviderForCheckout } from '../src/billing/registry.js';
 import { runDunning, runReconciliation } from '../src/billing/dunning.js';
 import { syncPerDomainQuantities } from '../src/billing/quantity.js';
+import {
+  buildDodoDisputeWebhookFixture,
+  buildDodoPaymentWebhookFixture,
+  buildDodoProductFixture,
+  buildDodoRefundWebhookFixture,
+  buildDodoSubscriptionWebhookFixture,
+} from './fixtures/dodo-webhooks.js';
 
 const FAKE_DODO_SECRET_RAW = Buffer.from('dodo-integration-fake-webhook-secret-key').toString('base64');
 const FAKE_DODO_SECRET = `whsec_${FAKE_DODO_SECRET_RAW}`;
@@ -133,7 +140,10 @@ async function seedDodoUsdPlans(): Promise<void> {
   }
 }
 
-async function createWorkspace(label: string): Promise<{
+async function createWorkspace(
+  label: string,
+  options: { allowInTestMode?: boolean } = {},
+): Promise<{
   agent: ReturnType<typeof request.agent>;
   organizationId: string;
   email: string;
@@ -155,7 +165,14 @@ async function createWorkspace(label: string): Promise<{
   });
   expect(created.status).toBe(201);
 
-  return { agent, organizationId: created.body.id as string, email };
+  const organizationId = created.body.id as string;
+  if (options.allowInTestMode !== false) {
+    const mutableEnv = env as Record<string, unknown>;
+    const current = typeof mutableEnv.DODO_TEST_WORKSPACE_IDS === 'string' ? mutableEnv.DODO_TEST_WORKSPACE_IDS : '';
+    mutableEnv.DODO_TEST_WORKSPACE_IDS = current ? `${current},${organizationId}` : organizationId;
+  }
+
+  return { agent, organizationId, email };
 }
 
 describe('Dodo Payments integration', () => {
@@ -171,6 +188,7 @@ describe('Dodo Payments integration', () => {
     mutableEnv.DODO_API_KEY = 'dodo_test_fake_api_key';
     mutableEnv.DODO_WEBHOOK_SECRET = FAKE_DODO_SECRET;
     mutableEnv.DODO_ENVIRONMENT = 'test_mode';
+    mutableEnv.DODO_TEST_WORKSPACE_IDS = '';
     mutableEnv.PADDLE_API_KEY = undefined;
     mutableEnv.PADDLE_WEBHOOK_SECRET = undefined;
     mutableEnv.STAFF_API_KEY = FAKE_STAFF_KEY;
@@ -178,9 +196,10 @@ describe('Dodo Payments integration', () => {
     let productSeq = 0;
     dodoMocks.productsCreate.mockImplementation(async (params: { metadata?: Record<string, string> }) => {
       productSeq += 1;
-      return {
-        product_id: `pdt_synced_${params.metadata?.tier?.toLowerCase() ?? 'plan'}_${productSeq}`,
-      };
+      return buildDodoProductFixture({
+        productId: `pdt_synced_${params.metadata?.tier?.toLowerCase() ?? 'plan'}_${productSeq}`,
+        metadata: params.metadata,
+      });
     });
 
     dodoMocks.customersList.mockImplementation(() => asyncIterable([]));
@@ -220,10 +239,14 @@ describe('Dodo Payments integration', () => {
       expect(providerForCurrency('USD')).toBe('PADDLE');
     });
 
-    it('advertises USD in /api/capabilities only after every expected USD plan is stored for DODO, and syncs them via POST /api/billing/plan-sync', async () => {
-      // Configured, but no plans stored yet -> providerReady('DODO') is false and capabilities excludes USD.
-      expect(await providerReady('DODO')).toBe(false);
-      const beforeSync = await request(app).get('/api/capabilities');
+    it('advertises USD in /api/capabilities only after every expected USD plan is stored for DODO, and restricts test_mode USD to DODO_TEST_WORKSPACE_IDS while ignoring the list in live_mode', async () => {
+      const mutableEnv = env as Record<string, unknown>;
+      const allowedWs = await createWorkspace('allowed-reviewer', { allowInTestMode: true });
+      const unlistedWs = await createWorkspace('unlisted-visitor', { allowInTestMode: false });
+
+      // Configured, but no plans stored yet -> providerReady('DODO') is false even for an allowlisted workspace.
+      expect(await providerReady('DODO', allowedWs.organizationId)).toBe(false);
+      const beforeSync = await request(app).get(`/api/capabilities?organizationId=${allowedWs.organizationId}`);
       expect(beforeSync.status).toBe(200);
       expect(beforeSync.body.currencies).not.toContain('USD');
       expect(beforeSync.body.providers.dodo).toBe(false);
@@ -260,12 +283,46 @@ describe('Dodo Payments integration', () => {
       expect(rerunRes.body.created).toBe(0);
       expect(rerunRes.body.reused).toBe(expectedPlans('USD').length);
 
-      // Now providerReady('DODO') is true and /api/capabilities lists USD.
+      // In test_mode: anonymous visitors and non-listed workspaces do NOT see USD in /api/capabilities.
+      expect(await providerReady('DODO')).toBe(false);
+      expect(await providerReady('DODO', unlistedWs.organizationId)).toBe(false);
+      const anonCaps = await request(app).get('/api/capabilities');
+      expect(anonCaps.status).toBe(200);
+      expect(anonCaps.body.currencies).not.toContain('USD');
+      expect(anonCaps.body.providers.dodo).toBe(false);
+
+      const unlistedCaps = await request(app).get(`/api/capabilities?organizationId=${unlistedWs.organizationId}`);
+      expect(unlistedCaps.status).toBe(200);
+      expect(unlistedCaps.body.currencies).not.toContain('USD');
+      expect(unlistedCaps.body.providers.dodo).toBe(false);
+
+      // And an unlisted workspace is refused if it calls POST /billing/checkout in USD directly.
+      const refusedCheckout = await unlistedWs.agent
+        .post(`/api/workspaces/${unlistedWs.organizationId}/billing/checkout`)
+        .send({
+          plan: 'FAIRWAY',
+          interval: 'monthly',
+          currency: 'USD',
+          contact: { name: 'Visitor', email: unlistedWs.email },
+        });
+      expect(refusedCheckout.status).toBe(503);
+      expect(refusedCheckout.body.error.code).toBe('PROVIDER_NOT_CONFIGURED');
+
+      // In test_mode: the allowlisted workspace DOES see USD in /api/capabilities and can start checkout.
+      expect(await providerReady('DODO', allowedWs.organizationId)).toBe(true);
+      const allowedCaps = await request(app).get(`/api/capabilities?organizationId=${allowedWs.organizationId}`);
+      expect(allowedCaps.status).toBe(200);
+      expect(allowedCaps.body.currencies).toContain('USD');
+      expect(allowedCaps.body.providers.dodo).toBe(true);
+
+      // In live_mode: DODO_TEST_WORKSPACE_IDS is ignored and everyone sees USD.
+      mutableEnv.DODO_ENVIRONMENT = 'live_mode';
       expect(await providerReady('DODO')).toBe(true);
-      const afterSync = await request(app).get('/api/capabilities');
-      expect(afterSync.status).toBe(200);
-      expect(afterSync.body.currencies).toContain('USD');
-      expect(afterSync.body.providers.dodo).toBe(true);
+      expect(await providerReady('DODO', unlistedWs.organizationId)).toBe(true);
+      const liveAnonCaps = await request(app).get('/api/capabilities');
+      expect(liveAnonCaps.status).toBe(200);
+      expect(liveAnonCaps.body.currencies).toContain('USD');
+      expect(liveAnonCaps.body.providers.dodo).toBe(true);
     });
   });
 
@@ -1113,23 +1170,76 @@ describe('Dodo Payments integration', () => {
       expect((await victim.agent.get(`/api/workspaces/${victim.organizationId}/billing`)).body.plan).toBe('MOORING');
 
       // Refund and dispute events go to recordProviderMoneyBack and leave the plan unchanged.
-      const disputePayload = JSON.stringify({
-        business_id: 'bus_dodo_test',
-        type: 'dispute.opened',
-        timestamp: new Date().toISOString(),
-        data: {
-          dispute_id: 'dp_dodo_1',
-          payment_id: 'pay_dodo_1',
-          amount: '14900',
-          currency: 'USD',
-          dispute_status: 'dispute_opened',
-          dispute_stage: 'dispute',
+      // First record a real-shape payment.succeeded event for victim so a Dispute webhook
+      // (which in Dodo's schema has only payment_id and dispute_id, no customer or subscription_id)
+      // can resolve the workspace from the prior payment event.
+      const activateForDispute = JSON.stringify(
+        buildDodoSubscriptionWebhookFixture({
+          type: 'subscription.active',
+          subscriptionId: 'sub_dodo_dispute_target',
+          productId: 'pdt_dodo_harbor_monthly',
+          customerId: 'cus_dodo_victim',
+          customerEmail: victim.email,
+          customerName: 'Victim',
+          nextBillingDate: periodEnd,
           metadata: {
             organizationId: victim.organizationId,
             attribution: dodoAttribution(victim.organizationId),
           },
-        },
-      });
+        }),
+      );
+      await request(app)
+        .post('/api/webhooks/dodo')
+        .set('Content-Type', 'application/json')
+        .set(signDodoWebhook('msg_activate_for_dispute', activateForDispute))
+        .send(activateForDispute);
+
+      const paidForDispute = JSON.stringify(
+        buildDodoPaymentWebhookFixture({
+          type: 'payment.succeeded',
+          paymentId: 'pay_dodo_dispute_1',
+          subscriptionId: 'sub_dodo_dispute_target',
+          customerId: 'cus_dodo_victim',
+          customerEmail: victim.email,
+          customerName: 'Victim',
+          metadata: {
+            organizationId: victim.organizationId,
+            attribution: dodoAttribution(victim.organizationId),
+          },
+        }),
+      );
+      await request(app)
+        .post('/api/webhooks/dodo')
+        .set('Content-Type', 'application/json')
+        .set(signDodoWebhook('msg_paid_for_dispute', paidForDispute))
+        .send(paidForDispute);
+
+      const refundWebhookPayload = JSON.stringify(
+        buildDodoRefundWebhookFixture({
+          type: 'refund.succeeded',
+          refundId: 'ref_dodo_ext_1',
+          paymentId: 'pay_dodo_dispute_1',
+          customerId: 'cus_dodo_victim',
+          customerEmail: victim.email,
+        }),
+      );
+      const refundWebhookRes = await request(app)
+        .post('/api/webhooks/dodo')
+        .set('Content-Type', 'application/json')
+        .set(signDodoWebhook('msg_refund_ext_1', refundWebhookPayload))
+        .send(refundWebhookPayload);
+      expect(refundWebhookRes.status).toBe(200);
+      expect(refundWebhookRes.body.accepted).toBe(false);
+      expect(refundWebhookRes.body.organizationId).toBe(victim.organizationId);
+
+      const disputePayload = JSON.stringify(
+        buildDodoDisputeWebhookFixture({
+          type: 'dispute.opened',
+          disputeId: 'dp_dodo_1',
+          paymentId: 'pay_dodo_dispute_1',
+          amount: '16092',
+        }),
+      );
 
       const disputeRes = await request(app)
         .post('/api/webhooks/dodo')
@@ -1138,10 +1248,15 @@ describe('Dodo Payments integration', () => {
         .send(disputePayload);
       expect(disputeRes.status).toBe(200);
       expect(disputeRes.body.accepted).toBe(false);
+      expect(disputeRes.body.organizationId).toBe(victim.organizationId);
       expect(disputeRes.body.detail).toContain('Refund or dispute recorded for review');
 
       const auditEntry = await prisma.auditLog.findFirst({
-        where: { organizationId: victim.organizationId, action: 'SUBSCRIPTION_UPDATED' },
+        where: {
+          organizationId: victim.organizationId,
+          action: 'SUBSCRIPTION_UPDATED',
+          detail: { path: ['disputeId'], equals: 'dp_dodo_1' },
+        },
       });
       expect(auditEntry).not.toBeNull();
     });

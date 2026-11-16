@@ -275,15 +275,27 @@ account.
 ```bash
 DODO_API_KEY=...
 DODO_WEBHOOK_SECRET=whsec_...
-DODO_ENVIRONMENT=test_mode   # test_mode or live_mode (required when DODO_API_KEY is set)
+DODO_ENVIRONMENT=test_mode              # test_mode or live_mode (required when DODO_API_KEY is set)
+DODO_TEST_WORKSPACE_IDS=ws_1,ws_2       # comma-separated workspace IDs allowed in test_mode
 ```
 
-- **Explicit environment**: `DODO_ENVIRONMENT` is set explicitly (`test_mode` ->
-  `https://test.dodopayments.com`, `live_mode` -> `https://live.dodopayments.com`)
-  rather than derived from `NODE_ENV`, so production can be verified end-to-end
-  in `test_mode` before switching to `live_mode`. The API refuses to boot if
-  `DODO_API_KEY` and `DODO_WEBHOOK_SECRET` are not set together or if
-  `DODO_ENVIRONMENT` is omitted when `DODO_API_KEY` is set.
+- **Explicit environment & test-mode safety on production**: `DODO_ENVIRONMENT`
+  is set explicitly (`test_mode` -> `https://test.dodopayments.com`, `live_mode`
+  -> `https://live.dodopayments.com`) rather than derived from `NODE_ENV`, so
+  production can be verified end-to-end in `test_mode` before switching to
+  `live_mode`. The API refuses to boot if `DODO_API_KEY` and
+  `DODO_WEBHOOK_SECRET` are not set together or if `DODO_ENVIRONMENT` is omitted
+  when `DODO_API_KEY` is set.
+- **Test-mode workspace allowlist (`DODO_TEST_WORKSPACE_IDS`)**: When
+  `DODO_ENVIRONMENT=test_mode`, Dodo accepts test cards, so USD checkout must
+  never be offered to the public. In `test_mode`, `GET /api/capabilities`
+  includes `USD` (`providers.dodo: true`) and `POST /api/workspaces/{id}/billing/checkout`
+  permits USD checkout **only** when the workspace's `organizationId` is listed
+  in `DODO_TEST_WORKSPACE_IDS` (comma-separated). Anonymous visitors and any
+  workspace not in `DODO_TEST_WORKSPACE_IDS` see only `INR` in
+  `/api/capabilities` and are refused at checkout with `503 PROVIDER_NOT_CONFIGURED`.
+  When `DODO_ENVIRONMENT=live_mode`, `DODO_TEST_WORKSPACE_IDS` is ignored and
+  USD is open to everyone.
 - **Dashboard steps (in Test Mode first, then repeat in Live Mode)**:
   1. Toggle **Test Mode** in the Dodo Payments dashboard (`https://app.dodopayments.com`).
   2. Under **Business / Brand Settings**, set the business display name to

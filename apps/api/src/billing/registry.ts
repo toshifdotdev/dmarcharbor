@@ -1,6 +1,6 @@
 import { BillingProviderError } from './provider.js';
 import type { BillingProvider, ProviderName } from './provider.js';
-import { dodoConfigured, DodoBillingProvider } from './dodo.provider.js';
+import { dodoAllowedForWorkspace, dodoConfigured, DodoBillingProvider } from './dodo.provider.js';
 import { paddleConfigured, PaddleBillingProvider } from './paddle.provider.js';
 import { razorpayConfigured, RazorpayBillingProvider } from './razorpay.provider.js';
 import { MockBillingProvider } from './mock-provider.js';
@@ -57,12 +57,22 @@ export function providerConfigured(name: Exclude<ProviderName, 'NONE'>): boolean
  * matters: a provider with keys but no stored plans cannot take payment, so
  * `/api/capabilities` must not advertise USD while Dodo's expected USD plans
  * have not been synced into `billing_plan`.
+ *
+ * In `test_mode`, Dodo is also restricted to workspaces explicitly listed in
+ * `DODO_TEST_WORKSPACE_IDS`, so `/api/capabilities` never lists USD for
+ * anonymous visitors or non-listed workspaces.
  */
-export async function providerReady(name: Exclude<ProviderName, 'NONE'>): Promise<boolean> {
+export async function providerReady(
+  name: Exclude<ProviderName, 'NONE'>,
+  organizationId?: string | null,
+): Promise<boolean> {
   if (!providerConfigured(name)) {
     return false;
   }
   if (name === 'DODO') {
+    if (!dodoAllowedForWorkspace(organizationId)) {
+      return false;
+    }
     const report = await planSyncReport('DODO', 'USD');
     return report.length > 0 && report.every((entry) => entry.status === 'ready');
   }
@@ -78,11 +88,13 @@ export function providerForCurrency(currency: BillingCurrency): Exclude<Provider
 
 /**
  * Resolves the provider for a new checkout, and refuses clearly when the chosen
- * one is not configured yet.
+ * one is not configured yet (or, in Dodo `test_mode`, when the workspace is not
+ * listed in `DODO_TEST_WORKSPACE_IDS`).
  */
 export function resolveProviderForCheckout(input: {
   currency: BillingCurrency;
   existingProvider?: Exclude<ProviderName, 'NONE'> | 'NONE' | null;
+  organizationId?: string | null;
 }): BillingProvider {
   const target =
     input.existingProvider && input.existingProvider !== 'NONE'
@@ -96,6 +108,14 @@ export function resolveProviderForCheckout(input: {
         : target === 'DODO'
           ? 'Payments are not available yet. Dodo Payments has not been configured.'
           : 'Payments are not available yet. Paddle has not been configured.',
+      'PROVIDER_NOT_CONFIGURED',
+      503,
+    );
+  }
+
+  if (target === 'DODO' && !dodoAllowedForWorkspace(input.organizationId)) {
+    throw new BillingProviderError(
+      'Payments in USD are not available for this workspace while Dodo Payments is in test mode.',
       'PROVIDER_NOT_CONFIGURED',
       503,
     );

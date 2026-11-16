@@ -2350,10 +2350,19 @@ export const openApiDocument = {
         summary: 'What this deployment can actually do',
         description: [
           'Public, because it is read by the marketing and pricing pages before anyone has an account.',
-          'Answers which sign-in methods exist and which currencies can actually be paid in. Derived from provider configuration and synced plans rather than a flag, so it cannot drift.',
+          'Answers which sign-in methods exist and which currencies can actually be paid in. Derived from provider configuration and synced plans rather than a flag, so it cannot drift. When Dodo Payments is in test_mode, USD is included only when organizationId names a workspace listed in DODO_TEST_WORKSPACE_IDS.',
           'This exists because the pricing page used to render every currency the catalog carries prices for, and therefore advertised a plan the checkout would then refuse. A public page must not promise something the API will not deliver.',
           'Exposes configuration state only: no keys, no identifiers, no counts.',
         ].join(' '),
+        parameters: [
+          {
+            name: 'organizationId',
+            in: 'query',
+            required: false,
+            schema: { type: 'string' },
+            description: 'Optional workspace identifier. When DODO_ENVIRONMENT is test_mode, USD is reported as ready only for workspaces listed in DODO_TEST_WORKSPACE_IDS.',
+          },
+        ],
         responses: { 200: { description: 'Purchasable currencies, default currency, provider readiness, and illustrative compliance pack identifiers.' } },
       },
     },

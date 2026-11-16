@@ -449,11 +449,14 @@ behind it.
     `subscription.cancelled`, `subscription.expired`, `payment.succeeded`,
     `payment.failed`, `refund.succeeded`, `refund.failed`, and `dispute.*`, and
     copy the `whsec_...` signing secret (`DODO_WEBHOOK_SECRET`).
-  - Deploy with `DODO_API_KEY`, `DODO_WEBHOOK_SECRET` and `DODO_ENVIRONMENT=test_mode`.
+  - Deploy with `DODO_API_KEY`, `DODO_WEBHOOK_SECRET`, `DODO_ENVIRONMENT=test_mode`,
+    and `DODO_TEST_WORKSPACE_IDS=<reviewer_organization_id>` so only the reviewer
+    workspace is offered USD while Dodo is in test mode.
   - Run the staff plan sync route:
     `POST https://api.dmarcharbor.com/api/billing/plan-sync?provider=DODO&currency=USD`
-    with `Authorization: Bearer <STAFF_API_KEY>`. Confirm all 10 USD plans report `status: "ready"`
-    and `GET /api/capabilities` lists `USD`.
+    with `Authorization: Bearer <STAFF_API_KEY>`. Confirm all 10 USD plans report `status: "ready"`,
+    `GET /api/capabilities?organizationId=<reviewer_organization_id>` lists `USD`,
+    and anonymous `GET /api/capabilities` does **not** list `USD`.
   - Run the end-to-end test-mode check: USD checkout, webhook activation,
     customer portal, prorated upgrade and downgrade, cancel at period end and
     resume, and staff refund.

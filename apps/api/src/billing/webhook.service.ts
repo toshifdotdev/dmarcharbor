@@ -906,6 +906,22 @@ async function recordProviderMoneyBack(
       ) {
         organizationId = metadata.organizationId;
       }
+      // Dodo dispute webhook payloads (`Dispute` in `dodopayments/resources/disputes`)
+      // carry `payment_id` and `dispute_id`, without a `customer` or `subscription_id`
+      // field. Match the workspace from the prior payment/renewal billing_event row
+      // that recorded `data.payment_id`.
+      if (!organizationId && paymentId) {
+        const paymentEvent = await prisma.billingEvent.findFirst({
+          where: {
+            provider: 'DODO',
+            organizationId: { not: null },
+            payload: { path: ['data', 'payment_id'], equals: paymentId },
+          },
+          orderBy: { occurredAt: 'desc' },
+          select: { organizationId: true },
+        });
+        organizationId = paymentEvent?.organizationId ?? null;
+      }
     } else {
       const data = ((payload as { data?: Record<string, unknown> }).data ?? {}) as Record<string, unknown>;
       const subscriptionId = typeof data.subscription_id === 'string' ? data.subscription_id : null;

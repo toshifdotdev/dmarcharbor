@@ -45,11 +45,11 @@ export interface Capabilities {
  */
 export const illustrativePackReference = 'DMARC-00000000-EXAMPLE-CLIENT-DEMONSTRATIONONLY0000';
 
-export async function capabilities(): Promise<Capabilities> {
+export async function capabilities(organizationId?: string | null): Promise<Capabilities> {
   const [razorpay, paddle, dodo] = await Promise.all([
-    providerReady('RAZORPAY'),
-    providerReady('PADDLE'),
-    providerReady('DODO'),
+    providerReady('RAZORPAY', organizationId),
+    providerReady('PADDLE', organizationId),
+    providerReady('DODO', organizationId),
   ]);
   const readiness = { RAZORPAY: razorpay, PADDLE: paddle, DODO: dodo } as const;
 

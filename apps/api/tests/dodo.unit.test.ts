@@ -1,12 +1,15 @@
 import { createHmac } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { assertDodoConfig } from '../src/config/env.js';
+import { assertDodoConfig, env } from '../src/config/env.js';
 import {
+  dodoAllowedForWorkspace,
   dodoPaidThrough,
   dodoQuantityRange,
   dodoQuantityUpdateBody,
+  dodoTestWorkspaceIds,
   verifyDodoSignature,
 } from '../src/billing/dodo.provider.js';
+import { resolveProviderForCheckout } from '../src/billing/registry.js';
 import {
   checkoutAttribution,
   checkoutAttributionMatches,
@@ -15,9 +18,16 @@ import {
   paddleAttribution,
   paddleAttributionMatches,
 } from '../src/billing/paddle-attribution.js';
-import { SignatureVerificationError } from '../src/billing/provider.js';
+import { BillingProviderError, SignatureVerificationError } from '../src/billing/provider.js';
 import { dodoEventMap, dodoStatusMap } from '../src/billing/webhook.service.js';
 import { bandIndexFor, perDomainBill, planCatalog } from '../src/services/entitlements/plan-catalog.js';
+import {
+  buildDodoDisputeWebhookFixture,
+  buildDodoPaymentWebhookFixture,
+  buildDodoProductFixture,
+  buildDodoRefundWebhookFixture,
+  buildDodoSubscriptionWebhookFixture,
+} from './fixtures/dodo-webhooks.js';
 
 const FAKE_SECRET_RAW = Buffer.from('dodo-unit-test-fake-webhook-secret-32b').toString('base64');
 const FAKE_SECRET = `whsec_${FAKE_SECRET_RAW}`;
@@ -372,5 +382,111 @@ describe('Dodo quantity range, update payload and Fleet band selection', () => {
       unitMinor: 75,
       totalMinor: 225000,
     });
+  });
+});
+
+describe('Dodo test-mode workspace allowlist (DODO_TEST_WORKSPACE_IDS)', () => {
+  it('allows USD checkout only for workspaces listed in DODO_TEST_WORKSPACE_IDS when in test_mode, and ignores the list in live_mode', () => {
+    const mutableEnv = env as Record<string, unknown>;
+    const prevKey = mutableEnv.DODO_API_KEY;
+    const prevSecret = mutableEnv.DODO_WEBHOOK_SECRET;
+    const prevMode = mutableEnv.DODO_ENVIRONMENT;
+    const prevIds = mutableEnv.DODO_TEST_WORKSPACE_IDS;
+
+    try {
+      mutableEnv.DODO_API_KEY = 'dodo_test_fake_key';
+      mutableEnv.DODO_WEBHOOK_SECRET = FAKE_SECRET;
+      mutableEnv.DODO_ENVIRONMENT = 'test_mode';
+      mutableEnv.DODO_TEST_WORKSPACE_IDS = ' ws_reviewer_1 , ws_reviewer_2 , ';
+
+      expect([...dodoTestWorkspaceIds()]).toEqual(['ws_reviewer_1', 'ws_reviewer_2']);
+
+      // In test_mode: anonymous visitors and non-listed workspaces are refused.
+      expect(dodoAllowedForWorkspace()).toBe(false);
+      expect(dodoAllowedForWorkspace(null)).toBe(false);
+      expect(dodoAllowedForWorkspace('ws_stranger')).toBe(false);
+      expect(() =>
+        resolveProviderForCheckout({ currency: 'USD', organizationId: 'ws_stranger' }),
+      ).toThrow(BillingProviderError);
+
+      // In test_mode: listed workspaces are permitted.
+      expect(dodoAllowedForWorkspace('ws_reviewer_1')).toBe(true);
+      expect(dodoAllowedForWorkspace('ws_reviewer_2')).toBe(true);
+      expect(resolveProviderForCheckout({ currency: 'USD', organizationId: 'ws_reviewer_1' }).name).toBe('DODO');
+
+      // In test_mode with empty allowlist: nobody is permitted.
+      mutableEnv.DODO_TEST_WORKSPACE_IDS = '';
+      expect(dodoAllowedForWorkspace('ws_reviewer_1')).toBe(false);
+
+      // In live_mode: DODO_TEST_WORKSPACE_IDS is ignored and everyone is permitted.
+      mutableEnv.DODO_ENVIRONMENT = 'live_mode';
+      mutableEnv.DODO_TEST_WORKSPACE_IDS = 'ws_reviewer_1';
+      expect(dodoAllowedForWorkspace()).toBe(true);
+      expect(dodoAllowedForWorkspace(null)).toBe(true);
+      expect(dodoAllowedForWorkspace('ws_stranger')).toBe(true);
+      expect(resolveProviderForCheckout({ currency: 'USD', organizationId: 'ws_stranger' }).name).toBe('DODO');
+
+      // Unconfigured: always false.
+      mutableEnv.DODO_API_KEY = undefined;
+      mutableEnv.DODO_WEBHOOK_SECRET = undefined;
+      mutableEnv.DODO_ENVIRONMENT = undefined;
+      expect(dodoAllowedForWorkspace('ws_reviewer_1')).toBe(false);
+    } finally {
+      mutableEnv.DODO_API_KEY = prevKey;
+      mutableEnv.DODO_WEBHOOK_SECRET = prevSecret;
+      mutableEnv.DODO_ENVIRONMENT = prevMode;
+      mutableEnv.DODO_TEST_WORKSPACE_IDS = prevIds;
+    }
+  });
+});
+
+describe('Dodo Test Mode API & Webhook fixtures', () => {
+  it('constructs field-complete sanitized Dodo product and webhook payloads and verifies signatures over them', async () => {
+    const product = buildDodoProductFixture({ productId: 'pdt_fixture_1', priceMinor: 14900 });
+    expect(product.product_id).toBe('pdt_fixture_1');
+    expect(product.tax_category).toBe('saas');
+    expect(product.price.type).toBe('recurring_price');
+
+    const subEvent = buildDodoSubscriptionWebhookFixture({
+      type: 'subscription.active',
+      subscriptionId: 'sub_fixture_1',
+      productId: 'pdt_fixture_1',
+    });
+    const payEvent = buildDodoPaymentWebhookFixture({
+      type: 'payment.succeeded',
+      paymentId: 'pay_fixture_1',
+      subscriptionId: 'sub_fixture_1',
+    });
+    const refundEvent = buildDodoRefundWebhookFixture({
+      type: 'refund.succeeded',
+      refundId: 'ref_fixture_1',
+      paymentId: 'pay_fixture_1',
+    });
+    const disputeEvent = buildDodoDisputeWebhookFixture({
+      type: 'dispute.opened',
+      disputeId: 'dis_fixture_1',
+      paymentId: 'pay_fixture_1',
+    });
+
+    // Dispute webhook payloads have no customer or subscription_id field in Dodo's schema.
+    expect(disputeEvent.data).not.toHaveProperty('customer');
+    expect(disputeEvent.data).not.toHaveProperty('subscription_id');
+    expect(disputeEvent.data.payment_id).toBe('pay_fixture_1');
+
+    const now = new Date('2026-11-16T20:15:00.000Z');
+    const ts = Math.floor(now.getTime() / 1000);
+    for (const [idx, payload] of [subEvent, payEvent, refundEvent, disputeEvent].entries()) {
+      const rawBody = JSON.stringify(payload);
+      const id = `msg_fixture_${idx}`;
+      const sig = signStandardWebhook(id, ts, rawBody);
+      await expect(
+        verifyDodoSignature(
+          rawBody,
+          { webhookId: id, webhookTimestamp: String(ts), webhookSignature: sig },
+          FAKE_SECRET,
+          now,
+        ),
+      ).resolves.toBeUndefined();
+    }
   });
 });

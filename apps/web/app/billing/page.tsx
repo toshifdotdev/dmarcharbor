@@ -57,7 +57,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
     ),
     getWorkspaceEntitlements(active.id).catch(() => null),
     getPlanCatalog().catch(() => null),
-    getCapabilities().catch(() => null),
+    getCapabilities(active.id).catch(() => null),
     getBillingCurrency(active.id).catch(() => null),
     listClients(active.id).catch(() => null),
     listWorkspaceMembers(active.id).catch(() => null),

@@ -329,8 +329,9 @@ export interface DeploymentCapabilities {
   /** A demonstration reference, shaped like a real one and matching no pack. */
   compliancePack?: { exampleReference: string; exampleFilename: string };
 }
-export function getCapabilities(): Promise<DeploymentCapabilities> {
-  return opsFetch<DeploymentCapabilities>("/api/capabilities");
+export function getCapabilities(organizationId?: string | null): Promise<DeploymentCapabilities> {
+  const query = organizationId ? `?organizationId=${encodeURIComponent(organizationId)}` : "";
+  return opsFetch<DeploymentCapabilities>(`/api/capabilities${query}`);
 }
 
 export function startCheckout(

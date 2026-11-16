@@ -175,6 +175,7 @@ export async function startCheckout(input: StartCheckoutInput): Promise<Checkout
   const provider = resolveProviderForCheckout({
     currency,
     existingProvider: existing?.provider ?? null,
+    organizationId: input.organizationId,
   });
 
   // Fails loudly if the provider has no plan for this tier, so a price

@@ -87,6 +87,44 @@ export function dodoConfigured(): boolean {
 }
 
 /**
+ * Parses the comma-separated workspace allowlist (`DODO_TEST_WORKSPACE_IDS`)
+ * used when `DODO_ENVIRONMENT === 'test_mode'`.
+ */
+export function dodoTestWorkspaceIds(): Set<string> {
+  const raw = env.DODO_TEST_WORKSPACE_IDS ?? '';
+  return new Set(
+    raw
+      .split(',')
+      .map((id) => id.trim())
+      .filter((id) => id.length > 0),
+  );
+}
+
+/**
+ * Whether Dodo Payments may offer USD checkout to a caller.
+ *
+ * When `DODO_ENVIRONMENT === 'live_mode'`, `DODO_TEST_WORKSPACE_IDS` is ignored
+ * and USD is open to everyone (including anonymous visitors on `/pricing`).
+ *
+ * When `DODO_ENVIRONMENT === 'test_mode'`, Dodo accepts test cards, so on a
+ * live deployment USD must be offered only to workspaces explicitly listed in
+ * `DODO_TEST_WORKSPACE_IDS`. Any other workspace (or an anonymous caller of
+ * `/api/capabilities`) is refused.
+ */
+export function dodoAllowedForWorkspace(organizationId?: string | null): boolean {
+  if (!dodoConfigured()) {
+    return false;
+  }
+  if (env.DODO_ENVIRONMENT === 'live_mode') {
+    return true;
+  }
+  if (!organizationId) {
+    return false;
+  }
+  return dodoTestWorkspaceIds().has(organizationId.trim());
+}
+
+/**
  * Dodo subscription statuses (`SubscriptionStatus` in `dodopayments/resources/subscriptions`).
  *
  * `on_hold` and `paused` mean a renewal charge failed or the subscription is
@@ -179,6 +217,14 @@ export class DodoBillingProvider implements BillingProvider {
   async createCheckout(input: CheckoutRequest): Promise<CheckoutSession> {
     assertValidQuantity(input.quantity);
     void input.cancelUrl;
+
+    if (!dodoAllowedForWorkspace(input.organizationId)) {
+      throw new BillingProviderError(
+        'Payments in USD are not available for this workspace while Dodo Payments is in test mode.',
+        'PROVIDER_NOT_CONFIGURED',
+        503,
+      );
+    }
 
     const plan = await requireStoredPlan({
       provider: this.name,

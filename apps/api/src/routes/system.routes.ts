@@ -26,8 +26,14 @@ const readinessTimeoutMs = 3_000;
  * actually be paid in, which is what stops the pricing page advertising a price the
  * checkout would then refuse.
  */
-systemRouter.get('/capabilities', async (_request, response) => {
-  response.json(await capabilities());
+systemRouter.get('/capabilities', async (request, response) => {
+  const organizationId =
+    typeof request.query.organizationId === 'string'
+      ? request.query.organizationId
+      : typeof request.query.workspaceId === 'string'
+        ? request.query.workspaceId
+        : null;
+  response.json(await capabilities(organizationId));
 });
 
 systemRouter.get('/health', (_request, response) => {
