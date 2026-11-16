@@ -1340,7 +1340,7 @@ export const openApiDocument = {
         description: [
           'Returns a hosted page on the payment provider. No card data ever reaches this server.',
           'Nothing marks the workspace as paid here. The plan changes only when a signature verified webhook confirms the money moved, because a customer closing the tab is indistinguishable from success if you trust the redirect.',
-          'INR checkouts route to Razorpay, which settles into an Indian bank account. Other currencies route to Paddle, which is the merchant of record and handles international sales tax.',
+          'INR checkouts route to Razorpay, which settles into an Indian bank account. Other currencies route to Dodo Payments (or Paddle when dormant), which is the merchant of record and handles international sales tax.',
           'For a per-domain plan the quantity is measured server side from the account\'s active domains, with the plan minimum as the floor. A quantity in the request body is ignored.',
         ].join(' '),
         requestBody: {
@@ -1386,7 +1386,7 @@ export const openApiDocument = {
         tags: ['Billing'],
         summary: 'Move to a different plan',
         description: [
-          'Timing depends on the provider and is returned, not assumed. On Razorpay the change is scheduled for the end of the paid period with no proration, and the answer is status "scheduled" with that date. Paddle cannot schedule a price change, so it applies at once and prorates the rest of the period, and the answer is status "applied".',
+          'Timing depends on the provider and is returned, not assumed. On Razorpay the change is scheduled for the end of the paid period with no proration, and the answer is status "scheduled" with that date. Dodo Payments and Paddle apply the change at once and prorate the rest of the period, and the answer is status "applied".',
           'A move to a smaller plan is refused with PLAN_CHANGE_OVER_QUOTA while the workspace is over that plan\'s limits: clients, active domains, team members, or the workspaces the account owns. Each exceeded limit is a row in error.overage ({ quota, label, used, limit, by }, quota one of client, activeDomain, member, workspace).',
           'Moving to the free plan is treated as a cancellation, so the workspace keeps the period already paid for.',
         ].join(' '),
@@ -1414,7 +1414,7 @@ export const openApiDocument = {
         summary: 'Preview a plan change before confirming it',
         description: [
           'Read only: nothing changes at the provider. Answers what moving to the plan would charge now, what would be credited, what the next invoice would be and when, and when the change applies.',
-          'On Paddle the figures come from Paddle and include tax. Where the provider cannot quote, the figures come from the price list before tax and includesTax is false.',
+          'On Dodo Payments and Paddle the figures come from the provider and include tax. Where the provider cannot quote, the figures come from the price list before tax and includesTax is false.',
           'An account over the target plan\'s limits is refused with PLAN_CHANGE_OVER_QUOTA, with the same error.overage rows as the change itself.',
         ].join(' '),
         requestBody: {
@@ -1456,7 +1456,7 @@ export const openApiDocument = {
       post: {
         tags: ['Billing'],
         summary: 'Open the provider hosted billing portal',
-        description: 'Paddle offers a full portal. Razorpay does not, and reports that plainly rather than pretending one exists.',
+        description: 'Dodo Payments and Paddle offer a full portal. Razorpay does not, and reports that plainly rather than pretending one exists.',
         responses: {
           ...standardErrors,
           200: { description: 'A portal URL.' },
@@ -2290,7 +2290,7 @@ export const openApiDocument = {
         summary: 'Read the currency this workspace is quoted and billed in',
         description: [
           'Reports whether the currency can still change, so the settings screen can disable the control and explain why rather than accepting a value and failing.',
-          'The currency is not a display preference: INR routes to Razorpay and USD to Paddle, so changing it after a payment means migrating a live subscription between two processors.',
+          'The currency is not a display preference: INR routes to Razorpay and USD to Dodo Payments (or Paddle), so changing it after a payment means migrating a live subscription between two processors.',
         ].join(' '),
         responses: { 200: { description: 'preferredCurrency, whether it is locked, and why.' } },
       },
@@ -2350,7 +2350,7 @@ export const openApiDocument = {
         summary: 'What this deployment can actually do',
         description: [
           'Public, because it is read by the marketing and pricing pages before anyone has an account.',
-          'Answers which sign-in methods exist and which currencies can actually be paid in. Derived from provider configuration rather than a flag, so it cannot drift: adding PADDLE_API_KEY and PADDLE_WEBHOOK_SECRET is the whole of the change.',
+          'Answers which sign-in methods exist and which currencies can actually be paid in. Derived from provider configuration and synced plans rather than a flag, so it cannot drift.',
           'This exists because the pricing page used to render every currency the catalog carries prices for, and therefore advertised a plan the checkout would then refuse. A public page must not promise something the API will not deliver.',
           'Exposes configuration state only: no keys, no identifiers, no counts.',
         ].join(' '),
@@ -2434,7 +2434,7 @@ export const openApiDocument = {
           'Included on every plan, including the free one, because the right to erasure cannot be a paid feature.',
           'The request is held for seven days before it runs, so an accidental request can be cancelled. The workspace owner is the only role that can request one.',
           'Scope to a client or a domain to erase only that data. Erasing a client or a domain never removes agency staff accounts or sessions, never clears who did what elsewhere in the audit trail, and never touches the subscription.',
-          'Erasing the whole workspace is refused with SUBSCRIPTION_STILL_ACTIVE while a Paddle or Razorpay subscription can still bill, as deleting it is; a request made before a subscription started waits until it ends.',
+          'Erasing the whole workspace is refused with SUBSCRIPTION_STILL_ACTIVE while a Dodo Payments, Paddle or Razorpay subscription can still bill, as deleting it is; a request made before a subscription started waits until it ends.',
         ].join(' '),
         parameters: [orgParam],
         responses: {

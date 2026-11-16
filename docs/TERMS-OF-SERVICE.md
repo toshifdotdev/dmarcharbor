@@ -61,7 +61,7 @@ rupees through Razorpay, an upgrade takes effect at once and the difference for
 the rest of the period is added to your next renewal, with no mid-period charge;
 a downgrade, or a change between monthly and annual billing, takes effect at the
 end of the period you have already paid for. Paid in US dollars
-through Paddle, a change applies at once and Paddle charges or credits the
+through Dodo Payments, a change applies at once and Dodo Payments charges or credits the
 difference for the rest of the period. The billing page says which applies before
 you confirm. A downgrade is refused while you use more than the smaller plan
 allows.

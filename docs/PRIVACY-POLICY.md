@@ -49,7 +49,7 @@ enabled, those values are encrypted with AES-256-GCM before storage.
 
 ### Payment data
 We do not store card numbers. Rupee payments are processed by Razorpay as our
-payment gateway, and US dollar payments by Paddle as merchant of record. We keep
+payment gateway, and US dollar payments by Dodo Payments as merchant of record. We keep
 the plan, the billing period and the provider's customer reference. See the
 Sub-processors list.
 
