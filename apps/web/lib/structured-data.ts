@@ -62,6 +62,9 @@ export function organizationJsonLd(origin: string): Record<string, unknown> {
       email: "support@dmarcharbor.com",
       availableLanguage: ["English"],
     },
+    // Profiles the company itself runs, so search engines join the site and the
+    // LinkedIn Page into one entity. Only pages that exist and are ours.
+    sameAs: ["https://www.linkedin.com/company/dmarcharbor"],
   };
 }
 
