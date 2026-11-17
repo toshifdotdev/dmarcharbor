@@ -67,7 +67,8 @@ Pick one of three ways.
 
 Moving from another DMARC service? Open the client's switch kit. It reads what each
 domain publishes and gives you a record that reports to both services while you
-move, so no data is lost on the day you switch.
+move, so no data is lost on the day you switch. Every step, with the records at each stop,
+is in [Switch DMARC provider](/switch-dmarc-provider).
 
 Reports usually arrive within 24 to 48 hours. Until then the domain reads as
 unmeasured.

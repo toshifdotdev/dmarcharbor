@@ -35,6 +35,8 @@ export const INDEXABLE_ROUTES: string[] = [
   ...GUIDE_PATHS,
   // What an MSP needs from DMARC software (lib/msp-page.ts).
   "/dmarc-for-msps",
+  // Moving a client's domains from another DMARC service (lib/switch-guide.ts).
+  "/switch-dmarc-provider",
   // /support is its own route rather than a LEGAL_DOCS entry, because it is a
   // contact page and not a document with a version and an effective date.
   "/support",
@@ -61,6 +63,7 @@ export const LEGAL_ROUTE_PRIORITY: Record<string, number> = {
   "/guides": 0.8,
   "/glossary": 0.7,
   "/dmarc-for-msps": 0.9,
+  "/switch-dmarc-provider": 0.8,
   "/support": 0.5,
   "/faq": 0.7,
   "/guide": 0.7,

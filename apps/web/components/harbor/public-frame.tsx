@@ -153,6 +153,7 @@ export function PublicFooter({ brand }: { brand: HostBrand }) {
             {[
               ["/pricing", "Pricing"],
               ["/dmarc-for-msps", "DMARC for MSPs"],
+              ["/switch-dmarc-provider", "Switch DMARC provider"],
               ["/tools", "Free DNS tools"],
               ["/tools/dmarc-generator", "DMARC generator"],
               ["/guides", "Provider setup guides"],

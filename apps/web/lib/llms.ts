@@ -64,6 +64,7 @@ const DOCUMENTATION: Array<{ path: string; title: string; note: string }> = [
 
 const PRODUCT_PAGES: Array<{ path: string; title: string; note: string }> = [
   { path: "/dmarc-for-msps", title: "DMARC monitoring for MSPs and IT agencies", note: "what an MSP needs from DMARC software and how each need is met, with the questions MSPs ask answered in full" },
+  { path: "/switch-dmarc-provider", title: "Switch DMARC provider without losing reports", note: "moving a client's domains from another DMARC service step by step: report to both, then cut over, with the policy unchanged" },
   { path: "/pricing", title: "Pricing", note: "every plan's price in USD and INR, monthly and annual, its limits and its features" },
   { path: "/verify", title: "Document fingerprint verifier", note: "check that a compliance pack or monthly report is the one issued, by its SHA-256 fingerprint; no account needed" },
   { path: "/tools", title: "Free DNS tools", note: "free DMARC, SPF, DKIM and BIMI checkers, a DMARC record generator, a report reader and a header analyser; no account needed" },

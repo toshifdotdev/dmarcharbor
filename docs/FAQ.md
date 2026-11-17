@@ -59,7 +59,8 @@ the first one arrives, a domain reads as unmeasured, never as healthy.
 **What if the domain already has a DMARC record?**
 Keep it. Add our reporting address alongside the existing one so nothing is lost.
 If the domain already reports to another DMARC service, the switch kit builds the
-record that sends reports to both while you move over.
+record that sends reports to both while you move over; [Switch DMARC provider](/switch-dmarc-provider)
+walks through it.
 
 **What if I use Cloudflare?**
 Add a Cloudflare connection with an API token that can edit DNS. You can then

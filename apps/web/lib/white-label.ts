@@ -25,6 +25,7 @@ export const VENDOR_ROUTES = [
   "/tools",
   "/glossary",
   "/dmarc-for-msps",
+  "/switch-dmarc-provider",
   "/guides",
   "/guide",
   "/faq",
