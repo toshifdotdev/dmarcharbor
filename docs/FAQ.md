@@ -328,7 +328,7 @@ customer. After that, refunds are considered case by case, for example for a
 double charge or a fault on our side. See the Refund Policy.
 
 A refund ends the subscription that day and the workspace moves to Mooring, with
-every client, domain and report kept. Active domains over Mooring's limit keep their history, but new reports for them are not collected until you upgrade or pause others; the domains you added first stay monitored. Cancelling without a refund keeps the plan
+every client, domain and report kept. Cancelling without a refund keeps the plan
 until the end of the period you paid for.
 
 **Is tax added to the price?**
