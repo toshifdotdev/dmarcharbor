@@ -304,7 +304,7 @@ DODO_TEST_WORKSPACE_IDS=ws_1,ws_2       # comma-separated workspace IDs allowed 
   3. Under **Developer → API Keys**, create a secret API key and set `DODO_API_KEY`
      plus `DODO_ENVIRONMENT=test_mode`.
   4. Under **Developer → Webhooks**, create a webhook endpoint pointing to
-     `https://api.dmarcharbor.com/api/webhooks/dodo` and tick these events:
+     `https://dmarcharbor.com/api/webhooks/dodo` and tick these events:
      - Subscription events: `subscription.active`, `subscription.renewed`,
        `subscription.plan_changed`, `subscription.updated`,
        `subscription.unpaused`, `subscription.past_due`, `subscription.on_hold`,
@@ -320,7 +320,7 @@ DODO_TEST_WORKSPACE_IDS=ws_1,ws_2       # comma-separated workspace IDs allowed 
   Run the staff plan-sync endpoint once per environment (test mode, and again
   after switching to live mode):
   ```bash
-  curl -X POST "https://api.dmarcharbor.com/api/billing/plan-sync?provider=DODO&currency=USD" \
+  curl -X POST "https://dmarcharbor.com/api/billing/plan-sync?provider=DODO&currency=USD" \
     -H "Authorization: Bearer $STAFF_API_KEY"
   ```
   Each catalog plan entry (`expectedPlans('USD')`: Fairway, Harbor and Admiralty
@@ -360,7 +360,7 @@ DODO_TEST_WORKSPACE_IDS=ws_1,ws_2       # comma-separated workspace IDs allowed 
 - **Switching from test mode to live mode**:
   After verifying checkout, plan changes, portal, cancellation and refund in
   `test_mode`, switch the Dodo dashboard to **Live Mode**, create a live API key
-  and live webhook endpoint (`https://api.dmarcharbor.com/api/webhooks/dodo`),
+  and live webhook endpoint (`https://dmarcharbor.com/api/webhooks/dodo`),
   delete the test `DODO` rows from `billing_plan` (or update them), set
   `DODO_API_KEY`, `DODO_WEBHOOK_SECRET` and `DODO_ENVIRONMENT=live_mode`, deploy,
   and run `POST /api/billing/plan-sync?provider=DODO&currency=USD`.

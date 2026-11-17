@@ -442,7 +442,7 @@ behind it.
   - Under **Business / Brand Settings**, set business name `DMARC Harbor` and
     support email `support@dmarcharbor.com`.
   - Under **Developer → API Keys**, create a test API key (`DODO_API_KEY`).
-  - Under **Developer → Webhooks**, add `https://api.dmarcharbor.com/api/webhooks/dodo`,
+  - Under **Developer → Webhooks**, add `https://dmarcharbor.com/api/webhooks/dodo`,
     tick `subscription.active`, `subscription.renewed`, `subscription.plan_changed`,
     `subscription.updated`, `subscription.unpaused`, `subscription.past_due`,
     `subscription.on_hold`, `subscription.paused`, `subscription.failed`,
@@ -453,7 +453,7 @@ behind it.
     and `DODO_TEST_WORKSPACE_IDS=<reviewer_organization_id>` so only the reviewer
     workspace is offered USD while Dodo is in test mode.
   - Run the staff plan sync route:
-    `POST https://api.dmarcharbor.com/api/billing/plan-sync?provider=DODO&currency=USD`
+    `POST https://dmarcharbor.com/api/billing/plan-sync?provider=DODO&currency=USD`
     with `Authorization: Bearer <STAFF_API_KEY>`. Confirm all 10 USD plans report `status: "ready"`,
     `GET /api/capabilities?organizationId=<reviewer_organization_id>` lists `USD`,
     and anonymous `GET /api/capabilities` does **not** list `USD`.
