@@ -7,6 +7,7 @@ import { requireOrganizationPermission } from '../middleware/organization-permis
 import { requireSession } from '../middleware/auth.middleware.js';
 import { renameWorkspaceController } from '../controllers/operations.controller.js';
 import { z } from 'zod';
+import { MonitoringChangeError, domainMonitoring, setDomainMonitoring } from '../services/entitlements/domain-allowance.service.js';
 import { OwnershipTransferError, previewTransfer, transferOwnership } from '../services/ownership-transfer.service.js';
 
 /**
@@ -49,6 +50,69 @@ lifecycleRouter.delete(
     // The counts travel with the response so the UI can confirm what went, not
     // only what was asked for.
     response.json({ deleted: result.name, summary: result.summary });
+  },
+);
+
+/**
+ * Pausing or resuming a domain's monitoring (domain-allowance.service.ts). A
+ * paused domain keeps its history and stores no new reports. Resuming takes a
+ * place on the plan and answers 402 PLAN_LIMIT_REACHED when none is free.
+ */
+const monitoringSchema = z.object({ paused: z.boolean() }).strict();
+
+lifecycleRouter.get(
+  '/workspaces/:organizationId/domains/:domainId/monitoring',
+  requireSession,
+  requireOrganizationPermission('domain', 'read'),
+  async (request: Request, response: Response) => {
+    const organizationIdValue = organizationId(request);
+    const domain = await prisma.domain.findFirst({
+      where: { client: { organizationId: organizationIdValue }, ...domainRef(String(request.params.domainId)) },
+      select: { id: true },
+    });
+    const monitoring = domain ? await domainMonitoring(organizationIdValue, domain.id) : null;
+    if (!monitoring) {
+      response.status(404).json({ error: { code: 'NOT_FOUND', message: 'That domain is not in this workspace.' } });
+      return;
+    }
+    response.json({ monitoring });
+  },
+);
+
+lifecycleRouter.patch(
+  '/workspaces/:organizationId/domains/:domainId/monitoring',
+  requireSession,
+  requireOrganizationPermission('domain', 'update'),
+  async (request: Request, response: Response) => {
+    const parsed = monitoringSchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      response.status(400).json({ error: { code: 'INVALID_REQUEST', message: 'Send { "paused": true } or { "paused": false }.' } });
+      return;
+    }
+    const organizationIdValue = organizationId(request);
+    const domain = await prisma.domain.findFirst({
+      where: { client: { organizationId: organizationIdValue }, ...domainRef(String(request.params.domainId)) },
+      select: { id: true },
+    });
+    if (!domain) {
+      response.status(404).json({ error: { code: 'NOT_FOUND', message: 'That domain is not in this workspace.' } });
+      return;
+    }
+    try {
+      const monitoring = await setDomainMonitoring({
+        organizationId: organizationIdValue,
+        domainId: domain.id,
+        paused: parsed.data.paused,
+        actorUserId: response.locals.session?.user?.id ?? null,
+      });
+      response.json({ monitoring });
+    } catch (error) {
+      if (error instanceof MonitoringChangeError) {
+        response.status(error.status).json({ error: { code: error.code, message: error.message } });
+        return;
+      }
+      throw error;
+    }
   },
 );
 

@@ -47,6 +47,7 @@ type IngestForensicInput = {
 export type ForensicIngestOutcome =
   | { status: 'not_found' }
   | { status: 'not_verified' }
+  | { status: 'paused' }
   | { status: 'forensics_not_enabled' }
   | { status: 'ruf_not_configured' }
   | { status: 'domain_mismatch'; reportedDomain: string }
@@ -104,6 +105,7 @@ export async function ingestForensicReport(input: IngestForensicInput): Promise<
       dmarcRecord: true,
       collectForensicReports: true,
       retainForensicPii: true,
+      monitoringPausedAt: true,
     },
   });
 
@@ -113,6 +115,12 @@ export async function ingestForensicReport(input: IngestForensicInput): Promise<
 
   if (domain.status !== 'VERIFIED') {
     return { status: 'not_verified' };
+  }
+
+  // Over the plan's domain limit, or paused by the owner (entitlements/domain-allowance.service.ts):
+  // the domain's history stays, new reports are not stored.
+  if (domain.monitoringPausedAt) {
+    return { status: 'paused' };
   }
 
   const parsed = parseForensicReport(input.rawEmail);

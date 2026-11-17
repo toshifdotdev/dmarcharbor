@@ -1,4 +1,5 @@
-﻿import { env } from '../config/env.js';
+import { reconcileAllDomainMonitoring } from '../services/entitlements/domain-allowance.service.js';
+import { env } from '../config/env.js';
 import { evaluateAlertRules, retryAlertDeliveries, runAlertRollups } from '../services/alert.service.js';
 import { runReportDigests } from '../services/report-digest.service.js';
 import { runMonthlyReportSchedules } from '../services/reports/monthly-report-schedule.service.js';
@@ -142,6 +143,23 @@ async function runAlertEvaluationPass(): Promise<{ completed: true }> {
         }
       },
     );
+
+    /**
+     * Every account's monitored domains within its plan, daily: catches accounts
+     * that went over without a plan change (domain-allowance.service.ts).
+     */
+    try {
+      await withDueLease('domain-allowance', 24 * 60 * 60 * 1000, async () => {
+        const allowance = await reconcileAllDomainMonitoring();
+        if (allowance.paused + allowance.resumed + allowance.failed > 0) {
+          console.info(
+            `[billing] domain allowance examined ${allowance.accounts} accounts: ${allowance.paused} paused, ${allowance.resumed} resumed, ${allowance.failed} failed`,
+          );
+        }
+      });
+    } catch (error) {
+      console.error(`[billing] domain allowance failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+    }
 
     /**
      * Razorpay Recurring renewals: schedules each charge three days ahead with

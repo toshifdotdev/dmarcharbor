@@ -36,7 +36,9 @@ A refund under the guarantee ends the subscription straight away: the
 workspace moves to the free plan that day rather than at the end of the period.
 Nothing is deleted. Your clients, domains and reports stay, and choosing a paid
 plan again restores what it includes (a new subscription does not qualify for
-the guarantee again).
+the guarantee again). If you have more active domains than the free plan
+monitors, the newest are paused: their history stays, but new reports for them
+are not collected until you upgrade or pause others.
 
 ## 14-day money-back guarantee
 

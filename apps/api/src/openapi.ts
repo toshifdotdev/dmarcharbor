@@ -650,6 +650,28 @@ export const openApiDocument = {
         },
       },
     },
+    '/workspaces/{organizationId}/domains/{domainId}/monitoring': {
+      get: {
+        tags: ['Lifecycle'],
+        summary: "Read a domain's monitoring state",
+        description:
+          'monitoring carries paused, reason (plan_limit when the account has more counted domains than its plan monitors, owner when an owner paused it), pausedAt, and used and limit: counted domains across the account against the plan limit (limit null when unlimited). A paused domain keeps its history; new reports for it are not stored.',
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: { 200: { description: 'The monitoring state.' }, ...standardErrors },
+      },
+      patch: {
+        tags: ['Lifecycle'],
+        summary: 'Pause or resume monitoring of a domain',
+        description:
+          'Body { paused: boolean }. Pausing frees a place on the plan. Resuming takes one and answers 402 PLAN_LIMIT_REACHED when none is free. Writes DOMAIN_MONITORING_PAUSED or DOMAIN_MONITORING_RESUMED to the audit log. Needs domain: update.',
+        parameters: [orgParam, idParam('domainId', 'Domain identifier, id or slug.')],
+        responses: {
+          200: { description: 'The new monitoring state.' },
+          402: { description: 'PLAN_LIMIT_REACHED.' },
+          ...standardErrors,
+        },
+      },
+    },
     '/workspaces/{organizationId}/clients/{clientId}': {
       delete: {
         tags: ['Lifecycle'],

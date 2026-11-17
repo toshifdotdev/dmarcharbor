@@ -62,6 +62,8 @@ export interface BoardRow {
   trend: TrendPoint[] | null;
   /** Each change in the policy receivers saw, oldest first. */
   policyHistory?: PolicyStep[];
+  /** Over the plan's domain limit or paused by an owner: history stays, new reports are not stored. */
+  monitoringPaused?: boolean;
 }
 
 /** The filter groups, in the order the work is done. */
@@ -281,6 +283,12 @@ export function PortfolioBoard({
                   <Link href={domainHref(r.slug)} className="data block truncate text-ui font-semibold text-fg hover:text-act hover:underline">
                     {r.domain}
                   </Link>
+                  {r.monitoringPaused ? (
+                    <span className="mt-0.5 flex items-center gap-1.5 text-meta font-semibold text-fg-3" data-testid="domain-paused" title="Monitoring paused: history stays, new reports are not collected.">
+                      <span aria-hidden className="block size-2 rounded-full border-[1.5px] border-rule-2" />
+                      Paused
+                    </span>
+                  ) : null}
                   <span className="mt-0.5 block truncate text-meta text-fg-3" title={r.reason ?? undefined}>
                     {r.reason ?? "measurement unavailable: no posture is claimed"}
                   </span>

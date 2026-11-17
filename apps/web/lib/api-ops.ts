@@ -1286,3 +1286,13 @@ export function listPortalAccess(
     `/api/workspaces/${organizationId}/portal-access`,
   );
 }
+
+/** GET /domains/:id/monitoring — whether the domain stores new reports, and the plan's used/limit. */
+export function getDomainMonitoring(
+  organizationId: string,
+  domainId: string,
+): Promise<{ monitoring: import("./types").DomainMonitoringView }> {
+  return opsFetch<{ monitoring: import("./types").DomainMonitoringView }>(
+    `/api/workspaces/${organizationId}/domains/${domainId}/monitoring`,
+  );
+}

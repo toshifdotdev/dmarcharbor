@@ -57,6 +57,13 @@ export async function ingestForensicReportController(request: Request, response:
       return;
     }
 
+    if (outcome.status === 'paused') {
+      response.status(409).json({
+        error: { code: 'DOMAIN_MONITORING_PAUSED', message: 'Monitoring of this domain is paused because the account has more domains than its plan monitors. Upgrade, or remove another domain.' },
+      });
+      return;
+    }
+
     if (outcome.status === 'forensics_not_enabled') {
       response.status(409).json({
         error: { message: 'Enable forensic report collection for this domain before ingesting.' },

@@ -65,6 +65,10 @@ function describeForensicOutcome(
     return { kind: 'forensic', status: 'rejected', message: 'The matched domain is not verified.' };
   }
 
+  if (outcome.status === 'paused') {
+    return { kind: 'forensic', status: 'rejected', message: 'Monitoring of the matched domain is paused: the account has more domains than its plan monitors.' };
+  }
+
   if (outcome.status === 'domain_mismatch') {
     return {
       kind: 'forensic',
@@ -200,6 +204,9 @@ async function ingestAggregateCandidate(xml: string, scope?: IngestScope): Promi
     if (outcome.status === 'not_verified') {
       return { kind: 'aggregate', status: 'rejected', message: 'The matched domain is not verified.' };
     }
+    if (outcome.status === 'paused') {
+      return { kind: 'aggregate', status: 'rejected', message: 'Monitoring of the matched domain is paused: the account has more domains than its plan monitors.' };
+    }
     if (outcome.status === 'domain_mismatch') {
       return {
         kind: 'aggregate',
@@ -294,6 +301,8 @@ async function processTlsReportEmail(rawEmail: string, scope?: IngestScope): Pro
         });
       } else if (outcome.status === 'not_verified') {
         results.push({ kind: 'tlsrpt', status: 'rejected', message: 'The matched domain is not verified.' });
+      } else if (outcome.status === 'paused') {
+        results.push({ kind: 'tlsrpt', status: 'rejected', message: 'Monitoring of the matched domain is paused: the account has more domains than its plan monitors.' });
       } else if (outcome.status === 'domain_mismatch') {
         results.push({
           kind: 'tlsrpt',

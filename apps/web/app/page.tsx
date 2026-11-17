@@ -130,6 +130,7 @@ async function PortfolioData({ organizationId, workspaceName }: { organizationId
           lastReportLabel: s?.lastReportAt ? instantLabel(s.lastReportAt) : null,
           trend: s ? (s.trend ?? []) : null,
           policyHistory: s?.policyHistory ?? [],
+          monitoringPaused: domain.monitoringPaused ?? false,
         };
       }),
     );

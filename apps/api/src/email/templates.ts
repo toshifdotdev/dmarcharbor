@@ -1163,12 +1163,21 @@ export function planPausedFeaturesEmail(input: {
   sso: { connections: number; signInUntil: string } | null;
   /** A verified custom domain that the new plan no longer serves. */
   customDomain?: string | null;
+  /** Domains over the new plan's limit whose monitoring was paused, and that limit. */
+  pausedDomains?: { names: string[]; limit: number } | null;
   appUrl: string;
   billingUrl: string;
 }): RenderedEmail {
   const paragraphs: string[] = [
     `${input.workspaceName} is now on ${input.planLabel}. Nothing has been deleted, but some things you set up on your previous plan are no longer included.`,
   ];
+  if (input.pausedDomains && input.pausedDomains.names.length > 0) {
+    const { names, limit } = input.pausedDomains;
+    const shown = names.slice(0, 20).join(', ') + (names.length > 20 ? ` and ${names.length - 20} more` : '');
+    paragraphs.push(
+      `${input.planLabel} monitors ${limit} active domain${limit === 1 ? '' : 's'}, so monitoring is paused for the newest: ${shown}. Their history stays readable, but new reports for them are not collected. To choose which domains are monitored, pause one from its domain page and resume another, or upgrade to monitor them all again.`,
+    );
+  }
 
   if (input.hostedRecords.length > 0) {
     paragraphs.push(

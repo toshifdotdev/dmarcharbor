@@ -24,11 +24,13 @@ import {
   getTlsReportSummary,
   getTlsReports,
   getDomainRegistration,
+  getDomainMonitoring,
   getWorkspaceEntitlements,
   listDomainScans,
   listWorkspaceMembers,
   OpsError,
 } from "@/lib/api-ops";
+import { DomainMonitoring } from "@/components/harbor/domain-monitoring";
 import { getServiceMeta } from "@/lib/api-public";
 import { readHostBrand } from "@/lib/host-brand";
 import { featureOf } from "@/lib/entitlements";
@@ -195,7 +197,7 @@ export default async function DomainPage({
 
   // A scan history is a different claim from the report evidence, so it fails
   // on its own and renders as a failure, never as an empty history.
-  const [scanHistory, switchState, dnsChanges, serviceMeta, members, me, entitlements, catalog, dnsConnections, mailboxCompliance, hostedDmarc, managedSpf, hostedBimi, hostedMtaSts, tlsSummary, tlsReports, registration, policyProposals, subdomains] = await Promise.all([
+  const [scanHistory, switchState, dnsChanges, serviceMeta, members, me, entitlements, catalog, dnsConnections, mailboxCompliance, hostedDmarc, managedSpf, hostedBimi, hostedMtaSts, tlsSummary, tlsReports, registration, policyProposals, subdomains, monitoring] = await Promise.all([
     listDomainScans(active.id, id).then(
       (page) => ({ rows: page.rows, nextCursor: page.nextCursor, failed: false }),
       () => ({ rows: [] as ScanRow[], nextCursor: null as string | null, failed: true }),
@@ -258,6 +260,8 @@ export default async function DomainPage({
     getPolicyProposals(active.id, id).catch(() => null as DomainPolicyProposals | null),
     // null when the read failed: the tab then says so, never "none seen".
     getSubdomains(active.id, id).catch(() => null as SubdomainDiscovery | null),
+    // null when the read failed: no notice is shown rather than a guess.
+    getDomainMonitoring(active.id, id).then((data) => data.monitoring, () => null),
   ]);
 
   const role =
@@ -385,6 +389,10 @@ export default async function DomainPage({
             </>
           }
         />
+
+        {monitoring ? (
+          <DomainMonitoring organizationId={active.id} domainId={id} initial={monitoring} canEdit={canEditDomain} />
+        ) : null}
 
         {resolved.posture === "stale" || resolved.posture === "unmeasured" ? (
           <SilenceBand posture={resolved.posture} lastReportAt={lastReportAt} ageDays={ageDays} />

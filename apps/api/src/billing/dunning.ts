@@ -1,3 +1,4 @@
+import { reconcileDomainMonitoring } from '../services/entitlements/domain-allowance.service.js';
 import { prisma } from '../database/prisma.js';
 import { recordAuditEvent } from '../services/audit.service.js';
 import { providerFor } from './registry.js';
@@ -288,6 +289,14 @@ export async function runReconciliation(now = new Date()): Promise<ReconcileOutc
       // workspace, so one failure is counted and the loop continues.
       outcome.unreachable += 1;
     }
+  }
+
+  // A paid period that ran out without a plan-change event: keep these accounts'
+  // monitored domains within the plan they are on now.
+  for (const organizationId of new Set(subscriptions.map((s) => s.organizationId))) {
+    await reconcileDomainMonitoring(organizationId, now).catch((error: unknown) => {
+      console.error(`[billing] domain allowance for ${organizationId} failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+    });
   }
 
   return outcome;

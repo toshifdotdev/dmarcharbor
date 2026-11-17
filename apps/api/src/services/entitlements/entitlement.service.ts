@@ -251,7 +251,7 @@ export async function withWorkspaceLock<T>(
  * be counted where the plan applies, which is every container they hold, not one
  * of them.
  */
-async function accountOrganizationIds(organizationId: string): Promise<string[]> {
+export async function accountOrganizationIds(organizationId: string): Promise<string[]> {
   const memberships = await prisma.member.findMany({
     where: { organizationId, role: 'owner' },
     select: {

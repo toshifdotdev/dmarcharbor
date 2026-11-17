@@ -25,6 +25,8 @@ export async function listClients(organizationId: string) {
   // easy to treat as a credential it is not.
   return rows.map(({ reportToken, ...client }) => ({
     ...client,
+    // Paused domains keep their history and store no new reports (domain-allowance.service.ts).
+    domains: client.domains.map((domain) => ({ ...domain, monitoringPaused: domain.monitoringPausedAt !== null })),
     reportAddress: clientAggregateAddress(reportToken),
   }));
 }

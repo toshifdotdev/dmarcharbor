@@ -12,6 +12,7 @@ export type StoredTlsReport = Prisma.TlsReportGetPayload<{ select: typeof outcom
 export type IngestTlsOutcome =
   | { status: 'not_found' }
   | { status: 'not_verified' }
+  | { status: 'paused' }
   | { status: 'domain_mismatch'; reportDomain: string }
   | { status: 'duplicate'; report: StoredTlsReport }
   | { status: 'created'; report: StoredTlsReport };
@@ -88,13 +89,18 @@ export async function ingestTlsReport(input: {
       ...domainRef(input.domainId),
       client: { organizationId: input.organizationId },
     },
-    select: { id: true, name: true, status: true },
+    select: { id: true, name: true, status: true, monitoringPausedAt: true },
   });
   if (!domain) {
     return { status: 'not_found' };
   }
   if (domain.status !== 'VERIFIED') {
     return { status: 'not_verified' };
+  }
+  // Over the plan's domain limit, or paused by the owner (entitlements/domain-allowance.service.ts):
+  // the domain's history stays, new reports are not stored.
+  if (domain.monitoringPausedAt) {
+    return { status: 'paused' };
   }
 
   const parsed = parseTlsReport(input.json);

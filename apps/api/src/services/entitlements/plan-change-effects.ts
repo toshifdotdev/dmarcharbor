@@ -1,3 +1,4 @@
+import { reconcileDomainMonitoring } from './domain-allowance.service.js';
 import type { PlanTier } from '@prisma/client';
 import { prisma } from '../../database/prisma.js';
 import { sendPlanPausedFeaturesEmail } from '../../email/mailer.js';
@@ -92,6 +93,13 @@ export async function afterPlanChange(
 
     const ssoSince = await syncSsoLicence(organizationId, features['auth.sso'] === true, now);
 
+    // Domains beyond the new plan's limit stop storing reports; room again resumes them.
+    const monitoring = await reconcileDomainMonitoring(organizationId, now);
+    const pausedDomains =
+      monitoring.paused.length > 0 && Number.isFinite(entitlements.maxActiveDomains)
+        ? { names: monitoring.paused.map((d) => d.name), limit: entitlements.maxActiveDomains }
+        : null;
+
     if (change.from === change.to) {
       return;
     }
@@ -119,7 +127,7 @@ export async function afterPlanChange(
       customDomain = organization?.customDomainVerifiedAt ? organization.customDomain : null;
     }
 
-    if (hostedRecords.length === 0 && !sso && !customDomain) {
+    if (hostedRecords.length === 0 && !sso && !customDomain && !pausedDomains) {
       // Nothing kept that the new plan no longer covers.
       return;
     }
@@ -130,6 +138,7 @@ export async function afterPlanChange(
       hostedRecords,
       sso,
       customDomain,
+      pausedDomains,
       // One message per change to a plan per day. A webhook and the
       // reconciliation that follows it describe the same change.
       idempotencyKey: `plan-paused:${organizationId}:${change.from ?? 'none'}:${change.to}:${now.toISOString().slice(0, 10)}`,

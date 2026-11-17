@@ -225,7 +225,7 @@ you can remove the excess or stay where you are.
 
 Cancelling is always allowed. When the paid period ends the workspace moves to
 Mooring with everything kept, and adding more is refused until you are within
-Mooring's limits.
+Mooring's limits. Active domains over Mooring's limit keep their history, but new reports for them are not collected until you upgrade or pause others; the domains you added first stay monitored.
 
 **What happens to features when I downgrade?**
 Nothing is deleted, and upgrading again brings everything back as it was.
@@ -305,7 +305,7 @@ always billed for at least the minimum of your band.
 **If I cancel, can I change my mind?**
 Yes, until the period ends: choose "Keep" on the billing page and nothing changes.
 After it ends the workspace moves to the free plan with everything kept, and
-buying a plan again begins a new period from that day.
+buying a plan again begins a new period from that day. Active domains over Mooring's limit keep their history, but new reports for them are not collected until you upgrade or pause others; the domains you added first stay monitored.
 
 **Can I change the card or UPI account I pay with?**
 Paying in dollars, change it in Paddle's billing portal, from the billing page.
@@ -328,7 +328,7 @@ customer. After that, refunds are considered case by case, for example for a
 double charge or a fault on our side. See the Refund Policy.
 
 A refund ends the subscription that day and the workspace moves to Mooring, with
-every client, domain and report kept. Cancelling without a refund keeps the plan
+every client, domain and report kept. Active domains over Mooring's limit keep their history, but new reports for them are not collected until you upgrade or pause others; the domains you added first stay monitored. Cancelling without a refund keeps the plan
 until the end of the period you paid for.
 
 **Is tax added to the price?**
@@ -345,7 +345,7 @@ live subscription between two payment processors.
 **What happens if my payment fails?**
 We tell you and retry. You keep full access for 7 days after the paid period ends,
 and we tell you the exact date. If it is still unpaid then, the workspace moves to
-the free plan with all its data kept; upgrading brings everything back.
+the free plan with all its data kept; upgrading brings everything back. Active domains over Mooring's limit keep their history, but new reports for them are not collected until you upgrade or pause others; the domains you added first stay monitored.
 
 **Can I pay by invoice or bank transfer?**
 Not at present. Pay by card through Razorpay or Paddle.

@@ -254,6 +254,27 @@ requeues a failed delivery with a fresh signature.
 
 ---
 
+## 2026-12-22 — Domains beyond the plan's limit are paused
+
+Additive. Browser routes and report ingestion; nothing on `/api/v1` changes shape.
+
+- **Paused monitoring.** While an account has more counted domains than its
+  plan monitors, the newest are paused. Their history stays readable; new
+  aggregate, forensic and TLS reports for them are not stored. Room on the plan
+  resumes plan-paused domains, oldest first.
+- **`GET` and `PATCH .../domains/{domainId}/monitoring`** read the state and
+  let an owner pause a domain (body `{ "paused": true }`) or resume one. A
+  resume with no free place answers 402 `PLAN_LIMIT_REACHED`. Audit rows
+  `DOMAIN_MONITORING_PAUSED` and `DOMAIN_MONITORING_RESUMED`.
+- **Domain rows** in `GET .../clients` and `.../clients/{clientId}/domains`
+  carry `monitoringPausedAt` and `monitoringPausedReason`; the clients list also
+  carries `monitoringPaused`.
+- **Report ingestion** for a paused domain answers 409
+  `DOMAIN_MONITORING_PAUSED`; the inbound mailbox marks the message rejected
+  with a message saying so.
+
+---
+
 ## 2026-12-21 — Agency domains: who signs in there, and claims that lapse
 
 Browser routes only; nothing on `/api/v1` changes.

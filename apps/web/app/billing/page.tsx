@@ -106,6 +106,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
   // check enforces. Only if that read is missing does the page fall back to
   // what it can count itself, worded as a bound rather than a fact.
   const counted = entitlements?.usage ?? null;
+  const pausedDomains = clients ? clients.flatMap((c) => c.domains.filter((d) => d.monitoringPausedReason === "plan_limit")) : [];
   const domainTotal = clients ? clients.reduce((n, c) => n + c.domains.length, 0) : null;
   const usage: Usage = {
     clients: counted
@@ -141,6 +142,19 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
       ) : checkout === "cancelled" ? (
         <Notice tone="info" title="Checkout was not completed" testId="checkout-cancelled">
           The plan is unchanged. You can start again whenever you like.
+        </Notice>
+      ) : null}
+
+      {pausedDomains.length > 0 ? (
+        <Notice
+          tone="warn"
+          title={`Monitoring paused for ${pausedDomains.length} domain${pausedDomains.length === 1 ? "" : "s"}`}
+          testId="billing-paused-domains"
+        >
+          Your account has more active domains than this plan monitors, so the newest are paused:{" "}
+          <span className="data">{pausedDomains.slice(0, 5).map((d) => d.name).join(", ")}</span>
+          {pausedDomains.length > 5 ? `, and ${pausedDomains.length - 5} more` : ""}. Their history stays readable; new
+          reports are not collected. Choose a larger plan, or pause another domain from its page and resume one of these.
         </Notice>
       ) : null}
 

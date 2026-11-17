@@ -468,7 +468,12 @@ the account owns. Each exceeded limit is a row in `error.overage` with `quota`,
 every target, not only a smaller plan. A cancellation is never refused: the
 workspace moves to Mooring at the end of the period with everything kept, and
 further clients, domains and members are refused until it is within Mooring's
-limits.
+limits. Counted domains beyond the plan's limit are paused, newest first, after
+every plan change, on each reconciliation and daily
+(`domain-allowance.service.ts`): history stays, new reports are not stored, and
+they stop counting. Room on the plan resumes them oldest first; an owner can
+pause one to free a place and resume one when a place is free (`PATCH
+.../domains/{id}/monitoring`).
 
 ## Not built yet
 

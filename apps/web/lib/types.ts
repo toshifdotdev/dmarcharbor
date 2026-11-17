@@ -30,7 +30,19 @@ export interface DomainRow {
   score: number | null;
   createdAt: string;
   lastScanAt: string | null;
-  }
+  /** Paused domains keep their history and store no new reports. Absent from older responses. */
+  monitoringPaused?: boolean;
+  monitoringPausedReason?: "plan_limit" | "owner" | null;
+}
+
+/** GET/PATCH /domains/:id/monitoring. `limit` is null on an unlimited plan. */
+export interface DomainMonitoringView {
+  paused: boolean;
+  reason: "plan_limit" | "owner" | null;
+  pausedAt: string | null;
+  used: number;
+  limit: number | null;
+}
 
 
 export interface ClientRow {

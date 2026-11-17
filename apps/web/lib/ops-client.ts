@@ -1894,3 +1894,10 @@ export const resendInvitation = (orgId: string, email: string, role: "admin" | "
     role,
     resend: true,
   });
+
+/** PATCH /domains/:id/monitoring — pause, or resume when the plan has a free place (402 otherwise). */
+export const setDomainMonitoring = (orgId: string, domainId: string, paused: boolean) =>
+  call<{ monitoring: import("./types").DomainMonitoringView }>(wsPath(orgId, `/domains/${domainId}/monitoring`), {
+    method: "PATCH",
+    body: JSON.stringify({ paused }),
+  });

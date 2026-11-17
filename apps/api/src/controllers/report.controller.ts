@@ -41,6 +41,13 @@ export async function ingestReportController(request: Request, response: Respons
       return;
     }
 
+    if (outcome.status === 'paused') {
+      response.status(409).json({
+        error: { code: 'DOMAIN_MONITORING_PAUSED', message: 'Monitoring of this domain is paused because the account has more domains than its plan monitors. Upgrade, or remove another domain.' },
+      });
+      return;
+    }
+
     if (outcome.status === 'domain_mismatch') {
       response.status(409).json({
         error: {

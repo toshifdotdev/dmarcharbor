@@ -44,6 +44,8 @@ export async function countActiveDomains(
   return prisma.domain.count({
     where: {
       client: { organizationId },
+      // A paused domain stores no reports and is not metered (domain-allowance.service.ts).
+      monitoringPausedAt: null,
       dmarcReports: { some: { receivedAt: { gte: activeSince } } },
     },
   });
@@ -83,6 +85,8 @@ export async function countCountedDomainsIn(
   return client.domain.count({
     where: {
       client: { organizationId: { in: organizationIds } },
+      // A paused domain stores no reports and is not metered (domain-allowance.service.ts).
+      monitoringPausedAt: null,
       OR: [{ dmarcReports: { some: { receivedAt: { gte: activeSince } } } }, { createdAt: { gte: graceSince } }],
     },
   });

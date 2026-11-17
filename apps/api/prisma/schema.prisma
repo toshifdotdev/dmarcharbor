@@ -443,6 +443,12 @@ model Domain {
   dkimSelectors          Json?
   mxRecords              Json?
   score                  Int?
+  /// Set while new reports for this domain are not stored: the account has more
+  /// counted domains than its plan allows ("plan_limit", set and cleared by
+  /// services/entitlements/domain-allowance.service.ts), or the owner paused it
+  /// to make room for another ("owner"). Its history stays readable either way.
+  monitoringPausedAt     DateTime?
+  monitoringPausedReason String?
   createdAt              DateTime              @default(now())
   updatedAt              DateTime              @updatedAt
   scans                  Scan[]
@@ -2750,6 +2756,10 @@ enum AuditAction {
   DOMAIN_SWITCH_STARTED
   DOMAIN_SWITCH_CUT_OVER
   DOMAIN_SWITCH_CANCELLED
+  /// Monitoring of a domain paused or resumed, by the plan's domain limit or by
+  /// the owner. New reports for a paused domain are not stored.
+  DOMAIN_MONITORING_PAUSED
+  DOMAIN_MONITORING_RESUMED
   DNS_CHANGE_ACKNOWLEDGED
   SENDER_REVIEWED
   SENDER_OWNER_SET

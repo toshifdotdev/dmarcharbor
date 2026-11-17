@@ -42,6 +42,7 @@ type IngestReportInput = {
 export type IngestReportOutcome =
   | { status: 'not_found' }
   | { status: 'not_verified' }
+  | { status: 'paused' }
   | { status: 'domain_mismatch'; reportDomain: string }
   | { status: 'duplicate'; report: PersistedReport }
   | { status: 'created'; report: PersistedReport };
@@ -107,6 +108,7 @@ export async function ingestDmarcReport(input: IngestReportInput): Promise<Inges
       id: true,
       name: true,
       status: true,
+      monitoringPausedAt: true,
     },
   });
 
@@ -116,6 +118,12 @@ export async function ingestDmarcReport(input: IngestReportInput): Promise<Inges
 
   if (domain.status !== 'VERIFIED') {
     return { status: 'not_verified' };
+  }
+
+  // Over the plan's domain limit, or paused by the owner (entitlements/domain-allowance.service.ts):
+  // the domain's history stays, new reports are not stored.
+  if (domain.monitoringPausedAt) {
+    return { status: 'paused' };
   }
 
   const parsed = parseDmarcReport(input.xml);
