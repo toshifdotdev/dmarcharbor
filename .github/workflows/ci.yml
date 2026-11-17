@@ -150,7 +150,12 @@ jobs:
         # count. The first advisory to land will either be fixed or will need this
         # line deliberately weakened, in which case the decision is visible in the
         # diff instead of arriving quietly.
-        run: npm audit --audit-level=high --omit=dev
+        #
+        # That happened on 17 Nov 2026: picomatch (GHSA-fc5q-39xc-vjpf) has no
+        # fixed release, and reaches "production" only through better-auth's
+        # optional vitest peer. The script fails on high and critical as before,
+        # except for advisories on its dated, reasoned list.
+        run: node scripts/audit-production.mjs
 
       - name: Verify the container builds
         # A Dockerfile that has never been built is a Dockerfile that does not work.
