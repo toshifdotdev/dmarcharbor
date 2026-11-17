@@ -471,7 +471,11 @@ further clients, domains and members are refused until it is within Mooring's
 limits. Counted domains beyond the plan's limit are paused, newest first, after
 every plan change, on each reconciliation and daily
 (`domain-allowance.service.ts`): history stays, new reports are not stored, and
-they stop counting. Room on the plan resumes them oldest first; an owner can
+they stop counting. A parked domain whose first report arrives while the plan is
+full is paused then and the report refused, so the plan's limit is the number
+of domains that store reports. The owners are emailed about every pause.
+Room on the plan resumes them oldest first, and a resumed domain counts at once
+(for the grace period, like a new one); an owner can
 pause one to free a place and resume one when a place is free (`PATCH
 .../domains/{id}/monitoring`).
 

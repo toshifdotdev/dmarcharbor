@@ -1210,6 +1210,37 @@ export function planPausedFeaturesEmail(input: {
   });
 }
 
+/**
+ * Domains paused because the account has more active domains than its plan
+ * monitors, outside a plan change (whose own email lists them): found by the
+ * daily check or when a parked domain's first report arrived on a full plan.
+ */
+export function domainsPausedEmail(input: {
+  workspaceName: string;
+  planLabel: string;
+  limit: number;
+  domains: string[];
+  appUrl: string;
+  billingUrl: string;
+}): RenderedEmail {
+  const shown = input.domains.slice(0, 20).join(', ') + (input.domains.length > 20 ? ` and ${input.domains.length - 20} more` : '');
+  const many = input.domains.length !== 1;
+  return layout({
+    title: `Monitoring paused for ${input.domains.length} domain${many ? 's' : ''}`,
+    preheader: 'Nothing was deleted. New reports for these domains are not being collected.',
+    heading: `Monitoring paused for ${input.domains.length} domain${many ? 's' : ''}`,
+    paragraphs: [
+      `${input.planLabel} monitors ${input.limit} active domain${input.limit === 1 ? '' : 's'}, and ${input.workspaceName} has more, so monitoring is paused for: ${shown}.`,
+      `Their history stays readable, but new DMARC reports for ${many ? 'them' : 'it'} are not collected while paused. The domains you added first stay monitored.`,
+      'To choose which domains are monitored, pause one from its domain page and resume another. Upgrading resumes them all.',
+    ],
+    action: { label: 'Open DMARC Harbor', url: input.appUrl },
+    aside: { heading: 'Plans', body: `Plans with more domains are at ${input.billingUrl}.` },
+    footer: 'You are receiving this because you own this workspace in DMARC Harbor.',
+    kind: 'Billing',
+    state: { tone: 'warn', word: 'Needs your attention' },
+  });
+}
 export function exportReadyEmail(input: {
   workspaceName: string;
   scopeLabel: string;

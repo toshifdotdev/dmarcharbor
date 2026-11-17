@@ -1124,6 +1124,78 @@ check(
 
 console.log("evidence shots:", shotDetail, shotStale, shotEmpty);
 
+// 4z. a domain paused for the plan limit: the domain page says so, the
+// portfolio row says so, and Resume monitoring (a place is free on Harbor)
+// clears it through the API. The pause is a fixture; the resume is real.
+{
+  const pausedSlug = detailPath.replace(/^\/domains\//, "").split(/[/?#]/)[0];
+  runTestPattern(`
+    const { PrismaClient } = require("@prisma/client");
+    const prisma = new PrismaClient();
+    (async () => {
+      await prisma.domain.updateMany({
+        where: { slug: ${JSON.stringify(pausedSlug)} },
+        data: { monitoringPausedAt: new Date(), monitoringPausedReason: "plan_limit" },
+      });
+      await prisma.$disconnect();
+    })().catch((e) => { console.error(e); process.exit(1); });
+  `);
+  try {
+    await navigate(`${WEB}/domains/${pausedSlug}`);
+    const notice = await waitForEval(
+      `(() => {
+        const n = document.querySelector('[data-testid="domain-monitoring"]');
+        const b = document.querySelector('[data-testid="monitoring-resume"]');
+        return n ? { text: n.textContent, resumable: Boolean(b && !b.disabled) } : null;
+      })()`,
+      (v) => Boolean(v),
+      30_000,
+    );
+    check(
+      "a paused domain's page says monitoring is paused, with the plan's places",
+      Boolean(notice && /Monitoring paused/.test(notice.text) && /active domains? in use on your plan/.test(notice.text)),
+      notice ? notice.text.slice(0, 200) : "no notice",
+    );
+    await navigate(WEB + "/");
+    const rowPaused = await waitForEval(
+      `(() => [...document.querySelectorAll('tbody tr[data-domain-id]')].some(tr => tr.querySelector('[data-testid="domain-paused"]')))()`,
+      (v) => v === true,
+      30_000,
+    );
+    check("the portfolio row of a paused domain says Paused", rowPaused === true, String(rowPaused));
+
+    await navigate(`${WEB}/domains/${pausedSlug}`);
+    await waitForEval(
+      `(() => { const b = document.querySelector('[data-testid="monitoring-resume"]'); return b ? Object.keys(b).some(k => k.startsWith('__react')) : false; })()`,
+      (v) => v === true,
+      30_000,
+    );
+    await evalJs(`(() => { document.querySelector('[data-testid="monitoring-resume"]')?.click(); return true; })()`);
+    const cleared = await waitForEval(
+      `!document.querySelector('[data-testid="domain-monitoring"]')`,
+      (v) => v === true,
+      30_000,
+    );
+    check(
+      "Resume monitoring clears the pause when the plan has a free place",
+      Boolean(notice?.resumable) && cleared === true,
+      JSON.stringify({ resumable: notice?.resumable, cleared }),
+    );
+  } finally {
+    runTestPattern(`
+      const { PrismaClient } = require("@prisma/client");
+      const prisma = new PrismaClient();
+      (async () => {
+        await prisma.domain.updateMany({
+          where: { slug: ${JSON.stringify(pausedSlug)} },
+          data: { monitoringPausedAt: null, monitoringPausedReason: null, monitoringResumedAt: null },
+        });
+        await prisma.$disconnect();
+      })().catch((e) => { console.error(e); process.exit(1); });
+    `);
+  }
+}
+
 // ─── 5. Phase 3: operations screens ─────────────────────────────────────────
 
 // 5a. Alerts: the create form carries ALL NINE fields the API requires, the

@@ -79,17 +79,31 @@ export async function countCountedDomainsIn(
   now = new Date(),
   client: Prisma.TransactionClient | typeof prisma = prisma,
 ): Promise<number> {
-  const activeSince = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1000);
-  const graceSince = new Date(now.getTime() - domainGraceDays * 24 * 60 * 60 * 1000);
-
   return client.domain.count({
-    where: {
-      client: { organizationId: { in: organizationIds } },
-      // A paused domain stores no reports and is not metered (domain-allowance.service.ts).
-      monitoringPausedAt: null,
-      OR: [{ dmarcReports: { some: { receivedAt: { gte: activeSince } } } }, { createdAt: { gte: graceSince } }],
-    },
+    where: { client: { organizationId: { in: organizationIds } }, ...countedDomainWhere(retentionDays, now) },
   });
+}
+
+/**
+ * The one rule for which domains take a place on the plan: not paused, and a
+ * report in the window, added within the grace period, or resumed within it.
+ *
+ * A resumed domain counts at once. It has no recent report (it was paused), so
+ * without the resume date it took no place, and resuming one after another
+ * would have let every paused domain back in under the limit
+ * (domain-allowance.service.ts).
+ */
+export function countedDomainWhere(windowDays: number, now = new Date()) {
+  const activeSince = new Date(now.getTime() - windowDays * 24 * 60 * 60 * 1000);
+  const graceSince = new Date(now.getTime() - domainGraceDays * 24 * 60 * 60 * 1000);
+  return {
+    monitoringPausedAt: null,
+    OR: [
+      { dmarcReports: { some: { receivedAt: { gte: activeSince } } } },
+      { createdAt: { gte: graceSince } },
+      { monitoringResumedAt: { gte: graceSince } },
+    ],
+  } satisfies Prisma.DomainWhereInput;
 }
 
 export async function buildInventory(

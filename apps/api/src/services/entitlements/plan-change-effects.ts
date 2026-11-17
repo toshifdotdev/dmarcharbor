@@ -94,7 +94,8 @@ export async function afterPlanChange(
     const ssoSince = await syncSsoLicence(organizationId, features['auth.sso'] === true, now);
 
     // Domains beyond the new plan's limit stop storing reports; room again resumes them.
-    const monitoring = await reconcileDomainMonitoring(organizationId, now);
+    // The email below lists paused domains; with no change of plan it is not sent, so mail here.
+    const monitoring = await reconcileDomainMonitoring(organizationId, now, { notify: change.from === change.to });
     const pausedDomains =
       monitoring.paused.length > 0 && Number.isFinite(entitlements.maxActiveDomains)
         ? { names: monitoring.paused.map((d) => d.name), limit: entitlements.maxActiveDomains }

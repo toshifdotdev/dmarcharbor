@@ -30,7 +30,7 @@ import {
   listWorkspaceMembers,
   OpsError,
 } from "@/lib/api-ops";
-import { DomainMonitoring } from "@/components/harbor/domain-monitoring";
+import { MonitoringPausedNotice, PauseMonitoringButton } from "@/components/harbor/domain-monitoring";
 import { getServiceMeta } from "@/lib/api-public";
 import { readHostBrand } from "@/lib/host-brand";
 import { featureOf } from "@/lib/entitlements";
@@ -383,6 +383,9 @@ export default async function DomainPage({
           actions={
             <>
               <RefreshButton />
+              {monitoring && !monitoring.paused && canEditDomain && monitoring.limit !== null && monitoring.used >= monitoring.limit ? (
+                <PauseMonitoringButton organizationId={active.id} domainId={id} domainName={insights.domain.name} monitoring={monitoring} />
+              ) : null}
               <ButtonLink href={onboardingHref(slug)} variant="secondary" size="sm">
                 Setup and records
               </ButtonLink>
@@ -390,8 +393,8 @@ export default async function DomainPage({
           }
         />
 
-        {monitoring ? (
-          <DomainMonitoring organizationId={active.id} domainId={id} initial={monitoring} canEdit={canEditDomain} />
+        {monitoring?.paused ? (
+          <MonitoringPausedNotice organizationId={active.id} domainId={id} monitoring={monitoring} canEdit={canEditDomain} />
         ) : null}
 
         {resolved.posture === "stale" || resolved.posture === "unmeasured" ? (
@@ -491,7 +494,7 @@ export default async function DomainPage({
             ) : null}
             {agg.messageCount > 0 ? <ReceiverFigures insights={insights} /> : null}
           </div>
-          <PolicyPanel onboarding={onboarding} observedPolicy={observedPolicy} testing={testing}>
+          <PolicyPanel onboarding={onboarding} observedPolicy={observedPolicy} fromReports={policySourceKind === "reports"} testing={testing}>
             <PolicyProposals
               organizationId={active.id}
               domainId={id}
@@ -928,11 +931,14 @@ function PanelNote({ children }: { children: React.ReactNode }) {
 function PolicyPanel({
   onboarding,
   observedPolicy,
+  fromReports,
   testing,
   children,
 }: {
   onboarding: OnboardingState;
   observedPolicy: string;
+  /** The policy came from reports, not a DNS scan: what receivers last saw, not what DNS publishes now. */
+  fromReports: boolean;
   /** t=y is published. */
   testing: boolean;
   /** The client-approval control, under the evidence it rests on. */
@@ -951,9 +957,11 @@ function PolicyPanel({
     name: <span className="data">p={p}</span>,
     note:
       stage === i
-        ? testing
-          ? "published, t=y"
-          : "published"
+        ? fromReports
+          ? "as reporters saw it"
+          : testing
+            ? "published, t=y"
+            : "published"
         : stage !== null && i === stage + 1 && segments[stage] === "planned"
           ? <span className="font-semibold text-ok">ready</span>
           : undefined,

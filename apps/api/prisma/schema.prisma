@@ -449,6 +449,10 @@ model Domain {
   /// to make room for another ("owner"). Its history stays readable either way.
   monitoringPausedAt     DateTime?
   monitoringPausedReason String?
+  /// When monitoring last resumed. A resumed domain takes a place on the plan for
+  /// the grace period, like a newly added one, so resuming cannot let every paused
+  /// domain back in under the limit.
+  monitoringResumedAt    DateTime?
   createdAt              DateTime              @default(now())
   updatedAt              DateTime              @updatedAt
   scans                  Scan[]

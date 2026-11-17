@@ -1081,7 +1081,9 @@ function planFeatureReader(): (organizationId: string) => Promise<Record<string,
 
 export async function evaluateAlertRules(now = new Date()): Promise<RuleEvaluationResult[]> {
   const rules = await prisma.alertRule.findMany({
-    where: { enabled: true, domain: { status: 'VERIFIED' } },
+    // A paused domain stores no reports (domain-allowance.service.ts), so its
+    // silence is the pause, not a fault: its rules wait until it is resumed.
+    where: { enabled: true, domain: { status: 'VERIFIED', monitoringPausedAt: null } },
     include: ruleInclude,
     orderBy: { id: 'asc' },
   });

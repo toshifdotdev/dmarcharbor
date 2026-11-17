@@ -66,6 +66,27 @@ async function addDomains(clientId: string, count: number, now: Date, prefix = '
   return rows;
 }
 
+function aggregateXml(domain: string, reportId: string): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<feedback>
+  <report_metadata>
+    <org_name>Google LLC</org_name>
+    <email>noreply-dmarc-support@google.com</email>
+    <report_id>${reportId}</report_id>
+    <date_range><begin>1712188800</begin><end>1712275199</end></date_range>
+  </report_metadata>
+  <policy_published><domain>${domain}</domain><adkim>r</adkim><aspf>r</aspf><p>none</p><pct>100</pct></policy_published>
+  <record>
+    <row>
+      <source_ip>192.0.2.10</source_ip>
+      <count>3</count>
+      <policy_evaluated><disposition>none</disposition><dkim>pass</dkim><spf>pass</spf></policy_evaluated>
+    </row>
+    <identifiers><header_from>${domain}</header_from></identifiers>
+  </record>
+</feedback>`;
+}
+
 const pausedNames = async (organizationId: string) =>
   (
     await prisma.domain.findMany({
@@ -167,5 +188,57 @@ describe('domain allowance', () => {
 
     const audit = await prisma.auditLog.count({ where: { organizationId, action: 'DOMAIN_MONITORING_PAUSED' } });
     expect(audit).toBeGreaterThanOrEqual(2);
+  });
+
+  it('refuses the first report for a parked domain while the plan is full, and pauses it', async () => {
+    const now = new Date();
+    const { organizationId, clientId } = await workspace();
+    await addDomains(clientId, 2, now, 'live');
+    const parked = await prisma.domain.create({
+      data: { clientId, name: 'parked.example', slug: `parked-${fixtureId}`, status: 'VERIFIED', createdAt: new Date(now.getTime() - 120 * DAY) },
+    });
+
+    const outcome = await ingestDmarcReport({ organizationId, domainId: parked.id, xml: aggregateXml('parked.example', `parked-${fixtureId}`) });
+    expect(outcome.status).toBe('paused');
+    expect(await prisma.dmarcReport.count({ where: { domainId: parked.id } })).toBe(0);
+    expect(await pausedNames(organizationId)).toEqual(['parked.example']);
+
+    // A domain that already has its place keeps receiving.
+    const live = await prisma.domain.findFirstOrThrow({ where: { name: 'live-0.example' } });
+    const stored = await ingestDmarcReport({ organizationId, domainId: live.id, xml: aggregateXml('live-0.example', `live-${fixtureId}`) });
+    expect(stored.status).toBe('created');
+  });
+
+  it('counts a resumed domain at once, so resuming one after another cannot pass the limit', async () => {
+    const now = new Date();
+    const { agent, organizationId, clientId } = await workspace();
+    const fresh = await addDomains(clientId, 2, now, 'fresh');
+    const old = [];
+    for (let index = 0; index < 2; index += 1) {
+      old.push(
+        await prisma.domain.create({
+          data: {
+            clientId,
+            name: `old-${index}.example`,
+            slug: `old-${index}-${fixtureId}`,
+            status: 'VERIFIED',
+            createdAt: new Date(now.getTime() - 120 * DAY),
+            monitoringPausedAt: new Date(now.getTime() - 60 * DAY),
+            monitoringPausedReason: 'plan_limit',
+          },
+        }),
+      );
+    }
+
+    // Free one place, take it with one old domain; the second old one has no place.
+    expect((await agent.patch(`/api/workspaces/${organizationId}/domains/${fresh[0]!.id}/monitoring`).send({ paused: true })).status).toBe(200);
+    const first = await agent.patch(`/api/workspaces/${organizationId}/domains/${old[0]!.id}/monitoring`).send({ paused: false });
+    expect(first.status).toBe(200);
+    expect(first.body.monitoring).toMatchObject({ paused: false, used: 2, limit: 2 });
+    const second = await agent.patch(`/api/workspaces/${organizationId}/domains/${old[1]!.id}/monitoring`).send({ paused: false });
+    expect(second.status).toBe(402);
+
+    // The daily check does not resume anything either: the plan is full.
+    expect((await reconcileDomainMonitoring(organizationId, now)).resumed).toEqual([]);
   });
 });

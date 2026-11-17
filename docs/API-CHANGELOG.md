@@ -261,7 +261,9 @@ Additive. Browser routes and report ingestion; nothing on `/api/v1` changes shap
 - **Paused monitoring.** While an account has more counted domains than its
   plan monitors, the newest are paused. Their history stays readable; new
   aggregate, forensic and TLS reports for them are not stored. Room on the plan
-  resumes plan-paused domains, oldest first.
+  resumes plan-paused domains, oldest first. A parked domain whose first
+  report arrives on a full plan is paused then, and that report refused. A
+  resumed domain counts toward the limit at once (monitoringResumedAt).
 - **`GET` and `PATCH .../domains/{domainId}/monitoring`** read the state and
   let an owner pause a domain (body `{ "paused": true }`) or resume one. A
   resume with no free place answers 402 `PLAN_LIMIT_REACHED`. Audit rows

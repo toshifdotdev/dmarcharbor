@@ -1,3 +1,4 @@
+import { admitAggregateReport } from './entitlements/domain-allowance.service.js';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
 import { emitEvent } from './webhook.service.js';
@@ -146,6 +147,12 @@ export async function ingestDmarcReport(input: IngestReportInput): Promise<Inges
       return { status: 'domain_mismatch', reportDomain: parsed.policyDomain };
     }
     return { status: 'duplicate', report: existing };
+  }
+
+  // A parked domain whose first report in the window arrives while the plan is
+  // full would take a place it does not have: it is paused and the report refused.
+  if ((await admitAggregateReport(input.organizationId, domain.id)) === 'paused') {
+    return { status: 'paused' };
   }
 
   try {

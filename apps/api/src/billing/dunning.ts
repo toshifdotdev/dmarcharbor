@@ -294,7 +294,7 @@ export async function runReconciliation(now = new Date()): Promise<ReconcileOutc
   // A paid period that ran out without a plan-change event: keep these accounts'
   // monitored domains within the plan they are on now.
   for (const organizationId of new Set(subscriptions.map((s) => s.organizationId))) {
-    await reconcileDomainMonitoring(organizationId, now).catch((error: unknown) => {
+    await reconcileDomainMonitoring(organizationId, now, { notify: true }).catch((error: unknown) => {
       console.error(`[billing] domain allowance for ${organizationId} failed: ${error instanceof Error ? error.message : 'unknown error'}`);
     });
   }

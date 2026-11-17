@@ -8,6 +8,7 @@ import { clientEmailHeaders } from './sender.js';
 import {
   clientContact,
   domainVerificationNotice,
+  domainsPausedEmail,
   erasureCompletedEmail,
   erasureScheduledEmail,
   exportReadyEmail,
@@ -410,6 +411,31 @@ async function sendPlanPausedFeaturesEmailImpl(input: {
   }
 }
 
+async function sendDomainsPausedEmailImpl(input: {
+  organizationId: string;
+  plan: Parameters<typeof planLabel>[0];
+  limit: number;
+  domains: string[];
+  /** Makes repeated calls for one pause send one message. */
+  idempotencyKey: string;
+}): Promise<void> {
+  const name = await workspaceName(input.organizationId);
+  for (const email of await ownersOf(input.organizationId)) {
+    queueEmail(
+      domainsPausedEmail({
+        workspaceName: name,
+        planLabel: planLabel(input.plan),
+        limit: input.limit,
+        domains: input.domains,
+        appUrl: appUrl('/'),
+        billingUrl: appUrl('/billing'),
+      }),
+      email,
+      `${input.idempotencyKey}:${email}`,
+    );
+  }
+}
+
 async function sendExportReadyEmailImpl(input: {
   organizationId: string;
   exportJobId: string;
@@ -524,6 +550,13 @@ export function sendPlanChangedEmail(input: Parameters<typeof sendPlanChangedEma
 export async function sendPlanPausedFeaturesEmail(input: Parameters<typeof sendPlanPausedFeaturesEmailImpl>[0]): Promise<void> {
   await sendPlanPausedFeaturesEmailImpl(input).catch((error: unknown) => {
     console.error(`[email] sendPlanPausedFeaturesEmail failed: ${error instanceof Error ? error.message : 'Unknown mailer error.'}`);
+  });
+}
+
+/** Awaited, and never throws: a pause is recorded whether or not the email goes. */
+export async function sendDomainsPausedEmail(input: Parameters<typeof sendDomainsPausedEmailImpl>[0]): Promise<void> {
+  await sendDomainsPausedEmailImpl(input).catch((error: unknown) => {
+    console.error(`[email] sendDomainsPausedEmail failed: ${error instanceof Error ? error.message : 'Unknown mailer error.'}`);
   });
 }
 
