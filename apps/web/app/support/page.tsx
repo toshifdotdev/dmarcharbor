@@ -123,9 +123,9 @@ export default function SupportPage() {
         </LegalHeading2>
         <div className={`mt-6 ${LEGAL_TEXT}`}>
           <p>
-            Orders placed through our online reseller Paddle.com are served by Paddle&rsquo;s own customer service,
-            which handles returns for those orders. Our own email support covers the product and your account in every
-            case. The{" "}
+            Orders placed in US dollars through our online reseller Dodo Payments are served by Dodo Payments&rsquo;
+            customer service, which handles billing enquiries and returns for those orders. Our own email support covers
+            the product and your account in every case. The{" "}
             {/* Anchor id is the heading's slug: "6. Order process and merchant of record". */}
             <Link href="/terms#6-order-process-and-merchant-of-record" className="link">
               Terms

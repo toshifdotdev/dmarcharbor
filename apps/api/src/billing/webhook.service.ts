@@ -12,8 +12,9 @@ import { applyBillingEvent } from './subscription-state.js';
 import { correctCheckoutQuantity } from './quantity.js';
 import { verifyRazorpaySignature } from './razorpay-client.js';
 import { applyChargeCaptured, applyChargeFailed, applyLinkExpired, applyTokenStatus } from './recurring.service.js';
+import { dodoPaidThrough, verifyDodoSignature } from './dodo.provider.js';
 import { paddlePaidThrough, verifyPaddleSignature } from './paddle.provider.js';
-import { paddleAttributionMatches } from './paddle-attribution.js';
+import { dodoAttributionMatches, paddleAttributionMatches } from './paddle-attribution.js';
 
 function dateOrNull(value: string | null): Date | null {
   return value ? new Date(value) : null;
@@ -461,6 +462,271 @@ export async function handlePaddleWebhook(input: {
   return outcome;
 }
 
+/* ---------------------------------------------------------------------- Dodo */
+
+/**
+ * Dodo Payments event names (`WebhookEventType` in `dodopayments/resources/webhook-events`).
+ * https://docs.dodopayments.com/developer-resources/webhooks
+ *
+ * Subscription lifecycle events carry the full `Subscription` snapshot and are
+ * the primary source of subscription state. `payment.succeeded` and
+ * `payment.failed` carry a `Payment` payload (`subscription_id`,
+ * `service_periods`, `charge_type`).
+ *
+ * Events that pay nothing (`payment.processing`, `payment.cancelled`,
+ * `subscription.update_payment_method`, `abandoned_checkout.*`, or a
+ * `subscription.*` event whose status is `pending`, or a `subscription.failed` /
+ * `payment.failed` before a subscription has ever activated) are never allowed
+ * to grant a plan. Refunds (`refund.*`) and disputes (`dispute.*`) are routed to
+ * `recordProviderMoneyBack` for operator review.
+ */
+export const dodoEventMap: Record<string, BillingEventType> = {
+  'subscription.active': 'subscription.activated',
+  'subscription.renewed': 'subscription.updated',
+  'subscription.plan_changed': 'subscription.updated',
+  'subscription.updated': 'subscription.updated',
+  'subscription.unpaused': 'subscription.activated',
+  'subscription.past_due': 'subscription.past_due',
+  'subscription.on_hold': 'subscription.past_due',
+  'subscription.paused': 'subscription.past_due',
+  'subscription.failed': 'subscription.past_due',
+  'subscription.cancelled': 'subscription.cancelled',
+  'subscription.expired': 'subscription.expired',
+  'payment.succeeded': 'checkout.completed',
+  'payment.failed': 'payment.failed',
+};
+
+export const dodoStatusMap: Record<string, ProviderSubscriptionStatus> = {
+  active: 'active',
+  past_due: 'past_due',
+  on_hold: 'past_due',
+  paused: 'past_due',
+  failed: 'past_due',
+  pending: 'past_due',
+  cancelled: 'cancelled',
+  canceled: 'cancelled',
+  expired: 'expired',
+};
+
+export async function handleDodoWebhook(input: {
+  rawBody: string;
+  webhookId: string | undefined;
+  webhookTimestamp: string | undefined;
+  webhookSignature: string | undefined;
+  secret: string | null;
+  now?: Date;
+}): Promise<WebhookOutcome> {
+  if (!input.secret) {
+    throw new WebhookRejectedError('Dodo Payments webhooks are not configured.', 'WEBHOOK_NOT_CONFIGURED', 503);
+  }
+
+  try {
+    await verifyDodoSignature(
+      input.rawBody,
+      {
+        webhookId: input.webhookId,
+        webhookTimestamp: input.webhookTimestamp,
+        webhookSignature: input.webhookSignature,
+      },
+      input.secret,
+      input.now,
+    );
+  } catch (error) {
+    if (error instanceof SignatureVerificationError) {
+      throw new WebhookRejectedError(error.message, 'BAD_SIGNATURE', 401);
+    }
+    throw error;
+  }
+
+  const payload = parseJson(input.rawBody) as DodoPayload;
+  const eventType = payload.type ?? '';
+  const mappedType = dodoEventMap[eventType];
+  if (!mappedType) {
+    if (eventType.startsWith('refund.') || eventType.startsWith('dispute.')) {
+      return recordProviderMoneyBack('DODO', eventType, payload);
+    }
+    return {
+      accepted: false,
+      duplicate: false,
+      type: 'subscription.updated',
+      organizationId: null,
+      detail: 'Unmapped event.',
+    };
+  }
+
+  const data = payload.data ?? {};
+  const metadata = (data.metadata ?? {}) as Record<string, string | undefined>;
+  const isPayment = eventType.startsWith('payment.');
+
+  if (isPayment && data.is_update_payment_method) {
+    return {
+      accepted: false,
+      duplicate: false,
+      type: mappedType,
+      organizationId: null,
+      detail: 'Payment method update check.',
+    };
+  }
+
+  const subscriptionId = isPayment
+    ? (data.subscription_id ?? data.subscription_ids?.[0] ?? null)
+    : (data.subscription_id ?? data.id ?? null);
+
+  if (!subscriptionId) {
+    return {
+      accepted: false,
+      duplicate: false,
+      type: mappedType,
+      organizationId: null,
+      detail: isPayment ? 'Payment without a subscription.' : 'Subscription event without a subscription id.',
+    };
+  }
+
+  // Events that pay nothing must never grant a plan. A subscription in
+  // `pending` state has not been paid for yet; a `subscription.failed` or
+  // `payment.failed` for a subscription we do not hold is a failed initial
+  // checkout attempt rather than a renewal failure on an active subscription.
+  if (!isPayment && data.status === 'pending') {
+    return {
+      accepted: false,
+      duplicate: false,
+      type: mappedType,
+      organizationId: null,
+      detail: 'Subscription is still pending payment.',
+    };
+  }
+
+  if (isPayment && eventType === 'payment.succeeded' && data.status && data.status !== 'succeeded') {
+    return {
+      accepted: false,
+      duplicate: false,
+      type: mappedType,
+      organizationId: null,
+      detail: 'Payment has not succeeded.',
+    };
+  }
+
+  const existingSubscription = await prisma.subscription.findFirst({
+    where: { provider: 'DODO', providerSubscriptionId: subscriptionId },
+    select: { organizationId: true, plan: true, status: true },
+  });
+
+  if (
+    (eventType === 'payment.failed' || eventType === 'subscription.failed' || data.status === 'failed') &&
+    !existingSubscription
+  ) {
+    return {
+      accepted: false,
+      duplicate: false,
+      type: mappedType,
+      organizationId: null,
+      detail: 'Payment or subscription failed before activation.',
+    };
+  }
+
+  const organizationId = await resolveOrganizationId('DODO', {
+    organizationId: await attributedDodoWorkspace(metadata, data.checkout_session_id ?? null),
+    subscriptionId,
+  });
+
+  const productId = data.product_id ?? data.product_cart?.[0]?.product_id ?? null;
+  let tier = productId ? ((await findStoredPlanByProviderPlanId('DODO', productId))?.tier ?? null) : null;
+  if (!tier && isPayment && existingSubscription) {
+    tier = existingSubscription.plan;
+  }
+
+  if (isPayment && eventType === 'payment.succeeded' && !tier) {
+    // Dodo's `payment.succeeded` for a subscription carries `subscription_id`
+    // and `service_periods`, while `subscription.active` / `subscription.renewed`
+    // carries `product_id`. When `payment.succeeded` arrives before
+    // `subscription.active` without a product id, acknowledge it so
+    // `subscription.active` activates the plan cleanly.
+    return {
+      accepted: false,
+      duplicate: false,
+      type: mappedType,
+      organizationId: null,
+      detail: 'Payment event carries no product id; subscription event carries the plan.',
+    };
+  }
+
+  const effectiveType: BillingEventType =
+    isPayment && eventType === 'payment.succeeded' && data.charge_type === 'renewal'
+      ? 'subscription.updated'
+      : mappedType;
+
+  const servicePeriodEnd =
+    data.service_periods?.find((period) => period.subscription_id === subscriptionId)?.ends_at ??
+    data.service_periods?.[0]?.ends_at ??
+    null;
+
+  const currentPeriodEnd = isPayment
+    ? dateOrNull(servicePeriodEnd ?? data.next_billing_date ?? null)
+    : dateOrNull(
+        dodoPaidThrough(
+          data.status,
+          data.next_billing_date ?? null,
+          data.status === 'cancelled' || data.status === 'canceled' ? (data.cancelled_at ?? null) : null,
+          data.cancel_at_next_billing_date ?? false,
+        ),
+      );
+
+  const eventId =
+    input.webhookId?.trim() ||
+    `${eventType}:${subscriptionId}:${data.status ?? ''}:${payload.timestamp ?? ''}`;
+
+  const customerId = data.customer?.customer_id ?? data.customer_id ?? null;
+  const quantity = parseQuantity(data.quantity ?? data.product_cart?.[0]?.quantity);
+
+  const event: BillingEvent = {
+    providerEventId: `dodo:${eventId}`,
+    type: effectiveType,
+    provider: 'DODO',
+    providerSubscriptionId: subscriptionId,
+    providerCustomerId: customerId,
+    organizationId,
+    plan: tier,
+    status: isPayment
+      ? eventType === 'payment.failed'
+        ? 'past_due'
+        : 'active'
+      : (dodoStatusMap[data.status ?? 'active'] ?? 'past_due'),
+    currentPeriodEnd,
+    cancelAtPeriodEnd:
+      Boolean(data.cancel_at_next_billing_date) ||
+      data.status === 'cancelled' ||
+      data.status === 'canceled',
+    cancelAtPeriodEndAuthoritative: !isPayment && 'cancel_at_next_billing_date' in data,
+    quantity,
+    nextAttemptAt: !isPayment && data.next_billing_date ? new Date(data.next_billing_date) : null,
+    occurredAt: new Date(payload.timestamp ?? Date.now()),
+    raw: payload,
+  };
+
+  const outcome = await commit(event);
+
+  if (
+    eventType === 'subscription.active' &&
+    outcome.accepted &&
+    !outcome.duplicate &&
+    organizationId &&
+    subscriptionId &&
+    tier
+  ) {
+    void correctCheckoutQuantity({
+      organizationId,
+      provider: 'DODO',
+      providerSubscriptionId: subscriptionId,
+      plan: tier,
+      quantity: event.quantity ?? null,
+    }).catch((error: unknown) => {
+      console.error('[billing] correcting a Dodo checkout quantity failed:', error);
+    });
+  }
+
+  return outcome;
+}
+
 /* ------------------------------------------------------------------ shared */
 
 async function commit(event: BillingEvent): Promise<WebhookOutcome> {
@@ -569,7 +835,7 @@ async function resolveOrganizationId(
  * against the workspace and reported loudly, for support to decide.
  */
 async function recordProviderMoneyBack(
-  provider: 'RAZORPAY' | 'PADDLE',
+  provider: 'RAZORPAY' | 'PADDLE' | 'DODO',
   eventName: string,
   payload: unknown,
 ): Promise<WebhookOutcome> {
@@ -588,6 +854,73 @@ async function recordProviderMoneyBack(
       if (paymentId) {
         const charge = await prisma.billingCharge.findFirst({ where: { providerPaymentId: paymentId }, select: { organizationId: true } });
         organizationId = charge?.organizationId ?? null;
+      }
+    } else if (provider === 'DODO') {
+      const data = ((payload as { data?: Record<string, unknown> }).data ?? {}) as Record<string, unknown>;
+      const subscriptionId = typeof data.subscription_id === 'string' ? data.subscription_id : null;
+      const paymentId = typeof data.payment_id === 'string' ? data.payment_id : null;
+      const refundId = typeof data.refund_id === 'string' ? data.refund_id : null;
+      const disputeId = typeof data.dispute_id === 'string' ? data.dispute_id : null;
+      const customer = (data.customer ?? {}) as Record<string, unknown>;
+      const customerId =
+        typeof customer.customer_id === 'string'
+          ? customer.customer_id
+          : typeof data.customer_id === 'string'
+            ? data.customer_id
+            : null;
+      const metadata = (data.metadata ?? {}) as Record<string, unknown>;
+      detail.subscriptionId = subscriptionId;
+      detail.paymentId = paymentId;
+      detail.refundId = refundId;
+      detail.disputeId = disputeId;
+      detail.amountMinor =
+        typeof data.amount === 'number'
+          ? data.amount
+          : typeof data.amount === 'string' && Number.isFinite(Number(data.amount))
+            ? Math.round(Number(data.amount))
+            : null;
+      detail.status =
+        typeof data.status === 'string'
+          ? data.status
+          : typeof data.dispute_status === 'string'
+            ? data.dispute_status
+            : null;
+      if (subscriptionId) {
+        const row = await prisma.subscription.findFirst({
+          where: { provider: 'DODO', providerSubscriptionId: subscriptionId },
+          select: { organizationId: true },
+        });
+        organizationId = row?.organizationId ?? null;
+      }
+      if (!organizationId && customerId) {
+        const row = await prisma.subscription.findFirst({
+          where: { provider: 'DODO', providerCustomerId: customerId },
+          select: { organizationId: true },
+        });
+        organizationId = row?.organizationId ?? null;
+      }
+      if (
+        !organizationId &&
+        typeof metadata.organizationId === 'string' &&
+        dodoAttributionMatches(metadata.organizationId, metadata.attribution)
+      ) {
+        organizationId = metadata.organizationId;
+      }
+      // Dodo dispute webhook payloads (`Dispute` in `dodopayments/resources/disputes`)
+      // carry `payment_id` and `dispute_id`, without a `customer` or `subscription_id`
+      // field. Match the workspace from the prior payment/renewal billing_event row
+      // that recorded `data.payment_id`.
+      if (!organizationId && paymentId) {
+        const paymentEvent = await prisma.billingEvent.findFirst({
+          where: {
+            provider: 'DODO',
+            organizationId: { not: null },
+            payload: { path: ['data', 'payment_id'], equals: paymentId },
+          },
+          orderBy: { occurredAt: 'desc' },
+          select: { organizationId: true },
+        });
+        organizationId = paymentEvent?.organizationId ?? null;
       }
     } else {
       const data = ((payload as { data?: Record<string, unknown> }).data ?? {}) as Record<string, unknown>;
@@ -647,6 +980,38 @@ async function attributedPaddleWorkspace(
     }
   }
   console.warn(`[billing] a Paddle event named workspace ${claimed} without proof that we created its checkout; not attributed.`);
+  return null;
+}
+
+/**
+ * The workspace a Dodo event's metadata names, if we created that checkout.
+ *
+ * Verified by the HMAC attribution our server writes beside `organizationId`
+ * when creating the checkout session, or by a matching `BILLING_CHECKOUT_STARTED`
+ * audit entry for the session id. Forged metadata is rejected so an attacker
+ * cannot attach their checkout to someone else's workspace.
+ */
+async function attributedDodoWorkspace(
+  metadata: Record<string, string | undefined>,
+  checkoutSessionId: string | null,
+): Promise<string | null> {
+  const claimed = typeof metadata.organizationId === 'string' ? metadata.organizationId : null;
+  if (!claimed) {
+    return null;
+  }
+  if (dodoAttributionMatches(claimed, metadata.attribution)) {
+    return claimed;
+  }
+  if (checkoutSessionId) {
+    const started = await prisma.auditLog.findFirst({
+      where: { organizationId: claimed, action: 'BILLING_CHECKOUT_STARTED', targetId: checkoutSessionId },
+      select: { id: true },
+    });
+    if (started) {
+      return claimed;
+    }
+  }
+  console.warn(`[billing] a Dodo event named workspace ${claimed} without proof that we created its checkout; not attributed.`);
   return null;
 }
 
@@ -725,5 +1090,33 @@ interface PaddlePayload {
     /** On a cancelled subscription: when it ended. */
     canceled_at?: string | null;
     next_billed_at?: string | null;
+  };
+}
+
+interface DodoPayload {
+  business_id?: string;
+  type?: string;
+  timestamp?: string;
+  data?: {
+    id?: string;
+    subscription_id?: string | null;
+    subscription_ids?: string[] | null;
+    payment_id?: string | null;
+    checkout_session_id?: string | null;
+    product_id?: string | null;
+    product_cart?: Array<{ product_id?: string; quantity?: number }> | null;
+    customer_id?: string | null;
+    customer?: { customer_id?: string | null; email?: string | null; name?: string | null } | null;
+    status?: string | null;
+    charge_type?: 'new' | 'renewal' | 'plan_change' | 'on_demand' | null;
+    is_update_payment_method?: boolean | null;
+    quantity?: number | null;
+    cancel_at_next_billing_date?: boolean | null;
+    next_billing_date?: string | null;
+    previous_billing_date?: string | null;
+    cancelled_at?: string | null;
+    past_due_ends_at?: string | null;
+    service_periods?: Array<{ subscription_id?: string; starts_at?: string; ends_at?: string }> | null;
+    metadata?: Record<string, unknown> | null;
   };
 }

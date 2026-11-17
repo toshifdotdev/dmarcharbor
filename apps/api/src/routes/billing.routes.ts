@@ -11,6 +11,8 @@ import {
   changePlanController,
   previewPlanChangeController,
   planSyncStatusController,
+  runPlanSyncController,
+  dodoWebhookController,
   paddleWebhookController,
   razorpayWebhookController,
   reconcileController,
@@ -30,6 +32,7 @@ export const billingRouter = Router();
  */
 billingRouter.post('/webhooks/razorpay', razorpayWebhookController);
 billingRouter.post('/webhooks/paddle', paddleWebhookController);
+billingRouter.post('/webhooks/dodo', dodoWebhookController);
 
 billingRouter.get(
   '/workspaces/:organizationId/billing/currency',
@@ -116,3 +119,9 @@ billingRouter.get(
   requireStaff,
   planSyncStatusController,
 );
+
+/**
+ * Operator only: creates missing provider plans and prices for a currency, and
+ * returns the resulting plan sync report.
+ */
+billingRouter.post('/billing/plan-sync', requireStaff, runPlanSyncController);

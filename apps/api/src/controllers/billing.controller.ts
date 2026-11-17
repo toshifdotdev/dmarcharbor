@@ -2,9 +2,10 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { env } from '../config/env.js';
 import { prisma } from '../database/prisma.js';
-import { providerFor } from '../billing/registry.js';
+import { dodo, paddle, providerFor } from '../billing/registry.js';
 import { reconcileWithProvider } from '../billing/subscription-state.js';
 import { runReconciliation } from '../billing/dunning.js';
+import { BillingPlanError } from '../billing/plans.js';
 import { BillingProviderError } from '../billing/provider.js';
 import {
   CheckoutError,
@@ -19,10 +20,11 @@ import {
   startCheckout,
   syncStatus,
 } from '../billing/checkout.service.js';
-import { WebhookRejectedError, handlePaddleWebhook, handleRazorpayWebhook } from '../billing/webhook.service.js';
+import { WebhookRejectedError, handleDodoWebhook, handlePaddleWebhook, handleRazorpayWebhook } from '../billing/webhook.service.js';
 import { razorpayWebhookSecret } from '../billing/razorpay.provider.js';
 import { zodMessage } from '../utils/zod-messages.js';
 import { paddleWebhookSecret } from '../billing/paddle.provider.js';
+import { dodoWebhookSecret } from '../billing/dodo.provider.js';
 
 const checkoutSchema = z.object({
   plan: z.enum(['FAIRWAY', 'HARBOR', 'ADMIRALTY', 'FLEET']),
@@ -57,13 +59,19 @@ const planChangeSchema = z.object({
 });
 
 function sendBillingError(response: Response, error: unknown): void {
-  if (error instanceof CheckoutError || error instanceof BillingProviderError || error instanceof WebhookRejectedError) {
+  if (
+    error instanceof CheckoutError ||
+    error instanceof BillingProviderError ||
+    error instanceof BillingPlanError ||
+    error instanceof WebhookRejectedError
+  ) {
     // detail is spread rather than omitted. A refusal like a downgrade that is
     // over quota carries the specific numbers the customer has to act on, and
     // serialising only { code, message } left the UI with a paragraph to parse
     // instead of a table to render.
+    const detail = 'detail' in error && error.detail ? error.detail : {};
     response.status(error.status).json({
-      error: { code: error.code, message: error.message, ...(error.detail ?? {}) },
+      error: { code: error.code, message: error.message, ...detail },
     });
     return;
   }
@@ -230,12 +238,63 @@ export async function planSyncStatusController(request: Request, response: Respo
   const provider = typeof request.query.provider === 'string' ? request.query.provider : 'RAZORPAY';
   const currency = request.query.currency === 'USD' ? 'USD' : 'INR';
 
-  if (provider !== 'RAZORPAY' && provider !== 'PADDLE') {
-    response.status(400).json({ error: { code: 'INVALID_REQUEST', message: 'provider must be RAZORPAY or PADDLE.' } });
+  if (provider !== 'RAZORPAY' && provider !== 'PADDLE' && provider !== 'DODO') {
+    response.status(400).json({ error: { code: 'INVALID_REQUEST', message: 'provider must be RAZORPAY, PADDLE or DODO.' } });
     return;
   }
 
   response.json({ provider, currency, plans: await syncStatus(provider, currency) });
+}
+
+/**
+ * Operator route to sync catalog plans to a billing provider and return the
+ * updated `planSyncReport`.
+ */
+export async function runPlanSyncController(request: Request, response: Response): Promise<void> {
+  const rawProvider =
+    typeof request.query.provider === 'string'
+      ? request.query.provider
+      : typeof request.body?.provider === 'string'
+        ? request.body.provider
+        : 'DODO';
+  const rawCurrency =
+    typeof request.query.currency === 'string'
+      ? request.query.currency
+      : typeof request.body?.currency === 'string'
+        ? request.body.currency
+        : 'USD';
+
+  if (rawProvider !== 'DODO' && rawProvider !== 'PADDLE') {
+    response.status(400).json({
+      error: { code: 'INVALID_REQUEST', message: 'provider must be DODO or PADDLE.' },
+    });
+    return;
+  }
+
+  if (rawCurrency !== 'USD' && rawCurrency !== 'INR') {
+    response.status(400).json({
+      error: { code: 'INVALID_REQUEST', message: 'currency must be USD or INR.' },
+    });
+    return;
+  }
+
+  try {
+    const syncOutcome =
+      rawProvider === 'DODO'
+        ? await dodo.syncPlans(rawCurrency)
+        : await paddle.syncPlans(rawCurrency);
+
+    const plans = await syncStatus(rawProvider, rawCurrency);
+    response.json({
+      provider: rawProvider,
+      currency: rawCurrency,
+      created: syncOutcome.created,
+      reused: syncOutcome.reused,
+      plans,
+    });
+  } catch (error) {
+    sendBillingError(response, error);
+  }
 }
 
 /**
@@ -322,6 +381,22 @@ export async function paddleWebhookController(request: Request, response: Respon
       rawBody: readRawBody(request),
       signature: request.header('paddle-signature'),
       secret: paddleWebhookSecret(),
+    });
+
+    response.status(200).json(outcome);
+  } catch (error) {
+    sendBillingError(response, error);
+  }
+}
+
+export async function dodoWebhookController(request: Request, response: Response): Promise<void> {
+  try {
+    const outcome = await handleDodoWebhook({
+      rawBody: readRawBody(request),
+      webhookId: request.header('webhook-id'),
+      webhookTimestamp: request.header('webhook-timestamp'),
+      webhookSignature: request.header('webhook-signature'),
+      secret: dodoWebhookSecret(),
     });
 
     response.status(200).json(outcome);

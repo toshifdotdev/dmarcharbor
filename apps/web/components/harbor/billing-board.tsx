@@ -84,8 +84,8 @@ const LIMITS: Array<{ key: LimitKey; usage: keyof Usage; label: string; one: str
   { key: "maxWorkspaces", usage: "workspaces", label: "Workspaces", one: "workspace", many: "workspaces" },
 ];
 
-const PROVIDER_FOR: Record<Currency, string> = { INR: "Razorpay", USD: "Paddle" };
-const PROVIDER_NAME: Record<string, string> = { RAZORPAY: "Razorpay", PADDLE: "Paddle" };
+const PROVIDER_FOR: Record<Currency, string> = { INR: "Razorpay", USD: "Dodo Payments" };
+const PROVIDER_NAME: Record<string, string> = { RAZORPAY: "Razorpay", PADDLE: "Paddle", DODO: "Dodo Payments" };
 
 function shortDate(value: string | null | undefined): string | null {
   if (!value) return null;
@@ -179,6 +179,7 @@ export function BillingBoard({
   canChange,
   contact,
   fleetQuote,
+  usdProvider,
 }: {
   organizationId: string;
   plans: PlanDefinition[];
@@ -198,6 +199,7 @@ export function BillingBoard({
   contact: { name: string; email: string } | null;
   entitlementsKnown: boolean;
   fleetQuote: BillingStatus["perDomainQuote"] | null;
+  usdProvider?: "DODO" | "PADDLE";
 }) {
   const [interval, setInterval] = useState<Interval>(currentInterval);
   const [open, setOpen] = useState<string | null>(null);
@@ -228,6 +230,7 @@ export function BillingBoard({
     canChange,
     contact,
     fleetQuote,
+    usdProvider,
   };
 
   return (
@@ -443,6 +446,7 @@ interface RowProps {
   canChange: boolean;
   contact: { name: string; email: string } | null;
   fleetQuote: BillingStatus["perDomainQuote"] | null;
+  usdProvider?: "DODO" | "PADDLE";
   /** The interval the workspace is billed on now. */
   currentInterval: Interval;
   /** The plan ladder through this row: the line above and below its station. */
@@ -714,13 +718,23 @@ function Decision(props: RowProps & { action: Action; verb: string }) {
   });
   const knownOver = limitRows.filter((r) => r.over);
 
+  const usdProcessor =
+    (props.usdProvider ?? (provider === "PADDLE" ? "PADDLE" : "DODO")) === "PADDLE"
+      ? "Paddle"
+      : PROVIDER_FOR.USD;
+  const providerForCurrency: Record<Currency, string> = {
+    INR: PROVIDER_FOR.INR,
+    USD: usdProcessor,
+  };
+  const checkoutProvider = providerForCurrency[payCurrency];
+
   const timing =
     action === "checkout"
-      ? `You pay ${priceOf(plan, payCurrency, interval, props.fleetQuote)} ${interval === "annual" ? "a year" : "a month"} on ${PROVIDER_FOR[payCurrency]}'s page.${PROVIDER_FOR[payCurrency] === "Paddle" ? " Paddle, the reseller, handles tax: depending on your location it is included in that price or added on its page." : ""} The plan changes when ${PROVIDER_FOR[payCurrency]} confirms the payment.`
+      ? `You pay ${priceOf(plan, payCurrency, interval, props.fleetQuote)} ${interval === "annual" ? "a year" : "a month"} on ${checkoutProvider}'s page.${payCurrency === "USD" ? ` ${checkoutProvider}, the reseller, handles tax: depending on your location it is included in that price or added on its page.` : ""} The plan changes when ${checkoutProvider} confirms the payment.`
       : action === "cancel"
         ? `${currentLabel} stays until ${periodEnd ?? "the paid period ends"} and is not charged again; then the workspace moves to ${plan.label}. Every client, domain and report is kept.`
-        : provider === "PADDLE"
-          ? `Applies at once, and Paddle adjusts the charge for the rest of this period.`
+        : provider === "PADDLE" || provider === "DODO"
+          ? `Applies at once, and ${PROVIDER_NAME[provider]} adjusts the charge for the rest of this period.`
           : quote?.effectiveAt === "immediate"
             ? `Applies at once. The difference for the rest of this period is added to your next renewal; nothing is charged now.`
             : `Applies on ${periodEnd ?? "the date the paid period ends"}. Until then nothing changes and there is no charge in between.`;
@@ -964,7 +978,7 @@ function Decision(props: RowProps & { action: Action; verb: string }) {
                 <Select value={payCurrency} onChange={(e) => setPayCurrency(e.target.value as Currency)} className="w-full max-w-[280px]" size="sm">
                   {chargeable.map((c) => (
                     <option key={c} value={c}>
-                      {c} ({PROVIDER_FOR[c]})
+                      {c} ({providerForCurrency[c]})
                     </option>
                   ))}
                 </Select>
@@ -1057,7 +1071,7 @@ function Decision(props: RowProps & { action: Action; verb: string }) {
               ? `Move to ${plan.label} at period end`
               : action === "keep"
                 ? `Keep ${plan.label}`
-                : provider === "PADDLE" || quote?.effectiveAt === "immediate"
+                : provider === "PADDLE" || provider === "DODO" || quote?.effectiveAt === "immediate"
                   ? `Move to ${plan.label} now`
                   : `Move to ${plan.label} at period end`}
           </Button>
@@ -1108,7 +1122,7 @@ function Decision(props: RowProps & { action: Action; verb: string }) {
         confirmLabel={
           action === "cancel"
             ? "Cancel at period end"
-            : quote?.effectiveAt === "cycle_end" || (provider !== "PADDLE" && quote?.effectiveAt !== "immediate")
+            : quote?.effectiveAt === "cycle_end" || (provider !== "PADDLE" && provider !== "DODO" && quote?.effectiveAt !== "immediate")
               ? `Schedule ${plan.label}`
               : quote && quote.chargeNowMinor > 0
                 ? `Pay ${quote.chargeNowLabel} and move`

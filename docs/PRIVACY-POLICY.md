@@ -49,7 +49,7 @@ enabled, those values are encrypted with AES-256-GCM before storage.
 
 ### Payment data
 We do not store card numbers. Rupee payments are processed by Razorpay as our
-payment gateway, and US dollar payments by Paddle as merchant of record. We keep
+payment gateway, and US dollar payments by Dodo Payments as merchant of record. We keep
 the plan, the billing period and the provider's customer reference. See the
 Sub-processors list.
 
@@ -152,7 +152,7 @@ region.
 Some of it leaves the EU in these cases:
 
 - **Email** is sent through Resend, which keeps its records in the United States.
-- **Payments** are handled by Razorpay in India (rupees) and Paddle (US dollars).
+- **Payments** are handled by Razorpay in India (rupees) and Dodo Payments (US dollars).
 - **We** are based in India, so when we look into a support request, a
   complaint or a security issue, the data is accessed from India.
 

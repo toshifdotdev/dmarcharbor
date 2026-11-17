@@ -141,7 +141,7 @@ export async function syncPerDomainQuantities(now = new Date()): Promise<Quantit
     const previousBand = bandIndexFor('FLEET', billedQuantity('FLEET', row.quantity));
 
     try {
-      const provider = providerFor(row.provider as 'RAZORPAY' | 'PADDLE');
+      const provider = providerFor(row.provider as 'RAZORPAY' | 'PADDLE' | 'DODO');
       await provider.updateQuantity({
         providerSubscriptionId: row.providerSubscriptionId!,
         plan: 'FLEET',
@@ -202,7 +202,7 @@ export async function syncPerDomainQuantities(now = new Date()): Promise<Quantit
 export async function correctCheckoutQuantity(
   input: {
     organizationId: string;
-    provider: 'RAZORPAY' | 'PADDLE';
+    provider: 'RAZORPAY' | 'PADDLE' | 'DODO';
     providerSubscriptionId: string;
     plan: PlanTier;
     quantity: number | null;

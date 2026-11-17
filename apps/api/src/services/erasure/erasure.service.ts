@@ -350,7 +350,7 @@ export async function hasBilledSubscription(organizationId: string): Promise<boo
     where: {
       organizationId,
       status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE'] },
-      provider: { in: ['RAZORPAY', 'PADDLE'] },
+      provider: { in: ['RAZORPAY', 'PADDLE', 'DODO'] },
     },
   });
   return count > 0;

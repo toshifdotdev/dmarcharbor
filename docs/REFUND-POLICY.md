@@ -15,7 +15,7 @@ refunding would be wrong.
 
 Who handles a refund depends on the currency you paid in. Rupee payments go
 through Razorpay, our payment gateway, and refunds come to us. Dollar payments go
-through Paddle, an online reseller that is the seller of record and handles
+through Dodo Payments, an online reseller that is the seller of record and handles
 refunds for those orders. We tell you which applies before you buy.
 
 ## Who handles your refund
@@ -23,12 +23,12 @@ refunds for those orders. We tell you which applies before you buy.
 | You paid in | Through | Requests go to |
 |---|---|---|
 | Indian rupees | Razorpay | **DMARC Harbor**, at `[SUPPORT EMAIL]` |
-| US dollars | Paddle | **DMARC Harbor**, at `[SUPPORT EMAIL]`, or Paddle, from the link on your Paddle receipt |
+| US dollars | Dodo Payments | **DMARC Harbor**, at `[SUPPORT EMAIL]`, or Dodo Payments, from the link on your Dodo Payments receipt |
 
-Paddle acts as merchant of record for payments made through them, which means
-they are the seller of record for that order. We ask Paddle to make the refund
-and it goes back to your original payment method; Paddle may also decide a
-request you send to them directly.
+Dodo Payments acts as merchant of record for payments made through them, which
+means they are the seller of record for that order. We ask Dodo Payments to make
+the refund and it goes back to your original payment method; Dodo Payments may
+also decide a request you send to them directly.
 
 ## What a refund changes
 
@@ -75,9 +75,9 @@ pay, as the Terms of Service set out:
   difference for the rest of the period is added to your next renewal; nothing
   is charged mid-period. A downgrade takes effect at the end of the period you
   have already paid for, and nothing is refunded for it.
-- **Paid in US dollars through Paddle:** a change applies at once, and Paddle
-  charges or credits the difference for the rest of the period. A charge for an
-  upgrade is not refundable except under the 14-day guarantee above.
+- **Paid in US dollars through Dodo Payments:** a change applies at once, and Dodo
+  Payments charges or credits the difference for the rest of the period. A charge
+  for an upgrade is not refundable except under the 14-day guarantee above.
 
 The billing page says which applies before you confirm. If we consider a refund
 of a difference in any other case, we will decide it case by case and say so.
@@ -121,8 +121,8 @@ timing is theirs:
 
 - **Razorpay refunds to your bank account:** typically 3 to 5 business days once
   we authorise it.
-- **Paddle refunds:** typically 5 to 10 business days, back to the original payment
-  method.
+- **Dodo Payments refunds:** typically 5 to 10 business days, back to the original
+  payment method.
 
 You will see a refund confirmation from your bank separately from ours.
 

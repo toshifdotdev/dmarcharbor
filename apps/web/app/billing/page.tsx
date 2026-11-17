@@ -57,7 +57,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
     ),
     getWorkspaceEntitlements(active.id).catch(() => null),
     getPlanCatalog().catch(() => null),
-    getCapabilities().catch(() => null),
+    getCapabilities(active.id).catch(() => null),
     getBillingCurrency(active.id).catch(() => null),
     listClients(active.id).catch(() => null),
     listWorkspaceMembers(active.id).catch(() => null),
@@ -191,6 +191,11 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
         contact={me ? { name: me.name ?? "", email: me.email } : null}
         entitlementsKnown={entitlements !== null}
         fleetQuote={s.perDomainQuote ?? null}
+        usdProvider={
+          s.provider === "PADDLE" || (capabilities?.providers?.paddle && !capabilities?.providers?.dodo)
+            ? "PADDLE"
+            : "DODO"
+        }
       />
 
       <section aria-labelledby="consequences-head" className="grid gap-x-10 gap-y-6 border-t border-rule pt-6 lg:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]">
@@ -201,8 +206,8 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
           {[
             [
               "Moving to a smaller plan",
-              s.provider === "PADDLE"
-                ? "Applies at once, and Paddle adjusts the charge for the rest of the period. It is refused while the account has more clients, active domains, team members or workspaces than the smaller plan allows: remove the excess first. Nothing is deleted or switched off to make it fit."
+              s.provider === "DODO" || s.provider === "PADDLE"
+                ? `Applies at once, and ${s.provider === "PADDLE" ? "Paddle" : "Dodo Payments"} adjusts the charge for the rest of the period. It is refused while the account has more clients, active domains, team members or workspaces than the smaller plan allows: remove the excess first. Nothing is deleted or switched off to make it fit.`
                 : "Applies when the period you have paid for ends, with no charge in between. It is refused while the account has more clients, active domains, team members or workspaces than the smaller plan allows: remove the excess first. Nothing is deleted or switched off to make it fit.",
             ],
             [

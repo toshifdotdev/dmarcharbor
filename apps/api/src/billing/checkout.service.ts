@@ -175,6 +175,7 @@ export async function startCheckout(input: StartCheckoutInput): Promise<Checkout
   const provider = resolveProviderForCheckout({
     currency,
     existingProvider: existing?.provider ?? null,
+    organizationId: input.organizationId,
   });
 
   // Fails loudly if the provider has no plan for this tier, so a price
@@ -453,6 +454,7 @@ export async function changePlan(input: {
   const provider = resolveProviderForCheckout({
     currency: 'INR',
     existingProvider: subscription.provider,
+    organizationId: input.organizationId,
   });
 
   const billable = await billableQuantity(input.organizationId, input.plan);
@@ -625,14 +627,19 @@ export async function previewPlanChange(input: {
   }
 
   const overage = await planOverageFor(input.organizationId, input.plan);
-  const provider = resolveProviderForCheckout({ currency: 'INR', existingProvider: subscription.provider });
+  const provider = resolveProviderForCheckout({
+    currency: 'INR',
+    existingProvider: subscription.provider,
+    organizationId: input.organizationId,
+  });
   const billable = await billableQuantity(input.organizationId, input.plan);
   const preference = await prisma.organization.findUnique({
     where: { id: input.organizationId },
     select: { preferredCurrency: true },
   });
   const fallbackCurrency: BillingCurrency =
-    preference?.preferredCurrency ?? (subscription.provider === 'PADDLE' ? 'USD' : 'INR');
+    preference?.preferredCurrency ??
+    (subscription.provider === 'PADDLE' || subscription.provider === 'DODO' ? 'USD' : 'INR');
 
   const immediate = await changeIsImmediate(provider, {
     organizationId: input.organizationId,
@@ -662,8 +669,8 @@ export async function previewPlanChange(input: {
       nextAmountMinor: quote.nextAmountMinor,
       nextAmountLabel: quote.nextAmountMinor === null ? null : formatLabel(quote.nextAmountMinor, currency),
       nextBilledAt: quote.nextBilledAt?.toISOString() ?? null,
-      // Paddle prices tax into its figures; Razorpay's are our catalog prices.
-      includesTax: provider.name === 'PADDLE',
+      // Paddle and Dodo price tax into their figures; Razorpay's are our catalog prices.
+      includesTax: provider.name === 'PADDLE' || provider.name === 'DODO',
       overage,
     };
   }
@@ -703,7 +710,11 @@ export async function cancelSubscription(input: { organizationId: string; actorU
     throw new CheckoutError('This workspace has no subscription to cancel.', 'NO_SUBSCRIPTION', 409);
   }
 
-  const provider = resolveProviderForCheckout({ currency: 'INR', existingProvider: subscription.provider });
+  const provider = resolveProviderForCheckout({
+    currency: 'INR',
+    existingProvider: subscription.provider,
+    organizationId: input.organizationId,
+  });
   await provider.cancelAtPeriodEnd(subscription.providerSubscriptionId);
 
   // The plan is deliberately left alone. It survives until currentPeriodEnd,
@@ -754,7 +765,11 @@ export async function resumeSubscription(input: { organizationId: string; actorU
     throw new CheckoutError('This workspace has no subscription to resume.', 'NO_SUBSCRIPTION', 409);
   }
 
-  const provider = resolveProviderForCheckout({ currency: 'INR', existingProvider: subscription.provider });
+  const provider = resolveProviderForCheckout({
+    currency: 'INR',
+    existingProvider: subscription.provider,
+    organizationId: input.organizationId,
+  });
   await provider.resume(subscription.providerSubscriptionId);
 
   await prisma.subscription.update({
@@ -788,7 +803,11 @@ export async function billingPortalUrl(input: { organizationId: string; returnUr
     throw new CheckoutError('This workspace has no billing account yet.', 'NO_BILLING_ACCOUNT', 409);
   }
 
-  const provider = resolveProviderForCheckout({ currency: 'INR', existingProvider: subscription.provider });
+  const provider = resolveProviderForCheckout({
+    currency: 'INR',
+    existingProvider: subscription.provider,
+    organizationId: input.organizationId,
+  });
   const session = await provider.createBillingPortalSession({
     providerCustomerId: subscription.providerCustomerId,
     providerSubscriptionId: subscription.providerSubscriptionId,
@@ -887,7 +906,8 @@ export async function billingStatus(organizationId: string): Promise<{
    * one number on that screen they will compare against their bank statement.
    */
   const currency: BillingCurrency =
-    organization.preferredCurrency ?? (organization.subscription?.provider === 'PADDLE' ? 'USD' : 'INR');
+    organization.preferredCurrency ??
+    (organization.subscription?.provider === 'PADDLE' || organization.subscription?.provider === 'DODO' ? 'USD' : 'INR');
 
   const periodEnd = organization.subscription?.currentPeriodEnd ?? null;
   /**

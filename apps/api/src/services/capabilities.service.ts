@@ -24,7 +24,7 @@ export interface Capabilities {
   currencies: BillingCurrency[];
   /** The currency a new workspace gets before it chooses. */
   defaultCurrency: BillingCurrency;
-  providers: Record<'razorpay' | 'paddle', boolean>;
+  providers: Record<'razorpay' | 'paddle' | 'dodo', boolean>;
   /** Whether the currency can still be changed for a given workspace. */
   currencyLocked: boolean;
   compliancePack: { exampleReference: string; exampleFilename: string };
@@ -45,14 +45,17 @@ export interface Capabilities {
  */
 export const illustrativePackReference = 'DMARC-00000000-EXAMPLE-CLIENT-DEMONSTRATIONONLY0000';
 
-export async function capabilities(): Promise<Capabilities> {
-  const razorpay = providerReady('RAZORPAY');
-  const paddle = providerReady('PADDLE');
+export async function capabilities(organizationId?: string | null): Promise<Capabilities> {
+  const [razorpay, paddle, dodo] = await Promise.all([
+    providerReady('RAZORPAY', organizationId),
+    providerReady('PADDLE', organizationId),
+    providerReady('DODO', organizationId),
+  ]);
+  const readiness = { RAZORPAY: razorpay, PADDLE: paddle, DODO: dodo } as const;
 
-  const currencies = billingCurrencies.filter((currency) => providerReady(providerForCurrency(currency)));
+  const currencies = billingCurrencies.filter((currency) => readiness[providerForCurrency(currency)]);
 
-  // Default is INR, which is the processor money can be taken with today. Flipping
-  // this to USD is a one-line change once Paddle is live and its prices are synced.
+  // Default is INR, which is the processor money can be taken with today.
   const defaultCurrency: BillingCurrency = currencies.includes('INR') ? 'INR' : (currencies[0] ?? 'INR');
 
   // Illustrative rather than real, so the marketing page can show what a filename
@@ -65,7 +68,7 @@ export async function capabilities(): Promise<Capabilities> {
   return {
     currencies,
     defaultCurrency,
-    providers: { razorpay, paddle },
+    providers: { razorpay, paddle, dodo },
     // Whether a specific workspace may still change currency is answered by
     // billingCurrencyPreference, which needs the subscription. This only reports
     // whether any paid subscription could exist at all, which is false until a

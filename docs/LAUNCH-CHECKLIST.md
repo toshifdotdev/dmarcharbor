@@ -436,6 +436,36 @@ behind it.
   sole proprietors (Dodo Payments is the first candidate), built as a new
   billing provider; Paddle is removed only after that works.
 
+**Dodo Payments (USD)**
+- Complete KYC and Indian bank payout setup on Dodo Payments (`https://app.dodopayments.com`).
+- Start in **Test Mode** first (`DODO_ENVIRONMENT=test_mode`):
+  - Under **Business / Brand Settings**, set business name `DMARC Harbor` and
+    support email `support@dmarcharbor.com`.
+  - Under **Developer → API Keys**, create a test API key (`DODO_API_KEY`).
+  - Under **Developer → Webhooks**, add `https://api.dmarcharbor.com/api/webhooks/dodo`,
+    tick `subscription.active`, `subscription.renewed`, `subscription.plan_changed`,
+    `subscription.updated`, `subscription.unpaused`, `subscription.past_due`,
+    `subscription.on_hold`, `subscription.paused`, `subscription.failed`,
+    `subscription.cancelled`, `subscription.expired`, `payment.succeeded`,
+    `payment.failed`, `refund.succeeded`, `refund.failed`, and `dispute.*`, and
+    copy the `whsec_...` signing secret (`DODO_WEBHOOK_SECRET`).
+  - Deploy with `DODO_API_KEY`, `DODO_WEBHOOK_SECRET`, `DODO_ENVIRONMENT=test_mode`,
+    and `DODO_TEST_WORKSPACE_IDS=<reviewer_organization_id>` so only the reviewer
+    workspace is offered USD while Dodo is in test mode.
+  - Run the staff plan sync route:
+    `POST https://api.dmarcharbor.com/api/billing/plan-sync?provider=DODO&currency=USD`
+    with `Authorization: Bearer <STAFF_API_KEY>`. Confirm all 10 USD plans report `status: "ready"`,
+    `GET /api/capabilities?organizationId=<reviewer_organization_id>` lists `USD`,
+    and anonymous `GET /api/capabilities` does **not** list `USD`.
+  - Run the end-to-end test-mode check: USD checkout, webhook activation,
+    customer portal, prorated upgrade and downgrade, cancel at period end and
+    resume, and staff refund.
+- Switch to **Live Mode** (`DODO_ENVIRONMENT=live_mode`):
+  - Create the live API key and live webhook endpoint in the Dodo dashboard.
+  - Clear test-mode `DODO` rows from `billing_plan`, set `DODO_API_KEY`,
+    `DODO_WEBHOOK_SECRET` and `DODO_ENVIRONMENT=live_mode` in Parameter Store,
+    redeploy, and run `POST /api/billing/plan-sync?provider=DODO&currency=USD`.
+
 **Before the first sale:** remove `STAFF_API_KEY`'s dev value and set a strong
 one (refunds use it), and read "Handling a refund request" in `docs/BILLING.md`.
 

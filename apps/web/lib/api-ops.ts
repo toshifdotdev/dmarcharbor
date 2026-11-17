@@ -325,12 +325,13 @@ export function getPlanCatalog(): Promise<{ plans: PlanDefinition[]; order: stri
 export interface DeploymentCapabilities {
   currencies: string[];
   defaultCurrency: string;
-  providers: { razorpay: boolean; paddle: boolean };
+  providers: { razorpay: boolean; paddle: boolean; dodo?: boolean };
   /** A demonstration reference, shaped like a real one and matching no pack. */
   compliancePack?: { exampleReference: string; exampleFilename: string };
 }
-export function getCapabilities(): Promise<DeploymentCapabilities> {
-  return opsFetch<DeploymentCapabilities>("/api/capabilities");
+export function getCapabilities(organizationId?: string | null): Promise<DeploymentCapabilities> {
+  const query = organizationId ? `?organizationId=${encodeURIComponent(organizationId)}` : "";
+  return opsFetch<DeploymentCapabilities>(`/api/capabilities${query}`);
 }
 
 export function startCheckout(

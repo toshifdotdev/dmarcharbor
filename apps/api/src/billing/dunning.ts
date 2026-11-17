@@ -216,7 +216,7 @@ async function stopProviderRetries(organizationId: string): Promise<void> {
   }
 
   try {
-    await providerFor(row.provider as 'RAZORPAY' | 'PADDLE').cancelImmediately(row.providerSubscriptionId);
+    await providerFor(row.provider as 'RAZORPAY' | 'PADDLE' | 'DODO').cancelImmediately(row.providerSubscriptionId);
   } catch (error) {
     await recordAuditEvent({
       organizationId,
@@ -256,7 +256,7 @@ export async function runReconciliation(now = new Date()): Promise<ReconcileOutc
   for (const subscription of subscriptions) {
     let provider;
     try {
-      provider = providerFor(subscription.provider as 'RAZORPAY' | 'PADDLE');
+      provider = providerFor(subscription.provider as 'RAZORPAY' | 'PADDLE' | 'DODO');
     } catch {
       outcome.unreachable += 1;
       continue;

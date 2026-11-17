@@ -87,10 +87,11 @@ export default async function PricingPage({
 }) {
   const brand = await readHostBrand();
   const name = brandName(brand);
-  const [catalog, capabilities] = await Promise.all([
+  const [catalog, publicCapabilities] = await Promise.all([
     getPlanCatalog().catch(() => null),
     getCapabilities().catch(() => null),
   ]);
+  let capabilities = publicCapabilities;
 
   // Signed in or not decides where the buttons go and whether a currency
   // choice is stored. A failed read is "signed out": display only. With no
@@ -104,12 +105,14 @@ export default async function PricingPage({
       const active = await pickActiveWorkspace(await listWorkspaces());
       if (active) {
         organizationId = active.id;
-        const [pref, ent] = await Promise.all([
+        const [pref, ent, workspaceCapabilities] = await Promise.all([
           getBillingCurrency(active.id).catch(() => null),
           getWorkspaceEntitlements(active.id).catch(() => null),
+          getCapabilities(active.id).catch(() => null),
         ]);
         preference = pref;
         currentTier = ent?.plan ?? null;
+        if (workspaceCapabilities) capabilities = workspaceCapabilities;
       }
     } catch {
       // Signed out.

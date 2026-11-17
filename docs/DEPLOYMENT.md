@@ -71,9 +71,12 @@ for the containers to read them. The API refuses to boot on a missing
 production setting (`apps/api/src/config/env.ts`), so a bad upload fails the
 deploy at the readiness wait rather than serving.
 
-- `api/`: every API variable (`LAUNCH-CHECKLIST.md` step 4). Logo storage needs
-  only `AWS_REGION`, `LOGO_BUCKET`, `LOGO_CDN_ORIGIN` and `ASSETS_ORIGIN`; the
-  instance role signs the requests, so no AWS key is stored.
+- `api/`: every API variable (`LAUNCH-CHECKLIST.md` step 4), plus the billing
+  credentials (`RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`
+  for INR; `DODO_API_KEY`, `DODO_WEBHOOK_SECRET`, `DODO_ENVIRONMENT`, and optional
+  `DODO_TEST_WORKSPACE_IDS` for USD).
+  Logo storage needs only `AWS_REGION`, `LOGO_BUCKET`, `LOGO_CDN_ORIGIN` and
+  `ASSETS_ORIGIN`; the instance role signs the requests, so no AWS key is stored.
 - `web/`: `API_BASE_URL=http://api:4000`, `SITE_URL`, and the image origins the
   Content-Security-Policy allows: `HOSTED_BIMI_ORIGIN`, `LOGO_CDN_ORIGIN` and
   `ASSETS_ORIGIN`, the same values as on the API. Without the logo origins

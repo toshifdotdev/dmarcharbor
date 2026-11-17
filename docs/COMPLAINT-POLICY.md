@@ -30,9 +30,9 @@ We will acknowledge every complaint within 48 hours, and usually sooner.
 If we cannot meet a target we will tell you before the target passes rather than
 after, and say why.
 
-Where a complaint is about billing for an order placed through Paddle, Paddle is
-the merchant of record and is the party that resolves it. We will still help you
-get it resolved and will coordinate with them.
+Where a complaint is about billing for an order placed in US dollars through Dodo
+Payments, Dodo Payments is the merchant of record and is the party that resolves
+it. We will still help you get it resolved and will coordinate with them.
 
 ## Escalation
 

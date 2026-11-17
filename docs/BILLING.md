@@ -10,10 +10,10 @@ with its reason in view.
 
 | Decision | Why |
 |---|---|
-| **INR on Razorpay, USD on Paddle.** | Paddle on INR costs about 5% + $0.50 a payment; Razorpay about 2%. Stripe is invite-only for Indian businesses. |
+| **INR on Razorpay, USD on Dodo Payments.** | Razorpay settles INR directly to an Indian bank (~2%) and supports UPI Autopay and eNACH. Dodo Payments is our merchant of record for USD, accepts Indian sole proprietors and settles to an Indian bank account (Paddle rejected the seller account; Paddle code stays dormant until removed). |
 | **INR is on Razorpay Recurring Payments** (a mandate we charge ourselves each period), not Razorpay Subscriptions. Live from 12 November 2026; see "Razorpay Recurring Payments" below. | Razorpay Subscriptions cannot change plan or quantity on an Indian card or UPI subscription, and a cancel cannot be undone, so Fleet and plan changes cannot work on it. |
 | **An INR upgrade applies at once; the difference is added to the next renewal**, never charged mid-period. A downgrade or an interval change waits for the period end. | RBI requires a pre-debit notice at least 24 hours before a card or UPI mandate debit, so an immediate charge would need the customer on a payment page again. |
-| **Plan changes on Paddle apply at once and are prorated both ways** (`prorated_immediately`), after a preview and a confirmation. | Paddle cannot schedule a price change. A customer sees the exact charge or credit before confirming. |
+| **Plan changes on Dodo Payments (and Paddle) apply at once and are prorated both ways** (`prorated_immediately`), after a preview and a confirmation. | Both providers support immediate proration and a plan-change preview endpoint. A customer sees the exact charge or credit before confirming. |
 | **Moving to Mooring is a cancellation**, at the end of the paid period. | The customer keeps what they paid for. |
 | **A period runs from the moment of payment to the same day and time next month (or year).** A plan bought on the 31st renews on the last day of shorter months and returns to the 31st (`addInterval` with the first payment's day as the anchor). | What Paddle does, and what a customer expects. Without the anchor, a 31 January start drifted to the 28th for good. |
 | **An INR customer changes the saved card or UPI through support**, who send a payment link for the next renewal. | Razorpay has no self-service portal; a "change payment method" button that creates a ₹1 registration link is a later, small addition. |
@@ -27,21 +27,20 @@ with its reason in view.
 
 ## Which provider serves which customer
 
-| | Razorpay | Paddle |
-|---|---|---|
-| Role | Payment processor | **Merchant of record** |
-| Legal seller | You | Paddle |
-| Invoices | Yours | Paddle's |
-| Sales tax outside India | **Your problem** | Paddle collects and remits |
-| Indian payment methods | UPI, netbanking, cards, eNACH | Cards |
-| Fee | About 2% (+18% GST on the fee) | 5% + $0.50 |
-| Settlement | INR to your bank, about 2 working days after each payment | Monthly payout: created on the 1st, sent by the 15th |
-| Self service card update | Not available (a new mandate) | Full billing portal |
+| | Razorpay | Dodo Payments | Paddle (dormant) |
+|---|---|---|---|
+| Role | Payment processor | **Merchant of record** | **Merchant of record** |
+| Legal seller | You | Dodo Payments | Paddle |
+| Invoices | Yours | Dodo Payments' | Paddle's |
+| Sales tax outside India | **Your problem** | Dodo Payments collects and remits | Paddle collects and remits |
+| Indian payment methods | UPI, netbanking, cards, eNACH | Cards, Apple Pay, Google Pay | Cards |
+| Settlement | INR to your bank, about 2 working days after each payment | Payout to your Indian bank account | Monthly payout |
+| Self service card update | Not available (a new mandate) | Full customer portal | Full billing portal |
 
-**Routing rule:** INR checkouts go to Razorpay, everything else goes to Paddle.
+**Routing rule:** INR checkouts go to Razorpay. USD checkouts go to Dodo Payments when Dodo is configured (`DODO_API_KEY`, `DODO_WEBHOOK_SECRET`, `DODO_ENVIRONMENT`), otherwise Paddle. `/api/capabilities` advertises USD for Dodo only when Dodo is configured AND every expected USD plan is stored in `billing_plan`.
 
 A workspace with an existing subscription is never routed to a different
-provider, because the two cannot see each other's subscriptions. Moving a
+provider, because the providers cannot see each other's subscriptions. Moving a
 provider would strand a paying customer on the free plan.
 
 ## Plans and prices
@@ -267,7 +266,106 @@ mandate (a "token") each period.
   or EXPIRED), unique by order and by subscription, kind, period and attempt.
   A receipt is unique to one renewal attempt: Razorpay refuses a reused one.
 
-## Configuring Paddle
+## Configuring Dodo Payments
+
+Dodo Payments (`https://dodopayments.com`) is the USD merchant of record. It
+accepts Indian sole proprietors and settles payouts directly to an Indian bank
+account.
+
+```bash
+DODO_API_KEY=...
+DODO_WEBHOOK_SECRET=whsec_...
+DODO_ENVIRONMENT=test_mode              # test_mode or live_mode (required when DODO_API_KEY is set)
+DODO_TEST_WORKSPACE_IDS=ws_1,ws_2       # comma-separated workspace IDs allowed in test_mode
+```
+
+- **Explicit environment & test-mode safety on production**: `DODO_ENVIRONMENT`
+  is set explicitly (`test_mode` -> `https://test.dodopayments.com`, `live_mode`
+  -> `https://live.dodopayments.com`) rather than derived from `NODE_ENV`, so
+  production can be verified end-to-end in `test_mode` before switching to
+  `live_mode`. The API refuses to boot if `DODO_API_KEY` and
+  `DODO_WEBHOOK_SECRET` are not set together or if `DODO_ENVIRONMENT` is omitted
+  when `DODO_API_KEY` is set.
+- **Test-mode workspace allowlist (`DODO_TEST_WORKSPACE_IDS`)**: When
+  `DODO_ENVIRONMENT=test_mode`, Dodo accepts test cards, so USD checkout must
+  never be offered to the public. In `test_mode`, `GET /api/capabilities`
+  includes `USD` (`providers.dodo: true`) and `POST /api/workspaces/{id}/billing/checkout`
+  permits USD checkout **only** when the workspace's `organizationId` is listed
+  in `DODO_TEST_WORKSPACE_IDS` (comma-separated). Anonymous visitors and any
+  workspace not in `DODO_TEST_WORKSPACE_IDS` see only `INR` in
+  `/api/capabilities` and are refused at checkout with `503 PROVIDER_NOT_CONFIGURED`.
+  When `DODO_ENVIRONMENT=live_mode`, `DODO_TEST_WORKSPACE_IDS` is ignored and
+  USD is open to everyone.
+- **Dashboard steps (in Test Mode first, then repeat in Live Mode)**:
+  1. Toggle **Test Mode** in the Dodo Payments dashboard (`https://app.dodopayments.com`).
+  2. Under **Business / Brand Settings**, set the business display name to
+     `DMARC Harbor`, support email to `support@dmarcharbor.com`, and statement
+     descriptor to `DMARCHARBOR`.
+  3. Under **Developer → API Keys**, create a secret API key and set `DODO_API_KEY`
+     plus `DODO_ENVIRONMENT=test_mode`.
+  4. Under **Developer → Webhooks**, create a webhook endpoint pointing to
+     `https://api.dmarcharbor.com/api/webhooks/dodo` and tick these events:
+     - Subscription events: `subscription.active`, `subscription.renewed`,
+       `subscription.plan_changed`, `subscription.updated`,
+       `subscription.unpaused`, `subscription.past_due`, `subscription.on_hold`,
+       `subscription.paused`, `subscription.failed`, `subscription.cancelled`,
+       `subscription.expired`
+     - Payment events: `payment.succeeded`, `payment.failed`
+     - Refund & dispute events: `refund.succeeded`, `refund.failed`,
+       `dispute.opened`, `dispute.expired`, `dispute.accepted`,
+       `dispute.cancelled`, `dispute.challenged`, `dispute.won`, `dispute.lost`
+  5. Copy the signing secret (`whsec_...`) from the webhook endpoint and set
+     `DODO_WEBHOOK_SECRET`.
+- **Plan sync**:
+  Run the staff plan-sync endpoint once per environment (test mode, and again
+  after switching to live mode):
+  ```bash
+  curl -X POST "https://api.dmarcharbor.com/api/billing/plan-sync?provider=DODO&currency=USD" \
+    -H "Authorization: Bearer $STAFF_API_KEY"
+  ```
+  Each catalog plan entry (`expectedPlans('USD')`: Fairway, Harbor and Admiralty
+  monthly and annual, plus Fleet bands 0 to 3 — 10 products total) is created in
+  Dodo as a recurring SaaS product (`tax_category: 'saas'`, `currency: 'USD'`,
+  `subscription_period_count: 20`, `subscription_period_interval: 'Year'`) and
+  stored in `billing_plan` under provider `DODO`. Re-running the route is
+  idempotent and reuses existing stored rows. Until all 10 USD plans are stored
+  and ready, `providerReady('DODO')` is `false` and `GET /api/capabilities` will
+  not advertise `USD`.
+- **Checkout & attribution**:
+  `createCheckout` creates a hosted Dodo Checkout Session (`POST /checkouts`)
+  with `return_url` set to `<APP_URL>/billing?checkout=complete`, currency
+  selection locked to USD, and `metadata` carrying `organizationId` plus a
+  server-signed HMAC token (`dodoAttribution`). The browser redirects to Dodo's
+  hosted checkout URL directly (no CSP changes or client SDK needed). On
+  `subscription.active`, if the customer edited a Fleet quantity during
+  checkout, `correctCheckoutQuantity` immediately restores the server-measured
+  count with `proration_billing_mode: 'prorated_immediately'`.
+- **Plan changes & Fleet quantity sync**:
+  Plan changes call `subscriptions.changePlan` with
+  `proration_billing_mode: 'prorated_immediately'` and
+  `on_payment_failure: 'prevent_change'` after previewing via
+  `subscriptions.previewChangePlan`. Pre-renewal Fleet quantity and band changes
+  (`syncPerDomainQuantities`) call `subscriptions.changePlan` with
+  `proration_billing_mode: 'do_not_bill'` so the current period is not repriced.
+- **Customer portal**:
+  `POST /api/workspaces/{id}/billing/portal` creates a Dodo Customer Portal
+  session (`customers.customerPortal.create`) with `return_url` set to
+  `<APP_URL>/billing`.
+- **Refunds & reconciliation**:
+  `issueRefund` finds the subscription's initial succeeded payment
+  (`charge_type === 'new'` or earliest `created_at`), refunds it in full via
+  `POST /refunds`, and cancels the subscription immediately (`status: 'cancelled'`).
+  `runReconciliation` fetches live subscription state via
+  `GET /subscriptions/{id}` and repairs any missed webhook.
+- **Switching from test mode to live mode**:
+  After verifying checkout, plan changes, portal, cancellation and refund in
+  `test_mode`, switch the Dodo dashboard to **Live Mode**, create a live API key
+  and live webhook endpoint (`https://api.dmarcharbor.com/api/webhooks/dodo`),
+  delete the test `DODO` rows from `billing_plan` (or update them), set
+  `DODO_API_KEY`, `DODO_WEBHOOK_SECRET` and `DODO_ENVIRONMENT=live_mode`, deploy,
+  and run `POST /api/billing/plan-sync?provider=DODO&currency=USD`.
+
+## Configuring Paddle (dormant)
 
 Verified end to end against the Paddle sandbox in session 11: checkout, the
 customer portal, upgrade and downgrade with proration, cancel and keep, Fleet
@@ -380,15 +478,20 @@ from success if you trust the browser redirect.
 
 ```
 POST /api/webhooks/razorpay    x-razorpay-event, x-razorpay-signature
+POST /api/webhooks/dodo        webhook-id, webhook-timestamp, webhook-signature
 POST /api/webhooks/paddle      paddle-signature
 ```
 
 The raw body is preserved by a `verify` hook on the JSON body parser and never
-re-serialised, because both providers sign the exact bytes they sent. This is
+re-serialised, because all three providers sign the exact bytes they sent. This is
 the usual cause of a webhook that "sometimes" verifies.
 
 **Signature verification**
 - Razorpay: HMAC of the raw body, checked by the SDK
+- Dodo Payments: Standard Webhooks (`webhook-id`, `webhook-timestamp`,
+  `webhook-signature`), HMAC-SHA256 over `<id>.<timestamp>.<raw body>` using the
+  base64-decoded `whsec_` secret, compared in constant time with a five minute
+  timestamp tolerance
 - Paddle: `ts=<seconds>;h1=<hex>` where the HMAC covers `<timestamp>:<raw body>`,
   with a five minute tolerance so an old but valid signature cannot be replayed
 
@@ -450,11 +553,12 @@ gives up:
 | `GET /workspaces/{id}/billing` | Current plan, status, period end, price |
 | `POST /workspaces/{id}/billing/checkout` | Start a subscription |
 | `POST /workspaces/{id}/billing/plan/preview` | What a plan change would charge now and at the next invoice, before confirming |
-| `PATCH /workspaces/{id}/billing/plan` | Change plan: at period end on Razorpay, at once with proration on Paddle |
+| `PATCH /workspaces/{id}/billing/plan` | Change plan: at period end on Razorpay, at once with proration on Dodo Payments and Paddle |
 | `POST /workspaces/{id}/billing/cancel` | Cancel, keeping the paid period |
 | `POST /workspaces/{id}/billing/resume` | Undo a pending cancellation |
-| `POST /workspaces/{id}/billing/portal` | Hosted portal (Paddle only) |
+| `POST /workspaces/{id}/billing/portal` | Hosted portal (Dodo Payments and Paddle) |
 | `GET /workspaces/{id}/billing/plan-sync` | Which plans need creating |
+| `POST /billing/plan-sync` | Staff only: create missing provider plans and return the sync report |
 
 Moving a plan to Mooring is treated as a **cancellation**, not a plan change,
 so the customer keeps the period they paid for.

@@ -1362,7 +1362,7 @@ export const openApiDocument = {
         description: [
           'Returns a hosted page on the payment provider. No card data ever reaches this server.',
           'Nothing marks the workspace as paid here. The plan changes only when a signature verified webhook confirms the money moved, because a customer closing the tab is indistinguishable from success if you trust the redirect.',
-          'INR checkouts route to Razorpay, which settles into an Indian bank account. Other currencies route to Paddle, which is the merchant of record and handles international sales tax.',
+          'INR checkouts route to Razorpay, which settles into an Indian bank account. Other currencies route to Dodo Payments (or Paddle when dormant), which is the merchant of record and handles international sales tax.',
           'For a per-domain plan the quantity is measured server side from the account\'s active domains, with the plan minimum as the floor. A quantity in the request body is ignored.',
         ].join(' '),
         requestBody: {
@@ -1408,7 +1408,7 @@ export const openApiDocument = {
         tags: ['Billing'],
         summary: 'Move to a different plan',
         description: [
-          'Timing depends on the provider and is returned, not assumed. On Razorpay the change is scheduled for the end of the paid period with no proration, and the answer is status "scheduled" with that date. Paddle cannot schedule a price change, so it applies at once and prorates the rest of the period, and the answer is status "applied".',
+          'Timing depends on the provider and is returned, not assumed. On Razorpay the change is scheduled for the end of the paid period with no proration, and the answer is status "scheduled" with that date. Dodo Payments and Paddle apply the change at once and prorate the rest of the period, and the answer is status "applied".',
           'A move to a smaller plan is refused with PLAN_CHANGE_OVER_QUOTA while the workspace is over that plan\'s limits: clients, active domains, team members, or the workspaces the account owns. Each exceeded limit is a row in error.overage ({ quota, label, used, limit, by }, quota one of client, activeDomain, member, workspace).',
           'Moving to the free plan is treated as a cancellation, so the workspace keeps the period already paid for.',
         ].join(' '),
@@ -1436,7 +1436,7 @@ export const openApiDocument = {
         summary: 'Preview a plan change before confirming it',
         description: [
           'Read only: nothing changes at the provider. Answers what moving to the plan would charge now, what would be credited, what the next invoice would be and when, and when the change applies.',
-          'On Paddle the figures come from Paddle and include tax. Where the provider cannot quote, the figures come from the price list before tax and includesTax is false.',
+          'On Dodo Payments and Paddle the figures come from the provider and include tax. Where the provider cannot quote, the figures come from the price list before tax and includesTax is false.',
           'An account over the target plan\'s limits is refused with PLAN_CHANGE_OVER_QUOTA, with the same error.overage rows as the change itself.',
         ].join(' '),
         requestBody: {
@@ -1478,7 +1478,7 @@ export const openApiDocument = {
       post: {
         tags: ['Billing'],
         summary: 'Open the provider hosted billing portal',
-        description: 'Paddle offers a full portal. Razorpay does not, and reports that plainly rather than pretending one exists.',
+        description: 'Dodo Payments and Paddle offer a full portal. Razorpay does not, and reports that plainly rather than pretending one exists.',
         responses: {
           ...standardErrors,
           200: { description: 'A portal URL.' },
@@ -1495,7 +1495,7 @@ export const openApiDocument = {
           'Operator view. A plan with no stored mapping cannot be sold, so checkout refuses it rather than guessing a price. Reports price drift when the stored price no longer matches the catalog.',
 
         parameters: [
-          { name: 'provider', in: 'query', required: false, schema: { type: 'string', enum: ['RAZORPAY', 'PADDLE'] } },
+          { name: 'provider', in: 'query', required: false, schema: { type: 'string', enum: ['RAZORPAY', 'PADDLE', 'DODO'] } },
           { name: 'currency', in: 'query', required: false, schema: { type: 'string', enum: ['USD', 'INR'] } },
         ],
         responses: { ...standardErrors, 200: { description: 'Sync status per plan.' } },
@@ -1520,6 +1520,23 @@ export const openApiDocument = {
         security: [],
         summary: 'Paddle payment webhook',
         description: 'Verified with a timestamped HMAC, and a signature outside a five minute window is rejected so an old but valid one cannot be replayed.',
+        responses: { 200: { description: 'Accepted, including duplicates and unrecognised events.' }, 401: { description: 'Bad or stale signature.' }, 503: { description: 'Webhooks are not configured.' } },
+      },
+    },
+    '/webhooks/dodo': {
+      post: {
+        tags: ['Billing'],
+        security: [],
+        summary: 'Dodo Payments webhook',
+        description: [
+          'Verified against the Standard Webhooks specification (webhook-id, webhook-timestamp and webhook-signature headers, HMAC-SHA256 over id.timestamp.body with a base64 whsec_ secret).',
+          'Signatures outside a five minute window are rejected, and every delivery is deduplicated on webhook-id before it can change subscription state.',
+        ].join(' '),
+        parameters: [
+          { name: 'webhook-id', in: 'header', required: true, schema: { type: 'string' } },
+          { name: 'webhook-timestamp', in: 'header', required: true, schema: { type: 'string' } },
+          { name: 'webhook-signature', in: 'header', required: true, schema: { type: 'string' } },
+        ],
         responses: { 200: { description: 'Accepted, including duplicates and unrecognised events.' }, 401: { description: 'Bad or stale signature.' }, 503: { description: 'Webhooks are not configured.' } },
       },
     },
@@ -1876,6 +1893,39 @@ export const openApiDocument = {
         responses: {
           200: { description: 'What was examined, and what was repaired.' },
           404: { description: 'That workspace has no provider subscription to reconcile.' },
+        },
+      },
+    },
+    '/billing/plan-sync': {
+      post: {
+        tags: ['Billing'],
+        security: [{ staffKey: [] }],
+        summary: 'Create missing provider plans for a currency and return the sync report',
+        description: [
+          'Creates the recurring products and prices for every catalog plan in the requested currency (Fairway, Harbor and Admiralty monthly and annual, plus Fleet bands 0 to 3) at the exact catalog amounts, stores their ids in billing_plan, and returns the resulting planSyncReport.',
+          'Idempotent and safe to re-run: plans already stored in billing_plan are reused so live subscriptions are never orphaned.',
+          'Staff only (`Authorization: Bearer <STAFF_API_KEY>`), because it creates billable products in the payment provider account.',
+        ].join(' '),
+        parameters: [
+          {
+            name: 'provider',
+            in: 'query',
+            required: false,
+            schema: { type: 'string', enum: ['DODO', 'PADDLE'], default: 'DODO' },
+            description: 'The billing provider to sync plans into.',
+          },
+          {
+            name: 'currency',
+            in: 'query',
+            required: false,
+            schema: { type: 'string', enum: ['USD', 'INR'], default: 'USD' },
+            description: 'The catalog currency whose plans should be synced.',
+          },
+        ],
+        responses: {
+          200: { description: 'Counts of created and reused plans, plus the full planSyncReport.' },
+          400: { description: 'Invalid provider or currency.' },
+          503: { description: 'The requested provider is not configured.' },
         },
       },
     },
@@ -2262,7 +2312,7 @@ export const openApiDocument = {
         summary: 'Read the currency this workspace is quoted and billed in',
         description: [
           'Reports whether the currency can still change, so the settings screen can disable the control and explain why rather than accepting a value and failing.',
-          'The currency is not a display preference: INR routes to Razorpay and USD to Paddle, so changing it after a payment means migrating a live subscription between two processors.',
+          'The currency is not a display preference: INR routes to Razorpay and USD to Dodo Payments (or Paddle), so changing it after a payment means migrating a live subscription between two processors.',
         ].join(' '),
         responses: { 200: { description: 'preferredCurrency, whether it is locked, and why.' } },
       },
@@ -2322,10 +2372,19 @@ export const openApiDocument = {
         summary: 'What this deployment can actually do',
         description: [
           'Public, because it is read by the marketing and pricing pages before anyone has an account.',
-          'Answers which sign-in methods exist and which currencies can actually be paid in. Derived from provider configuration rather than a flag, so it cannot drift: adding PADDLE_API_KEY and PADDLE_WEBHOOK_SECRET is the whole of the change.',
+          'Answers which sign-in methods exist and which currencies can actually be paid in. Derived from provider configuration and synced plans rather than a flag, so it cannot drift. When Dodo Payments is in test_mode, USD is included only when organizationId names a workspace listed in DODO_TEST_WORKSPACE_IDS.',
           'This exists because the pricing page used to render every currency the catalog carries prices for, and therefore advertised a plan the checkout would then refuse. A public page must not promise something the API will not deliver.',
           'Exposes configuration state only: no keys, no identifiers, no counts.',
         ].join(' '),
+        parameters: [
+          {
+            name: 'organizationId',
+            in: 'query',
+            required: false,
+            schema: { type: 'string' },
+            description: 'Optional workspace identifier. When DODO_ENVIRONMENT is test_mode, USD is reported as ready only for workspaces listed in DODO_TEST_WORKSPACE_IDS.',
+          },
+        ],
         responses: { 200: { description: 'Purchasable currencies, default currency, provider readiness, and illustrative compliance pack identifiers.' } },
       },
     },
@@ -2406,7 +2465,7 @@ export const openApiDocument = {
           'Included on every plan, including the free one, because the right to erasure cannot be a paid feature.',
           'The request is held for seven days before it runs, so an accidental request can be cancelled. The workspace owner is the only role that can request one.',
           'Scope to a client or a domain to erase only that data. Erasing a client or a domain never removes agency staff accounts or sessions, never clears who did what elsewhere in the audit trail, and never touches the subscription.',
-          'Erasing the whole workspace is refused with SUBSCRIPTION_STILL_ACTIVE while a Paddle or Razorpay subscription can still bill, as deleting it is; a request made before a subscription started waits until it ends.',
+          'Erasing the whole workspace is refused with SUBSCRIPTION_STILL_ACTIVE while a Dodo Payments, Paddle or Razorpay subscription can still bill, as deleting it is; a request made before a subscription started waits until it ends.',
         ].join(' '),
         parameters: [orgParam],
         responses: {

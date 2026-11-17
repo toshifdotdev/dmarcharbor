@@ -456,7 +456,7 @@ describe('Trust Center evidence', () => {
       'Neon',
       'Migadu',
       'Razorpay',
-      'Paddle',
+      'Dodo Payments',
       'Google and Microsoft',
     ]);
     for (const entry of response.body.subProcessors as { region: string }[]) {
