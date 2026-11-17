@@ -1162,7 +1162,7 @@ describe('plan limits: downgrades', () => {
     expect(added.status, describeResponse(added)).toBe(201);
   });
 
-  it(`keeps active domains over the limit after a staff move to ${fairway.label}, refuses the next, and accepts again once back under`, async () => {
+  it(`keeps every domain after a staff move to ${fairway.label}, pauses the newest over the limit, refuses the next, and accepts again once back under`, async () => {
     const owner = await ownerWithWorkspace('staff-domains', 'Thrandle Build staff domains');
     await grantPlan(owner.organizationId, 'HARBOR');
     const client = await prisma.client.create({ data: { organizationId: owner.organizationId, name: 'Thrandle Build', slug: `thrandle-${unique()}` } });
@@ -1171,18 +1171,20 @@ describe('plan limits: downgrades', () => {
 
     expect((await staffPlan(owner.organizationId, target)).status).toBe(200);
     expect(await prisma.domain.count({ where: { clientId: client.id } })).toBe(kept);
+    // Nothing is deleted; the domains beyond the limit are paused (domain-allowance.service.ts).
+    expect(await prisma.domain.count({ where: { clientId: client.id, monitoringPausedReason: 'plan_limit' } })).toBe(2);
 
     const addDomain = () =>
       owner.agent.post(`/api/workspaces/${owner.organizationId}/clients/${client.id}/domains`).send({ name: `thrandle-${unique()}.example` });
     expectLimitRefusal(await addDomain(), {
       code: 'PLAN_LIMIT_REACHED',
       quota: 'activeDomain',
-      used: kept,
+      used: fairway.maxActiveDomains,
       limit: fairway.maxActiveDomains,
       upgradeTo: upgradeFor(target, (p) => p.maxActiveDomains),
     });
 
-    const surplus = await prisma.domain.findMany({ where: { clientId: client.id }, take: 3, select: { id: true } });
+    const surplus = await prisma.domain.findMany({ where: { clientId: client.id, monitoringPausedAt: null }, take: 3, select: { id: true } });
     await prisma.domain.deleteMany({ where: { id: { in: surplus.map((row) => row.id) } } });
     const added = await addDomain();
     expect(added.status, describeResponse(added)).toBe(201);

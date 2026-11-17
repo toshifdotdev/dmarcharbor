@@ -337,7 +337,7 @@ describe('moving between Fleet and the ladder', () => {
   beforeAll(seedPlans);
 
   it('sends the billable quantity when moving Harbor to Fleet', async () => {
-    const workspace = await workspaceWithBilling({ plan: 'HARBOR', domains: 120 });
+    const workspace = await workspaceWithBilling({ plan: 'HARBOR', domains: 80 });
 
     const response = await workspace.agent
       .patch(`/api/workspaces/${workspace.organizationId}/billing/plan`)
@@ -353,7 +353,7 @@ describe('moving between Fleet and the ladder', () => {
       providerSubscriptionId: workspace.providerSubscriptionId,
       plan: 'FLEET',
       interval: 'monthly',
-      quantity: 120,
+      quantity: 80,
     });
 
     const subscription = await prisma.subscription.findUniqueOrThrow({
