@@ -323,7 +323,7 @@ the amount, or the bank declined it), we email a payment link instead; paying
 it renews the plan and sets the mandate up again.
 
 **Do I get a refund?**
-There is a 14-day money-back guarantee on your first payment. It applies once per
+There is a 14-day money-back guarantee on your first payment, and on any upgrade in those 14 days. It applies once per
 customer. After that, refunds are considered case by case, for example for a
 double charge or a fault on our side. See the Refund Policy.
 
@@ -351,7 +351,7 @@ Not at present. Pay by card through Razorpay or Dodo Payments.
 
 **Is there a free trial of the paid plans?**
 No. Mooring is free with no card and no time limit, and the 14-day money-back
-guarantee covers your first payment.
+guarantee covers everything you pay in your first 14 days.
 
 ## Monitoring and alerts
 

@@ -8,8 +8,8 @@
 
 ## Summary
 
-We offer a **14-day money-back guarantee** on your first payment, once per
-customer. After that we do not ordinarily refund, but we still refund in the cases
+We offer a **14-day money-back guarantee** on your first paid subscription, once per
+customer, covering everything you paid in its first 14 days. After that we do not ordinarily refund, but we still refund in the cases
 listed under "Discretionary refunds", because those are the ones where not
 refunding would be wrong.
 
@@ -43,12 +43,13 @@ are not collected until you upgrade or pause others.
 ## 14-day money-back guarantee
 
 If you are not satisfied, tell us within 14 days of your first payment and we will
-refund the amount you paid.
+refund everything you paid in those 14 days: the first payment and any upgrade or
+extra domains you paid for in that time, tax included.
 
 - The 14 days run from the date of your first payment, not from the day you first
   used the product.
-- It covers the first payment of your first paid subscription only. Renewals do
-  not start a new 14 days.
+- It covers your first paid subscription only. Renewals do not start a new 14
+  days, and a payment made after the 14 days is not part of the guarantee.
 - It applies once per customer. A customer is the account that owns the
   workspace, so a second workspace, or a new subscription after a refund, does not
   qualify again.

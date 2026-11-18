@@ -206,7 +206,7 @@ export async function refundEligibility(
   const amountLabel =
     definition.pricing === 'per_domain'
       ? `${quantity} active domain${quantity === 1 ? '' : 's'} for one month`
-      : `1 ${intervalLabel(interval)} charge`;
+      : `1 ${intervalLabel(interval)} charge, plus any upgrade charged in the first ${refundGuaranteeDays} days`;
 
   const base = {
     organizationId,
@@ -359,9 +359,22 @@ export async function issueRefund(input: {
       providerSubscriptionId: subscription.providerSubscriptionId,
       amountMinor: eligibility.amountMinor,
       reason: input.reason,
+      // Every payment in the first 14 days, not the first invoice alone: an
+      // upgrade inside the window is part of "your money back".
+      ...(eligibility.eligibleUntil ? { refundUntil: new Date(eligibility.eligibleUntil) } : {}),
     });
     providerRefundId = result.providerRefundId;
     if (typeof result.amountMinor === 'number' && result.amountMinor > 0) refundedMinor = result.amountMinor;
+    if (result.failedPaymentIds && result.failedPaymentIds.length > 0) {
+      await recordAuditEvent({
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId ?? undefined,
+        action: 'SUBSCRIPTION_UPDATED',
+        targetType: 'subscription',
+        targetId: subscription.providerSubscriptionId,
+        detail: { event: 'refund_partial', unrefundedPaymentIds: result.failedPaymentIds.slice(0, 20) },
+      });
+    }
   } catch (error) {
     const detail = error instanceof BillingProviderError ? error.message : 'The payment provider refused the refund.';
     // Recorded as a refusal. Nothing is claimed about money having moved, because

@@ -193,7 +193,7 @@ export default async function PricingPage({
             </p>
             {/* Promised in the Refund Policy: 14 days from the first payment, once per customer. */}
             <p className={s.guarantee} data-testid="pricing-money-back">
-              <b>14-day money-back guarantee</b> on your first payment.{" "}
+              <b>14-day money-back guarantee</b> on your first subscription.{" "}
               <Link href="/refunds" className="link">
                 How refunds work
               </Link>

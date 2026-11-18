@@ -332,12 +332,57 @@ export class RazorpayBillingProvider implements BillingProvider {
     await (await recurring()).endRecurringSubscription(row.organizationId, { reason: 'cancelled', endAt: new Date() });
   }
 
-  /** Refunds the first payment: the one the 14-day guarantee covers. */
+  /**
+   * The money-back guarantee. With `refundUntil`, every payment captured on the
+   * subscription up to that moment is refunded in full. Razorpay plan changes
+   * apply at renewal, so today that is the first payment alone, but a charge
+   * taken in the window for any other reason is covered too. Without it, the
+   * first payment only, up to `amountMinor`.
+   */
   async refund(input: {
     providerSubscriptionId: string;
     amountMinor: number;
     reason: string;
-  }): Promise<{ providerRefundId: string | null; amountMinor?: number }> {
+    refundUntil?: Date;
+  }): Promise<{ providerRefundId: string | null; amountMinor?: number; failedPaymentIds?: string[] }> {
+    if (input.refundUntil) {
+      const charges = await prisma.billingCharge.findMany({
+        where: {
+          subscriptionKey: input.providerSubscriptionId,
+          status: 'CAPTURED',
+          providerPaymentId: { not: null },
+          createdAt: { lte: input.refundUntil },
+        },
+        select: { providerPaymentId: true, kind: true },
+        orderBy: { createdAt: 'asc' },
+      });
+      const first = charges.find((charge) => charge.kind === 'FIRST');
+      if (!first) {
+        throw new BillingProviderError('No payment has been captured for that subscription.', 'PAYMENT_NOT_FOUND', 404);
+      }
+      let firstRefundId: string | null = null;
+      let refundedMinor = 0;
+      const failedPaymentIds: string[] = [];
+      for (const charge of [first, ...charges.filter((c) => c !== first)]) {
+        const paymentId = charge.providerPaymentId as string;
+        try {
+          const payment = await fetchPayment(paymentId);
+          const refund = await refundPayment({
+            paymentId: payment.id,
+            amountMinor: payment.amountMinor,
+            capturedMinor: payment.amountMinor,
+            notes: { reason: input.reason.slice(0, 250), subscription: input.providerSubscriptionId },
+          });
+          firstRefundId ??= refund.id;
+          refundedMinor += payment.amountMinor;
+        } catch (error) {
+          // Nothing moved if the first payment fails: report it as the failure.
+          if (charge === first) throw error;
+          failedPaymentIds.push(paymentId);
+        }
+      }
+      return { providerRefundId: firstRefundId, amountMinor: refundedMinor, ...(failedPaymentIds.length > 0 ? { failedPaymentIds } : {}) };
+    }
     const first = await prisma.billingCharge.findFirst({
       where: { subscriptionKey: input.providerSubscriptionId, kind: 'FIRST', status: 'CAPTURED' },
       select: { providerPaymentId: true },

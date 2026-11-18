@@ -515,7 +515,11 @@ export class DodoBillingProvider implements BillingProvider {
     providerSubscriptionId: string;
     amountMinor: number;
     reason: string;
-  }): Promise<{ providerRefundId: string | null; amountMinor?: number }> {
+    refundUntil?: Date;
+  }): Promise<{ providerRefundId: string | null; amountMinor?: number; failedPaymentIds?: string[] }> {
+    if (input.refundUntil) {
+      return this.refundWindow({ ...input, refundUntil: input.refundUntil });
+    }
     const first = await this.call(async () => {
       let oldest: { payment_id: string; total_amount?: number | null; created_at?: string | null; charge_type?: string | null } | null = null;
       for await (const payment of dodo().payments.list({
@@ -560,6 +564,68 @@ export class DodoBillingProvider implements BillingProvider {
     return {
       providerRefundId: refund?.refund_id ?? null,
       ...(refundedMinor !== undefined ? { amountMinor: refundedMinor } : {}),
+    };
+  }
+
+  /**
+   * The money-back guarantee: every succeeded payment on the subscription up to
+   * the end of the window, each refunded in full (omitting `items` refunds the
+   * whole payment). That is the first payment plus any upgrade proration or
+   * Fleet quantity charge taken in the first 14 days.
+   *
+   * Oldest first, and the first payment is required: with none there is
+   * nothing the guarantee covers. A later payment Dodo refuses does not undo
+   * the ones already refunded; it is returned so support can finish it by hand,
+   * and the refund is still recorded for what did move.
+   */
+  private async refundWindow(input: {
+    providerSubscriptionId: string;
+    reason: string;
+    refundUntil: Date;
+  }): Promise<{ providerRefundId: string | null; amountMinor?: number; failedPaymentIds?: string[] }> {
+    const payments = await this.call(async () => {
+      const rows: Array<{ payment_id: string; total_amount?: number | null; created_at?: string | null }> = [];
+      for await (const payment of dodo().payments.list({
+        subscription_id: input.providerSubscriptionId,
+        status: 'succeeded',
+        created_at_lte: input.refundUntil.toISOString(),
+      })) {
+        const at = payment.created_at ? Date.parse(payment.created_at) : Number.NaN;
+        // The list filter is the provider's; the window is checked here as well.
+        if (Number.isFinite(at) && at > input.refundUntil.getTime()) continue;
+        rows.push(payment);
+      }
+      return rows.sort((a, b) => Date.parse(a.created_at ?? '') - Date.parse(b.created_at ?? ''));
+    });
+
+    if (payments.length === 0) {
+      throw new BillingProviderError('No completed payment for that subscription.', 'PAYMENT_NOT_FOUND', 404);
+    }
+
+    let firstRefundId: string | null = null;
+    let refundedMinor = 0;
+    const failedPaymentIds: string[] = [];
+    for (const [index, payment] of payments.entries()) {
+      try {
+        const refund = await this.call(() =>
+          dodo().refunds.create({ payment_id: payment.payment_id, reason: input.reason.slice(0, 250) }),
+        );
+        firstRefundId ??= refund?.refund_id ?? null;
+        refundedMinor += Math.round(
+          typeof refund?.amount === 'number' ? refund.amount : typeof payment.total_amount === 'number' ? payment.total_amount : 0,
+        );
+      } catch (error) {
+        // The first payment is the guarantee itself: if it cannot be refunded,
+        // nothing has moved and the caller must say so.
+        if (index === 0) throw error;
+        failedPaymentIds.push(payment.payment_id);
+      }
+    }
+
+    return {
+      providerRefundId: firstRefundId,
+      amountMinor: refundedMinor,
+      ...(failedPaymentIds.length > 0 ? { failedPaymentIds } : {}),
     };
   }
 

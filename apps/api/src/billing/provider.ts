@@ -253,7 +253,20 @@ export interface BillingProvider {
     providerSubscriptionId: string;
     amountMinor: number;
     reason: string;
-  }): Promise<{ providerRefundId: string | null; /** What the provider actually refunds, when it says. */ amountMinor?: number }>;
+    /**
+     * The end of the guarantee window. Every payment taken up to this moment is
+     * refunded in full (the first payment and any upgrade or quantity charge in
+     * the first 14 days), because the guarantee is "your money back", not "your
+     * first invoice back". Without it, only the first payment is refunded.
+     */
+    refundUntil?: Date;
+  }): Promise<{
+    providerRefundId: string | null;
+    /** What the provider actually refunds, when it says. */
+    amountMinor?: number;
+    /** Payments in the window the provider refused to refund; support finishes them by hand. */
+    failedPaymentIds?: string[];
+  }>;
 
   /**
    * What a plan change would charge or credit, from the provider itself, so

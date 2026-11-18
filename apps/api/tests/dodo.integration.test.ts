@@ -910,13 +910,11 @@ describe('Dodo Payments integration', () => {
         ]),
       );
 
-      dodoMocks.refundsCreate.mockResolvedValue({
-        refund_id: 'ref_dodo_1',
-        payment_id: 'pay_dodo_initial_checkout',
-        amount: 16092,
-        currency: 'USD',
-        status: 'succeeded',
-      });
+      dodoMocks.refundsCreate.mockImplementation(async (body: { payment_id: string }) =>
+        body.payment_id === 'pay_dodo_initial_checkout'
+          ? { refund_id: 'ref_dodo_1', payment_id: body.payment_id, amount: 16092, currency: 'USD', status: 'succeeded' }
+          : { refund_id: 'ref_dodo_2', payment_id: body.payment_id, amount: 5000, currency: 'USD', status: 'succeeded' },
+      );
 
       dodoMocks.subscriptionsRetrieve.mockResolvedValue({
         subscription_id: 'sub_dodo_refund_1',
@@ -933,13 +931,22 @@ describe('Dodo Payments integration', () => {
 
       expect(refundRes.status).toBe(201);
       expect(refundRes.body.refunded).toBe(true);
+      // The guarantee is the money paid in the first 14 days: the first payment
+      // and the upgrade taken a day later are both refunded, the first one first.
       expect(refundRes.body.providerRefundId).toBe('ref_dodo_1');
-      expect(refundRes.body.amountMinor).toBe(16092);
+      expect(refundRes.body.amountMinor).toBe(16092 + 5000);
 
-      expect(dodoMocks.refundsCreate).toHaveBeenCalledWith({
+      expect(dodoMocks.refundsCreate).toHaveBeenNthCalledWith(1, {
         payment_id: 'pay_dodo_initial_checkout',
         reason: '14-day money-back guarantee requested by owner.',
       });
+      expect(dodoMocks.refundsCreate).toHaveBeenNthCalledWith(2, {
+        payment_id: 'pay_dodo_later_upgrade',
+        reason: '14-day money-back guarantee requested by owner.',
+      });
+      expect(dodoMocks.paymentsList).toHaveBeenCalledWith(
+        expect.objectContaining({ subscription_id: 'sub_dodo_refund_1', status: 'succeeded', created_at_lte: expect.any(String) }),
+      );
       expect(dodoMocks.subscriptionsUpdate).toHaveBeenCalledWith('sub_dodo_refund_1', {
         status: 'cancelled',
       });

@@ -18,7 +18,7 @@ with its reason in view.
 | **A period runs from the moment of payment to the same day and time next month (or year).** A plan bought on the 31st renews on the last day of shorter months and returns to the 31st (`addInterval` with the first payment's day as the anchor). | What Paddle does, and what a customer expects. Without the anchor, a 31 January start drifted to the 28th for good. |
 | **An INR customer changes the saved card or UPI through support**, who send a payment link for the next renewal. | Razorpay has no self-service portal; a "change payment method" button that creates a ₹1 registration link is a later, small addition. |
 | **A cancellation can be undone** until the period ends ("Keep plan"). | |
-| **Refunds: 14 days from the first payment, once per customer, the first payment in full, then the subscription ends at once.** Issued by us, never self-serve. | The published guarantee. Ending the subscription stops a refunded customer keeping the plan. |
+| **Refunds: 14 days from the first payment, once per customer, everything paid in those 14 days in full, then the subscription ends at once.** Issued by us, never self-serve. | The published guarantee. Ending the subscription stops a refunded customer keeping the plan. |
 | **A failed payment never deletes data**: 7 days' grace after the paid period, then Mooring, and the provider subscription is cancelled. | Most cards recover on a retry; cancelling stops a customer paying twice. |
 | **Fleet is billed on the count measured before each renewal (2 days before on Paddle; when the renewal is priced, 3 to 7 days before, on Razorpay), with no mid-month charge.** | A predictable bill; no proration arguments over a domain added on the 20th. |
 | **Harbor at 80 domains moves to Fleet at $2 a domain (81 domains is $162), not to an add-on.** | Fleet carries 1,000 clients, 5,000 domains and unlimited members, so a $13 step for it is ordinary tier pricing. Kept deliberately. |
@@ -404,21 +404,25 @@ in Paddle's payout settings. That is a finance task, not a code task.
 ## Refunds
 
 The guarantee (`refundGuaranteeDays`, 14) is in `docs/REFUND-POLICY.md`: the
-first payment, within 14 days, once per customer (every workspace the owner
+everything paid in the first 14 days, once per customer (every workspace the owner
 owns is checked), no reason needed. Outside it, a refund is a goodwill decision.
 
 What a refund does (`issueRefund`):
 
-1. Refunds the first payment of the subscription in full, tax included (on
-   Paddle, its first completed transaction).
+1. Refunds every payment taken on the subscription up to the end of the window
+   (`refundUntil`), each in full, tax included, first payment first: the first
+   payment and any upgrade proration or Fleet quantity charge in the 14 days.
+   A later payment the provider refuses is recorded as `refund_partial` in the
+   audit log for support to finish by hand. (Paddle, which is dormant, still
+   refunds its first completed transaction only.)
 2. Cancels the subscription at once, so the workspace moves to Mooring now,
    not at the end of the period. Everything is kept, as above.
 3. Records the refund (`refund_record`, `REFUND_ISSUED` in the audit log). A
    refusal is recorded too, with its reason.
 
-A prorated upgrade charge made later in the period is a separate payment and is
-not part of the guarantee refund; refund it from the provider's dashboard if you
-decide to.
+A payment made after the 14 days (a renewal, or an upgrade later in the period)
+is not part of the guarantee refund; refund it from the provider's dashboard if
+you decide to.
 
 **Who bears the cost.** The customer gets back everything they paid. Paddle
 returns the tax and keeps its fee, so a refund costs us the fee: in the

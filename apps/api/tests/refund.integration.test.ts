@@ -132,7 +132,7 @@ describe('refund eligibility against the published guarantee', () => {
     expect(eligibility.interval).toBe('annual');
     expect(eligibility.amountMinor).toBe(planCatalog.HARBOR.prices.INR.annualMinor);
     expect(eligibility.amountMinor).not.toBe(planCatalog.HARBOR.prices.INR.monthlyMinor);
-    expect(eligibility.amountLabel).toBe('1 annual charge');
+    expect(eligibility.amountLabel).toBe('1 annual charge, plus any upgrade charged in the first 14 days');
   });
 
   it('refunds a monthly purchase at the monthly price, and labels what it is charging', async () => {
@@ -143,7 +143,7 @@ describe('refund eligibility against the published guarantee', () => {
     expect(eligibility.eligible).toBe(true);
     expect(eligibility.interval).toBe('monthly');
     expect(eligibility.amountMinor).toBe(planCatalog.ADMIRALTY.prices.INR.monthlyMinor);
-    expect(eligibility.amountLabel).toBe('1 monthly charge');
+    expect(eligibility.amountLabel).toBe('1 monthly charge, plus any upgrade charged in the first 14 days');
   });
   it('accepts the last day and refuses the day after', async () => {
     const inside = await paidWorkspace(
