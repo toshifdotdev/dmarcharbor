@@ -730,7 +730,7 @@ function Decision(props: RowProps & { action: Action; verb: string }) {
 
   const timing =
     action === "checkout"
-      ? `You pay ${priceOf(plan, payCurrency, interval, props.fleetQuote)} ${interval === "annual" ? "a year" : "a month"} on ${checkoutProvider.endsWith("s") ? `${checkoutProvider}'` : `${checkoutProvider}'s`} page.${payCurrency === "USD" ? ` ${checkoutProvider}, the reseller, handles tax: depending on your location it is included in that price or added on its page.` : ""} The plan changes when ${checkoutProvider} confirms the payment.`
+      ? `You pay ${priceOf(plan, payCurrency, interval, props.fleetQuote)} ${interval === "annual" ? "a year" : "a month"} on ${checkoutProvider.endsWith("s") ? `${checkoutProvider}'` : `${checkoutProvider}'s`} page.${payCurrency === "USD" ? ` ${checkoutProvider}, the reseller, handles tax: depending on your location it is included in that price or added on its page. Pay with a Visa, Mastercard or American Express card enabled for international payments; RuPay cards are declined for dollar payments.` : ""} The plan changes when ${checkoutProvider} confirms the payment.`
       : action === "cancel"
         ? `${currentLabel} stays until ${periodEnd ?? "the paid period ends"} and is not charged again; then the workspace moves to ${plan.label}. Every client, domain and report is kept.`
         : provider === "PADDLE" || provider === "DODO"

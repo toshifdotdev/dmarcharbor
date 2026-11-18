@@ -49,8 +49,12 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
   const { workspaces, active } = await resolveActiveWorkspace();
   if (!active) redirect("/welcome");
   const { checkout, status: providerStatus } = await searchParams;
-  // Dodo Payments returns to the success URL with status=failed when the card was declined.
-  const checkoutFailed = checkout === "complete" && (providerStatus === "failed" || providerStatus === "cancelled");
+  // Dodo Payments returns to the success URL with its own status: active or
+  // succeeded when paid, and failed, cancelled, expired or requires_payment_method
+  // when the card was declined or the session ran out. Only a paid status, or none
+  // (Razorpay adds none), may say the payment went to the provider.
+  const checkoutFailed =
+    checkout === "complete" && providerStatus !== undefined && !["active", "succeeded"].includes(providerStatus);
 
   const [status, entitlements, catalog, capabilities, currencyPref, clients, members, allowance, me] = await Promise.all([
     getBillingStatus(active.id).then(
@@ -137,9 +141,10 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
   return shell(
     <>
       {checkoutFailed ? (
-        <Notice tone="fail" title="The payment did not go through" testId="checkout-failed">
-          Nothing was charged and the plan is unchanged. Try another card, or one enabled for international payments, and
-          start the checkout again.
+        <Notice tone="fail" title="The payment was not completed" testId="checkout-failed">
+          Nothing was charged and the plan is unchanged: the card was declined, or the payment page timed out before it
+          was paid. Start the checkout again, with a Visa or Mastercard enabled for international payments if you pay in
+          USD.
         </Notice>
       ) : checkout === "complete" ? (
         <Notice tone="ok" title="Payment sent to the provider" testId="checkout-complete">
