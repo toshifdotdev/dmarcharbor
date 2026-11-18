@@ -177,6 +177,7 @@ export class DodoBillingProvider implements BillingProvider {
   async ensureCustomer(input: { organizationId: string; contact: BillingContact }): Promise<{ providerCustomerId: string }> {
     const existing = await this.findCustomer(input.organizationId);
     if (existing) {
+      await this.refreshCustomerName(existing, input.contact.name);
       return { providerCustomerId: existing };
     }
 
@@ -190,6 +191,7 @@ export class DodoBillingProvider implements BillingProvider {
       return null;
     });
     if (found) {
+      await this.refreshCustomerName(found, input.contact.name);
       return { providerCustomerId: found };
     }
 
@@ -202,6 +204,23 @@ export class DodoBillingProvider implements BillingProvider {
     );
 
     return { providerCustomerId: customer.customer_id };
+  }
+
+  /**
+   * The name on a reused Dodo customer is the billing name given for this checkout.
+   *
+   * Dodo's checkout locks the name and email of the customer it is opened for,
+   * and the invoice carries that name. Reusing a customer without updating it
+   * kept the name from the first checkout, so a second purchase showed (and
+   * invoiced) whoever paid first. Best effort: a refused update leaves the old
+   * name and the checkout still opens.
+   */
+  private async refreshCustomerName(customerId: string, name: string): Promise<void> {
+    const wanted = name.trim();
+    if (!wanted) return;
+    await this.call(() => dodo().customers.update(customerId, { name: wanted })).catch((error: unknown) => {
+      console.warn(`[billing] the Dodo customer name could not be updated: ${error instanceof Error ? error.message : 'unknown error'}`);
+    });
   }
 
   /**

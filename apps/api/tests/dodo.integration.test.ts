@@ -5,6 +5,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 const dodoMocks = vi.hoisted(() => {
   const customersList = vi.fn();
   const customersCreate = vi.fn();
+  const customersUpdate = vi.fn(async (id: string, body: { name?: string }) => ({ customer_id: id, ...body }));
   const customerPortalCreate = vi.fn();
   const checkoutSessionsCreate = vi.fn();
   const subscriptionsRetrieve = vi.fn();
@@ -28,6 +29,7 @@ const dodoMocks = vi.hoisted(() => {
     customers = {
       list: customersList,
       create: customersCreate,
+      update: customersUpdate,
       customerPortal: {
         create: customerPortalCreate,
       },
@@ -55,6 +57,7 @@ const dodoMocks = vi.hoisted(() => {
   return {
     customersList,
     customersCreate,
+    customersUpdate,
     customerPortalCreate,
     checkoutSessionsCreate,
     subscriptionsRetrieve,
@@ -368,6 +371,25 @@ describe('Dodo Payments integration', () => {
   });
 
   describe('checkout, webhook activation, renewal, portal, cancel/resume, and immediate cancel', () => {
+    it('gives a reused Dodo customer the billing name entered for this checkout', async () => {
+      await seedDodoUsdPlans();
+      const { agent, organizationId, email } = await createWorkspace('rename');
+      await agent.patch(`/api/workspaces/${organizationId}/billing/currency`).send({ currency: 'USD' });
+      // Dodo already holds a customer for this email, from an earlier checkout under another name.
+      dodoMocks.customersList.mockImplementationOnce(() => asyncIterable([{ customer_id: 'cus_dodo_existing', email, name: 'First Payer' }]));
+      const checkout = await agent.post(`/api/workspaces/${organizationId}/billing/checkout`).send({
+        plan: 'HARBOR',
+        interval: 'monthly',
+        currency: 'USD',
+        contact: { name: 'Pellowyn Dental Ltd', email },
+      });
+      expect(checkout.status).toBe(201);
+      expect(dodoMocks.customersUpdate).toHaveBeenCalledWith('cus_dodo_existing', { name: 'Pellowyn Dental Ltd' });
+      expect(dodoMocks.checkoutSessionsCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ customer: { customer_id: 'cus_dodo_existing' } }),
+      );
+    });
+
     it('creates a Dodo checkout session, activates on subscription.active, renews, opens portal, cancels at period end, resumes, and cancels immediately', async () => {
       await seedDodoUsdPlans();
       const { agent, organizationId, email } = await createWorkspace('lifecycle');

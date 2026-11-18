@@ -1,3 +1,4 @@
+import { ClearCheckoutQuery } from "@/components/harbor/clear-checkout-query";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getSessionUser, listClients, readWorkspaceAllowance } from "@/lib/api";
@@ -140,13 +141,19 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
 
   return shell(
     <>
+      {checkout ? <ClearCheckoutQuery /> : null}
       {checkoutFailed ? (
         <Notice tone="fail" title="The payment was not completed" testId="checkout-failed">
           Nothing was charged and the plan is unchanged: the card was declined, or the payment page timed out before it
           was paid. Start the checkout again, with a Visa or Mastercard enabled for international payments if you pay in
           USD.
         </Notice>
-      ) : checkout === "complete" ? (
+      ) : checkout === "complete" && hasSubscription && s.plan !== free?.tier ? (
+        // The provider has confirmed: say so, rather than "sent", which read as still waiting.
+        <Notice tone="ok" title={`Payment confirmed: you are on ${current?.label ?? s.plan}`} testId="checkout-confirmed">
+          Thank you. Receipts and the card are kept by {s.provider === "RAZORPAY" ? "Razorpay" : "Dodo Payments"}.
+        </Notice>
+      ) : checkout === "complete" && !ended ? (
         <Notice tone="ok" title="Payment sent to the provider" testId="checkout-complete">
           The plan changes as soon as the provider confirms the payment to us, usually within a minute. If this page still
           shows the old plan, refresh it shortly.
