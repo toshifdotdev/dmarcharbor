@@ -424,6 +424,17 @@ A payment made after the 14 days (a renewal, or an upgrade later in the period)
 is not part of the guarantee refund; refund it from the provider's dashboard if
 you decide to.
 
+**Dodo pays refunds from our Dodo balance, not from the original payment.** A
+payment adds less to the balance than the customer paid (tax and Dodo's fees
+come off), and a payout empties it, so a refund can be refused with `409
+Insufficient funds in wallet` even though the payment succeeded. The refusal is
+recorded (`REFUND_REFUSED`, `REFUND_PROVIDER_FAILED`) and nothing is claimed
+about money moving. Either wait for new payments to raise the balance and run
+the refund again, or email support@dodopayments.com from the registered address
+with the payment id. Dodo allows merchant refunds up to 30 days after payment.
+Once the subscription has been cancelled the workspace is on Mooring, so a
+retried refund needs `overrideWindow: true`.
+
 **Who bears the cost.** The customer gets back everything they paid. Paddle
 returns the tax and keeps its fee, so a refund costs us the fee: in the
 sandbox, $42.46 paid ($39 + $3.46 tax) left our Paddle balance as $39.00, of
