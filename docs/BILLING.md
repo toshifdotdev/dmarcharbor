@@ -432,8 +432,10 @@ recorded (`REFUND_REFUSED`, `REFUND_PROVIDER_FAILED`) and nothing is claimed
 about money moving. Either wait for new payments to raise the balance and run
 the refund again, or email support@dodopayments.com from the registered address
 with the payment id. Dodo allows merchant refunds up to 30 days after payment.
-Once the subscription has been cancelled the workspace is on Mooring, so a
-retried refund needs `overrideWindow: true`.
+The staff refund route refuses a workspace that is already back on Mooring (it
+reads as never having paid), so a refund retried after the subscription was
+cancelled is made in Dodo's dashboard: Transactions, the payment, Initiate
+refund.
 
 **Who bears the cost.** The customer gets back everything they paid. Paddle
 returns the tax and keeps its fee, so a refund costs us the fee: in the
