@@ -290,6 +290,7 @@ export async function runPlanSyncController(request: Request, response: Response
       currency: rawCurrency,
       created: syncOutcome.created,
       reused: syncOutcome.reused,
+      refused: 'refused' in syncOutcome ? syncOutcome.refused : [],
       plans,
     });
   } catch (error) {

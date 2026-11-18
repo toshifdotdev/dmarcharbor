@@ -157,7 +157,7 @@ export async function requireStoredPlan(input: {
   const stored = await findStoredPlan(input);
   if (!stored) {
     throw new BillingPlanError(
-      `${input.provider} has no ${input.interval} ${input.tier} plan${input.band ? ` (band ${input.band})` : ''} stored in ${input.currency}. Run the plan sync before accepting payment for it.`,
+      `The ${input.interval} ${input.tier} plan${input.band ? ` (band ${input.band})` : ''} cannot be bought in ${input.currency} yet. Choose another billing period, or write to support and we will set it up.`,
       'PLAN_NOT_SYNCED',
       503,
     );

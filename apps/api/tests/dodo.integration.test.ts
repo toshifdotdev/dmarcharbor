@@ -282,6 +282,7 @@ describe('Dodo Payments integration', () => {
       expect(rerunRes.status).toBe(200);
       expect(rerunRes.body.created).toBe(0);
       expect(rerunRes.body.reused).toBe(expectedPlans('USD').length);
+      expect(rerunRes.body.refused).toEqual([]);
 
       // In test_mode: anonymous visitors and non-listed workspaces do NOT see USD in /api/capabilities.
       expect(await providerReady('DODO')).toBe(false);
@@ -323,6 +324,46 @@ describe('Dodo Payments integration', () => {
       expect(liveAnonCaps.status).toBe(200);
       expect(liveAnonCaps.body.currencies).toContain('USD');
       expect(liveAnonCaps.body.providers.dodo).toBe(true);
+    });
+
+    it('goes on past a product Dodo refuses, reports it, and keeps the plans it could create on sale', async () => {
+      const mutableEnv = env as Record<string, unknown>;
+      mutableEnv.DODO_ENVIRONMENT = 'live_mode';
+      const workspace = await createWorkspace('cart-limit');
+
+      // A new live account's cart value limit refuses the large annual prices.
+      let seq = 0;
+      dodoMocks.productsCreate.mockImplementation(async (params: { price: { price: number }; metadata?: Record<string, string> }) => {
+        if (params.price.price > 200_000) {
+          throw new dodoMocks.MockAPIError(422, '422 The price is more than the cart value limit of this business.');
+        }
+        seq += 1;
+        return buildDodoProductFixture({ productId: `pdt_limited_${seq}`, metadata: params.metadata });
+      });
+
+      const syncRes = await request(app)
+        .post('/api/billing/plan-sync?provider=DODO&currency=USD')
+        .set('Authorization', `Bearer ${FAKE_STAFF_KEY}`);
+      expect(syncRes.status).toBe(200);
+      const tooLarge = expectedPlans('USD').filter((plan) => plan.priceMinor > 200_000);
+      expect(tooLarge.length).toBeGreaterThan(0);
+      expect(syncRes.body.created).toBe(expectedPlans('USD').length - tooLarge.length);
+      expect(syncRes.body.refused).toHaveLength(tooLarge.length);
+      expect(syncRes.body.refused[0].message).toContain('cart value limit');
+
+      // USD is still on sale for the plans that exist.
+      expect(await providerReady('DODO', workspace.organizationId)).toBe(true);
+      const caps = await request(app).get('/api/capabilities');
+      expect(caps.body.currencies).toContain('USD');
+
+      // And a refused plan is refused at checkout in words a customer can act on.
+      const refusedPlan = tooLarge[0]!;
+      const checkout = await workspace.agent
+        .post(`/api/workspaces/${workspace.organizationId}/billing/checkout`)
+        .send({ plan: refusedPlan.tier, interval: refusedPlan.interval, currency: 'USD', contact: { name: 'MSP Owner', email: workspace.email } });
+      expect(checkout.status).toBe(503);
+      expect(checkout.body.error.code).toBe('PLAN_NOT_SYNCED');
+      expect(JSON.stringify(checkout.body)).not.toContain('plan sync');
     });
   });
 

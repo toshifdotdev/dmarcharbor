@@ -74,7 +74,10 @@ export async function providerReady(
       return false;
     }
     const report = await planSyncReport('DODO', 'USD');
-    return report.length > 0 && report.every((entry) => entry.status === 'ready');
+    // Open when Dodo holds at least one plan and none has drifted from the catalog.
+    // A plan Dodo refused (a new account's cart value limit, say) stays missing and
+    // refuses its own checkout with PLAN_NOT_SYNCED; the rest can still be bought.
+    return report.some((entry) => entry.status === 'ready') && !report.some((entry) => entry.status === 'price_drift');
   }
   return true;
 }

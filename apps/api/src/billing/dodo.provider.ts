@@ -702,9 +702,19 @@ export class DodoBillingProvider implements BillingProvider {
    * Idempotent and safe to re-run: an existing mapping in `billing_plan` is
    * reused without creating a duplicate product or orphaning live subscriptions.
    */
-  async syncPlans(currency: BillingCurrency): Promise<{ created: number; reused: number }> {
+  async syncPlans(currency: BillingCurrency): Promise<{
+    created: number;
+    reused: number;
+    /**
+     * Products Dodo refused, with its reason. The sync goes on past them, so one
+     * refusal (a new account's cart value limit on an annual price, say) does
+     * not leave every plan after it unsynced. Re-run once the cause is fixed.
+     */
+    refused: Array<{ tier: PlanTier; interval: BillingInterval; band: number; message: string }>;
+  }> {
     let created = 0;
     let reused = 0;
+    const refused: Array<{ tier: PlanTier; interval: BillingInterval; band: number; message: string }> = [];
 
     for (const entry of expectedPlans(currency)) {
       const existing = await findStoredPlan({
@@ -722,7 +732,9 @@ export class DodoBillingProvider implements BillingProvider {
       const intervalUnit = entry.interval === 'annual' ? ('Year' as const) : ('Month' as const);
       const suffix = bandSuffix(entry.tier, entry.band);
 
-      const product = await this.call(() =>
+      let product: { product_id: string };
+      try {
+        product = await this.call(() =>
         dodo().products.create({
           name: `DMARC Harbor ${entry.tier}${suffix} (${entry.interval})`,
           description: `DMARC Harbor ${entry.tier}${suffix}, billed ${entry.interval}`,
@@ -747,7 +759,12 @@ export class DodoBillingProvider implements BillingProvider {
             band: String(entry.band),
           },
         }),
-      );
+        );
+      } catch (error) {
+        if (!(error instanceof BillingProviderError) || error.code !== 'DODO_ERROR') throw error;
+        refused.push({ tier: entry.tier, interval: entry.interval, band: entry.band, message: error.message });
+        continue;
+      }
 
       await saveStoredPlan({
         provider: this.name,
@@ -761,7 +778,7 @@ export class DodoBillingProvider implements BillingProvider {
       created += 1;
     }
 
-    return { created, reused };
+    return { created, reused, refused };
   }
 
   private async call<T>(operation: () => Promise<T>): Promise<T> {
