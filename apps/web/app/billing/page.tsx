@@ -45,10 +45,12 @@ function dateLabel(value: string | null | undefined): string | null {
  * Only the owner can change billing (billing:update); everyone else sees the
  * same page read-only and is told why.
  */
-export default async function BillingPage({ searchParams }: { searchParams: Promise<{ checkout?: string }> }) {
+export default async function BillingPage({ searchParams }: { searchParams: Promise<{ checkout?: string; status?: string }> }) {
   const { workspaces, active } = await resolveActiveWorkspace();
   if (!active) redirect("/welcome");
-  const { checkout } = await searchParams;
+  const { checkout, status: providerStatus } = await searchParams;
+  // Dodo Payments returns to the success URL with status=failed when the card was declined.
+  const checkoutFailed = checkout === "complete" && (providerStatus === "failed" || providerStatus === "cancelled");
 
   const [status, entitlements, catalog, capabilities, currencyPref, clients, members, allowance, me] = await Promise.all([
     getBillingStatus(active.id).then(
@@ -134,7 +136,12 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
 
   return shell(
     <>
-      {checkout === "complete" ? (
+      {checkoutFailed ? (
+        <Notice tone="fail" title="The payment did not go through" testId="checkout-failed">
+          Nothing was charged and the plan is unchanged. Try another card, or one enabled for international payments, and
+          start the checkout again.
+        </Notice>
+      ) : checkout === "complete" ? (
         <Notice tone="ok" title="Payment sent to the provider" testId="checkout-complete">
           The plan changes as soon as the provider confirms the payment to us, usually within a minute. If this page still
           shows the old plan, refresh it shortly.
