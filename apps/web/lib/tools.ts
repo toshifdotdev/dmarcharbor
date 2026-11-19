@@ -93,7 +93,7 @@ export const FREE_TOOLS: FreeTool[] = [
         id: "spf-lookup-limit",
         question: "What is the SPF 10 lookup limit?",
         answer:
-          "A receiver stops after 10 DNS lookups while checking SPF and returns a permanent error, so SPF fails for every message. `include`, `a`, `mx`, `ptr`, `exists` and `redirect` each cost one, counted through every nested include; `ip4`, `ip6` and `all` cost nothing.",
+          "A receiver checks an SPF record in order and returns a permanent error once it passes 10 DNS lookups, so mail from the services listed after that point fails SPF, while services listed earlier still pass. `include`, `a`, `mx`, `ptr`, `exists` and `redirect` each cost one, counted through every nested include; `ip4`, `ip6` and `all` cost nothing.",
       },
       {
         id: "fix-too-many-lookups",

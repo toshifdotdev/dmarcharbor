@@ -191,7 +191,7 @@ export const GLOSSARY: GlossaryGroup[] = [
         name: "The 10-lookup limit",
         kind: "SPF's permerror",
         definition:
-          "A receiver stops after 10 DNS lookups while checking SPF (include, a, mx, ptr, exists and redirect each cost one, counted through every include) and returns a permanent error, so SPF fails for every message. More than 2 lookups that find nothing (void lookups) can fail it too.",
+          "A receiver stops after 10 DNS lookups while checking SPF (include, a, mx, ptr, exists and redirect each cost one, counted through every include) and returns a permanent error, so mail from the services listed after that point fails SPF. More than 2 lookups that find nothing (void lookups) can fail it too.",
         tool: "/tools/spf",
         see: ["include", "spf-flattening"],
       },

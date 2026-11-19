@@ -1,3 +1,4 @@
+import { isIPv4, isIPv6 } from 'node:net';
 import type { DnsReader, SpfLookupNode } from './types.js';
 
 /**
@@ -6,12 +7,19 @@ import type { DnsReader, SpfLookupNode } from './types.js';
  * The terms that cost a lookup are the include, a, mx, ptr and exists
  * mechanisms and the redirect modifier, and the count runs through every
  * include and redirect: a record with three includes that each hold four more
- * costs 15, not 3. More than 10 and the receiver stops with a permanent error,
- * which means SPF fails for every message. The scanner used to count only the
- * top-level record, so it reported 3 where receivers counted 15.
+ * costs 15, not 3. The scanner used to count only the top-level record, so it
+ * reported 3 where receivers counted 15.
+ *
+ * A receiver checks the terms in order and stops at the first one that
+ * matches the sending server, so the limit bites where evaluation reaches the
+ * 11th lookup: mail matched by a term before that point still passes, and
+ * mail from every service from there on gets a permanent error. The term
+ * where that happens is reported as `limitReachedAt`.
  *
  * Also checked on the way, because each one is a permanent error at the
  * receiver too:
+ * - a syntax error in the record or in a record it includes (`~al` for
+ *   `~all`, an unknown mechanism, a malformed ip4 or ip6 term);
  * - more than two void lookups (names that return nothing);
  * - an include whose target publishes no SPF record, or more than one;
  * - a loop (a record that includes itself, directly or not);
@@ -33,6 +41,8 @@ export interface SpfLookupEvaluation {
   tree: SpfLookupNode[];
   problems: string[];
   complete: boolean;
+  /** The top-level term during which evaluation passes 10 lookups, when it does. */
+  limitReachedAt?: string;
 }
 
 interface Options {
@@ -55,6 +65,163 @@ function targetOf(term: string, separator: ':' | '='): string | null {
   }
   const value = term.slice(index + 1).split('/')[0]!.trim().toLowerCase().replace(/\.$/, '');
   return value || null;
+}
+
+export interface SpfSyntaxError {
+  term: string;
+  /** Why the term breaks the grammar, with the likely intended term where one is obvious. */
+  reason: string;
+}
+
+const MECHANISM = /^([a-z][a-z0-9]*)(.*)$/;
+const MODIFIER = /^([a-z][a-z0-9_.-]*)=(.*)$/i;
+const DUAL_CIDR = /^(?:\/(\d{1,2}))?(?:\/\/(\d{1,3}))?$/;
+
+function cidrProblem(suffix: string | undefined, max: number): boolean {
+  return suffix !== undefined && Number(suffix) > max;
+}
+
+/** "a" and "mx" take an optional domain and an optional ip4 and ip6 prefix length (a:host/24//64). */
+function hostTermProblem(rest: string): boolean {
+  let tail = rest;
+  if (tail.startsWith(':')) {
+    const slash = tail.indexOf('/');
+    const host = slash < 0 ? tail.slice(1) : tail.slice(1, slash);
+    if (!host) {
+      return true;
+    }
+    tail = slash < 0 ? '' : tail.slice(slash);
+  }
+  const cidr = DUAL_CIDR.exec(tail);
+  return !cidr || cidrProblem(cidr[1], 32) || cidrProblem(cidr[2], 128);
+}
+
+function addressTermProblem(rest: string, family: 4 | 6): string | null {
+  if (!rest.startsWith(':')) {
+    return `ip${family} needs an address, as in ip${family}:${family === 4 ? '192.0.2.0/24' : '2001:db8::/32'}`;
+  }
+  const value = rest.slice(1);
+  const slash = value.lastIndexOf('/');
+  const address = slash < 0 ? value : value.slice(0, slash);
+  const prefix = slash < 0 ? undefined : value.slice(slash + 1);
+  const validAddress = family === 4 ? isIPv4(address) : isIPv6(address);
+  const max = family === 4 ? 32 : 128;
+  if (!validAddress) {
+    return `"${address}" is not an IPv${family} address`;
+  }
+  if (prefix !== undefined && (!/^\d{1,3}$/.test(prefix) || Number(prefix) > max)) {
+    return `/${prefix} is not an IPv${family} prefix length (0 to ${max})`;
+  }
+  return null;
+}
+
+/** The term someone most likely meant, for the mistakes seen in real records. */
+function likelyMeant(raw: string, name: string): string | null {
+  const qualifier = QUALIFIER.test(raw) ? raw[0] : '';
+  if (/^al+$/.test(name) || (name.startsWith('all') && name !== 'all')) {
+    return `${qualifier}all`;
+  }
+  if (name === 'ipv4' || name === 'ipv6') {
+    return raw.replace(/ipv([46])/i, 'ip$1');
+  }
+  if (name === 'includes' || name === 'inlcude' || name === 'incude') {
+    return raw.replace(new RegExp(name, 'i'), 'include');
+  }
+  return null;
+}
+
+/** Why a mechanism term does not parse, or null when it does. */
+function mechanismProblem(raw: string, name: string, rest: string, parsed: boolean): string | null {
+  switch (name) {
+    case 'all':
+      return rest === '' ? null : '"all" takes no value';
+    case 'include':
+    case 'exists':
+      return rest.startsWith(':') ? null : `${name} needs a domain, as in ${name}:example.com`;
+    case 'a':
+    case 'mx':
+      return hostTermProblem(rest) ? `"${raw}" is not a valid ${name} term` : null;
+    case 'ptr':
+      return rest === '' || (rest.startsWith(':') && rest.length > 1) ? null : '"ptr" takes an optional domain after a colon';
+    case 'ip4':
+      return addressTermProblem(rest, 4);
+    case 'ip6':
+      return addressTermProblem(rest, 6);
+    default: {
+      const meant = parsed ? likelyMeant(raw, name) : null;
+      return meant ? `not an SPF mechanism; did you mean "${meant}"?` : 'not an SPF mechanism or modifier';
+    }
+  }
+}
+
+/**
+ * Terms that break the SPF grammar (RFC 7208 section 12). A syntax error
+ * anywhere in a record makes check_host() return permerror before it looks at
+ * a single mechanism (section 4.6), so one stray character fails SPF for every
+ * message the domain sends, at receivers that follow the standard.
+ *
+ * Unknown modifiers (name=value) are allowed and ignored, as the standard
+ * says. An include, exists or redirect with an empty domain is left to the
+ * lookup walk, which already reports it as naming no domain.
+ */
+export function spfSyntaxErrors(record: string): SpfSyntaxError[] {
+  const terms = record.trim().split(/\s+/).slice(1).filter(Boolean);
+  const errors: SpfSyntaxError[] = [];
+  const modifiersSeen = new Set<string>();
+  for (const raw of terms) {
+    const modifier = MODIFIER.exec(raw);
+    if (modifier) {
+      const name = modifier[1]!.toLowerCase();
+      if (name === 'redirect' || name === 'exp') {
+        if (modifiersSeen.has(name)) {
+          errors.push({ term: raw, reason: `${name}= may appear only once in a record` });
+        }
+        modifiersSeen.add(name);
+      }
+      continue;
+    }
+    const term = raw.replace(QUALIFIER, '');
+    const parts = MECHANISM.exec(term.toLowerCase());
+    const name = parts?.[1] ?? '';
+    const rest = parts?.[2] ?? term;
+    const reason = mechanismProblem(raw, name, rest, parts !== null);
+    if (reason) {
+      errors.push({ term: raw, reason });
+    }
+  }
+  return errors;
+}
+
+/** How a syntax error in the domain's own record is reported. */
+export function describeSpfSyntaxError(error: SpfSyntaxError): string {
+  return (
+    `"${error.term}" is not valid SPF syntax (${error.reason}). A syntax error anywhere in the record makes the whole ` +
+    'SPF check a permanent error (RFC 7208 section 4.6), so receivers that follow the standard fail SPF for all mail from this domain.'
+  );
+}
+
+/**
+ * The top-level term during which a receiver passes the lookup limit.
+ *
+ * Walks the counted tree in evaluation order: a term's own lookup first, then
+ * what it pulls in, and a redirect only after every mechanism, because
+ * receivers apply redirect last wherever it is written.
+ */
+function termReachingLimit(tree: SpfLookupNode[]): string | undefined {
+  let used = 0;
+  const inOrder = (nodes: SpfLookupNode[]): SpfLookupNode[] => [
+    ...nodes.filter((node) => !/^[+\-~?]?redirect=/i.test(node.term)),
+    ...nodes.filter((node) => /^[+\-~?]?redirect=/i.test(node.term)),
+  ];
+  const passes = (node: SpfLookupNode): boolean => {
+    const children = node.children ?? [];
+    used += node.lookups - children.reduce((total, child) => total + child.lookups, 0);
+    if (used > spfLookupLimit) {
+      return true;
+    }
+    return inOrder(children).some(passes);
+  };
+  return inOrder(tree).find(passes)?.term;
 }
 
 function spfRecordsIn(txt: string[][]): string[] {
@@ -108,6 +275,13 @@ export async function evaluateSpfLookups(
   }
 
   async function walk(owner: string, spf: string, depth: number, path: string[]): Promise<SpfLookupNode[]> {
+    for (const error of spfSyntaxErrors(spf)) {
+      problems.add(
+        depth === 0
+          ? describeSpfSyntaxError(error)
+          : `The SPF record at ${owner} has "${error.term}", which is not valid SPF syntax (${error.reason}), so including it is a permanent error.`,
+      );
+    }
     const terms = spf.trim().split(/\s+/).slice(1).filter(Boolean);
     const hasAll = terms.some((term) => /^[+\-~?]?all$/i.test(term));
 
@@ -231,6 +405,7 @@ export async function evaluateSpfLookups(
 
   const normalizedDomain = domain.toLowerCase().replace(/\.$/, '');
   const tree = await walk(normalizedDomain, record, 0, [normalizedDomain]);
+  const limitReachedAt = lookups > spfLookupLimit ? termReachingLimit(tree) : undefined;
 
   return {
     lookupCount: lookups,
@@ -240,5 +415,6 @@ export async function evaluateSpfLookups(
     tree,
     problems: [...problems],
     complete,
+    ...(limitReachedAt ? { limitReachedAt } : {}),
   };
 }

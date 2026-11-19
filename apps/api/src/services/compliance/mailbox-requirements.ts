@@ -719,7 +719,8 @@ function spfRecordCheck(scan: MailboxScanInput | null): MailboxCheck {
   const includeBroken = issueFor(scan, 'spf_include_broken');
   const lookupIssue = issueFor(scan, 'spf_lookup_limit');
   const voidIssue = issueFor(scan, 'spf_void_lookup_limit');
-  const invalidIssue = issueFor(scan, 'spf_invalid');
+  // A record that parses badly is invalid as surely as a duplicated one.
+  const invalidIssue = issueFor(scan, 'spf_syntax') ?? issueFor(scan, 'spf_invalid');
   const missingIssue = issueFor(scan, 'spf_missing');
 
   const reason =

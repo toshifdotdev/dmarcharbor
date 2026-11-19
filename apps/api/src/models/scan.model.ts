@@ -79,13 +79,25 @@ export interface SpfResult {
   lookupCount: number;
   /** Lookups that returned no record (NXDOMAIN or an empty answer). */
   voidLookupCount?: number;
-  /** More than 10 lookups: receivers return permerror and SPF fails. */
+  /**
+   * More than 10 lookups. Receivers check terms in order, so mail matched
+   * before the 11th lookup still passes and everything after it gets
+   * permerror.
+   */
   lookupLimitExceeded?: boolean;
+  /** The top-level term during which a receiver passes 10 lookups, when it does. */
+  lookupLimitReachedAt?: string;
+  /**
+   * Terms in the domain's own record that break the SPF grammar, as messages.
+   * Any one makes the whole check permerror (RFC 7208 section 4.6), and makes
+   * `valid` false.
+   */
+  syntaxErrors?: string[];
   /** More than 2 void lookups: receivers may return permerror. */
   voidLookupLimitExceeded?: boolean;
   /** Where the lookups come from, include by include. */
   lookupTree?: SpfLookupNode[];
-  /** Faults found while following includes: loops, missing records, deprecated ptr. */
+  /** Faults found while following includes: syntax errors, loops, missing records, deprecated ptr. */
   problems?: string[];
   /** False when the walk stopped early (time or query budget, DNS errors). */
   lookupsComplete?: boolean;

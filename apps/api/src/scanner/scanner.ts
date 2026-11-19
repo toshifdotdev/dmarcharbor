@@ -5,7 +5,13 @@ import { hasAggregateReporting, readDmarcRecord } from './dmarc-tags.js';
 import { isDmarcPolicyRecord, looksLikeMisversionedDmarc, readDmarcPolicy } from './dmarc-policy.js';
 import { normalizeDomain } from './domain.js';
 import { buildDkimProbeList } from './dkim-discovery.js';
-import { evaluateSpfLookups, spfLookupLimit, spfVoidLookupLimit } from './spf-evaluate.js';
+import {
+  describeSpfSyntaxError,
+  evaluateSpfLookups,
+  spfLookupLimit,
+  spfSyntaxErrors,
+  spfVoidLookupLimit,
+} from './spf-evaluate.js';
 import { calculateScore } from '../services/score.service.js';
 import type {
   DkimResult,
@@ -131,11 +137,15 @@ export function parseSpfRecords(records: string[][]): SpfResult {
   }
 
   const record = spfRecords[0];
+  // One stray character ("~al" for "~all") is a permanent error for the whole
+  // record, so a record is valid only when every term parses.
+  const syntaxErrors = spfSyntaxErrors(record).map(describeSpfSyntaxError);
   return {
     status: 'found',
     record,
-    valid: true,
+    valid: syntaxErrors.length === 0,
     lookupCount: countSpfLookups(record),
+    ...(syntaxErrors.length > 0 ? { syntaxErrors } : {}),
   };
 }
 
@@ -235,6 +245,7 @@ async function withSpfLookups(domain: string, spf: SpfResult, reader: DnsReader)
     lookupCount: evaluation.lookupCount,
     voidLookupCount: evaluation.voidLookupCount,
     lookupLimitExceeded: evaluation.lookupLimitExceeded,
+    ...(evaluation.limitReachedAt ? { lookupLimitReachedAt: evaluation.limitReachedAt } : {}),
     voidLookupLimitExceeded: evaluation.voidLookupLimitExceeded,
     lookupTree: evaluation.tree,
     problems: evaluation.problems,
@@ -277,12 +288,27 @@ function addIssue(issues: ScanIssue[], issue: ScanIssue): void {
 
 /** Findings from following the SPF record's includes (RFC 7208 section 4.6.4). */
 function addSpfLookupIssues(issues: ScanIssue[], spf: SpfResult): void {
+  const syntaxErrors = new Set(spf.syntaxErrors ?? []);
+  for (const message of syntaxErrors) {
+    addIssue(issues, {
+      severity: 'error',
+      code: 'spf_syntax',
+      title: 'SPF record has a syntax error',
+      message,
+      recommendation: 'Correct the term in the TXT record. Until then the whole SPF check is a permanent error.',
+    });
+  }
   if (spf.lookupLimitExceeded ?? spf.lookupCount > spfLookupLimit) {
+    // Receivers stop at the first matching term, so the limit fails the mail
+    // of the services from the 11th lookup on, not every message.
+    const where = spf.lookupLimitReachedAt
+      ? ` They pass ${spfLookupLimit} inside "${spf.lookupLimitReachedAt}", so mail from that service and every one listed after it fails SPF; services listed before it still pass.`
+      : ` Mail from the services listed after the ${spfLookupLimit}th lookup fails SPF.`;
     addIssue(issues, {
       severity: 'error',
       code: 'spf_lookup_limit',
       title: 'SPF exceeds the 10-lookup limit',
-      message: `Evaluating this record takes ${spf.lookupCount} DNS lookups, counting everything its includes pull in. Receivers stop at ${spfLookupLimit} with a permanent error, so SPF fails for every message.`,
+      message: `Evaluating this record takes ${spf.lookupCount} DNS lookups, counting everything its includes pull in. Receivers check the record in order and return a permanent error once they pass ${spfLookupLimit}.${where}`,
       recommendation:
         'Remove includes for services that no longer send for this domain, or replace an include with the IP ranges it resolves to (flattening), until the total is 10 or fewer.',
     });
@@ -291,7 +317,7 @@ function addSpfLookupIssues(issues: ScanIssue[], spf: SpfResult): void {
       severity: 'warning',
       code: 'spf_lookup_near_limit',
       title: 'SPF is at the edge of the 10-lookup limit',
-      message: `Evaluating this record takes ${spf.lookupCount} of the ${spfLookupLimit} DNS lookups receivers allow. Adding one more sending service, or a provider adding an include on their side, will break SPF for every message.`,
+      message: `Evaluating this record takes ${spf.lookupCount} of the ${spfLookupLimit} DNS lookups receivers allow. Adding one more sending service, or a provider adding an include on their side, will push the services at the end of the record past the limit, and their mail will fail SPF.`,
       recommendation: 'Remove includes for unused services now, before the next sending service is added.',
     });
   }
@@ -307,6 +333,9 @@ function addSpfLookupIssues(issues: ScanIssue[], spf: SpfResult): void {
   }
 
   for (const problem of spf.problems ?? []) {
+    if (syntaxErrors.has(problem)) {
+      continue;
+    }
     const deprecated = problem.includes('"ptr"');
     addIssue(issues, {
       severity: deprecated ? 'warning' : 'error',
@@ -315,7 +344,7 @@ function addSpfLookupIssues(issues: ScanIssue[], spf: SpfResult): void {
       message: problem,
       recommendation: deprecated
         ? 'Replace ptr with ip4/ip6 ranges or an include from the sending service.'
-        : 'Fix or remove the include: receivers treat it as a permanent error, which fails SPF for every message.',
+        : 'Fix or remove the include: receivers return a permanent error when they reach it, so mail from that service and every one listed after it fails SPF.',
     });
   }
 

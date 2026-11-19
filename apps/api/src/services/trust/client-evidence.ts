@@ -174,7 +174,7 @@ function readSpf(result: ScanResult): CheckReading & { record: string | null } {
     return {
       state: 'fail',
       word: 'Over 10 lookups',
-      detail: `${plural(spf.lookupCount, 'DNS lookup')}; receivers return a permanent error and SPF fails.`,
+      detail: `${plural(spf.lookupCount, 'DNS lookup')}; mail from the services past the 10th lookup gets a permanent error and fails SPF.`,
       record,
     };
   }

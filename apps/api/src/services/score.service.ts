@@ -43,12 +43,12 @@ export function calculateScore(
   // exceed": receivers return permerror and SPF fails, which is as bad as a
   // broken record and scored the same.
   if (spf.status === 'found' && (spf.lookupLimitExceeded ?? spf.lookupCount > 10)) {
-    addFactor(factors, 'spf_lookup_limit', 'SPF lookup limit', -20, 'Evaluating the SPF record takes more than 10 DNS lookups, so receivers fail SPF for every message.');
+    addFactor(factors, 'spf_lookup_limit', 'SPF lookup limit', -20, 'Evaluating the SPF record takes more than 10 DNS lookups, so mail from the services listed after the limit fails SPF.');
   } else if (
     spf.status === 'found' &&
     (spf.voidLookupLimitExceeded || (spf.problems ?? []).some((problem) => !problem.includes('"ptr"')))
   ) {
-    addFactor(factors, 'spf_permerror', 'SPF permanent error', -20, 'An include is broken or too many names return nothing, so receivers can fail SPF for every message.');
+    addFactor(factors, 'spf_permerror', 'SPF permanent error', -20, 'The SPF record has a syntax error, a broken include, or too many names that return nothing, so receivers return a permanent error and SPF fails.');
   }
   if (dkim.status === 'missing') {
     addFactor(factors, 'dkim_missing', 'DKIM not found', -15, 'No public DKIM key was found for the common selectors checked.');

@@ -8,8 +8,9 @@
  * Two drawings:
  *   the count   ten stations, one per lookup the standard allows. Lookups
  *               used are ink, the rest a grey dashed line ahead; past ten the
- *               line runs on dashed red to a red bar, because SPF then fails
- *               at every receiver however well formed the record is.
+ *               line runs on dashed red to a red bar, because receivers stop
+ *               there with a permanent error, so the services listed after
+ *               that point fail SPF however well formed the record is.
  *   the tree    the record as a map: the domain's own terms are stations on
  *               an ink trunk, and each include that pulls in more is its
  *               service's own coloured line (one colour, one service), with
@@ -130,7 +131,7 @@ export function SpfTool() {
     : !shown.valid
       ? { tone: "fail" as const, shape: "diamond" as const, word: "Invalid record: SPF fails" }
       : over
-        ? { tone: "fail" as const, shape: "diamond" as const, word: "Over the limit: SPF fails at every receiver" }
+        ? { tone: "fail" as const, shape: "diamond" as const, word: "Over the limit: SPF fails after the 10th lookup" }
         : shown.voids > VOID_LIMIT
           ? { tone: "fail" as const, shape: "diamond" as const, word: "Too many lookups find nothing: receivers may fail SPF" }
           : shown.count >= LIMIT - 1
