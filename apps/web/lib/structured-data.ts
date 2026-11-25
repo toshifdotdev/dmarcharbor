@@ -34,9 +34,10 @@ export const ORGANIZATION_NAME = "DMARC Harbor";
 /**
  * The name as people type it: one word, as in the domain. Without it a search
  * for "dmarcharbor" is read as a misspelling of something else (a film), and
- * Google's site-name system uses `alternateName` to join the two spellings.
+ * Google's site-name system uses `alternateName` to join the spellings. The
+ * British "Harbour" is how UK, Irish and Australian buyers write the name.
  */
-export const ORGANIZATION_ALTERNATE_NAMES = ["DMARCHarbor", "dmarcharbor.com"];
+export const ORGANIZATION_ALTERNATE_NAMES = ["DMARCHarbor", "dmarcharbor.com", "DMARC Harbour"];
 
 /** The @id of each shared node, on the canonical origin. */
 export function nodeId(origin: string, node: "organization" | "website" | "software"): string {
