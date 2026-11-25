@@ -30,6 +30,7 @@ export async function generateMetadata(): Promise<Metadata> {
   if (hasSessionCookie(await cookies()) && (await getSessionUser())) return { title: "Portfolio" };
   return publicMetadata({
     title: "DMARC reports for MSPs managing client domains",
+    brandLead: true,
     description:
       "DMARC monitoring for agencies and MSPs: posture per client domain, evidence to hand over, a client portal in your brand, and a free DMARC checker.",
     path: "/",

@@ -31,6 +31,12 @@
 import type { FaqEntry } from "../components/harbor/legal-markdown";
 
 export const ORGANIZATION_NAME = "DMARC Harbor";
+/**
+ * The name as people type it: one word, as in the domain. Without it a search
+ * for "dmarcharbor" is read as a misspelling of something else (a film), and
+ * Google's site-name system uses `alternateName` to join the two spellings.
+ */
+export const ORGANIZATION_ALTERNATE_NAMES = ["DMARCHarbor", "dmarcharbor.com"];
 
 /** The @id of each shared node, on the canonical origin. */
 export function nodeId(origin: string, node: "organization" | "website" | "software"): string {
@@ -43,6 +49,7 @@ export function organizationJsonLd(origin: string): Record<string, unknown> {
     "@type": "Organization",
     "@id": nodeId(origin, "organization"),
     name: ORGANIZATION_NAME,
+    alternateName: ORGANIZATION_ALTERNATE_NAMES,
     // A short statement of what the company is for, matching the marketing page.
     description: "DMARC email-authentication monitoring for MSPs and IT agencies.",
     url: new URL("/", origin).toString(),
@@ -74,6 +81,7 @@ export function websiteJsonLd(origin: string): Record<string, unknown> {
     "@type": "WebSite",
     "@id": nodeId(origin, "website"),
     name: ORGANIZATION_NAME,
+    alternateName: ORGANIZATION_ALTERNATE_NAMES,
     url: new URL("/", origin).toString(),
     inLanguage: "en",
     publisher: { "@id": nodeId(origin, "organization") },

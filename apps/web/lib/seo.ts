@@ -170,19 +170,36 @@ export async function publicMetadata(input: {
   description: string;
   path: string;
   origin?: string;
+  /**
+   * Put the brand first ("DMARC Harbor: …"). For the home page only: the root
+   * layout's title template does not apply to the page in its own segment, so
+   * without this the home page was the one public page whose title lacked the
+   * brand, and searches for the name ranked the legal pages above it.
+   */
+  brandLead?: boolean;
 }): Promise<Metadata> {
   const { origin, siteName } = await pageContext();
+  const og = openGraphFor({
+    title: input.title,
+    description: input.description,
+    path: input.path,
+    origin,
+    siteName,
+    type: "website",
+  });
+  if (input.brandLead) {
+    const title = `${siteName}: ${input.title}`;
+    return {
+      title: { absolute: title },
+      description: input.description,
+      alternates: { canonical: input.path },
+      openGraph: { ...og, title },
+    };
+  }
   return {
     title: input.title,
     description: input.description,
     alternates: { canonical: input.path },
-    openGraph: openGraphFor({
-      title: input.title,
-      description: input.description,
-      path: input.path,
-      origin,
-      siteName,
-      type: "website",
-    }),
+    openGraph: og,
   };
 }
