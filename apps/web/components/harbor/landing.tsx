@@ -25,6 +25,7 @@ import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { readHostBrand } from "@/lib/host-brand";
 import { AlertsMap } from "./landing-alerts-map";
+import { FoundingOffer } from "./founding-offer";
 import { Reveal } from "./landing-motion";
 import { AGENCY, AGENCY_PORTAL, CLIENT, PortalMap } from "./landing-portal-map";
 import { RouteMap } from "./landing-route-map";
@@ -41,6 +42,7 @@ export async function Landing() {
   // are ink, or the agency's colour on its verified domain (--hb-primary).
   return (
     <div data-harbor data-host-brand={brand.state} className={s.root}>
+      <FoundingOffer brand={brand} />
       <PublicHeader brand={brand} />
 
       <main id="main">

@@ -17,6 +17,7 @@ import { hasSessionCookie } from "@/lib/session-cookie";
 import { canonicalOrigin } from "@/lib/site-origin";
 import { planOffersJsonLd } from "@/lib/structured-data";
 import type { BillingCurrencyPreference, PlanDefinition } from "@/lib/types";
+import { FoundingOffer } from "@/components/harbor/founding-offer";
 import { PricingBoard, type PricingCurrency, type PricingInterval } from "@/components/harbor/pricing-board";
 import { PublicFooter, PublicHeader, brandName } from "@/components/harbor/public-frame";
 import { StructuredData } from "@/components/structured-data-view";
@@ -122,6 +123,7 @@ export default async function PricingPage({
   if (!catalog) {
     return (
       <div data-harbor data-host-brand={brand.state}>
+        <FoundingOffer brand={brand} />
         <PublicHeader brand={brand} current="pricing" />
         <main id="main" className="page-wrap pb-24">
           <header className={s.head}>
@@ -181,6 +183,7 @@ export default async function PricingPage({
 
   return (
     <div data-harbor data-host-brand={brand.state}>
+      <FoundingOffer brand={brand} />
       <PublicHeader brand={brand} current="pricing" />
       <StructuredData data={offers} />
       <main id="main" className="page-wrap pb-24 sm:pb-32">
