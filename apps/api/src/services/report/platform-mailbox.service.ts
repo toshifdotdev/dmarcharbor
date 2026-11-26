@@ -17,8 +17,9 @@ import { maxReportEmailBytes } from './imap-inbox.service.js';
  * report that arrives while the API is down or deploying waits there, where a
  * webhook delivery that fails its retries is gone.
  *
- * State lives in the mailbox: a message is moved out of the inbox to the
- * PROCESSED_FOLDER once handled, and every message still in the inbox is read.
+ * State lives in the mailbox: a message is moved out of the inbox (or the junk
+ * folder) to the PROCESSED_FOLDER once handled, and every message still in
+ * either is read.
  * Read or unread does not matter, so a person opening a report in the mail app
  * cannot hide it from the app. Nothing to migrate, and reading a message twice
  * is harmless because ingest de-duplicates by report identity. A message that
@@ -69,55 +70,84 @@ export async function pollPlatformMailbox(): Promise<PlatformMailboxOutcome | nu
   try {
     // Created once; an existing folder is the normal answer after that.
     await client.mailboxCreate(PROCESSED_FOLDER).catch(() => undefined);
-    const lock = await client.getMailboxLock('INBOX');
-    try {
-      const found = await client.search({ all: true }, { uid: true });
-      const uids = (Array.isArray(found) ? found : []).slice(0, PER_POLL);
-
-      for (const uid of uids) {
-        outcome.messages += 1;
-        try {
-          // Bounded: anyone can mail this address, and one huge message must
-          // not fill the process's memory. One byte past the limit tells a
-          // message at the limit from one over it; an oversized one is moved
-          // aside unread like any other, so it cannot block the queue.
-          const download = await client.download(String(uid), undefined, { uid: true, maxBytes: maxReportEmailBytes + 1 });
-          const chunks: Buffer[] = [];
-          let received = 0;
-          for await (const part of download?.content ?? []) {
-            const chunk = Buffer.isBuffer(part) ? part : Buffer.from(part);
-            received += chunk.length;
-            if (received > maxReportEmailBytes) break;
-            chunks.push(chunk);
-          }
-          if (chunks.length === 0 || received > maxReportEmailBytes) {
-            outcome.unmatched += 1;
-            if (received > maxReportEmailBytes) {
-              console.warn(`[report-mailbox] message ${uid} is larger than ${maxReportEmailBytes} bytes; moved aside unread`);
-            }
-          } else {
-            // Unscoped: our own address serves every workspace.
-            const result = await processInboundDmarcEmail(Buffer.concat(chunks).toString('utf8'));
-            for (const item of result.results.length > 0 ? result.results : [{ status: 'failed' as const }]) {
-              if (item.status === 'created') outcome.accepted += 1;
-              else if (item.status === 'duplicate') outcome.duplicates += 1;
-              else outcome.unmatched += 1;
-            }
-          }
-        } catch (error) {
-          outcome.unmatched += 1;
-          console.error(`[report-mailbox] message ${uid} could not be read: ${error instanceof Error ? error.message : 'unknown error'}`);
-        }
-        await client.messageFlagsAdd(String(uid), ['\\Seen'], { uid: true }).catch(() => undefined);
-        await client.messageMove(String(uid), PROCESSED_FOLDER, { uid: true }).catch((error: unknown) => {
-          console.error(`[report-mailbox] message ${uid} could not be moved: ${error instanceof Error ? error.message : 'unknown error'}`);
-        });
-      }
-    } finally {
-      lock.release();
+    // The inbox first, then the junk folder. The mail host's spam filter moves
+    // some reports there (automated senders such as MAILER-DAEMON with zipped
+    // attachments look like spam to it), and nothing a person reads lives in
+    // this mailbox, so a report left in junk is a report silently lost.
+    await readFolder(client, 'INBOX', outcome);
+    for (const folder of await junkFolders(client)) {
+      if (outcome.messages >= PER_POLL) break;
+      // A junk folder that cannot be opened is logged, not fatal: the inbox
+      // has been read, and its outcome must still be reported.
+      await readFolder(client, folder, outcome).catch((error: unknown) => {
+        console.error(`[report-mailbox] folder ${folder} could not be read: ${error instanceof Error ? error.message : 'unknown error'}`);
+      });
     }
   } finally {
     await client.logout().catch(() => undefined);
   }
   return outcome;
+}
+
+/**
+ * The folders the host marks as junk (RFC 6154 \Junk, or a folder named like
+ * one, which imapflow also reports as \Junk). A failed listing reads as none:
+ * the inbox is still read.
+ */
+async function junkFolders(client: ImapFlow): Promise<string[]> {
+  const folders = await client.list().catch(() => []);
+  return folders
+    .filter((folder) => folder.specialUse === '\\Junk' && folder.path !== 'INBOX' && folder.path !== PROCESSED_FOLDER)
+    .map((folder) => folder.path);
+}
+
+/** Ingests what is in one folder and moves each message to PROCESSED_FOLDER. */
+async function readFolder(client: ImapFlow, folder: string, outcome: PlatformMailboxOutcome): Promise<void> {
+  const lock = await client.getMailboxLock(folder);
+  try {
+    const found = await client.search({ all: true }, { uid: true });
+    const uids = (Array.isArray(found) ? found : []).slice(0, Math.max(0, PER_POLL - outcome.messages));
+
+    for (const uid of uids) {
+      outcome.messages += 1;
+      try {
+        // Bounded: anyone can mail this address, and one huge message must
+        // not fill the process's memory. One byte past the limit tells a
+        // message at the limit from one over it; an oversized one is moved
+        // aside unread like any other, so it cannot block the queue.
+        const download = await client.download(String(uid), undefined, { uid: true, maxBytes: maxReportEmailBytes + 1 });
+        const chunks: Buffer[] = [];
+        let received = 0;
+        for await (const part of download?.content ?? []) {
+          const chunk = Buffer.isBuffer(part) ? part : Buffer.from(part);
+          received += chunk.length;
+          if (received > maxReportEmailBytes) break;
+          chunks.push(chunk);
+        }
+        if (chunks.length === 0 || received > maxReportEmailBytes) {
+          outcome.unmatched += 1;
+          if (received > maxReportEmailBytes) {
+            console.warn(`[report-mailbox] message ${uid} is larger than ${maxReportEmailBytes} bytes; moved aside unread`);
+          }
+        } else {
+          // Unscoped: our own address serves every workspace.
+          const result = await processInboundDmarcEmail(Buffer.concat(chunks).toString('utf8'));
+          for (const item of result.results.length > 0 ? result.results : [{ status: 'failed' as const }]) {
+            if (item.status === 'created') outcome.accepted += 1;
+            else if (item.status === 'duplicate') outcome.duplicates += 1;
+            else outcome.unmatched += 1;
+          }
+        }
+      } catch (error) {
+        outcome.unmatched += 1;
+        console.error(`[report-mailbox] message ${uid} could not be read: ${error instanceof Error ? error.message : 'unknown error'}`);
+      }
+      await client.messageFlagsAdd(String(uid), ['\\Seen'], { uid: true }).catch(() => undefined);
+      await client.messageMove(String(uid), PROCESSED_FOLDER, { uid: true }).catch((error: unknown) => {
+        console.error(`[report-mailbox] message ${uid} could not be moved: ${error instanceof Error ? error.message : 'unknown error'}`);
+      });
+    }
+  } finally {
+    lock.release();
+  }
 }
